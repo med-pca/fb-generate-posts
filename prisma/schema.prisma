@@ -1,0 +1,268 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PostStatus {
+  DRAFT
+  AVAILABLE
+  ARCHIVED
+}
+
+enum SourceType {
+  MANUAL
+  OPENAI
+  JSON
+}
+
+enum TargetStatus {
+  AVAILABLE
+  CLAIMED
+  CONSUMED
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+enum JobStatus {
+  CLAIMED
+  PARTIALLY_COMPLETED
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+model Profile {
+  id               String       @id @default(cuid())
+  name             String
+  externalId       String?      @unique @map("external_id")
+  defaultImageUrl  String?      @map("default_image_url")
+  minPostsPerJob   Int          @default(2) @map("min_posts_per_job")
+  maxPostsPerJob   Int          @default(6) @map("max_posts_per_job")
+  status           RecordStatus @default(ACTIVE)
+  profileGroups    ProfileGroup[]
+  posts            Post[]
+  publicationJobs  PublicationJob[]
+  logs             ActivityLog[]
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  @@map("profiles")
+}
+
+model Group {
+  id              String         @id @default(cuid())
+  name            String
+  externalId      String?        @unique @map("external_id")
+  url             String
+  status          RecordStatus   @default(ACTIVE)
+  profiles        ProfileGroup[]
+  targets         PostTarget[]
+  publicationJobs PublicationJob[]
+  logs            ActivityLog[]
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("groups")
+}
+
+model ProfileGroup {
+  id        String       @id @default(cuid())
+  profileId String       @map("profile_id")
+  profile   Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  groupId   String       @map("group_id")
+  group     Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  @@unique([profileId, groupId])
+  @@index([groupId, status])
+  @@map("profile_groups")
+}
+
+model Post {
+  id          String     @id @default(cuid())
+  profileId   String     @map("profile_id")
+  profile     Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  title       String
+  description String     @db.Text
+  url         String?
+  imageUrl    String?    @map("image_url")
+  delay       Int
+  sourceType  SourceType @default(MANUAL) @map("source_type")
+  externalId  String?    @map("external_id")
+  status      PostStatus @default(AVAILABLE)
+  rawData     Json?      @map("raw_data")
+  articleId   String?    @map("article_id")
+  article     Article?   @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  socialAngle String?    @map("social_angle")
+  targets     PostTarget[]
+  jobItems    PublicationJobItem[]
+  logs        ActivityLog[]
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  @@unique([sourceType, externalId])
+  @@index([profileId, status])
+  @@index([articleId])
+  @@map("posts")
+}
+
+model ContentSource {
+  id        String    @id @default(cuid())
+  name      String
+  originUrl String    @unique @map("origin_url")
+  articles Article[]
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("content_sources")
+}
+
+model Article {
+  id              String        @id @default(cuid())
+  sourceId        String        @map("source_id")
+  source          ContentSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  externalId      String        @map("external_id")
+  jsonUrl         String        @map("json_url")
+  title           String
+  slug            String
+  excerpt         String?       @db.Text
+  metaDescription String?       @db.Text @map("meta_description")
+  articleUrl      String        @map("article_url")
+  coverImageUrl   String?       @map("cover_image_url")
+  course          String?
+  cuisine         String?
+  servings        String?
+  prepMinutes     Int?          @map("prep_minutes")
+  cookMinutes     Int?          @map("cook_minutes")
+  totalMinutes    Int?          @map("total_minutes")
+  calories        Int?
+  publishedAt     DateTime?     @map("published_at")
+  captions        Json
+  hashtags        String[]
+  imagePrompt     String?       @db.Text @map("image_prompt")
+  rawData         Json          @map("raw_data")
+  status          RecordStatus  @default(ACTIVE)
+  posts           Post[]
+  importedAt      DateTime      @default(now()) @map("imported_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@unique([sourceId, externalId])
+  @@unique([sourceId, slug])
+  @@index([publishedAt])
+  @@map("articles")
+}
+
+model AutomationSetting {
+  id                       String   @id @default("global")
+  autoReplenishEnabled     Boolean  @default(true) @map("auto_replenish_enabled")
+  minimumAvailablePerProfile Int    @default(10) @map("minimum_available_per_profile")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@map("automation_settings")
+}
+
+model PostTarget {
+  id             String       @id @default(cuid())
+  postId         String       @map("post_id")
+  post           Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  groupId        String       @map("group_id")
+  group          Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status         TargetStatus @default(AVAILABLE)
+  claimedAt      DateTime?    @map("claimed_at")
+  claimExpiresAt DateTime?    @map("claim_expires_at")
+  consumedAt     DateTime?    @map("consumed_at")
+  publishedAt    DateTime?    @map("published_at")
+  attemptsCount  Int          @default(0) @map("attempts_count")
+  lastError      String?      @db.Text @map("last_error")
+  jobItems       PublicationJobItem[]
+  logs           ActivityLog[]
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@unique([postId, groupId])
+  @@index([groupId, status])
+  @@map("post_targets")
+}
+
+model PublicationJob {
+  id             String               @id @default(cuid())
+  profileId      String               @map("profile_id")
+  profile        Profile              @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  groupId        String               @map("group_id")
+  group          Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status         JobStatus            @default(CLAIMED)
+  claimedAt      DateTime             @default(now()) @map("claimed_at")
+  claimExpiresAt DateTime             @map("claim_expires_at")
+  completedAt    DateTime?            @map("completed_at")
+  items          PublicationJobItem[]
+  logs           ActivityLog[]
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  @@index([profileId, groupId, status])
+  @@map("publication_jobs")
+}
+
+model PublicationJobItem {
+  id              String         @id @default(cuid())
+  jobId           String         @map("job_id")
+  job             PublicationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  postId          String         @map("post_id")
+  post             Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postTargetId    String         @map("post_target_id")
+  postTarget      PostTarget     @relation(fields: [postTargetId], references: [id], onDelete: Cascade)
+  status          TargetStatus   @default(CLAIMED)
+  externalPostUrl String?        @map("external_post_url")
+  publishedAt     DateTime?      @map("published_at")
+  error           String?        @db.Text
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@unique([jobId, postId])
+  @@map("publication_job_items")
+}
+
+model ActivityLog {
+  id           String          @id @default(cuid())
+  profileId    String?         @map("profile_id")
+  profile      Profile?        @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  groupId      String?         @map("group_id")
+  group        Group?          @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  postId       String?         @map("post_id")
+  post         Post?           @relation(fields: [postId], references: [id], onDelete: SetNull)
+  postTargetId String?         @map("post_target_id")
+  postTarget   PostTarget?     @relation(fields: [postTargetId], references: [id], onDelete: SetNull)
+  jobId        String?         @map("job_id")
+  job          PublicationJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  eventType    String          @map("event_type")
+  level        LogLevel        @default(INFO)
+  message      String
+  metadata     Json?
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  @@index([eventType, createdAt])
+  @@index([profileId, createdAt])
+  @@map("activity_logs")
+}

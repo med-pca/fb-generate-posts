@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PostFlow — Administration</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%232563eb'/%3E%3Cpath d='M18 18h22a9 9 0 010 18H28v11H18V18zm10 9v2h11a1 1 0 000-2H28z' fill='white'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/admin/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside>
+        <div class="brand"><b>P</b><span>PostFlow</span></div>
+        <nav>
+          <button class="nav active" data-view="dashboard">
+            ⌁ <span>Vue d’ensemble</span></button
+          ><button class="nav" data-view="profiles">
+            ◎ <span>Profils</span></button
+          ><button class="nav" data-view="groups">◇ <span>Groupes</span></button
+          ><button class="nav" data-view="articles">
+            ◫ <span>Articles</span></button
+          ><button class="nav" data-view="posts">▤ <span>Posts</span></button
+          ><button class="nav" data-view="settings">⚙ <span>Paramètres</span></button>
+        </nav>
+        <a href="/api/docs" target="_blank">Documentation API ↗</a>
+        <button id="logout" class="logout">Se déconnecter</button>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <small>ESPACE DE GESTION</small>
+            <h1 id="title">Vue d’ensemble</h1>
+          </div>
+          <span class="online"><i></i> API connectée</span>
+        </header>
+        <div id="notice" role="status"></div>
+        <section id="dashboard" class="view active">
+          <div class="stats">
+            <article>
+              <span>Profils actifs</span><strong id="n-profiles">—</strong
+              ><small>comptes configurés</small>
+            </article>
+            <article>
+              <span>Groupes</span><strong id="n-groups">—</strong
+              ><small>destinations</small>
+            </article>
+            <article>
+              <span>Posts</span><strong id="n-posts">—</strong
+              ><small>contenus enregistrés</small>
+            </article>
+            <article>
+              <span>Associations</span><strong id="n-links">—</strong
+              ><small>profils ↔ groupes</small>
+            </article>
+          </div>
+          <div class="dashboard-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <div>
+                  <small>ACTIVITÉ</small>
+                  <h2>Profils récents</h2>
+                </div>
+                <button class="link" data-go="profiles">Tout afficher →</button>
+              </div>
+              <div id="recent" class="recent">Chargement…</div>
+            </article>
+            <article class="panel quick">
+              <small>DÉMARRAGE RAPIDE</small>
+              <h2>Préparer une publication</h2>
+              <p>
+                Créez un profil, associez ses groupes puis ajoutez les contenus
+                à publier.
+              </p>
+              <div class="flow">
+                <span>Profil</span>→<span>Groupes</span>→<span>Posts</span>
+              </div>
+              <button class="primary" data-go="posts">Ajouter un post</button>
+            </article>
+          </div>
+        </section>
+        <section id="profiles" class="view">
+          <div class="toolbar">
+            <p>Configurez les profils et la taille de leurs lots.</p>
+            <button class="primary" data-open="profile-modal">
+              + Nouveau profil
+            </button>
+          </div>
+          <div id="profile-cards" class="cards"></div>
+          <div class="pagination" id="profiles-pagination"></div>
+        </section>
+        <section id="groups" class="view">
+          <div class="toolbar">
+            <p>Un groupe peut être associé à plusieurs profils.</p>
+            <button class="primary" data-open="group-modal">
+              + Nouveau groupe
+            </button>
+          </div>
+          <div class="pagination" id="groups-pagination"></div>
+          <div class="panel table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Groupe</th>
+                  <th>Adresse</th>
+                  <th>Profils liés</th>
+                  <th>Posts</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="group-rows"></tbody>
+            </table>
+          </div>
+        </section>
+        <section id="articles" class="view">
+          <div class="toolbar">
+            <p>
+              Importez le JSON d’un article, puis créez ses variantes de posts.
+            </p>
+            <button class="primary" data-open="article-modal">
+              + Importer un article
+            </button>
+          </div>
+          <div id="article-cards" class="cards articles"></div>
+          <div class="pagination" id="articles-pagination"></div>
+        </section>
+        <section id="posts" class="view">
+          <div class="toolbar">
+            <select id="post-filter">
+              <option value="">Tous les profils</option></select
+            ><button class="primary" data-open="post-modal">
+              + Nouveau post
+            </button>
+          </div>
+          <div id="post-cards" class="cards posts"></div>
+          <div class="pagination" id="posts-pagination"></div>
+        </section>
+        <section id="settings" class="view">
+          <div class="panel settings-panel">
+            <div class="panel-head"><div><small>AUTOMATISATION</small><h2>Stock minimum par profil</h2></div></div>
+            <form id="settings-form" class="settings-form">
+              <label class="switch-row"><input name="autoReplenishEnabled" type="checkbox" /> Activer l’auto-alimentation avant chaque récupération</label>
+              <label>Nombre minimum de posts disponibles par profil<input name="minimumAvailablePerProfile" type="number" min="1" max="1000" value="10" required /></label>
+              <p class="form-help">Si le stock passe sous ce seuil, les légendes des articles actifs encore inutilisés sont transformées en posts pour tous les groupes actifs liés.</p>
+              <div class="actions"><button type="button" class="secondary" id="replenish-now">Lancer maintenant</button><button class="primary">Enregistrer</button></div>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+    <dialog id="profile-modal">
+      <form id="profile-form">
+        <input type="hidden" name="id" />
+        <div class="modal-head">
+          <div>
+            <small>PROFIL</small>
+            <h2>Nouveau profil</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <label>Nom<input name="name" required /></label
+        ><label>État<select name="status"><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select></label
+        ><label>Identifiant externe<input name="externalId" /></label
+        ><label
+          >Image par défaut<input
+            name="defaultImageUrl"
+            type="url"
+            placeholder="https://…"
+        /></label>
+        <div class="two">
+          <label
+            >Posts minimum<input
+              name="minPostsPerJob"
+              type="number"
+              min="1"
+              value="2"
+              required /></label
+          ><label
+            >Posts maximum<input
+              name="maxPostsPerJob"
+              type="number"
+              min="1"
+              value="6"
+              required
+          /></label>
+        </div>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="group-modal">
+      <form id="group-form">
+        <input type="hidden" name="id" />
+        <div class="modal-head">
+          <div>
+            <small>GROUPE</small>
+            <h2>Nouveau groupe</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <fieldset>
+          <legend>Profils autorisés</legend>
+          <div id="group-profiles" class="checks">
+            <span>Chargement des profils…</span>
+          </div>
+        </fieldset>
+        <label>Nom<input name="name" required /></label
+        ><label>État<select name="status"><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select></label
+        ><label>Identifiant externe<input name="externalId" /></label
+        ><label
+          >URL Facebook<input
+            name="url"
+            type="url"
+            required
+            placeholder="https://facebook.com/groups/…"
+        /></label>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="post-modal">
+      <form id="post-form">
+        <input type="hidden" name="id" />
+        <div class="modal-head">
+          <div>
+            <small>CONTENU</small>
+            <h2>Nouveau post</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <label id="post-profile-label"
+          >Profil<select name="profileId" id="post-profile" required></select
+        ></label>
+        <fieldset id="target-field">
+          <legend>Groupes cibles</legend>
+          <div id="post-groups" class="checks">
+            <span>Choisissez d’abord un profil.</span>
+          </div>
+        </fieldset>
+        <label>Titre<input name="title" required /></label
+        ><label
+          >Description<textarea name="description" rows="5" required></textarea>
+        </label>
+        <div class="two">
+          <label>URL<input name="url" type="url" /></label
+          ><label
+            >Délai (minutes)<input
+              name="delay"
+              type="number"
+              min="0"
+              value="20"
+              required
+          /></label>
+        </div>
+        <label
+          >Image spécifique<input
+            name="imageUrl"
+            type="url"
+            placeholder="Facultatif"
+        /></label>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="article-modal">
+      <form id="article-form">
+        <div class="modal-head">
+          <div>
+            <small>SOURCE JSON</small>
+            <h2>Importer un article</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <label
+          >URL de l’article<input
+            name="jsonUrl"
+            type="url"
+            required
+            placeholder="https://pulserecipe.com/recipes/..." /></label
+        ><label
+          >Nom du site source<input
+            name="sourceName"
+            placeholder="Ex. Pulse Recipe"
+        /></label>
+        <p class="form-help">
+          Collez simplement l’adresse publique /recipes/… L’adresse de l’API JSON
+          sera construite automatiquement. Une nouvelle importation actualise
+          l’article existant.
+        </p>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary">Importer</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="generate-modal">
+      <form id="generate-form">
+        <input type="hidden" name="articleId" />
+        <div class="modal-head">
+          <div>
+            <small>GÉNÉRATION</small>
+            <h2>Créer les posts</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <label
+          >Profil<select name="profileId" id="article-profile" required></select
+        ></label>
+        <fieldset>
+          <legend>Groupes cibles</legend>
+          <div id="article-groups" class="checks">
+            <span>Choisissez d’abord un profil.</span>
+          </div>
+        </fieldset>
+        <div class="two">
+          <label
+            >Délai minimum<input
+              name="delayMin"
+              type="number"
+              min="0"
+              value="10"
+              required /></label
+          ><label
+            >Délai maximum<input
+              name="delayMax"
+              type="number"
+              min="0"
+              value="60"
+              required
+          /></label>
+        </div>
+        <p class="form-help" id="caption-info"></p>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary">Créer les posts</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="article-edit-modal">
+      <form id="article-edit-form">
+        <input type="hidden" name="id" />
+        <div class="modal-head"><div><small>ARTICLE</small><h2>Modifier l’article</h2></div><button class="close" type="button" data-close>×</button></div>
+        <label>Titre<input name="title" required /></label>
+        <label>Résumé<textarea name="excerpt" rows="4"></textarea></label>
+        <label>URL de l’article<input name="articleUrl" type="url" required /></label>
+        <label>URL de l’image<input name="coverImageUrl" type="url" /></label>
+        <label>État<select name="status"><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select></label>
+        <div class="actions"><button class="secondary" type="button" data-close>Annuler</button><button class="primary">Enregistrer</button></div>
+      </form>
+    </dialog>
+    <dialog id="login-modal" class="login-modal">
+      <form id="login-form">
+        <div class="modal-head"><div><small>POSTFLOW</small><h2>Connexion administrateur</h2></div></div>
+        <label>Identifiant<input name="username" autocomplete="username" required /></label>
+        <label>Mot de passe<input name="password" type="password" autocomplete="current-password" minlength="8" required /></label>
+        <p class="form-help">Une session sécurisée est nécessaire pour accéder aux données de gestion.</p>
+        <button class="primary">Se connecter</button>
+      </form>
+    </dialog>
+    <script src="/admin/app.js" defer></script>
+  </body>
+</html>
