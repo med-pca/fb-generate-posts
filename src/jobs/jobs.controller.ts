@@ -1,11 +1,14 @@
-import { Body, Controller, Param, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiHeader, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { ClaimJobDto } from './dto/claim-job.dto';
 import { FailJobItemDto } from './dto/fail-job-item.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
 import { JobsService } from './jobs.service';
 
 @ApiTags('jobs')
+@ApiHeader({ name: 'X-API-Key', required: true })
+@UseGuards(AutomationAuthGuard)
 @Controller('jobs')
 export class JobsController {
   constructor(private readonly jobs: JobsService) {}

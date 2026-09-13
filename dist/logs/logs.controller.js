@@ -16,6 +16,7 @@ exports.LogsController = void 0;
 const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
+const automation_auth_guard_1 = require("../auth/automation-auth.guard");
 const create_log_dto_1 = require("./dto/create-log.dto");
 const logs_service_1 = require("./logs.service");
 let LogsController = class LogsController {
@@ -50,6 +51,8 @@ __decorate([
 ], LogsController.prototype, "findAll", null);
 exports.LogsController = LogsController = __decorate([
     (0, swagger_1.ApiTags)('logs'),
+    (0, swagger_1.ApiHeader)({ name: 'X-API-Key', required: true }),
+    (0, common_1.UseGuards)(automation_auth_guard_1.AutomationAuthGuard),
     (0, common_1.Controller)('logs'),
     __metadata("design:paramtypes", [logs_service_1.LogsService])
 ], LogsController);

@@ -16,6 +16,7 @@ exports.JobsController = void 0;
 const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
+const automation_auth_guard_1 = require("../auth/automation-auth.guard");
 const claim_job_dto_1 = require("./dto/claim-job.dto");
 const fail_job_item_dto_1 = require("./dto/fail-job-item.dto");
 const publish_job_item_dto_1 = require("./dto/publish-job-item.dto");
@@ -110,6 +111,8 @@ __decorate([
 ], JobsController.prototype, "complete", null);
 exports.JobsController = JobsController = __decorate([
     (0, swagger_1.ApiTags)('jobs'),
+    (0, swagger_1.ApiHeader)({ name: 'X-API-Key', required: true }),
+    (0, common_1.UseGuards)(automation_auth_guard_1.AutomationAuthGuard),
     (0, common_1.Controller)('jobs'),
     __metadata("design:paramtypes", [jobs_service_1.JobsService])
 ], JobsController);

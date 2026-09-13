@@ -1,9 +1,12 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiHeader, ApiTags } from '@nestjs/swagger';
+import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { CreateLogDto } from './dto/create-log.dto';
 import { LogsService } from './logs.service';
 
 @ApiTags('logs')
+@ApiHeader({ name: 'X-API-Key', required: true })
+@UseGuards(AutomationAuthGuard)
 @Controller('logs')
 export class LogsController {
   constructor(private readonly logs: LogsService) {}

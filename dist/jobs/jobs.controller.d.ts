@@ -72,8 +72,8 @@ export declare class JobsController {
         message: string;
     }>;
     consumed(jobId: string, postId: string): Promise<{
-        status: import("@prisma/client").$Enums.TargetStatus;
         error: string | null;
+        status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -84,8 +84,8 @@ export declare class JobsController {
         jobId: string;
     }>;
     published(jobId: string, postId: string, dto: PublishJobItemDto): Promise<{
-        status: import("@prisma/client").$Enums.TargetStatus;
         error: string | null;
+        status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -96,8 +96,8 @@ export declare class JobsController {
         jobId: string;
     }>;
     failed(jobId: string, postId: string, dto: FailJobItemDto): Promise<{
-        status: import("@prisma/client").$Enums.TargetStatus;
         error: string | null;
+        status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
         createdAt: Date;
         updatedAt: Date;

@@ -19,8 +19,8 @@ export declare class ProfilesController {
     findAll(pagination: PaginationDto): Promise<{
         data: ({
             _count: {
-                posts: number;
                 profileGroups: number;
+                posts: number;
             };
         } & {
             status: import("@prisma/client").$Enums.RecordStatus;

@@ -75,8 +75,8 @@ export declare class JobsService {
         message: string;
     }>;
     markConsumed(jobId: string, postId: string): Promise<{
-        status: import("@prisma/client").$Enums.TargetStatus;
         error: string | null;
+        status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -87,8 +87,8 @@ export declare class JobsService {
         jobId: string;
     }>;
     markPublished(jobId: string, postId: string, dto: PublishJobItemDto): Promise<{
-        status: import("@prisma/client").$Enums.TargetStatus;
         error: string | null;
+        status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -99,8 +99,8 @@ export declare class JobsService {
         jobId: string;
     }>;
     markFailed(jobId: string, postId: string, error: string): Promise<{
-        status: import("@prisma/client").$Enums.TargetStatus;
         error: string | null;
+        status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
         createdAt: Date;
         updatedAt: Date;
