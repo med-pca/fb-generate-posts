@@ -116,6 +116,20 @@ La confirmation `consumed` est idempotente. Après cette confirmation, le post
 n’est plus redistribué pour ce groupe. Il peut toujours être publié dans ses
 autres groupes cibles.
 
+`consumed` est une étape **intermédiaire** : elle doit être suivie de
+`published` ou de `failed`, sinon `complete` refuse de clôturer le job. Un
+automate peut aussi passer directement de la réservation à `published`.
+
+Une réservation dure `CLAIM_TTL_MINUTES` (30 par défaut). Passé ce délai, les
+posts repartent dans le pool. Une confirmation qui arrive après une reprise par
+un autre automate est rejetée avec **409 Conflict** : le post est peut-être en
+ligne malgré tout, l’incident est tracé en `CLAIM_LOST` dans les logs et doit
+être vérifié à la main. Ne republiez jamais un post après un 409.
+
+Dimensionnez `CLAIM_TTL_MINUTES` au-dessus de la durée réelle d’un lot
+(`maxPostsPerJob` × `delay`), sans quoi une réservation expire en cours de
+publication.
+
 ## Alimentation des contenus
 
 - `POST /api/admin/imports/json-data` importe un tableau JSON déjà disponible.
@@ -124,8 +138,13 @@ autres groupes cibles.
 
 Pour activer OpenAI, renseigner `OPENAI_API_KEY` et `OPENAI_MODEL` dans `.env`.
 
-## Sécurité avant mise en production
+## Sécurité
 
-Les routes `/api/admin/*`, `/api/jobs/*` et `/api/logs` devront être protégées
-par des clés distinctes. Les secrets ne doivent jamais être enregistrés en base
-ou transmis dans les logs.
+Les routes sont déjà protégées par deux clés distinctes : `AdminAuthGuard`
+(session admin) sur `/api/admin/*`, `/api/profiles`, `/api/groups` et
+`/api/posts`, et `AutomationAuthGuard` (en-tête `X-API-Key`, comparaison à
+temps constant) sur `/api/jobs/*` et `/api/logs`.
+
+Renseigner `AUTOMATION_API_KEY`, `ADMIN_PASSWORD` et `AUTH_SECRET` dans `.env`.
+Les secrets ne doivent jamais être enregistrés en base ou transmis dans les
+logs.

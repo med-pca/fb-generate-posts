@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -260,12 +261,23 @@ export class JobsService {
   ) {
     const item = await this.prisma.publicationJobItem.findUnique({
       where: { jobId_postId: { jobId, postId } },
+      include: { job: true, postTarget: true },
     });
     if (!item) throw new NotFoundException('Post introuvable dans ce job');
     if (item.status === status) return item;
-    if (item.status !== TargetStatus.CLAIMED) {
+    if (!this.canTransition(item.status, status)) {
       throw new BadRequestException(
         `Le post est déjà finalisé avec le statut ${item.status}`,
+      );
+    }
+    // Un claim expiré peut avoir été repris par un autre automate. Confirmer
+    // ici écraserait le travail du nouveau propriétaire, et le post finirait
+    // publié deux fois.
+    if (!this.stillOwnsTarget(item.job, item.postTarget)) {
+      await this.logLostClaim(jobId, postId, item.postTargetId, status);
+      throw new ConflictException(
+        'La réservation de ce post a expiré et a été reprise. ' +
+          'Ne republiez pas ce post : signalez-le à un administrateur.',
       );
     }
 
@@ -294,6 +306,50 @@ export class JobsService {
         },
       });
       return updated;
+    });
+  }
+
+  /** `consumed` est une étape intermédiaire : elle doit pouvoir être suivie
+   * d'un `published` ou d'un `failed`, sinon le job ne peut jamais être
+   * finalisé (complete() compte CONSUMED comme non terminé). */
+  private canTransition(from: TargetStatus, to: TargetStatus) {
+    if (from === TargetStatus.CLAIMED) return true;
+    if (from === TargetStatus.CONSUMED) {
+      return to === TargetStatus.PUBLISHED || to === TargetStatus.FAILED;
+    }
+    return false;
+  }
+
+  /** À la réservation, chaque cible reçoit exactement l'échéance de son job.
+   * Si elle ne la porte plus, elle est repartie en AVAILABLE (expiration) ou
+   * a déjà été reprise par un autre job. */
+  private stillOwnsTarget(
+    job: { claimExpiresAt: Date },
+    target: { claimExpiresAt: Date | null },
+  ) {
+    return (
+      target.claimExpiresAt !== null &&
+      target.claimExpiresAt.getTime() === job.claimExpiresAt.getTime()
+    );
+  }
+
+  /** Une confirmation refusée signifie souvent qu'un post est bel et bien en
+   * ligne sans que la base puisse l'enregistrer : ça doit rester visible. */
+  private logLostClaim(
+    jobId: string,
+    postId: string,
+    postTargetId: string,
+    status: TargetStatus,
+  ) {
+    return this.prisma.activityLog.create({
+      data: {
+        jobId,
+        postId,
+        postTargetId,
+        eventType: 'CLAIM_LOST',
+        level: 'ERROR',
+        message: `Confirmation ${status} refusée : la réservation a été reprise`,
+      },
     });
   }
 

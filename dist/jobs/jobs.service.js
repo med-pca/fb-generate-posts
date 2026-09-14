@@ -232,13 +232,19 @@ let JobsService = class JobsService {
     async updateItem(jobId, postId, status, data) {
         const item = await this.prisma.publicationJobItem.findUnique({
             where: { jobId_postId: { jobId, postId } },
+            include: { job: true, postTarget: true },
         });
         if (!item)
             throw new common_1.NotFoundException('Post introuvable dans ce job');
         if (item.status === status)
             return item;
-        if (item.status !== client_1.TargetStatus.CLAIMED) {
+        if (!this.canTransition(item.status, status)) {
             throw new common_1.BadRequestException(`Le post est déjà finalisé avec le statut ${item.status}`);
+        }
+        if (!this.stillOwnsTarget(item.job, item.postTarget)) {
+            await this.logLostClaim(jobId, postId, item.postTargetId, status);
+            throw new common_1.ConflictException('La réservation de ce post a expiré et a été reprise. ' +
+                'Ne republiez pas ce post : signalez-le à un administrateur.');
         }
         return this.prisma.$transaction(async (tx) => {
             const updated = await tx.publicationJobItem.update({
@@ -265,6 +271,30 @@ let JobsService = class JobsService {
                 },
             });
             return updated;
+        });
+    }
+    canTransition(from, to) {
+        if (from === client_1.TargetStatus.CLAIMED)
+            return true;
+        if (from === client_1.TargetStatus.CONSUMED) {
+            return to === client_1.TargetStatus.PUBLISHED || to === client_1.TargetStatus.FAILED;
+        }
+        return false;
+    }
+    stillOwnsTarget(job, target) {
+        return (target.claimExpiresAt !== null &&
+            target.claimExpiresAt.getTime() === job.claimExpiresAt.getTime());
+    }
+    logLostClaim(jobId, postId, postTargetId, status) {
+        return this.prisma.activityLog.create({
+            data: {
+                jobId,
+                postId,
+                postTargetId,
+                eventType: 'CLAIM_LOST',
+                level: 'ERROR',
+                message: `Confirmation ${status} refusée : la réservation a été reprise`,
+            },
         });
     }
     randomInt(min, max) {

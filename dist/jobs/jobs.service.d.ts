@@ -122,5 +122,8 @@ export declare class JobsService {
         completedAt: Date | null;
     }>;
     private updateItem;
+    private canTransition;
+    private stillOwnsTarget;
+    private logLostClaim;
     private randomInt;
 }
