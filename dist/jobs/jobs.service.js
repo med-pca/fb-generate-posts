@@ -24,6 +24,13 @@ let JobsService = class JobsService {
         this.config = config;
         this.settings = settings;
     }
+    listAutomationProfiles() {
+        return this.prisma.profile.findMany({
+            where: { status: 'ACTIVE', externalId: { not: null } },
+            select: { id: true, name: true, externalId: true },
+            orderBy: { createdAt: 'asc' },
+        });
+    }
     async claim(dto) {
         const profile = await this.prisma.profile.findFirst({
             where: { id: dto.profileId, status: 'ACTIVE' },

@@ -21,6 +21,15 @@ export class JobsService {
     private readonly settings: SettingsService,
   ) {}
 
+  /** Les profils qu'un automate peut traiter, sans droits admin. */
+  listAutomationProfiles() {
+    return this.prisma.profile.findMany({
+      where: { status: 'ACTIVE', externalId: { not: null } },
+      select: { id: true, name: true, externalId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   async claim(dto: ClaimJobDto) {
     const profile = await this.prisma.profile.findFirst({
       where: { id: dto.profileId, status: 'ACTIVE' },

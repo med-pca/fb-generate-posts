@@ -5,6 +5,11 @@ import { JobsService } from './jobs.service';
 export declare class JobsController {
     private readonly jobs;
     constructor(jobs: JobsService);
+    listProfiles(): import("@prisma/client").Prisma.PrismaPromise<{
+        name: string;
+        externalId: string | null;
+        id: string;
+    }[]>;
     claim(dto: ClaimJobDto): Promise<{
         job: null;
         posts: never[];

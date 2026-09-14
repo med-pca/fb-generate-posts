@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { ClaimJobDto } from './dto/claim-job.dto';
@@ -12,6 +12,17 @@ import { JobsService } from './jobs.service';
 @Controller('jobs')
 export class JobsController {
   constructor(private readonly jobs: JobsService) {}
+
+  @Get('profiles')
+  @ApiOperation({
+    summary: 'Profils actifs que l’automatisation peut traiter',
+    description:
+      'Permet à un worker de découvrir les profils sans avoir besoin des ' +
+      'droits admin : seuls le nom et l’externalId sont exposés.',
+  })
+  listProfiles() {
+    return this.jobs.listAutomationProfiles();
+  }
 
   @Post('claim')
   claim(@Body() dto: ClaimJobDto) {

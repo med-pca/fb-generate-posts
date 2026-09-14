@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaimJobDto } from './dto/claim-job.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
@@ -8,6 +9,11 @@ export declare class JobsService {
     private readonly config;
     private readonly settings;
     constructor(prisma: PrismaService, config: ConfigService, settings: SettingsService);
+    listAutomationProfiles(): Prisma.PrismaPromise<{
+        name: string;
+        externalId: string | null;
+        id: string;
+    }[]>;
     claim(dto: ClaimJobDto): Promise<{
         job: null;
         posts: never[];

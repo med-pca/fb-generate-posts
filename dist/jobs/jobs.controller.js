@@ -26,6 +26,9 @@ let JobsController = class JobsController {
     constructor(jobs) {
         this.jobs = jobs;
     }
+    listProfiles() {
+        return this.jobs.listAutomationProfiles();
+    }
     claim(dto) {
         return this.jobs.claim(dto);
     }
@@ -46,6 +49,18 @@ let JobsController = class JobsController {
     }
 };
 exports.JobsController = JobsController;
+__decorate([
+    (0, common_1.Get)('profiles'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Profils actifs que l’automatisation peut traiter',
+        description: 'Permet à un worker de découvrir les profils sans avoir besoin des ' +
+            'droits admin : seuls le nom et l’externalId sont exposés.',
+    }),
+    openapi.ApiResponse({ status: 200, type: Object }),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "listProfiles", null);
 __decorate([
     (0, common_1.Post)('claim'),
     openapi.ApiResponse({ status: 201, type: Object }),
