@@ -35,6 +35,8 @@ enum TargetStatus {
 
 enum JobStatus {
   CLAIMED
+  /// Tout est publié et commenté : il reste à basculer les commentaires sur l'URL.
+  AWAITING_LINK
   PARTIALLY_COMPLETED
   COMPLETED
   FAILED
@@ -195,6 +197,9 @@ model PostTarget {
   claimExpiresAt DateTime?    @map("claim_expires_at")
   consumedAt     DateTime?    @map("consumed_at")
   publishedAt    DateTime?    @map("published_at")
+  commentExternalId String?   @map("comment_external_id")
+  commentedAt    DateTime?    @map("commented_at")
+  linkUpdatedAt  DateTime?    @map("link_updated_at")
   attemptsCount  Int          @default(0) @map("attempts_count")
   lastError      String?      @db.Text @map("last_error")
   jobItems       PublicationJobItem[]
@@ -237,6 +242,9 @@ model PublicationJobItem {
   status          TargetStatus   @default(CLAIMED)
   externalPostUrl String?        @map("external_post_url")
   publishedAt     DateTime?      @map("published_at")
+  commentExternalId String?      @map("comment_external_id")
+  commentedAt     DateTime?      @map("commented_at")
+  linkUpdatedAt   DateTime?      @map("link_updated_at")
   error           String?        @db.Text
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")

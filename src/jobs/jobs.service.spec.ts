@@ -27,19 +27,34 @@ function makeItem(overrides: Partial<MutableItem> = {}): MutableItem {
   };
 }
 
-/** Prisma réduit à ce que le cycle de vie touche réellement. */
+/** Prisma réduit à ce que le cycle de vie touche réellement. Les posts de ces
+ * scénarios n'ont pas d'URL : la phase « commentaire puis lien » ne s'ouvre
+ * donc pas, et `complete` tranche sur les seuls statuts. */
 function makeHarness(item: MutableItem | null, jobItems: any[] = []) {
+  const items = jobItems.map((jobItem) => ({
+    postId: 'post_1',
+    commentedAt: null,
+    linkUpdatedAt: null,
+    post: { url: null },
+    ...jobItem,
+  }));
   const tx: any = {
     publicationJobItem: {
       update: jest.fn(async ({ data }: any) => ({ ...item, ...data })),
     },
     postTarget: { update: jest.fn(async () => ({})) },
+    publicationJob: { update: jest.fn(async ({ data }: any) => data) },
     activityLog: { create: jest.fn(async () => ({})) },
   };
   const prisma: any = {
     publicationJobItem: { findUnique: jest.fn(async () => item) },
     publicationJob: {
-      findUnique: jest.fn(async () => ({ id: 'job_1', items: jobItems })),
+      findUnique: jest.fn(async () => ({
+        id: 'job_1',
+        profileId: 'profile_1',
+        groupId: 'group_1',
+        items,
+      })),
       update: jest.fn(async ({ data }: any) => data),
     },
     activityLog: { create: jest.fn(async () => ({})) },
@@ -139,12 +154,12 @@ describe('JobsService — clôture du job', () => {
   });
 
   it('clôture en PARTIALLY_COMPLETED quand un post a échoué', async () => {
-    const { service, prisma } = makeHarness(null, [
+    const { service, tx } = makeHarness(null, [
       { status: TargetStatus.PUBLISHED },
-      { status: TargetStatus.FAILED },
+      { status: TargetStatus.FAILED, postId: 'post_2' },
     ]);
     await service.complete('job_1');
-    expect(prisma.publicationJob.update).toHaveBeenCalledWith(
+    expect(tx.publicationJob.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: JobStatus.PARTIALLY_COMPLETED }),
       }),
@@ -152,12 +167,12 @@ describe('JobsService — clôture du job', () => {
   });
 
   it('clôture en FAILED quand tous les posts ont échoué', async () => {
-    const { service, prisma } = makeHarness(null, [
+    const { service, tx } = makeHarness(null, [
       { status: TargetStatus.FAILED },
-      { status: TargetStatus.FAILED },
+      { status: TargetStatus.FAILED, postId: 'post_2' },
     ]);
     await service.complete('job_1');
-    expect(prisma.publicationJob.update).toHaveBeenCalledWith(
+    expect(tx.publicationJob.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: JobStatus.FAILED }),
       }),

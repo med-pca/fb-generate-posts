@@ -8,10 +8,65 @@ import { ConfigService } from '@nestjs/config';
 import { JobStatus, Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaimJobDto } from './dto/claim-job.dto';
+import { ClaimBatchDto } from './dto/claim-batch.dto';
+import { CommentJobItemDto } from './dto/comment-job-item.dto';
+import { LinkUpdatedJobItemDto } from './dto/link-updated-job-item.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
 import { SettingsService } from '../settings/settings.service';
 
 type LockedTarget = { id: string; postId: string };
+
+/** Ce qu'un automate reçoit pour publier : image et description, jamais
+ * l'URL. Le commentaire l'accompagne, il recevra le lien plus tard. */
+type ClaimedPost = {
+  id: string;
+  title: string;
+  description: string;
+  image: string | null;
+  delay: number;
+  comment: { text: string; willReceiveLink: boolean };
+};
+
+type ClaimedJob = {
+  jobId: string;
+  claimExpiresAt: Date;
+  profile: { id: string; externalId: string | null; name: string };
+  group: {
+    id: string;
+    externalId: string | null;
+    name: string;
+    url: string;
+  };
+  posts: ClaimedPost[];
+};
+
+/** Rien à réserver : le groupe est vide, ou le profil tient déjà un job. */
+type EmptyClaim = {
+  job: null;
+  posts: ClaimedPost[];
+  message?: string;
+  activeJobId?: string;
+};
+
+/** Une entrée de réservation par lot : soit un job à confier à un thread,
+ * soit la raison pour laquelle ce profil n'en reçoit pas. */
+type BatchSkip = {
+  status: 'busy' | 'empty' | 'error';
+  profileExternalId: string;
+  profileName: string;
+  message?: string;
+};
+type BatchClaim = { status: 'claimed' } & ClaimedJob;
+type BatchEntry = BatchClaim | BatchSkip;
+
+/** Un élément de job vu sous l'angle de la phase « commentaire puis URL ». */
+type LinkPhaseItem = {
+  postId: string;
+  status: TargetStatus;
+  commentedAt: Date | null;
+  linkUpdatedAt: Date | null;
+  post: { url: string | null };
+};
 
 @Injectable()
 export class JobsService {
@@ -30,7 +85,7 @@ export class JobsService {
     });
   }
 
-  async claim(dto: ClaimJobDto) {
+  async claim(dto: ClaimJobDto): Promise<ClaimedJob | EmptyClaim> {
     const profile = await this.prisma.profile.findFirst({
       where: { id: dto.profileId, status: 'ACTIVE' },
     });
@@ -151,21 +206,101 @@ export class JobsService {
         name: job.group.name,
         url: job.group.url,
       },
+      // `url` est volontairement absent : la publication part avec l'image et
+      // la description seules. Le lien n'est délivré qu'après la clôture du
+      // job, par `GET /jobs/:id/link-updates`, pour être posé dans le
+      // commentaire déjà en place.
       posts: job.items.map(({ post }) => ({
         id: post.id,
         title: post.title,
         description: post.description,
-        url: post.url,
         image: post.imageUrl ?? job.profile.defaultImageUrl,
         delay: post.delay,
+        comment: { text: post.description, willReceiveLink: Boolean(post.url) },
       })),
+    };
+  }
+
+  /** Réserve un job par profil, pour autant de threads que de profils rendus.
+   * Un profil déjà occupé est écarté : deux threads ne doivent jamais piloter
+   * le même compte en même temps. */
+  async claimBatch({ profileExternalIds, limit }: ClaimBatchDto) {
+    const requested = [...new Set(profileExternalIds ?? [])];
+    const profiles = await this.prisma.profile.findMany({
+      where: {
+        status: 'ACTIVE',
+        externalId: requested.length ? { in: requested } : { not: null },
+      },
+      select: { id: true, name: true, externalId: true },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+    });
+    if (!profiles.length) {
+      return { requested: limit, claimed: 0, jobs: [], skipped: [] };
+    }
+
+    const results = await Promise.all(
+      profiles.map(async (profile): Promise<BatchEntry> => {
+        const externalId = profile.externalId ?? '';
+        try {
+          const claim = await this.claimByProfileExternalId(externalId);
+          if ('jobId' in claim) return { status: 'claimed', ...claim };
+          return {
+            status: claim.activeJobId ? 'busy' : 'empty',
+            profileExternalId: externalId,
+            profileName: profile.name,
+            message: claim.message,
+          };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'Erreur inconnue';
+          await this.log({
+            profileId: profile.id,
+            eventType: 'CLAIM_FAILED',
+            level: 'ERROR',
+            message,
+          });
+          return {
+            status: 'error',
+            profileExternalId: externalId,
+            profileName: profile.name,
+            message,
+          };
+        }
+      }),
+    );
+
+    const jobs: BatchClaim[] = [];
+    const skipped: BatchSkip[] = [];
+    for (const result of results) {
+      if (result.status === 'claimed') jobs.push(result);
+      else skipped.push(result);
+    }
+    await this.log({
+      eventType: 'JOBS_BATCH_CLAIMED',
+      level: jobs.length ? 'INFO' : 'WARN',
+      message: `${jobs.length} job(s) réservé(s) sur ${profiles.length} profil(s)`,
+      metadata: {
+        claimed: jobs.length,
+        skipped: skipped.map(({ status, profileExternalId }) => ({
+          status,
+          profileExternalId,
+        })),
+      },
+    });
+    return {
+      requested: profiles.length,
+      claimed: jobs.length,
+      posts: jobs.reduce((total, job) => total + job.posts.length, 0),
+      jobs,
+      skipped,
     };
   }
 
   async claimByProfileExternalId(
     profileExternalId: string,
     groupExternalId?: string,
-  ) {
+  ): Promise<ClaimedJob | EmptyClaim> {
     const profile = await this.prisma.profile.findFirst({
       where: { externalId: profileExternalId, status: 'ACTIVE' },
     });
@@ -173,6 +308,32 @@ export class JobsService {
       throw new NotFoundException(
         `Profil introuvable pour externalId=${profileExternalId}`,
       );
+    }
+
+    // Un profil correspond à un compte : lui confier un second job pendant
+    // qu'il en traite un ferait publier deux threads sur le même compte.
+    const active = await this.prisma.publicationJob.findFirst({
+      where: {
+        profileId: profile.id,
+        status: JobStatus.CLAIMED,
+        claimExpiresAt: { gt: new Date() },
+      },
+      select: { id: true, claimExpiresAt: true },
+    });
+    if (active) {
+      await this.log({
+        profileId: profile.id,
+        jobId: active.id,
+        eventType: 'CLAIM_SKIPPED_BUSY',
+        message: `Profil déjà occupé par le job ${active.id}`,
+        metadata: { claimExpiresAt: active.claimExpiresAt.toISOString() },
+      });
+      return {
+        job: null,
+        posts: [],
+        activeJobId: active.id,
+        message: `Ce profil traite déjà le job ${active.id}`,
+      };
     }
 
     await this.settings.replenishProfile(profile.id);
@@ -208,7 +369,8 @@ export class JobsService {
         profileId: profile.id,
         groupId: group.id,
       });
-      if (result.posts.length) return result;
+      // `jobId` distingue une réservation aboutie d'un groupe déjà vidé.
+      if ('jobId' in result) return result;
     }
     return { job: null, posts: [], message: 'Aucun post disponible' };
   }
@@ -231,10 +393,12 @@ export class JobsService {
     return this.updateItem(jobId, postId, TargetStatus.FAILED, { error });
   }
 
+  /** Clôture le lot. C'est ici que s'ouvre la seconde phase : une fois tout
+   * validé, les commentaires déjà posés peuvent recevoir l'URL. */
   async complete(jobId: string) {
     const job = await this.prisma.publicationJob.findUnique({
       where: { id: jobId },
-      include: { items: true },
+      include: { items: { include: { post: { select: { url: true } } } } },
     });
     if (!job) throw new NotFoundException('Job introuvable');
     const unfinished = job.items.some(
@@ -245,21 +409,302 @@ export class JobsService {
     if (unfinished) {
       throw new BadRequestException('Tous les posts doivent être finalisés');
     }
-    const allFailed = job.items.every(
-      (item) => item.status === TargetStatus.FAILED,
+
+    const awaiting = job.items.filter((item) => this.awaitsLink(item));
+    // Un post publié sans commentaire ne recevra jamais son URL. On ne bloque
+    // pas la clôture — le post est en ligne — mais ça doit rester visible.
+    const missingComments = job.items.filter(
+      (item) =>
+        item.status === TargetStatus.PUBLISHED &&
+        item.post.url &&
+        !item.commentedAt,
     );
-    const someFailed = job.items.some(
-      (item) => item.status === TargetStatus.FAILED,
-    );
-    const status = allFailed
-      ? JobStatus.FAILED
-      : someFailed
-        ? JobStatus.PARTIALLY_COMPLETED
-        : JobStatus.COMPLETED;
-    return this.prisma.publicationJob.update({
-      where: { id: jobId },
-      data: { status, completedAt: new Date() },
+    const outcome = this.outcomeFor(job.items);
+    const status = awaiting.length ? JobStatus.AWAITING_LINK : outcome;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.publicationJob.update({
+        where: { id: jobId },
+        data: { status, completedAt: new Date() },
+      });
+      if (missingComments.length) {
+        await tx.activityLog.create({
+          data: {
+            jobId,
+            profileId: job.profileId,
+            groupId: job.groupId,
+            eventType: 'COMMENT_MISSING',
+            level: 'WARN',
+            message: `${missingComments.length} post(s) publié(s) sans commentaire : leur URL ne pourra pas être placée`,
+            metadata: { postIds: missingComments.map((item) => item.postId) },
+          },
+        });
+      }
+      await tx.activityLog.create({
+        data: {
+          jobId,
+          profileId: job.profileId,
+          groupId: job.groupId,
+          eventType: awaiting.length ? 'JOB_AWAITING_LINK' : 'JOB_COMPLETED',
+          message: awaiting.length
+            ? `${awaiting.length} commentaire(s) à basculer sur l'URL`
+            : `Job clôturé avec le statut ${outcome}`,
+          metadata: { status, awaitingLink: awaiting.length },
+        },
+      });
+      return result;
     });
+
+    return {
+      ...updated,
+      awaitingLink: awaiting.length,
+      missingComments: missingComments.length,
+    };
+  }
+
+  /** Étape 2 : le commentaire est posé sous le post, avec la description
+   * seule. Son identifiant est indispensable — c'est lui qu'on modifiera pour
+   * y placer l'URL une fois le lot validé. */
+  async markCommented(jobId: string, postId: string, dto: CommentJobItemDto) {
+    const item = await this.prisma.publicationJobItem.findUnique({
+      where: { jobId_postId: { jobId, postId } },
+      include: { job: true, postTarget: true },
+    });
+    if (!item) throw new NotFoundException('Post introuvable dans ce job');
+    if (item.status !== TargetStatus.PUBLISHED) {
+      throw new BadRequestException(
+        'Le post doit être confirmé publié avant d’enregistrer son commentaire',
+      );
+    }
+    if (item.commentedAt) {
+      if (item.commentExternalId !== dto.commentExternalId) {
+        await this.log({
+          jobId,
+          postId,
+          eventType: 'COMMENT_DUPLICATE',
+          level: 'WARN',
+          message: 'Un second commentaire a été signalé pour ce post',
+          metadata: {
+            enregistre: item.commentExternalId,
+            recu: dto.commentExternalId,
+          },
+        });
+      }
+      return item;
+    }
+    if (!this.stillOwnsTarget(item.job, item.postTarget)) {
+      await this.logLostClaim(jobId, postId, item.postTargetId, item.status);
+      throw new ConflictException(
+        'La réservation de ce post a expiré et a été reprise. ' +
+          'Ne republiez pas ce post : signalez-le à un administrateur.',
+      );
+    }
+
+    const commentedAt = dto.commentedAt
+      ? new Date(dto.commentedAt)
+      : new Date();
+    const data = { commentExternalId: dto.commentExternalId, commentedAt };
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.publicationJobItem.update({
+        where: { id: item.id },
+        data,
+      });
+      await tx.postTarget.update({ where: { id: item.postTargetId }, data });
+      await tx.activityLog.create({
+        data: {
+          jobId,
+          postId,
+          postTargetId: item.postTargetId,
+          eventType: 'POST_COMMENTED',
+          message: 'Commentaire posé, en attente de l’URL',
+          metadata: { commentExternalId: dto.commentExternalId },
+        },
+      });
+      return updated;
+    });
+  }
+
+  /** Étape 3 : les URL à poser, une fois le lot validé. Tant que le job est
+   * réservé, rien n'est rendu — c'est la règle « après la validation de
+   * tous ». */
+  async linkUpdates(jobId: string) {
+    const job = await this.prisma.publicationJob.findUnique({
+      where: { id: jobId },
+      include: {
+        profile: { select: { id: true, name: true, externalId: true } },
+        group: { select: { id: true, name: true, externalId: true } },
+        items: { include: { post: { select: { url: true, title: true } } } },
+      },
+    });
+    if (!job) throw new NotFoundException('Job introuvable');
+    if (job.status === JobStatus.CLAIMED) {
+      throw new BadRequestException(
+        'Clôturez le job (complete) avant de basculer les commentaires sur l’URL',
+      );
+    }
+    return {
+      jobId: job.id,
+      status: job.status,
+      completedAt: job.completedAt,
+      profile: job.profile,
+      group: job.group,
+      updates: job.items
+        .filter((item) => this.awaitsLink(item))
+        .map((item) => ({
+          postId: item.postId,
+          title: item.post.title,
+          commentExternalId: item.commentExternalId,
+          url: item.post.url,
+          externalPostUrl: item.externalPostUrl,
+        })),
+    };
+  }
+
+  /** Les commentaires en attente d'URL, tous jobs confondus : c'est la file
+   * qu'un worker consomme après avoir traité ses lots. */
+  async pendingLinkUpdates(
+    profileExternalId: string | undefined,
+    limit: number,
+  ) {
+    const jobs = await this.prisma.publicationJob.findMany({
+      // Pas seulement AWAITING_LINK : un job publié et commenté puis expiré
+      // faute de `complete` laisse lui aussi des commentaires sans URL.
+      where: {
+        status: { not: JobStatus.CLAIMED },
+        ...(profileExternalId
+          ? { profile: { externalId: profileExternalId } }
+          : {}),
+      },
+      include: {
+        profile: { select: { id: true, name: true, externalId: true } },
+        group: { select: { id: true, name: true, externalId: true } },
+        items: { include: { post: { select: { url: true, title: true } } } },
+      },
+      orderBy: { completedAt: 'asc' },
+      take: limit,
+    });
+    return jobs
+      .map((job) => ({
+        jobId: job.id,
+        completedAt: job.completedAt,
+        profile: job.profile,
+        group: job.group,
+        updates: job.items
+          .filter((item) => this.awaitsLink(item))
+          .map((item) => ({
+            postId: item.postId,
+            title: item.post.title,
+            commentExternalId: item.commentExternalId,
+            url: item.post.url,
+          })),
+      }))
+      .filter((job) => job.updates.length > 0);
+  }
+
+  /** Étape 4 : le commentaire porte désormais l'URL. Aucun contrôle de
+   * réservation ici — la cible est publiée, elle ne repart plus dans le pool,
+   * et le claim a légitimement expiré depuis la clôture du lot. */
+  async markLinkUpdated(
+    jobId: string,
+    postId: string,
+    dto: LinkUpdatedJobItemDto,
+  ) {
+    const item = await this.prisma.publicationJobItem.findUnique({
+      where: { jobId_postId: { jobId, postId } },
+      include: { job: true, post: { select: { url: true } } },
+    });
+    if (!item) throw new NotFoundException('Post introuvable dans ce job');
+    if (item.job.status === JobStatus.CLAIMED) {
+      throw new BadRequestException(
+        'Clôturez le job (complete) avant de basculer les commentaires sur l’URL',
+      );
+    }
+    if (!item.commentExternalId) {
+      throw new BadRequestException(
+        'Aucun commentaire enregistré pour ce post : rien à modifier',
+      );
+    }
+    if (!item.post.url) {
+      throw new BadRequestException('Ce post n’a pas d’URL à placer');
+    }
+    if (item.linkUpdatedAt) return { ...item, remaining: 0 };
+
+    const linkUpdatedAt = dto.linkUpdatedAt
+      ? new Date(dto.linkUpdatedAt)
+      : new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.publicationJobItem.update({
+        where: { id: item.id },
+        data: { linkUpdatedAt },
+      });
+      await tx.postTarget.update({
+        where: { id: item.postTargetId },
+        data: { linkUpdatedAt },
+      });
+      await tx.activityLog.create({
+        data: {
+          jobId,
+          postId,
+          postTargetId: item.postTargetId,
+          eventType: 'COMMENT_LINK_UPDATED',
+          message: 'Commentaire modifié avec l’URL',
+          metadata: {
+            commentExternalId: item.commentExternalId,
+            url: item.post.url,
+          },
+        },
+      });
+
+      const siblings = await tx.publicationJobItem.findMany({
+        where: { jobId },
+        include: { post: { select: { url: true } } },
+      });
+      const remaining = siblings.filter((sibling) =>
+        this.awaitsLink(sibling),
+      ).length;
+      if (!remaining && item.job.status === JobStatus.AWAITING_LINK) {
+        const status = this.outcomeFor(siblings);
+        await tx.publicationJob.update({
+          where: { id: jobId },
+          data: { status },
+        });
+        await tx.activityLog.create({
+          data: {
+            jobId,
+            profileId: item.job.profileId,
+            groupId: item.job.groupId,
+            eventType: 'JOB_FINALIZED',
+            message: `Toutes les URL sont en place, job clôturé avec le statut ${status}`,
+            metadata: { status },
+          },
+        });
+      }
+      return { ...updated, remaining };
+    });
+  }
+
+  /** Publié, commenté, doté d'une URL, mais le commentaire ne la porte pas
+   * encore. */
+  private awaitsLink(item: LinkPhaseItem) {
+    return (
+      item.status === TargetStatus.PUBLISHED &&
+      Boolean(item.post.url) &&
+      item.commentedAt !== null &&
+      item.linkUpdatedAt === null
+    );
+  }
+
+  private outcomeFor(items: Array<{ status: TargetStatus }>) {
+    if (items.every((item) => item.status === TargetStatus.FAILED)) {
+      return JobStatus.FAILED;
+    }
+    return items.some((item) => item.status === TargetStatus.FAILED)
+      ? JobStatus.PARTIALLY_COMPLETED
+      : JobStatus.COMPLETED;
+  }
+
+  private log(data: Prisma.ActivityLogUncheckedCreateInput) {
+    return this.prisma.activityLog.create({ data });
   }
 
   private async updateItem(
