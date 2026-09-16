@@ -742,3 +742,149 @@ fieldset {
     min-height: 0;
   }
 }
+
+/* Sélection multiple des posts */
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.inline-check input {
+  width: 17px;
+  min-height: 17px;
+}
+.post-meta .inline-check {
+  font-size: 0.71rem;
+}
+.post-card.selected {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue);
+}
+.stock {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+.stock.low {
+  background: #fff5f5;
+  color: #b42318;
+}
+button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Journaux */
+.stats article.alert:after {
+  background: #b4231815;
+}
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 14px 18px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  color: #b42318;
+  background: #fff5f5;
+  font-size: 0.86rem;
+}
+.logs-toolbar {
+  margin-top: 18px;
+}
+.logs-toolbar select,
+.logs-toolbar input[type='search'] {
+  width: auto;
+  min-width: 165px;
+}
+.logs-table {
+  margin-top: 18px;
+}
+.level {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #475467;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.level.ERROR {
+  background: #fff0ef;
+  color: #a12b23;
+}
+.level.WARN {
+  background: #fff8e6;
+  color: #92620b;
+}
+.level.INFO {
+  background: #eef2ff;
+  color: #3730a3;
+}
+.event-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.76rem;
+}
+.log-message {
+  max-width: 420px;
+}
+.log-meta {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.log-meta pre {
+  overflow: auto;
+  max-height: 180px;
+  margin: 6px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f6f8fb;
+  font-size: 0.72rem;
+}
+.log-meta summary {
+  cursor: pointer;
+}
+.tally {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.84rem;
+}
+.tally:last-child {
+  border-bottom: 0;
+}
+.tally b {
+  font-weight: 650;
+}
+.tally .count {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.tally .count em {
+  color: #b42318;
+  font-style: normal;
+  font-weight: 650;
+}
+
+.stats.five {
+  grid-template-columns: repeat(5, 1fr);
+}

@@ -1,7 +1,12 @@
 const API = '/api',
   state = {
     profiles: [], groups: [], articles: [], posts: [], profileOptions: [], settings: null,
-    page: { profiles: 1, groups: 1, articles: 1, posts: 1 }, meta: {},
+    page: { profiles: 1, groups: 1, articles: 1, posts: 1, logs: 1 }, meta: {},
+    logs: [], logsSummary: null,
+    logFilters: { hours: 24, level: '', eventType: '', profileId: '', search: '', onlyIncidents: false },
+    // Le filtre est appliqué par l'API : la sélection « tout » doit porter
+    // sur le même ensemble que celui que la suppression en masse vise.
+    postProfileId: '', selection: new Set(),
   };
 let accessToken = localStorage.getItem('postflow_token') || '';
 const $ = (s, r = document) => r.querySelector(s),
@@ -58,7 +63,12 @@ async function load() {
       api(`/profiles?page=${state.page.profiles}&limit=12`),
       api(`/groups?page=${state.page.groups}&limit=12`),
       api(`/articles?page=${state.page.articles}&limit=12`),
-      api(`/posts?page=${state.page.posts}&limit=12`),
+      api(
+        `/posts?page=${state.page.posts}&limit=12` +
+          (state.postProfileId
+            ? `&profileId=${encodeURIComponent(state.postProfileId)}`
+            : ''),
+      ),
       api('/profiles?page=1&limit=100'),
       api('/settings'),
     ]);
@@ -66,6 +76,7 @@ async function load() {
     state.groups = groups.data; state.meta.groups = groups.meta;
     state.articles = articles.data; state.meta.articles = articles.meta;
     state.posts = posts.data; state.meta.posts = posts.meta;
+    state.selection.clear();
     state.profileOptions = profileOptions.data;
     state.settings = settings;
     render();
@@ -100,22 +111,24 @@ function render() {
     state.groups
       .map(
         (g) =>
-          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip">${esc(x.profile.name)}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
+          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip">${esc(x.profile.name)}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
       )
       .join('') ||
-    '<tr><td colspan="5"><div class="empty">Aucun groupe</div></td></tr>';
+    '<tr><td colspan="6"><div class="empty">Aucun groupe</div></td></tr>';
   renderArticles();
   renderSettings();
   fillProfiles();
   renderPosts();
   renderPagination();
 }
+function paginationBox(resource) {
+  const meta = state.meta[resource];
+  if (!meta) return '';
+  return `<button class="secondary" data-page-resource="${resource}" data-page-value="${meta.page - 1}" ${meta.page <= 1 ? 'disabled' : ''}>← Précédent</button><span>Page ${meta.page} sur ${meta.pages} · ${meta.total} élément(s)</span><button class="secondary" data-page-resource="${resource}" data-page-value="${meta.page + 1}" ${meta.page >= meta.pages ? 'disabled' : ''}>Suivant →</button>`;
+}
 function renderPagination() {
-  for (const resource of ['profiles', 'groups', 'articles', 'posts']) {
-    const meta = state.meta[resource];
-    const box = $(`#${resource}-pagination`);
-    box.innerHTML = `<button class="secondary" data-page-resource="${resource}" data-page-value="${meta.page - 1}" ${meta.page <= 1 ? 'disabled' : ''}>← Précédent</button><span>Page ${meta.page} sur ${meta.pages} · ${meta.total} élément(s)</span><button class="secondary" data-page-resource="${resource}" data-page-value="${meta.page + 1}" ${meta.page >= meta.pages ? 'disabled' : ''}>Suivant →</button>`;
-  }
+  for (const resource of ['profiles', 'groups', 'articles', 'posts'])
+    $(`#${resource}-pagination`).innerHTML = paginationBox(resource);
 }
 function showLogin() {
   const dialog = $('#login-modal');
@@ -135,24 +148,130 @@ function renderSettings() {
   const form = $('#settings-form');
   form.elements.autoReplenishEnabled.checked = state.settings.autoReplenishEnabled;
   form.elements.minimumAvailablePerProfile.value = state.settings.minimumAvailablePerProfile;
+  form.elements.minimumAvailablePerGroup.value = state.settings.minimumAvailablePerGroup;
 }
 function renderPosts() {
-  const filter = $('#post-filter').value;
-  const posts = filter
-    ? state.posts.filter((p) => p.profileId === filter)
-    : state.posts;
   $('#post-cards').innerHTML =
-    posts
+    state.posts
       .map(
         (p) =>
-          `<article class="post-card"><div class="post-meta"><span>${esc(state.profileOptions.find((x) => x.id === p.profileId)?.name || 'Profil')}</span><span>${p.delay} min</span></div><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="chips">${p.targets
+          `<article class="post-card ${state.selection.has(p.id) ? 'selected' : ''}"><div class="post-meta"><label class="inline-check"><input type="checkbox" data-select-post="${p.id}" ${state.selection.has(p.id) ? 'checked' : ''}>${esc(state.profileOptions.find((x) => x.id === p.profileId)?.name || 'Profil')}</label><span>${p.delay} min</span></div><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="chips">${p.targets
             .slice(0, 3)
             .map((x) => `<span class="chip">${esc(x.group.name)}</span>`)
             .join(
               '',
-            )}</div><div class="card-actions"><button class="edit" data-edit-post="${p.id}">Modifier</button></div></article>`,
+            )}</div><div class="card-actions"><button class="edit" data-edit-post="${p.id}">Modifier</button><button class="danger" data-delete-post="${p.id}">Supprimer</button></div></article>`,
       )
       .join('') || '<div class="empty">Aucun post pour ce filtre.</div>';
+  renderSelection();
+}
+function renderSelection() {
+  const count = state.selection.size,
+    button = $('#post-bulk-delete');
+  button.disabled = !count;
+  button.textContent = count
+    ? `Supprimer la sélection (${count})`
+    : 'Supprimer la sélection';
+  $('#post-select-all').checked =
+    count > 0 && count === state.posts.length;
+}
+async function loadLogs() {
+  const f = state.logFilters,
+    query = new URLSearchParams({ page: state.page.logs, limit: 25 }),
+    summaryQuery = new URLSearchParams({ hours: f.hours });
+  // La fenêtre de la synthèse et celle de la liste doivent coïncider, sinon
+  // les compteurs annoncent des incidents que le tableau n'affiche pas.
+  query.set('since', new Date(Date.now() - f.hours * 3600000).toISOString());
+  if (f.level) query.set('level', f.level);
+  if (f.eventType) query.set('eventType', f.eventType);
+  if (f.search) query.set('search', f.search);
+  if (f.onlyIncidents) query.set('onlyIncidents', 'true');
+  if (f.profileId) {
+    query.set('profileId', f.profileId);
+    summaryQuery.set('profileId', f.profileId);
+  }
+  try {
+    const [logs, summary] = await Promise.all([
+      api(`/admin/logs?${query}`),
+      api(`/admin/logs/summary?${summaryQuery}`),
+    ]);
+    state.logs = logs.data;
+    state.meta.logs = logs.meta;
+    state.logsSummary = summary;
+    renderLogs();
+  } catch (e) {
+    notice(e.message, 'error');
+  }
+}
+function renderLogs() {
+  const s = state.logsSummary;
+  if (!s) return;
+  $('#log-total').textContent = s.total;
+  $('#log-errors').textContent = s.levels.ERROR;
+  $('#log-warns').textContent = s.levels.WARN;
+  $('#log-claimlost').textContent = s.claimLost;
+  $('#log-window').textContent = `depuis le ${new Date(s.since).toLocaleString('fr-FR')}`;
+  // Le stock de liens en attente ignore la fenêtre : un commentaire sans URL
+  // depuis trois jours doit rester visible même en regardant les 24 h.
+  const pending = s.pendingLinkUpdates;
+  $('#log-pending-links').textContent = pending.total;
+  $('#log-pending-since').textContent = pending.pendingSince
+    ? `depuis le ${new Date(pending.pendingSince).toLocaleString('fr-FR')}`
+    : 'commentaires sans URL';
+
+  // Une réservation perdue peut signifier un post publié sans trace : c'est
+  // la seule situation qui impose une vérification à la main.
+  const banner = $('#log-banner');
+  banner.hidden = !s.claimLost && !s.levels.ERROR;
+  banner.textContent = s.claimLost
+    ? `⚠ ${s.claimLost} réservation(s) perdue(s) : ces posts sont peut-être en ligne sans être enregistrés. Vérifiez-les à la main et ne les republiez pas.`
+    : `⚠ ${s.levels.ERROR} erreur(s) sur la période.`;
+
+  const event = $('#log-event');
+  event.innerHTML =
+    '<option value="">Tous les événements</option>' +
+    s.eventTypes
+      .map(
+        (e) =>
+          `<option value="${esc(e.eventType)}">${esc(e.eventType)} (${e.total})</option>`,
+      )
+      .join('');
+  event.value = state.logFilters.eventType;
+
+  $('#log-events').innerHTML =
+    s.eventTypes
+      .map(
+        (e) =>
+          `<div class="tally"><b class="event-name">${esc(e.eventType)}</b><span class="count">${e.total}${e.errors ? ` · <em>${e.errors} erreur(s)</em>` : ''}</span></div>`,
+      )
+      .join('') || '<div class="empty">Aucun événement sur la période.</div>';
+
+  $('#log-profiles').innerHTML =
+    s.profiles
+      .map(
+        (p) =>
+          `<div class="tally"><b>${esc(p.name)}${p.status === 'INACTIVE' ? ' (inactif)' : ''}</b><span class="count">${p.total}${p.errors ? ` · <em>${p.errors} erreur(s)</em>` : ''}</span></div>`,
+      )
+      .join('') || '<div class="empty">Aucune activité sur la période.</div>';
+
+  $('#log-rows').innerHTML =
+    state.logs
+      .map((l) => {
+        const context = [
+          l.profile && `Profil : ${esc(l.profile.name)}`,
+          l.group && `Groupe : ${esc(l.group.name)}`,
+          l.post && `Post : ${esc(l.post.title)}`,
+          l.jobId && `Job : ${esc(l.jobId)}`,
+        ].filter(Boolean);
+        const meta = l.metadata
+          ? `<details class="log-meta"><summary>Détails</summary><pre>${esc(JSON.stringify(l.metadata, null, 2))}</pre></details>`
+          : '';
+        return `<tr><td>${new Date(l.createdAt).toLocaleString('fr-FR')}</td><td><span class="level ${esc(l.level)}">${esc(l.level)}</span></td><td class="event-name">${esc(l.eventType)}</td><td class="log-message">${esc(l.message)}${meta}</td><td>${context.join('<br>') || '—'}</td></tr>`;
+      })
+      .join('') ||
+    '<tr><td colspan="5"><div class="empty">Aucun journal pour ce filtre.</div></td></tr>';
+
+  $('#logs-pagination').innerHTML = paginationBox('logs');
 }
 function fillProfiles() {
   const options = state.profileOptions.filter((p) => p.status === 'ACTIVE')
@@ -162,10 +281,16 @@ function fillProfiles() {
     '<option value="">Choisir un profil</option>' + options;
   $('#article-profile').innerHTML =
     '<option value="">Choisir un profil</option>' + options;
-  const f = $('#post-filter'),
-    v = f.value;
+  const f = $('#post-filter');
   f.innerHTML = '<option value="">Tous les profils</option>' + options;
-  f.value = v;
+  f.value = state.postProfileId;
+  const logProfile = $('#log-profile');
+  logProfile.innerHTML =
+    '<option value="">Tous les profils</option>' +
+    state.profileOptions
+      .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`)
+      .join('');
+  logProfile.value = state.logFilters.profileId;
   fillGroupProfiles([]);
 }
 function fillGroupProfiles(selected = []) {
@@ -203,9 +328,42 @@ function view(id) {
     groups: 'Groupes',
     articles: 'Articles',
     posts: 'Posts',
+    logs: 'Journaux',
     settings: 'Paramètres',
   }[id];
+  // Les journaux se relisent à chaque ouverture : une synthèse périmée
+  // conduirait à décider sur l'état d'hier.
+  if (id === 'logs') loadLogs();
 }
+function refreshLogs() {
+  state.page.logs = 1;
+  loadLogs();
+}
+$('#log-refresh').onclick = () => loadLogs();
+$('#log-hours').onchange = (e) => {
+  state.logFilters.hours = Number(e.target.value);
+  refreshLogs();
+};
+$('#log-level').onchange = (e) => {
+  state.logFilters.level = e.target.value;
+  refreshLogs();
+};
+$('#log-event').onchange = (e) => {
+  state.logFilters.eventType = e.target.value;
+  refreshLogs();
+};
+$('#log-profile').onchange = (e) => {
+  state.logFilters.profileId = e.target.value;
+  refreshLogs();
+};
+$('#log-search').onchange = (e) => {
+  state.logFilters.search = e.target.value.trim();
+  refreshLogs();
+};
+$('#log-incidents').onchange = (e) => {
+  state.logFilters.onlyIncidents = e.target.checked;
+  refreshLogs();
+};
 function openModal(id) {
   const d = $('#' + id),
     f = $('form', d);
@@ -228,7 +386,42 @@ $$('[data-open]').forEach((b) => (b.onclick = () => openModal(b.dataset.open)));
 $$('[data-close]').forEach(
   (b) => (b.onclick = () => b.closest('dialog').close()),
 );
-$('#post-filter').onchange = renderPosts;
+$('#post-filter').onchange = (e) => {
+  state.postProfileId = e.target.value;
+  state.page.posts = 1;
+  load();
+};
+$('#post-select-all').onchange = (e) => {
+  state.selection.clear();
+  if (e.target.checked) for (const p of state.posts) state.selection.add(p.id);
+  renderPosts();
+};
+document.addEventListener('change', (e) => {
+  const id = e.target.dataset?.selectPost;
+  if (!id) return;
+  if (e.target.checked) state.selection.add(id);
+  else state.selection.delete(id);
+  e.target.closest('.post-card').classList.toggle('selected', e.target.checked);
+  renderSelection();
+});
+$('#post-bulk-delete').onclick = async () => {
+  const ids = [...state.selection];
+  if (!ids.length) return;
+  if (!confirm(`Supprimer définitivement ${ids.length} post(s) et leurs cibles ?`)) return;
+  try {
+    const r = await api('/posts/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+    notice(
+      r.blocked
+        ? `${r.deleted} post(s) supprimé(s). ${r.blocked} post(s) réservé(s) par un automate ont été conservés.`
+        : `${r.deleted} post(s) supprimé(s).`,
+      r.blocked ? 'error' : 'success',
+    );
+    await load();
+  } catch (x) { notice(x.message, 'error'); }
+};
 $('#post-profile').onchange = (e) =>
   loadGroups(e.target.value).catch((x) => notice(x.message, 'error'));
 $('#article-profile').onchange = (e) =>
@@ -262,6 +455,7 @@ $('#settings-form').onsubmit = async (e) => {
       body: JSON.stringify({
         autoReplenishEnabled: e.target.elements.autoReplenishEnabled.checked,
         minimumAvailablePerProfile: Number(form.get('minimumAvailablePerProfile')),
+        minimumAvailablePerGroup: Number(form.get('minimumAvailablePerGroup')),
       }),
     });
     notice('Paramètres d’automatisation enregistrés.');
@@ -272,7 +466,10 @@ $('#replenish-now').onclick = async () => {
   try {
     const results = await api('/settings/replenish-now', { method: 'POST' });
     const generated = results.reduce((total, item) => total + item.generated, 0);
-    notice(`${generated} post(s) généré(s) pour les profils actifs.`);
+    const reused = results.reduce((total, item) => total + item.reused, 0);
+    notice(
+      `${generated} post(s) créé(s) et ${reused} post(s) existant(s) rattaché(s) aux groupes en manque.`,
+    );
     await load();
   } catch (x) { notice(x.message, 'error'); }
 };
@@ -439,8 +636,10 @@ $('#post-form').onsubmit = async (e) => {
 };
 document.addEventListener('click', (e) => {
   if (e.target.dataset.pageResource) {
-    state.page[e.target.dataset.pageResource] = Number(e.target.dataset.pageValue);
-    load();
+    const resource = e.target.dataset.pageResource;
+    state.page[resource] = Number(e.target.dataset.pageValue);
+    if (resource === 'logs') loadLogs();
+    else load();
     return;
   }
   const toggleProfile = state.profiles.find((x) => x.id === e.target.dataset.toggleProfile);
@@ -531,6 +730,13 @@ document.addEventListener('click', (e) => {
     $('h2', $('#group-modal')).textContent = 'Modifier le groupe';
     return;
   }
+  const deletePost = state.posts.find((x) => x.id === e.target.dataset.deletePost);
+  if (deletePost) {
+    if (!confirm(`Supprimer définitivement le post « ${deletePost.title} » ?`)) return;
+    api(`/posts/${deletePost.id}`, { method: 'DELETE' })
+      .then(load).then(() => notice('Post supprimé.')).catch((x) => notice(x.message, 'error'));
+    return;
+  }
   let pId = e.target.dataset.editPost,
     post = state.posts.find((x) => x.id === pId);
   if (post) {
@@ -555,7 +761,7 @@ document.addEventListener('click', (e) => {
 function registerAgentTools() {
   const context = document.modelContext;
   if (!context?.registerTool) return;
-  const sections = ['dashboard', 'profiles', 'groups', 'articles', 'posts', 'settings'];
+  const sections = ['dashboard', 'profiles', 'groups', 'articles', 'posts', 'logs', 'settings'];
   context.registerTool({
     name: 'get_admin_summary',
     title: 'Lire le résumé PostFlow',

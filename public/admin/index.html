@@ -24,6 +24,7 @@
           ><button class="nav" data-view="articles">
             ◫ <span>Articles</span></button
           ><button class="nav" data-view="posts">▤ <span>Posts</span></button
+          ><button class="nav" data-view="logs">≡ <span>Journaux</span></button
           ><button class="nav" data-view="settings">⚙ <span>Paramètres</span></button>
         </nav>
         <a href="/api/docs" target="_blank">Documentation API ↗</a>
@@ -108,6 +109,7 @@
                   <th>Adresse</th>
                   <th>Profils liés</th>
                   <th>Posts</th>
+                  <th>Disponibles</th>
                   <th></th>
                 </tr>
               </thead>
@@ -129,14 +131,104 @@
         </section>
         <section id="posts" class="view">
           <div class="toolbar">
-            <select id="post-filter">
-              <option value="">Tous les profils</option></select
-            ><button class="primary" data-open="post-modal">
+            <div class="toolbar-group">
+              <select id="post-filter">
+                <option value="">Tous les profils</option></select
+              ><label class="inline-check"
+                ><input type="checkbox" id="post-select-all" /> Tout
+                sélectionner</label
+              ><button class="danger" id="post-bulk-delete" disabled>
+                Supprimer la sélection
+              </button>
+            </div>
+            <button class="primary" data-open="post-modal">
               + Nouveau post
             </button>
           </div>
           <div id="post-cards" class="cards posts"></div>
           <div class="pagination" id="posts-pagination"></div>
+        </section>
+        <section id="logs" class="view">
+          <div class="stats five">
+            <article>
+              <span>Événements</span><strong id="log-total">—</strong
+              ><small id="log-window">sur la période</small>
+            </article>
+            <article class="alert">
+              <span>Erreurs</span><strong id="log-errors">—</strong
+              ><small>à traiter en priorité</small>
+            </article>
+            <article>
+              <span>Avertissements</span><strong id="log-warns">—</strong
+              ><small>à surveiller</small>
+            </article>
+            <article class="alert">
+              <span>Réservations perdues</span><strong id="log-claimlost">—</strong
+              ><small>vérification manuelle</small>
+            </article>
+            <article>
+              <span>Liens en attente</span><strong id="log-pending-links">—</strong
+              ><small id="log-pending-since">commentaires sans URL</small>
+            </article>
+          </div>
+          <div id="log-banner" class="banner" hidden></div>
+          <div class="toolbar logs-toolbar">
+            <div class="toolbar-group">
+              <select id="log-hours">
+                <option value="1">Dernière heure</option>
+                <option value="24" selected>Dernières 24 h</option>
+                <option value="168">7 derniers jours</option>
+                <option value="720">30 derniers jours</option></select
+              ><select id="log-level">
+                <option value="">Tous les niveaux</option>
+                <option value="ERROR">Erreur</option>
+                <option value="WARN">Avertissement</option>
+                <option value="INFO">Info</option>
+                <option value="DEBUG">Debug</option></select
+              ><select id="log-event">
+                <option value="">Tous les événements</option></select
+              ><select id="log-profile">
+                <option value="">Tous les profils</option></select
+              ><input
+                id="log-search"
+                type="search"
+                placeholder="Rechercher dans les messages"
+              /><label class="inline-check"
+                ><input type="checkbox" id="log-incidents" /> Incidents
+                seulement</label
+              >
+            </div>
+            <button class="secondary" id="log-refresh">Actualiser</button>
+          </div>
+          <div class="dashboard-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <div><small>RÉPARTITION</small><h2>Événements</h2></div>
+              </div>
+              <div id="log-events" class="recent">Chargement…</div>
+            </article>
+            <article class="panel">
+              <div class="panel-head">
+                <div><small>OÙ ÇA COINCE</small><h2>Profils</h2></div>
+              </div>
+              <div id="log-profiles" class="recent">Chargement…</div>
+            </article>
+          </div>
+          <div class="panel table-wrap logs-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Horodatage</th>
+                  <th>Niveau</th>
+                  <th>Événement</th>
+                  <th>Message</th>
+                  <th>Contexte</th>
+                </tr>
+              </thead>
+              <tbody id="log-rows"></tbody>
+            </table>
+          </div>
+          <div class="pagination" id="logs-pagination"></div>
         </section>
         <section id="settings" class="view">
           <div class="panel settings-panel">
@@ -144,7 +236,8 @@
             <form id="settings-form" class="settings-form">
               <label class="switch-row"><input name="autoReplenishEnabled" type="checkbox" /> Activer l’auto-alimentation avant chaque récupération</label>
               <label>Nombre minimum de posts disponibles par profil<input name="minimumAvailablePerProfile" type="number" min="1" max="1000" value="10" required /></label>
-              <p class="form-help">Si le stock passe sous ce seuil, les légendes des articles actifs encore inutilisés sont transformées en posts pour tous les groupes actifs liés.</p>
+              <label>Nombre minimum de posts disponibles par groupe<input name="minimumAvailablePerGroup" type="number" min="1" max="1000" value="8" required /></label>
+              <p class="form-help">Le stock est compté groupe par groupe : un groupe descendu à trois ou quatre posts est réalimenté même si le profil paraît fourni. Les posts déjà disponibles qui ne visent pas encore ce groupe lui sont rattachés en premier ; ensuite, les légendes des articles actifs deviennent de nouveaux posts, en rejouant les mêmes articles en variantes lorsque le catalogue est épuisé.</p>
               <div class="actions"><button type="button" class="secondary" id="replenish-now">Lancer maintenant</button><button class="primary">Enregistrer</button></div>
             </form>
           </div>
