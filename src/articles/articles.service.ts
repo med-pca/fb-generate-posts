@@ -15,6 +15,14 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
 
 type SocialCaption = { text: string; angle?: string };
+type ArticleRecord = {
+  id: string;
+  title: string;
+  articleUrl: string;
+  coverImageUrl: string | null;
+  hashtags: string[];
+  captions: Prisma.JsonValue;
+};
 type ArticlePayload = {
   id: string;
   title: string;
@@ -126,48 +134,100 @@ export class ArticlesService {
       );
     }
 
-    const captions = article.captions as SocialCaption[];
-    const hashtags = article.hashtags.map((tag) => `#${tag.replace(/^#/, '')}`);
+    const captions = this.captionsOf(article);
+    if (!captions.length) {
+      throw new BadRequestException(
+        'Cet article ne contient aucune légende exploitable',
+      );
+    }
     return this.prisma.$transaction(
-      captions.map((caption, index) =>
-        this.prisma.post.upsert({
-          where: {
-            sourceType_externalId: {
-              sourceType: 'JSON',
-              externalId: `${article.id}:${dto.profileId}:${index}`,
-            },
-          },
+      captions.map((_, slot) => {
+        const { profileId, sourceType, externalId, ...content } =
+          this.postDataForSlot(article, slot, dto);
+        return this.prisma.post.upsert({
+          where: { sourceType_externalId: { sourceType, externalId } },
           create: {
-            articleId: article.id,
-            profileId: dto.profileId,
-            title: article.title,
-            description: [caption.text, hashtags.join(' ')].filter(Boolean).join('\n\n'),
-            url: article.articleUrl,
-            imageUrl: article.coverImageUrl,
-            delay: this.randomInt(dto.delayMin, dto.delayMax),
-            sourceType: 'JSON',
-            externalId: `${article.id}:${dto.profileId}:${index}`,
-            socialAngle: caption.angle,
-            rawData: caption as Prisma.InputJsonValue,
+            ...content,
+            profileId,
+            sourceType,
+            externalId,
             targets: { create: groupIds.map((groupId) => ({ groupId })) },
           },
           update: {
-            title: article.title,
-            description: [caption.text, hashtags.join(' ')].filter(Boolean).join('\n\n'),
-            url: article.articleUrl,
-            imageUrl: article.coverImageUrl,
-            delay: this.randomInt(dto.delayMin, dto.delayMax),
-            socialAngle: caption.angle,
-            rawData: caption as Prisma.InputJsonValue,
+            ...content,
+            // Ne pas repartir de zéro : une cible déjà réservée ou publiée
+            // porte l'historique d'un job, et la supprimer effacerait la
+            // trace d'une publication bien réelle.
             targets: {
-              deleteMany: {},
-              create: groupIds.map((groupId) => ({ groupId })),
+              deleteMany: { status: 'AVAILABLE', groupId: { notIn: groupIds } },
+              createMany: {
+                data: groupIds.map((groupId) => ({ groupId })),
+                skipDuplicates: true,
+              },
             },
           },
           include: { targets: true },
-        }),
-      ),
+        });
+      }),
     );
+  }
+
+  /** Les légendes d'un article sont un JSON libre : ne garder que celles qui
+   * portent un texte publiable. */
+  captionsOf(article: { captions: Prisma.JsonValue }): SocialCaption[] {
+    const captions = article.captions as SocialCaption[] | null;
+    return Array.isArray(captions)
+      ? captions.filter((caption) => caption?.text)
+      : [];
+  }
+
+  /** Un « slot » est la n-ième publication tirée d'un article pour un profil.
+   * Passé le nombre de légendes, il boucle sur la première avec un suffixe de
+   * variante : le même article peut donc réalimenter un groupe indéfiniment
+   * sans casser l'unicité de `externalId`. */
+  postDataForSlot(
+    article: ArticleRecord,
+    slot: number,
+    dto: { profileId: string; delayMin: number; delayMax: number },
+  ) {
+    const captions = this.captionsOf(article);
+    const caption = captions[slot % captions.length];
+    const hashtags = article.hashtags.map((tag) => `#${tag.replace(/^#/, '')}`);
+    return {
+      articleId: article.id,
+      profileId: dto.profileId,
+      title: article.title,
+      description: [caption.text, hashtags.join(' ')]
+        .filter(Boolean)
+        .join('\n\n'),
+      url: article.articleUrl,
+      imageUrl: article.coverImageUrl,
+      delay: this.randomInt(dto.delayMin, dto.delayMax),
+      sourceType: 'JSON' as const,
+      externalId: this.slotExternalId(
+        article.id,
+        dto.profileId,
+        slot,
+        captions.length,
+      ),
+      socialAngle: caption.angle,
+      rawData: caption as Prisma.InputJsonValue,
+    };
+  }
+
+  /** La variante 0 garde le format historique : les posts déjà en base
+   * restent reconnus par leur `externalId` et sont mis à jour, pas dupliqués. */
+  slotExternalId(
+    articleId: string,
+    profileId: string,
+    slot: number,
+    captionCount: number,
+  ) {
+    const index = slot % captionCount;
+    const variant = Math.floor(slot / captionCount);
+    return variant === 0
+      ? `${articleId}:${profileId}:${index}`
+      : `${articleId}:${profileId}:${index}:v${variant}`;
   }
 
   private articleData(payload: ArticlePayload, jsonUrl: string, coverImageUrl?: string) {

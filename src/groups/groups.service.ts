@@ -44,7 +44,7 @@ export class GroupsService {
   }
 
   async findCatalog({ page, limit }: PaginationDto) {
-    const [data, total] = await this.prisma.$transaction([
+    const [groups, total] = await this.prisma.$transaction([
       this.prisma.group.findMany({
       include: {
         profiles: { include: { profile: true } },
@@ -56,6 +56,24 @@ export class GroupsService {
       }),
       this.prisma.group.count(),
     ]);
+    // Le stock encore publiable : c'est lui qui déclenche l'alimentation
+    // automatique, pas le nombre total de cibles déjà distribuées.
+    const stocks = await this.prisma.postTarget.groupBy({
+      by: ['groupId'],
+      where: {
+        groupId: { in: groups.map(({ id }) => id) },
+        status: 'AVAILABLE',
+        post: { status: 'AVAILABLE' },
+      },
+      _count: { _all: true },
+    });
+    const available = new Map(
+      stocks.map((stock) => [stock.groupId, stock._count._all]),
+    );
+    const data = groups.map((group) => ({
+      ...group,
+      availablePosts: available.get(group.id) ?? 0,
+    }));
     return paginated(data, total, page, limit);
   }
 

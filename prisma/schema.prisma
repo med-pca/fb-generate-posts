@@ -177,6 +177,7 @@ model AutomationSetting {
   id                       String   @id @default("global")
   autoReplenishEnabled     Boolean  @default(true) @map("auto_replenish_enabled")
   minimumAvailablePerProfile Int    @default(10) @map("minimum_available_per_profile")
+  minimumAvailablePerGroup   Int    @default(8) @map("minimum_available_per_group")
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
