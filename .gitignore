@@ -1,0 +1,10 @@
+# Secrets d'environnement. .env.example reste suivi comme modèle.
+# Sans cette règle, un `git add .` remet .env dans l'index : c'est ce qui a
+# annulé le commit e0411ed1.
+.env
+.env.*
+!.env.example
+
+# Caches locaux
+coverage/
+dist/tsconfig.tsbuildinfo
