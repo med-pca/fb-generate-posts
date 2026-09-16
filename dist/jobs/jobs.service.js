@@ -149,10 +149,81 @@ let JobsService = class JobsService {
                 id: post.id,
                 title: post.title,
                 description: post.description,
-                url: post.url,
                 image: post.imageUrl ?? job.profile.defaultImageUrl,
                 delay: post.delay,
+                comment: { text: post.description, willReceiveLink: Boolean(post.url) },
             })),
+        };
+    }
+    async claimBatch({ profileExternalIds, limit }) {
+        const requested = [...new Set(profileExternalIds ?? [])];
+        const profiles = await this.prisma.profile.findMany({
+            where: {
+                status: 'ACTIVE',
+                externalId: requested.length ? { in: requested } : { not: null },
+            },
+            select: { id: true, name: true, externalId: true },
+            orderBy: { createdAt: 'asc' },
+            take: limit,
+        });
+        if (!profiles.length) {
+            return { requested: limit, claimed: 0, jobs: [], skipped: [] };
+        }
+        const results = await Promise.all(profiles.map(async (profile) => {
+            const externalId = profile.externalId ?? '';
+            try {
+                const claim = await this.claimByProfileExternalId(externalId);
+                if ('jobId' in claim)
+                    return { status: 'claimed', ...claim };
+                return {
+                    status: claim.activeJobId ? 'busy' : 'empty',
+                    profileExternalId: externalId,
+                    profileName: profile.name,
+                    message: claim.message,
+                };
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : 'Erreur inconnue';
+                await this.log({
+                    profileId: profile.id,
+                    eventType: 'CLAIM_FAILED',
+                    level: 'ERROR',
+                    message,
+                });
+                return {
+                    status: 'error',
+                    profileExternalId: externalId,
+                    profileName: profile.name,
+                    message,
+                };
+            }
+        }));
+        const jobs = [];
+        const skipped = [];
+        for (const result of results) {
+            if (result.status === 'claimed')
+                jobs.push(result);
+            else
+                skipped.push(result);
+        }
+        await this.log({
+            eventType: 'JOBS_BATCH_CLAIMED',
+            level: jobs.length ? 'INFO' : 'WARN',
+            message: `${jobs.length} job(s) réservé(s) sur ${profiles.length} profil(s)`,
+            metadata: {
+                claimed: jobs.length,
+                skipped: skipped.map(({ status, profileExternalId }) => ({
+                    status,
+                    profileExternalId,
+                })),
+            },
+        });
+        return {
+            requested: profiles.length,
+            claimed: jobs.length,
+            posts: jobs.reduce((total, job) => total + job.posts.length, 0),
+            jobs,
+            skipped,
         };
     }
     async claimByProfileExternalId(profileExternalId, groupExternalId) {
@@ -161,6 +232,29 @@ let JobsService = class JobsService {
         });
         if (!profile) {
             throw new common_1.NotFoundException(`Profil introuvable pour externalId=${profileExternalId}`);
+        }
+        const active = await this.prisma.publicationJob.findFirst({
+            where: {
+                profileId: profile.id,
+                status: client_1.JobStatus.CLAIMED,
+                claimExpiresAt: { gt: new Date() },
+            },
+            select: { id: true, claimExpiresAt: true },
+        });
+        if (active) {
+            await this.log({
+                profileId: profile.id,
+                jobId: active.id,
+                eventType: 'CLAIM_SKIPPED_BUSY',
+                message: `Profil déjà occupé par le job ${active.id}`,
+                metadata: { claimExpiresAt: active.claimExpiresAt.toISOString() },
+            });
+            return {
+                job: null,
+                posts: [],
+                activeJobId: active.id,
+                message: `Ce profil traite déjà le job ${active.id}`,
+            };
         }
         await this.settings.replenishProfile(profile.id);
         const groups = await this.prisma.group.findMany({
@@ -192,7 +286,7 @@ let JobsService = class JobsService {
                 profileId: profile.id,
                 groupId: group.id,
             });
-            if (result.posts.length)
+            if ('jobId' in result)
                 return result;
         }
         return { job: null, posts: [], message: 'Aucun post disponible' };
@@ -215,7 +309,7 @@ let JobsService = class JobsService {
     async complete(jobId) {
         const job = await this.prisma.publicationJob.findUnique({
             where: { id: jobId },
-            include: { items: true },
+            include: { items: { include: { post: { select: { url: true } } } } },
         });
         if (!job)
             throw new common_1.NotFoundException('Job introuvable');
@@ -224,17 +318,252 @@ let JobsService = class JobsService {
         if (unfinished) {
             throw new common_1.BadRequestException('Tous les posts doivent être finalisés');
         }
-        const allFailed = job.items.every((item) => item.status === client_1.TargetStatus.FAILED);
-        const someFailed = job.items.some((item) => item.status === client_1.TargetStatus.FAILED);
-        const status = allFailed
-            ? client_1.JobStatus.FAILED
-            : someFailed
-                ? client_1.JobStatus.PARTIALLY_COMPLETED
-                : client_1.JobStatus.COMPLETED;
-        return this.prisma.publicationJob.update({
-            where: { id: jobId },
-            data: { status, completedAt: new Date() },
+        const awaiting = job.items.filter((item) => this.awaitsLink(item));
+        const missingComments = job.items.filter((item) => item.status === client_1.TargetStatus.PUBLISHED &&
+            item.post.url &&
+            !item.commentedAt);
+        const outcome = this.outcomeFor(job.items);
+        const status = awaiting.length ? client_1.JobStatus.AWAITING_LINK : outcome;
+        const updated = await this.prisma.$transaction(async (tx) => {
+            const result = await tx.publicationJob.update({
+                where: { id: jobId },
+                data: { status, completedAt: new Date() },
+            });
+            if (missingComments.length) {
+                await tx.activityLog.create({
+                    data: {
+                        jobId,
+                        profileId: job.profileId,
+                        groupId: job.groupId,
+                        eventType: 'COMMENT_MISSING',
+                        level: 'WARN',
+                        message: `${missingComments.length} post(s) publié(s) sans commentaire : leur URL ne pourra pas être placée`,
+                        metadata: { postIds: missingComments.map((item) => item.postId) },
+                    },
+                });
+            }
+            await tx.activityLog.create({
+                data: {
+                    jobId,
+                    profileId: job.profileId,
+                    groupId: job.groupId,
+                    eventType: awaiting.length ? 'JOB_AWAITING_LINK' : 'JOB_COMPLETED',
+                    message: awaiting.length
+                        ? `${awaiting.length} commentaire(s) à basculer sur l'URL`
+                        : `Job clôturé avec le statut ${outcome}`,
+                    metadata: { status, awaitingLink: awaiting.length },
+                },
+            });
+            return result;
         });
+        return {
+            ...updated,
+            awaitingLink: awaiting.length,
+            missingComments: missingComments.length,
+        };
+    }
+    async markCommented(jobId, postId, dto) {
+        const item = await this.prisma.publicationJobItem.findUnique({
+            where: { jobId_postId: { jobId, postId } },
+            include: { job: true, postTarget: true },
+        });
+        if (!item)
+            throw new common_1.NotFoundException('Post introuvable dans ce job');
+        if (item.status !== client_1.TargetStatus.PUBLISHED) {
+            throw new common_1.BadRequestException('Le post doit être confirmé publié avant d’enregistrer son commentaire');
+        }
+        if (item.commentedAt) {
+            if (item.commentExternalId !== dto.commentExternalId) {
+                await this.log({
+                    jobId,
+                    postId,
+                    eventType: 'COMMENT_DUPLICATE',
+                    level: 'WARN',
+                    message: 'Un second commentaire a été signalé pour ce post',
+                    metadata: {
+                        enregistre: item.commentExternalId,
+                        recu: dto.commentExternalId,
+                    },
+                });
+            }
+            return item;
+        }
+        if (!this.stillOwnsTarget(item.job, item.postTarget)) {
+            await this.logLostClaim(jobId, postId, item.postTargetId, item.status);
+            throw new common_1.ConflictException('La réservation de ce post a expiré et a été reprise. ' +
+                'Ne republiez pas ce post : signalez-le à un administrateur.');
+        }
+        const commentedAt = dto.commentedAt
+            ? new Date(dto.commentedAt)
+            : new Date();
+        const data = { commentExternalId: dto.commentExternalId, commentedAt };
+        return this.prisma.$transaction(async (tx) => {
+            const updated = await tx.publicationJobItem.update({
+                where: { id: item.id },
+                data,
+            });
+            await tx.postTarget.update({ where: { id: item.postTargetId }, data });
+            await tx.activityLog.create({
+                data: {
+                    jobId,
+                    postId,
+                    postTargetId: item.postTargetId,
+                    eventType: 'POST_COMMENTED',
+                    message: 'Commentaire posé, en attente de l’URL',
+                    metadata: { commentExternalId: dto.commentExternalId },
+                },
+            });
+            return updated;
+        });
+    }
+    async linkUpdates(jobId) {
+        const job = await this.prisma.publicationJob.findUnique({
+            where: { id: jobId },
+            include: {
+                profile: { select: { id: true, name: true, externalId: true } },
+                group: { select: { id: true, name: true, externalId: true } },
+                items: { include: { post: { select: { url: true, title: true } } } },
+            },
+        });
+        if (!job)
+            throw new common_1.NotFoundException('Job introuvable');
+        if (job.status === client_1.JobStatus.CLAIMED) {
+            throw new common_1.BadRequestException('Clôturez le job (complete) avant de basculer les commentaires sur l’URL');
+        }
+        return {
+            jobId: job.id,
+            status: job.status,
+            completedAt: job.completedAt,
+            profile: job.profile,
+            group: job.group,
+            updates: job.items
+                .filter((item) => this.awaitsLink(item))
+                .map((item) => ({
+                postId: item.postId,
+                title: item.post.title,
+                commentExternalId: item.commentExternalId,
+                url: item.post.url,
+                externalPostUrl: item.externalPostUrl,
+            })),
+        };
+    }
+    async pendingLinkUpdates(profileExternalId, limit) {
+        const jobs = await this.prisma.publicationJob.findMany({
+            where: {
+                status: { not: client_1.JobStatus.CLAIMED },
+                ...(profileExternalId
+                    ? { profile: { externalId: profileExternalId } }
+                    : {}),
+            },
+            include: {
+                profile: { select: { id: true, name: true, externalId: true } },
+                group: { select: { id: true, name: true, externalId: true } },
+                items: { include: { post: { select: { url: true, title: true } } } },
+            },
+            orderBy: { completedAt: 'asc' },
+            take: limit,
+        });
+        return jobs
+            .map((job) => ({
+            jobId: job.id,
+            completedAt: job.completedAt,
+            profile: job.profile,
+            group: job.group,
+            updates: job.items
+                .filter((item) => this.awaitsLink(item))
+                .map((item) => ({
+                postId: item.postId,
+                title: item.post.title,
+                commentExternalId: item.commentExternalId,
+                url: item.post.url,
+            })),
+        }))
+            .filter((job) => job.updates.length > 0);
+    }
+    async markLinkUpdated(jobId, postId, dto) {
+        const item = await this.prisma.publicationJobItem.findUnique({
+            where: { jobId_postId: { jobId, postId } },
+            include: { job: true, post: { select: { url: true } } },
+        });
+        if (!item)
+            throw new common_1.NotFoundException('Post introuvable dans ce job');
+        if (item.job.status === client_1.JobStatus.CLAIMED) {
+            throw new common_1.BadRequestException('Clôturez le job (complete) avant de basculer les commentaires sur l’URL');
+        }
+        if (!item.commentExternalId) {
+            throw new common_1.BadRequestException('Aucun commentaire enregistré pour ce post : rien à modifier');
+        }
+        if (!item.post.url) {
+            throw new common_1.BadRequestException('Ce post n’a pas d’URL à placer');
+        }
+        if (item.linkUpdatedAt)
+            return { ...item, remaining: 0 };
+        const linkUpdatedAt = dto.linkUpdatedAt
+            ? new Date(dto.linkUpdatedAt)
+            : new Date();
+        return this.prisma.$transaction(async (tx) => {
+            const updated = await tx.publicationJobItem.update({
+                where: { id: item.id },
+                data: { linkUpdatedAt },
+            });
+            await tx.postTarget.update({
+                where: { id: item.postTargetId },
+                data: { linkUpdatedAt },
+            });
+            await tx.activityLog.create({
+                data: {
+                    jobId,
+                    postId,
+                    postTargetId: item.postTargetId,
+                    eventType: 'COMMENT_LINK_UPDATED',
+                    message: 'Commentaire modifié avec l’URL',
+                    metadata: {
+                        commentExternalId: item.commentExternalId,
+                        url: item.post.url,
+                    },
+                },
+            });
+            const siblings = await tx.publicationJobItem.findMany({
+                where: { jobId },
+                include: { post: { select: { url: true } } },
+            });
+            const remaining = siblings.filter((sibling) => this.awaitsLink(sibling)).length;
+            if (!remaining && item.job.status === client_1.JobStatus.AWAITING_LINK) {
+                const status = this.outcomeFor(siblings);
+                await tx.publicationJob.update({
+                    where: { id: jobId },
+                    data: { status },
+                });
+                await tx.activityLog.create({
+                    data: {
+                        jobId,
+                        profileId: item.job.profileId,
+                        groupId: item.job.groupId,
+                        eventType: 'JOB_FINALIZED',
+                        message: `Toutes les URL sont en place, job clôturé avec le statut ${status}`,
+                        metadata: { status },
+                    },
+                });
+            }
+            return { ...updated, remaining };
+        });
+    }
+    awaitsLink(item) {
+        return (item.status === client_1.TargetStatus.PUBLISHED &&
+            Boolean(item.post.url) &&
+            item.commentedAt !== null &&
+            item.linkUpdatedAt === null);
+    }
+    outcomeFor(items) {
+        if (items.every((item) => item.status === client_1.TargetStatus.FAILED)) {
+            return client_1.JobStatus.FAILED;
+        }
+        return items.some((item) => item.status === client_1.TargetStatus.FAILED)
+            ? client_1.JobStatus.PARTIALLY_COMPLETED
+            : client_1.JobStatus.COMPLETED;
+    }
+    log(data) {
+        return this.prisma.activityLog.create({ data });
     }
     async updateItem(jobId, postId, status, data) {
         const item = await this.prisma.publicationJobItem.findUnique({

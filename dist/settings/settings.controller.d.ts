@@ -9,6 +9,7 @@ export declare class SettingsController {
         updatedAt: Date;
         autoReplenishEnabled: boolean;
         minimumAvailablePerProfile: number;
+        minimumAvailablePerGroup: number;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     update(dto: UpdateSettingsDto): import("@prisma/client").Prisma.Prisma__AutomationSettingClient<{
         id: string;
@@ -16,30 +17,48 @@ export declare class SettingsController {
         updatedAt: Date;
         autoReplenishEnabled: boolean;
         minimumAvailablePerProfile: number;
+        minimumAvailablePerGroup: number;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     replenishNow(): Promise<({
         profileId: string;
+        available: number;
         generated: number;
+        reused: number;
         skipped: string;
-        available?: undefined;
-        remaining?: undefined;
+        groups: never[];
     } | {
         profileId: string;
         available: number;
         generated: number;
-        skipped?: undefined;
-        remaining?: undefined;
-    } | {
-        profileId: string;
-        available: number;
-        generated: number;
-        skipped: string;
-        remaining?: undefined;
-    } | {
-        profileId: string;
-        available: number;
-        generated: number;
+        reused: number;
+        skipped: string | undefined;
+        groups: {
+            groupId: string;
+            name: string;
+            available: number;
+            missing: number;
+        }[];
         remaining: number;
-        skipped?: undefined;
     })[]>;
+    replenishProfile(profileId: string): Promise<{
+        profileId: string;
+        available: number;
+        generated: number;
+        reused: number;
+        skipped: string;
+        groups: never[];
+    } | {
+        profileId: string;
+        available: number;
+        generated: number;
+        reused: number;
+        skipped: string | undefined;
+        groups: {
+            groupId: string;
+            name: string;
+            available: number;
+            missing: number;
+        }[];
+        remaining: number;
+    }>;
 }

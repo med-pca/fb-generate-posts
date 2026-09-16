@@ -42,8 +42,8 @@ let PostsService = class PostsService {
             include: { targets: true },
         });
     }
-    async findAll(profileId, { page, limit }) {
-        const where = profileId ? { profileId } : {};
+    async findAll({ page, limit, ...filters }) {
+        const where = this.buildWhere(filters);
         const [data, total] = await this.prisma.$transaction([
             this.prisma.post.findMany({
                 where,
@@ -64,6 +64,89 @@ let PostsService = class PostsService {
     }
     update(id, dto) {
         return this.prisma.post.update({ where: { id }, data: dto });
+    }
+    async remove(id, force = false) {
+        const post = await this.prisma.post.findUniqueOrThrow({
+            where: { id },
+            select: { id: true, targets: this.activeClaimSelect() },
+        });
+        if (post.targets.length && !force) {
+            throw new common_1.ConflictException('Ce post est réservé par un automate en cours. Attendez la fin du ' +
+                'job ou utilisez force=true pour le supprimer malgré tout.');
+        }
+        return this.prisma.post.delete({ where: { id } });
+    }
+    async bulkRemove(dto) {
+        const { dryRun, force, ...filters } = dto;
+        if (!this.hasCriteria(filters)) {
+            throw new common_1.BadRequestException('Précisez au moins ids, profileId, groupId, articleId, status ou sourceType');
+        }
+        const where = this.buildWhere(filters);
+        return this.prisma.$transaction(async (tx) => {
+            const matched = await tx.post.count({ where });
+            const claimed = await tx.post.findMany({
+                where: {
+                    AND: [where, { targets: { some: this.activeClaimWhere() } }],
+                },
+                select: { id: true, title: true },
+            });
+            const blocked = force ? [] : claimed;
+            if (dryRun || matched - blocked.length === 0) {
+                return this.report(matched, 0, blocked, dryRun);
+            }
+            const { count } = await tx.post.deleteMany({
+                where: blocked.length
+                    ? { AND: [where, { id: { notIn: blocked.map(({ id }) => id) } }] }
+                    : where,
+            });
+            return this.report(matched, count, blocked, dryRun);
+        });
+    }
+    report(matched, deleted, blocked, dryRun) {
+        return {
+            dryRun,
+            matched,
+            deleted,
+            blocked: blocked.length,
+            blockedPosts: blocked,
+        };
+    }
+    hasCriteria(filters) {
+        return Boolean(filters.ids?.length ||
+            filters.profileId ||
+            filters.groupId ||
+            filters.articleId ||
+            filters.status ||
+            filters.sourceType);
+    }
+    buildWhere(filters) {
+        const where = {};
+        if (filters.ids?.length)
+            where.id = { in: [...new Set(filters.ids)] };
+        if (filters.profileId)
+            where.profileId = filters.profileId;
+        if (filters.articleId)
+            where.articleId = filters.articleId;
+        if (filters.status)
+            where.status = filters.status;
+        if (filters.sourceType)
+            where.sourceType = filters.sourceType;
+        if (filters.groupId)
+            where.targets = { some: { groupId: filters.groupId } };
+        if (filters.search?.trim()) {
+            const contains = filters.search.trim();
+            where.OR = [
+                { title: { contains, mode: 'insensitive' } },
+                { description: { contains, mode: 'insensitive' } },
+            ];
+        }
+        return where;
+    }
+    activeClaimWhere() {
+        return { status: 'CLAIMED', claimExpiresAt: { gt: new Date() } };
+    }
+    activeClaimSelect() {
+        return { where: this.activeClaimWhere(), select: { id: true } };
     }
 };
 exports.PostsService = PostsService;

@@ -93,44 +93,67 @@ let ArticlesService = class ArticlesService {
         if (validGroups !== groupIds.length) {
             throw new common_1.BadRequestException('Tous les groupes doivent être associés au profil sélectionné');
         }
+        const captions = this.captionsOf(article);
+        if (!captions.length) {
+            throw new common_1.BadRequestException('Cet article ne contient aucune légende exploitable');
+        }
+        return this.prisma.$transaction(captions.map((_, slot) => {
+            const { profileId, sourceType, externalId, ...content } = this.postDataForSlot(article, slot, dto);
+            return this.prisma.post.upsert({
+                where: { sourceType_externalId: { sourceType, externalId } },
+                create: {
+                    ...content,
+                    profileId,
+                    sourceType,
+                    externalId,
+                    targets: { create: groupIds.map((groupId) => ({ groupId })) },
+                },
+                update: {
+                    ...content,
+                    targets: {
+                        deleteMany: { status: 'AVAILABLE', groupId: { notIn: groupIds } },
+                        createMany: {
+                            data: groupIds.map((groupId) => ({ groupId })),
+                            skipDuplicates: true,
+                        },
+                    },
+                },
+                include: { targets: true },
+            });
+        }));
+    }
+    captionsOf(article) {
         const captions = article.captions;
+        return Array.isArray(captions)
+            ? captions.filter((caption) => caption?.text)
+            : [];
+    }
+    postDataForSlot(article, slot, dto) {
+        const captions = this.captionsOf(article);
+        const caption = captions[slot % captions.length];
         const hashtags = article.hashtags.map((tag) => `#${tag.replace(/^#/, '')}`);
-        return this.prisma.$transaction(captions.map((caption, index) => this.prisma.post.upsert({
-            where: {
-                sourceType_externalId: {
-                    sourceType: 'JSON',
-                    externalId: `${article.id}:${dto.profileId}:${index}`,
-                },
-            },
-            create: {
-                articleId: article.id,
-                profileId: dto.profileId,
-                title: article.title,
-                description: [caption.text, hashtags.join(' ')].filter(Boolean).join('\n\n'),
-                url: article.articleUrl,
-                imageUrl: article.coverImageUrl,
-                delay: this.randomInt(dto.delayMin, dto.delayMax),
-                sourceType: 'JSON',
-                externalId: `${article.id}:${dto.profileId}:${index}`,
-                socialAngle: caption.angle,
-                rawData: caption,
-                targets: { create: groupIds.map((groupId) => ({ groupId })) },
-            },
-            update: {
-                title: article.title,
-                description: [caption.text, hashtags.join(' ')].filter(Boolean).join('\n\n'),
-                url: article.articleUrl,
-                imageUrl: article.coverImageUrl,
-                delay: this.randomInt(dto.delayMin, dto.delayMax),
-                socialAngle: caption.angle,
-                rawData: caption,
-                targets: {
-                    deleteMany: {},
-                    create: groupIds.map((groupId) => ({ groupId })),
-                },
-            },
-            include: { targets: true },
-        })));
+        return {
+            articleId: article.id,
+            profileId: dto.profileId,
+            title: article.title,
+            description: [caption.text, hashtags.join(' ')]
+                .filter(Boolean)
+                .join('\n\n'),
+            url: article.articleUrl,
+            imageUrl: article.coverImageUrl,
+            delay: this.randomInt(dto.delayMin, dto.delayMax),
+            sourceType: 'JSON',
+            externalId: this.slotExternalId(article.id, dto.profileId, slot, captions.length),
+            socialAngle: caption.angle,
+            rawData: caption,
+        };
+    }
+    slotExternalId(articleId, profileId, slot, captionCount) {
+        const index = slot % captionCount;
+        const variant = Math.floor(slot / captionCount);
+        return variant === 0
+            ? `${articleId}:${profileId}:${index}`
+            : `${articleId}:${profileId}:${index}:v${variant}`;
     }
     articleData(payload, jsonUrl, coverImageUrl) {
         return {

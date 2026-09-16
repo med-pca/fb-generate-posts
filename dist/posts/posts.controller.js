@@ -20,7 +20,8 @@ const admin_auth_guard_1 = require("../auth/admin-auth.guard");
 const create_post_dto_1 = require("./dto/create-post.dto");
 const posts_service_1 = require("./posts.service");
 const update_post_dto_1 = require("./dto/update-post.dto");
-const pagination_dto_1 = require("../common/dto/pagination.dto");
+const query_posts_dto_1 = require("./dto/query-posts.dto");
+const bulk_delete_posts_dto_1 = require("./dto/bulk-delete-posts.dto");
 let PostsController = class PostsController {
     posts;
     constructor(posts) {
@@ -29,14 +30,20 @@ let PostsController = class PostsController {
     create(dto) {
         return this.posts.create(dto);
     }
-    findAll(profileId, pagination) {
-        return this.posts.findAll(profileId, pagination);
+    findAll(query) {
+        return this.posts.findAll(query);
+    }
+    bulkRemove(dto) {
+        return this.posts.bulkRemove(dto);
     }
     findOne(id) {
         return this.posts.findOne(id);
     }
     update(id, dto) {
         return this.posts.update(id, dto);
+    }
+    remove(id, force) {
+        return this.posts.remove(id, force === 'true');
     }
 };
 exports.PostsController = PostsController;
@@ -49,15 +56,25 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], PostsController.prototype, "create", null);
 __decorate([
-    openapi.ApiQuery({ name: "profileId", required: false }),
     (0, common_1.Get)(),
     openapi.ApiResponse({ status: 200 }),
-    __param(0, (0, common_1.Query)('profileId')),
-    __param(1, (0, common_1.Query)()),
+    __param(0, (0, common_1.Query)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, pagination_dto_1.PaginationDto]),
+    __metadata("design:paramtypes", [query_posts_dto_1.QueryPostsDto]),
     __metadata("design:returntype", void 0)
 ], PostsController.prototype, "findAll", null);
+__decorate([
+    (0, common_1.Post)('bulk-delete'),
+    (0, common_1.HttpCode)(200),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Supprimer plusieurs posts par sélection ou par filtre (dryRun pour compter d’abord)',
+    }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [bulk_delete_posts_dto_1.BulkDeletePostsDto]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "bulkRemove", null);
 __decorate([
     (0, common_1.Get)(':id'),
     openapi.ApiResponse({ status: 200 }),
@@ -75,6 +92,16 @@ __decorate([
     __metadata("design:paramtypes", [String, update_post_dto_1.UpdatePostDto]),
     __metadata("design:returntype", void 0)
 ], PostsController.prototype, "update", null);
+__decorate([
+    (0, common_1.Delete)(':id'),
+    (0, swagger_1.ApiQuery)({ name: 'force', required: false, type: Boolean }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Query)('force')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], PostsController.prototype, "remove", null);
 exports.PostsController = PostsController = __decorate([
     (0, swagger_1.ApiTags)('posts'),
     (0, swagger_1.ApiBearerAuth)(),

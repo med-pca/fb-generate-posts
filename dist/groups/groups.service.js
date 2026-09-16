@@ -49,7 +49,7 @@ let GroupsService = class GroupsService {
         });
     }
     async findCatalog({ page, limit }) {
-        const [data, total] = await this.prisma.$transaction([
+        const [groups, total] = await this.prisma.$transaction([
             this.prisma.group.findMany({
                 include: {
                     profiles: { include: { profile: true } },
@@ -61,6 +61,20 @@ let GroupsService = class GroupsService {
             }),
             this.prisma.group.count(),
         ]);
+        const stocks = await this.prisma.postTarget.groupBy({
+            by: ['groupId'],
+            where: {
+                groupId: { in: groups.map(({ id }) => id) },
+                status: 'AVAILABLE',
+                post: { status: 'AVAILABLE' },
+            },
+            _count: { _all: true },
+        });
+        const available = new Map(stocks.map((stock) => [stock.groupId, stock._count._all]));
+        const data = groups.map((group) => ({
+            ...group,
+            availablePosts: available.get(group.id) ?? 0,
+        }));
         return (0, paginated_1.paginated)(data, total, page, limit);
     }
     update(id, dto) {

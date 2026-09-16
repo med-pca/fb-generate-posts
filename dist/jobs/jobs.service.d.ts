@@ -2,8 +2,53 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaimJobDto } from './dto/claim-job.dto';
+import { ClaimBatchDto } from './dto/claim-batch.dto';
+import { CommentJobItemDto } from './dto/comment-job-item.dto';
+import { LinkUpdatedJobItemDto } from './dto/link-updated-job-item.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
 import { SettingsService } from '../settings/settings.service';
+type ClaimedPost = {
+    id: string;
+    title: string;
+    description: string;
+    image: string | null;
+    delay: number;
+    comment: {
+        text: string;
+        willReceiveLink: boolean;
+    };
+};
+type ClaimedJob = {
+    jobId: string;
+    claimExpiresAt: Date;
+    profile: {
+        id: string;
+        externalId: string | null;
+        name: string;
+    };
+    group: {
+        id: string;
+        externalId: string | null;
+        name: string;
+        url: string;
+    };
+    posts: ClaimedPost[];
+};
+type EmptyClaim = {
+    job: null;
+    posts: ClaimedPost[];
+    message?: string;
+    activeJobId?: string;
+};
+type BatchSkip = {
+    status: 'busy' | 'empty' | 'error';
+    profileExternalId: string;
+    profileName: string;
+    message?: string;
+};
+type BatchClaim = {
+    status: 'claimed';
+} & ClaimedJob;
 export declare class JobsService {
     private readonly prisma;
     private readonly config;
@@ -14,80 +59,32 @@ export declare class JobsService {
         externalId: string | null;
         id: string;
     }[]>;
-    claim(dto: ClaimJobDto): Promise<{
-        job: null;
-        posts: never[];
-        jobId?: undefined;
-        claimExpiresAt?: undefined;
-        profile?: undefined;
-        group?: undefined;
+    claim(dto: ClaimJobDto): Promise<ClaimedJob | EmptyClaim>;
+    claimBatch({ profileExternalIds, limit }: ClaimBatchDto): Promise<{
+        requested: number;
+        claimed: number;
+        jobs: never[];
+        skipped: never[];
+        posts?: undefined;
     } | {
-        jobId: string;
-        claimExpiresAt: Date;
-        profile: {
-            id: string;
-            externalId: string | null;
-            name: string;
-        };
-        group: {
-            id: string;
-            externalId: string | null;
-            name: string;
-            url: string;
-        };
-        posts: {
-            id: string;
-            title: string;
-            description: string;
-            url: string | null;
-            image: string | null;
-            delay: number;
-        }[];
-        job?: undefined;
+        requested: number;
+        claimed: number;
+        posts: number;
+        jobs: BatchClaim[];
+        skipped: BatchSkip[];
     }>;
-    claimByProfileExternalId(profileExternalId: string, groupExternalId?: string): Promise<{
-        job: null;
-        posts: never[];
-        jobId?: undefined;
-        claimExpiresAt?: undefined;
-        profile?: undefined;
-        group?: undefined;
-    } | {
-        jobId: string;
-        claimExpiresAt: Date;
-        profile: {
-            id: string;
-            externalId: string | null;
-            name: string;
-        };
-        group: {
-            id: string;
-            externalId: string | null;
-            name: string;
-            url: string;
-        };
-        posts: {
-            id: string;
-            title: string;
-            description: string;
-            url: string | null;
-            image: string | null;
-            delay: number;
-        }[];
-        job?: undefined;
-    } | {
-        job: null;
-        posts: never[];
-        message: string;
-    }>;
+    claimByProfileExternalId(profileExternalId: string, groupExternalId?: string): Promise<ClaimedJob | EmptyClaim>;
     markConsumed(jobId: string, postId: string): Promise<{
         error: string | null;
         status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        publishedAt: Date | null;
         postId: string;
+        publishedAt: Date | null;
+        commentExternalId: string | null;
+        commentedAt: Date | null;
+        linkUpdatedAt: Date | null;
         externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
@@ -98,8 +95,11 @@ export declare class JobsService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        publishedAt: Date | null;
         postId: string;
+        publishedAt: Date | null;
+        commentExternalId: string | null;
+        commentedAt: Date | null;
+        linkUpdatedAt: Date | null;
         externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
@@ -110,13 +110,18 @@ export declare class JobsService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        publishedAt: Date | null;
         postId: string;
+        publishedAt: Date | null;
+        commentExternalId: string | null;
+        commentedAt: Date | null;
+        linkUpdatedAt: Date | null;
         externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
     }>;
     complete(jobId: string): Promise<{
+        awaitingLink: number;
+        missingComments: number;
         status: import("@prisma/client").$Enums.JobStatus;
         id: string;
         createdAt: Date;
@@ -127,9 +132,86 @@ export declare class JobsService {
         claimExpiresAt: Date;
         completedAt: Date | null;
     }>;
+    markCommented(jobId: string, postId: string, dto: CommentJobItemDto): Promise<{
+        error: string | null;
+        status: import("@prisma/client").$Enums.TargetStatus;
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        postId: string;
+        publishedAt: Date | null;
+        commentExternalId: string | null;
+        commentedAt: Date | null;
+        linkUpdatedAt: Date | null;
+        externalPostUrl: string | null;
+        postTargetId: string;
+        jobId: string;
+    }>;
+    linkUpdates(jobId: string): Promise<{
+        jobId: string;
+        status: "FAILED" | "AWAITING_LINK" | "PARTIALLY_COMPLETED" | "COMPLETED" | "EXPIRED";
+        completedAt: Date | null;
+        profile: {
+            name: string;
+            externalId: string | null;
+            id: string;
+        };
+        group: {
+            name: string;
+            externalId: string | null;
+            id: string;
+        };
+        updates: {
+            postId: string;
+            title: string;
+            commentExternalId: string | null;
+            url: string | null;
+            externalPostUrl: string | null;
+        }[];
+    }>;
+    pendingLinkUpdates(profileExternalId: string | undefined, limit: number): Promise<{
+        jobId: string;
+        completedAt: Date | null;
+        profile: {
+            name: string;
+            externalId: string | null;
+            id: string;
+        };
+        group: {
+            name: string;
+            externalId: string | null;
+            id: string;
+        };
+        updates: {
+            postId: string;
+            title: string;
+            commentExternalId: string | null;
+            url: string | null;
+        }[];
+    }[]>;
+    markLinkUpdated(jobId: string, postId: string, dto: LinkUpdatedJobItemDto): Promise<{
+        remaining: number;
+        error: string | null;
+        status: import("@prisma/client").$Enums.TargetStatus;
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        postId: string;
+        publishedAt: Date | null;
+        commentExternalId: string | null;
+        commentedAt: Date | null;
+        linkUpdatedAt: Date | null;
+        externalPostUrl: string | null;
+        postTargetId: string;
+        jobId: string;
+    }>;
+    private awaitsLink;
+    private outcomeFor;
+    private log;
     private updateItem;
     private canTransition;
     private stillOwnsTarget;
     private logLostClaim;
     private randomInt;
 }
+export {};

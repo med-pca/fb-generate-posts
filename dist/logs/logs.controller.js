@@ -12,12 +12,15 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.LogsController = void 0;
+exports.LogsAdminController = exports.LogsController = void 0;
 const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
+const admin_auth_guard_1 = require("../auth/admin-auth.guard");
 const automation_auth_guard_1 = require("../auth/automation-auth.guard");
 const create_log_dto_1 = require("./dto/create-log.dto");
+const query_logs_dto_1 = require("./dto/query-logs.dto");
+const logs_summary_dto_1 = require("./dto/logs-summary.dto");
 const logs_service_1 = require("./logs.service");
 let LogsController = class LogsController {
     logs;
@@ -56,4 +59,46 @@ exports.LogsController = LogsController = __decorate([
     (0, common_1.Controller)('logs'),
     __metadata("design:paramtypes", [logs_service_1.LogsService])
 ], LogsController);
+let LogsAdminController = class LogsAdminController {
+    logs;
+    constructor(logs) {
+        this.logs = logs;
+    }
+    search(query) {
+        return this.logs.search(query);
+    }
+    summary(query) {
+        return this.logs.summary(query);
+    }
+};
+exports.LogsAdminController = LogsAdminController;
+__decorate([
+    (0, common_1.Get)(),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Journaux filtrés et paginés (niveau, événement, profil, groupe, post, job, période, recherche)',
+    }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [query_logs_dto_1.QueryLogsDto]),
+    __metadata("design:returntype", void 0)
+], LogsAdminController.prototype, "search", null);
+__decorate([
+    (0, common_1.Get)('summary'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Synthèse décisionnelle : volumes par niveau, événements dominants, profils en échec, incidents ouverts',
+    }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [logs_summary_dto_1.LogsSummaryDto]),
+    __metadata("design:returntype", void 0)
+], LogsAdminController.prototype, "summary", null);
+exports.LogsAdminController = LogsAdminController = __decorate([
+    (0, swagger_1.ApiTags)('logs'),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, common_1.UseGuards)(admin_auth_guard_1.AdminAuthGuard),
+    (0, common_1.Controller)('admin/logs'),
+    __metadata("design:paramtypes", [logs_service_1.LogsService])
+], LogsAdminController);
 //# sourceMappingURL=logs.controller.js.map

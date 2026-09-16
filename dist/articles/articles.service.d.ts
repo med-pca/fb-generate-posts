@@ -4,6 +4,18 @@ import { GenerateArticlePostsDto } from './dto/generate-article-posts.dto';
 import { ImportArticleDto } from './dto/import-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
+type SocialCaption = {
+    text: string;
+    angle?: string;
+};
+type ArticleRecord = {
+    id: string;
+    title: string;
+    articleUrl: string;
+    coverImageUrl: string | null;
+    hashtags: string[];
+    captions: Prisma.JsonValue;
+};
 export declare class ArticlesService {
     private readonly prisma;
     constructor(prisma: PrismaService);
@@ -25,9 +37,9 @@ export declare class ArticlesService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            publishedAt: Date | null;
             title: string;
             rawData: Prisma.JsonValue;
-            publishedAt: Date | null;
             jsonUrl: string;
             excerpt: string | null;
             articleUrl: string;
@@ -62,13 +74,16 @@ export declare class ArticlesService {
                 createdAt: Date;
                 updatedAt: Date;
                 groupId: string;
+                postId: string;
                 claimedAt: Date | null;
                 claimExpiresAt: Date | null;
                 consumedAt: Date | null;
                 publishedAt: Date | null;
+                commentExternalId: string | null;
+                commentedAt: Date | null;
+                linkUpdatedAt: Date | null;
                 attemptsCount: number;
                 lastError: string | null;
-                postId: string;
             }[];
         } & {
             status: import("@prisma/client").$Enums.PostStatus;
@@ -78,9 +93,9 @@ export declare class ArticlesService {
             createdAt: Date;
             updatedAt: Date;
             profileId: string;
-            imageUrl: string | null;
             title: string;
             description: string;
+            imageUrl: string | null;
             delay: number;
             sourceType: import("@prisma/client").$Enums.SourceType;
             rawData: Prisma.JsonValue | null;
@@ -100,9 +115,9 @@ export declare class ArticlesService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        publishedAt: Date | null;
         title: string;
         rawData: Prisma.JsonValue;
-        publishedAt: Date | null;
         jsonUrl: string;
         excerpt: string | null;
         articleUrl: string;
@@ -128,9 +143,9 @@ export declare class ArticlesService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        publishedAt: Date | null;
         title: string;
         rawData: Prisma.JsonValue;
-        publishedAt: Date | null;
         jsonUrl: string;
         excerpt: string | null;
         articleUrl: string;
@@ -156,9 +171,9 @@ export declare class ArticlesService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        publishedAt: Date | null;
         title: string;
         rawData: Prisma.JsonValue;
-        publishedAt: Date | null;
         jsonUrl: string;
         excerpt: string | null;
         articleUrl: string;
@@ -195,9 +210,9 @@ export declare class ArticlesService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        publishedAt: Date | null;
         title: string;
         rawData: Prisma.JsonValue;
-        publishedAt: Date | null;
         jsonUrl: string;
         excerpt: string | null;
         articleUrl: string;
@@ -224,13 +239,16 @@ export declare class ArticlesService {
             createdAt: Date;
             updatedAt: Date;
             groupId: string;
+            postId: string;
             claimedAt: Date | null;
             claimExpiresAt: Date | null;
             consumedAt: Date | null;
             publishedAt: Date | null;
+            commentExternalId: string | null;
+            commentedAt: Date | null;
+            linkUpdatedAt: Date | null;
             attemptsCount: number;
             lastError: string | null;
-            postId: string;
         }[];
     } & {
         status: import("@prisma/client").$Enums.PostStatus;
@@ -240,15 +258,36 @@ export declare class ArticlesService {
         createdAt: Date;
         updatedAt: Date;
         profileId: string;
-        imageUrl: string | null;
         title: string;
         description: string;
+        imageUrl: string | null;
         delay: number;
         sourceType: import("@prisma/client").$Enums.SourceType;
         rawData: Prisma.JsonValue | null;
         articleId: string | null;
         socialAngle: string | null;
     })[]>;
+    captionsOf(article: {
+        captions: Prisma.JsonValue;
+    }): SocialCaption[];
+    postDataForSlot(article: ArticleRecord, slot: number, dto: {
+        profileId: string;
+        delayMin: number;
+        delayMax: number;
+    }): {
+        articleId: string;
+        profileId: string;
+        title: string;
+        description: string;
+        url: string;
+        imageUrl: string | null;
+        delay: number;
+        sourceType: "JSON";
+        externalId: string;
+        socialAngle: string | undefined;
+        rawData: Prisma.InputJsonValue;
+    };
+    slotExternalId(articleId: string, profileId: string, slot: number, captionCount: number): string;
     private articleData;
     private fetchPayload;
     private validatePayload;
@@ -257,3 +296,4 @@ export declare class ArticlesService {
     private isPrivateIp;
     private randomInt;
 }
+export {};

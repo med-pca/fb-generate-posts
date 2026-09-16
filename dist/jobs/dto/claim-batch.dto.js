@@ -9,35 +9,34 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpdateSettingsDto = void 0;
+exports.ClaimBatchDto = void 0;
 const openapi = require("@nestjs/swagger");
 const swagger_1 = require("@nestjs/swagger");
+const class_transformer_1 = require("class-transformer");
 const class_validator_1 = require("class-validator");
-class UpdateSettingsDto {
-    autoReplenishEnabled;
-    minimumAvailablePerProfile;
-    minimumAvailablePerGroup;
+class ClaimBatchDto {
+    profileExternalIds;
+    limit = 10;
     static _OPENAPI_METADATA_FACTORY() {
-        return { autoReplenishEnabled: { required: true, type: () => Boolean }, minimumAvailablePerProfile: { required: true, type: () => Number, minimum: 1, maximum: 1000 }, minimumAvailablePerGroup: { required: false, type: () => Number, minimum: 1, maximum: 1000 } };
+        return { profileExternalIds: { required: false, type: () => [String], maxItems: 50 }, limit: { required: true, type: () => Object, default: 10, minimum: 1, maximum: 50 } };
     }
 }
-exports.UpdateSettingsDto = UpdateSettingsDto;
+exports.ClaimBatchDto = ClaimBatchDto;
 __decorate([
-    (0, class_validator_1.IsBoolean)(),
-    __metadata("design:type", Boolean)
-], UpdateSettingsDto.prototype, "autoReplenishEnabled", void 0);
-__decorate([
-    (0, class_validator_1.IsInt)(),
-    (0, class_validator_1.Min)(1),
-    (0, class_validator_1.Max)(1000),
-    __metadata("design:type", Number)
-], UpdateSettingsDto.prototype, "minimumAvailablePerProfile", void 0);
-__decorate([
-    (0, swagger_1.ApiPropertyOptional)({ minimum: 1, maximum: 1000 }),
+    (0, swagger_1.ApiPropertyOptional)({ type: [String] }),
     (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ArrayMaxSize)(50),
+    (0, class_validator_1.IsString)({ each: true }),
+    __metadata("design:type", Array)
+], ClaimBatchDto.prototype, "profileExternalIds", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ default: 10, minimum: 1, maximum: 50 }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Number),
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
-    (0, class_validator_1.Max)(1000),
-    __metadata("design:type", Number)
-], UpdateSettingsDto.prototype, "minimumAvailablePerGroup", void 0);
-//# sourceMappingURL=update-settings.dto.js.map
+    (0, class_validator_1.Max)(50),
+    __metadata("design:type", Object)
+], ClaimBatchDto.prototype, "limit", void 0);
+//# sourceMappingURL=claim-batch.dto.js.map

@@ -18,7 +18,10 @@ const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const automation_auth_guard_1 = require("../auth/automation-auth.guard");
 const claim_job_dto_1 = require("./dto/claim-job.dto");
+const claim_batch_dto_1 = require("./dto/claim-batch.dto");
+const comment_job_item_dto_1 = require("./dto/comment-job-item.dto");
 const fail_job_item_dto_1 = require("./dto/fail-job-item.dto");
+const link_updated_job_item_dto_1 = require("./dto/link-updated-job-item.dto");
 const publish_job_item_dto_1 = require("./dto/publish-job-item.dto");
 const jobs_service_1 = require("./jobs.service");
 let JobsController = class JobsController {
@@ -32,6 +35,13 @@ let JobsController = class JobsController {
     claim(dto) {
         return this.jobs.claim(dto);
     }
+    claimBatch(dto) {
+        return this.jobs.claimBatch(dto);
+    }
+    pendingLinkUpdates(profileExternalId, limit) {
+        const parsed = Number(limit);
+        return this.jobs.pendingLinkUpdates(profileExternalId, Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 200) : 50);
+    }
     claimByProfileExternalId(profileExternalId, groupExternalId) {
         return this.jobs.claimByProfileExternalId(profileExternalId, groupExternalId);
     }
@@ -44,8 +54,17 @@ let JobsController = class JobsController {
     failed(jobId, postId, dto) {
         return this.jobs.markFailed(jobId, postId, dto.error);
     }
+    commented(jobId, postId, dto) {
+        return this.jobs.markCommented(jobId, postId, dto);
+    }
     complete(jobId) {
         return this.jobs.complete(jobId);
+    }
+    linkUpdates(jobId) {
+        return this.jobs.linkUpdates(jobId);
+    }
+    linkUpdated(jobId, postId, dto) {
+        return this.jobs.markLinkUpdated(jobId, postId, dto);
     }
 };
 exports.JobsController = JobsController;
@@ -69,6 +88,34 @@ __decorate([
     __metadata("design:paramtypes", [claim_job_dto_1.ClaimJobDto]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "claim", null);
+__decorate([
+    (0, common_1.Post)('claim/batch'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Réserver un job par profil, pour traiter plusieurs lots en parallèle',
+        description: 'Rend au plus un job par profil actif (10 par défaut). Un profil qui ' +
+            'tient déjà un job non expiré est écarté : deux threads ne doivent ' +
+            'jamais piloter le même compte en même temps.',
+    }),
+    openapi.ApiResponse({ status: 201, type: Object }),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [claim_batch_dto_1.ClaimBatchDto]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "claimBatch", null);
+__decorate([
+    (0, common_1.Get)('link-updates'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Commentaires en attente d’URL, tous jobs clôturés confondus',
+    }),
+    (0, swagger_1.ApiQuery)({ name: 'profileExternalId', required: false }),
+    (0, swagger_1.ApiQuery)({ name: 'limit', required: false, example: 50 }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Query)('profileExternalId')),
+    __param(1, (0, common_1.Query)('limit')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "pendingLinkUpdates", null);
 __decorate([
     (0, common_1.Post)('claim/profile/:profileExternalId'),
     (0, swagger_1.ApiOperation)({
@@ -117,13 +164,55 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "failed", null);
 __decorate([
+    (0, common_1.Post)(':jobId/posts/:postId/commented'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Enregistrer le commentaire posé sous le post (description seule)',
+        description: 'À appeler après `published`. L’identifiant du commentaire est ' +
+            'obligatoire : c’est lui qui permettra d’y placer l’URL ensuite.',
+    }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Param)('jobId')),
+    __param(1, (0, common_1.Param)('postId')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, comment_job_item_dto_1.CommentJobItemDto]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "commented", null);
+__decorate([
     (0, common_1.Post)(':jobId/complete'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Clôturer le lot et ouvrir la phase de bascule des commentaires',
+    }),
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Param)('jobId')),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "complete", null);
+__decorate([
+    (0, common_1.Get)(':jobId/link-updates'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'URL à placer dans les commentaires de ce job, une fois clôturé',
+    }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('jobId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "linkUpdates", null);
+__decorate([
+    (0, common_1.Post)(':jobId/posts/:postId/link-updated'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Confirmer que le commentaire porte désormais l’URL',
+    }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Param)('jobId')),
+    __param(1, (0, common_1.Param)('postId')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, link_updated_job_item_dto_1.LinkUpdatedJobItemDto]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "linkUpdated", null);
 exports.JobsController = JobsController = __decorate([
     (0, swagger_1.ApiTags)('jobs'),
     (0, swagger_1.ApiHeader)({ name: 'X-API-Key', required: true }),

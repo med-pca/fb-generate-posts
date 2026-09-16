@@ -24,9 +24,18 @@ let SettingsController = class SettingsController {
     constructor(settings) {
         this.settings = settings;
     }
-    get() { return this.settings.get(); }
-    update(dto) { return this.settings.update(dto); }
-    replenishNow() { return this.settings.replenishAll(); }
+    get() {
+        return this.settings.get();
+    }
+    update(dto) {
+        return this.settings.update(dto);
+    }
+    replenishNow() {
+        return this.settings.replenishAll();
+    }
+    replenishProfile(profileId) {
+        return this.settings.replenishProfile(profileId);
+    }
 };
 exports.SettingsController = SettingsController;
 __decorate([
@@ -46,11 +55,23 @@ __decorate([
 ], SettingsController.prototype, "update", null);
 __decorate([
     (0, common_1.Post)('replenish-now'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Compléter le stock de chaque groupe des profils actifs',
+    }),
     openapi.ApiResponse({ status: 201, type: [Object] }),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], SettingsController.prototype, "replenishNow", null);
+__decorate([
+    (0, common_1.Post)('replenish-now/:profileId'),
+    (0, swagger_1.ApiOperation)({ summary: 'Compléter le stock des groupes d’un seul profil' }),
+    openapi.ApiResponse({ status: 201, type: Object }),
+    __param(0, (0, common_1.Param)('profileId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], SettingsController.prototype, "replenishProfile", null);
 exports.SettingsController = SettingsController = __decorate([
     (0, swagger_1.ApiTags)('settings'),
     (0, swagger_1.ApiBearerAuth)(),

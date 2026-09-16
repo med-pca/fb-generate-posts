@@ -83,7 +83,8 @@ export declare class GroupsCatalogController {
     private readonly groups;
     constructor(groups: GroupsService);
     findAll(pagination: PaginationDto): Promise<{
-        data: ({
+        data: {
+            availablePosts: number;
             profiles: ({
                 profile: {
                     status: import("@prisma/client").$Enums.RecordStatus;
@@ -107,7 +108,6 @@ export declare class GroupsCatalogController {
             _count: {
                 targets: number;
             };
-        } & {
             status: import("@prisma/client").$Enums.RecordStatus;
             name: string;
             externalId: string | null;
@@ -115,7 +115,7 @@ export declare class GroupsCatalogController {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-        })[];
+        }[];
         meta: {
             page: number;
             limit: number;

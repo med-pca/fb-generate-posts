@@ -1,7 +1,9 @@
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
-import { PaginationDto } from '../common/dto/pagination.dto';
+import { QueryPostsDto } from './dto/query-posts.dto';
+import { BulkDeletePostsDto } from './dto/bulk-delete-posts.dto';
 export declare class PostsService {
     private readonly prisma;
     constructor(prisma: PrismaService);
@@ -12,13 +14,16 @@ export declare class PostsService {
             createdAt: Date;
             updatedAt: Date;
             groupId: string;
+            postId: string;
             claimedAt: Date | null;
             claimExpiresAt: Date | null;
             consumedAt: Date | null;
             publishedAt: Date | null;
+            commentExternalId: string | null;
+            commentedAt: Date | null;
+            linkUpdatedAt: Date | null;
             attemptsCount: number;
             lastError: string | null;
-            postId: string;
         }[];
     } & {
         status: import("@prisma/client").$Enums.PostStatus;
@@ -28,16 +33,16 @@ export declare class PostsService {
         createdAt: Date;
         updatedAt: Date;
         profileId: string;
-        imageUrl: string | null;
         title: string;
         description: string;
+        imageUrl: string | null;
         delay: number;
         sourceType: import("@prisma/client").$Enums.SourceType;
-        rawData: import("@prisma/client/runtime/library").JsonValue | null;
+        rawData: Prisma.JsonValue | null;
         articleId: string | null;
         socialAngle: string | null;
     }>;
-    findAll(profileId: string | undefined, { page, limit }: PaginationDto): Promise<{
+    findAll({ page, limit, ...filters }: QueryPostsDto): Promise<{
         data: ({
             targets: ({
                 group: {
@@ -55,13 +60,16 @@ export declare class PostsService {
                 createdAt: Date;
                 updatedAt: Date;
                 groupId: string;
+                postId: string;
                 claimedAt: Date | null;
                 claimExpiresAt: Date | null;
                 consumedAt: Date | null;
                 publishedAt: Date | null;
+                commentExternalId: string | null;
+                commentedAt: Date | null;
+                linkUpdatedAt: Date | null;
                 attemptsCount: number;
                 lastError: string | null;
-                postId: string;
             })[];
         } & {
             status: import("@prisma/client").$Enums.PostStatus;
@@ -71,12 +79,12 @@ export declare class PostsService {
             createdAt: Date;
             updatedAt: Date;
             profileId: string;
-            imageUrl: string | null;
             title: string;
             description: string;
+            imageUrl: string | null;
             delay: number;
             sourceType: import("@prisma/client").$Enums.SourceType;
-            rawData: import("@prisma/client/runtime/library").JsonValue | null;
+            rawData: Prisma.JsonValue | null;
             articleId: string | null;
             socialAngle: string | null;
         })[];
@@ -87,7 +95,7 @@ export declare class PostsService {
             pages: number;
         };
     }>;
-    findOne(id: string): import("@prisma/client").Prisma.Prisma__PostClient<{
+    findOne(id: string): Prisma.Prisma__PostClient<{
         profile: {
             status: import("@prisma/client").$Enums.RecordStatus;
             name: string;
@@ -115,13 +123,16 @@ export declare class PostsService {
             createdAt: Date;
             updatedAt: Date;
             groupId: string;
+            postId: string;
             claimedAt: Date | null;
             claimExpiresAt: Date | null;
             consumedAt: Date | null;
             publishedAt: Date | null;
+            commentExternalId: string | null;
+            commentedAt: Date | null;
+            linkUpdatedAt: Date | null;
             attemptsCount: number;
             lastError: string | null;
-            postId: string;
         })[];
     } & {
         status: import("@prisma/client").$Enums.PostStatus;
@@ -131,16 +142,16 @@ export declare class PostsService {
         createdAt: Date;
         updatedAt: Date;
         profileId: string;
-        imageUrl: string | null;
         title: string;
         description: string;
+        imageUrl: string | null;
         delay: number;
         sourceType: import("@prisma/client").$Enums.SourceType;
-        rawData: import("@prisma/client/runtime/library").JsonValue | null;
+        rawData: Prisma.JsonValue | null;
         articleId: string | null;
         socialAngle: string | null;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
-    update(id: string, dto: UpdatePostDto): import("@prisma/client").Prisma.Prisma__PostClient<{
+    }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
+    update(id: string, dto: UpdatePostDto): Prisma.Prisma__PostClient<{
         status: import("@prisma/client").$Enums.PostStatus;
         externalId: string | null;
         url: string | null;
@@ -148,13 +159,45 @@ export declare class PostsService {
         createdAt: Date;
         updatedAt: Date;
         profileId: string;
-        imageUrl: string | null;
         title: string;
         description: string;
+        imageUrl: string | null;
         delay: number;
         sourceType: import("@prisma/client").$Enums.SourceType;
-        rawData: import("@prisma/client/runtime/library").JsonValue | null;
+        rawData: Prisma.JsonValue | null;
         articleId: string | null;
         socialAngle: string | null;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+    }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
+    remove(id: string, force?: boolean): Promise<{
+        status: import("@prisma/client").$Enums.PostStatus;
+        externalId: string | null;
+        url: string | null;
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        profileId: string;
+        title: string;
+        description: string;
+        imageUrl: string | null;
+        delay: number;
+        sourceType: import("@prisma/client").$Enums.SourceType;
+        rawData: Prisma.JsonValue | null;
+        articleId: string | null;
+        socialAngle: string | null;
+    }>;
+    bulkRemove(dto: BulkDeletePostsDto): Promise<{
+        dryRun: boolean;
+        matched: number;
+        deleted: number;
+        blocked: number;
+        blockedPosts: {
+            id: string;
+            title: string;
+        }[];
+    }>;
+    private report;
+    private hasCriteria;
+    private buildWhere;
+    private activeClaimWhere;
+    private activeClaimSelect;
 }

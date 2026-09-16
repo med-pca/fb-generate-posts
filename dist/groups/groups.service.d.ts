@@ -70,7 +70,8 @@ export declare class GroupsService {
         groupId: string;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     findCatalog({ page, limit }: PaginationDto): Promise<{
-        data: ({
+        data: {
+            availablePosts: number;
             profiles: ({
                 profile: {
                     status: import("@prisma/client").$Enums.RecordStatus;
@@ -94,7 +95,6 @@ export declare class GroupsService {
             _count: {
                 targets: number;
             };
-        } & {
             status: import("@prisma/client").$Enums.RecordStatus;
             name: string;
             externalId: string | null;
@@ -102,7 +102,7 @@ export declare class GroupsService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-        })[];
+        }[];
         meta: {
             page: number;
             limit: number;

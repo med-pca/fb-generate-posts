@@ -10,13 +10,16 @@ export declare class GenerationController {
             createdAt: Date;
             updatedAt: Date;
             groupId: string;
+            postId: string;
             claimedAt: Date | null;
             claimExpiresAt: Date | null;
             consumedAt: Date | null;
             publishedAt: Date | null;
+            commentExternalId: string | null;
+            commentedAt: Date | null;
+            linkUpdatedAt: Date | null;
             attemptsCount: number;
             lastError: string | null;
-            postId: string;
         }[];
     } & {
         status: import("@prisma/client").$Enums.PostStatus;
@@ -26,9 +29,9 @@ export declare class GenerationController {
         createdAt: Date;
         updatedAt: Date;
         profileId: string;
-        imageUrl: string | null;
         title: string;
         description: string;
+        imageUrl: string | null;
         delay: number;
         sourceType: import("@prisma/client").$Enums.SourceType;
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
