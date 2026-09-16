@@ -1,19 +1,27 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { CreatePostDto } from './dto/create-post.dto';
 import { PostsService } from './posts.service';
 import { UpdatePostDto } from './dto/update-post.dto';
-import { PaginationDto } from '../common/dto/pagination.dto';
+import { QueryPostsDto } from './dto/query-posts.dto';
+import { BulkDeletePostsDto } from './dto/bulk-delete-posts.dto';
 
 @ApiTags('posts')
 @ApiBearerAuth()
@@ -28,11 +36,18 @@ export class PostsController {
   }
 
   @Get()
-  findAll(
-    @Query('profileId') profileId: string | undefined,
-    @Query() pagination: PaginationDto,
-  ) {
-    return this.posts.findAll(profileId, pagination);
+  findAll(@Query() query: QueryPostsDto) {
+    return this.posts.findAll(query);
+  }
+
+  @Post('bulk-delete')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Supprimer plusieurs posts par sélection ou par filtre (dryRun pour compter d’abord)',
+  })
+  bulkRemove(@Body() dto: BulkDeletePostsDto) {
+    return this.posts.bulkRemove(dto);
   }
 
   @Get(':id')
@@ -43,5 +58,11 @@ export class PostsController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdatePostDto) {
     return this.posts.update(id, dto);
+  }
+
+  @Delete(':id')
+  @ApiQuery({ name: 'force', required: false, type: Boolean })
+  remove(@Param('id') id: string, @Query('force') force?: string) {
+    return this.posts.remove(id, force === 'true');
   }
 }
