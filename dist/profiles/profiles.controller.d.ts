@@ -15,6 +15,8 @@ export declare class ProfilesController {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        minimumAvailable: number | null;
+        minimumAvailablePerGroup: number | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     findAll(pagination: PaginationDto): Promise<{
         data: ({
@@ -32,6 +34,8 @@ export declare class ProfilesController {
             defaultImageUrl: string | null;
             minPostsPerJob: number;
             maxPostsPerJob: number;
+            minimumAvailable: number | null;
+            minimumAvailablePerGroup: number | null;
         })[];
         meta: {
             page: number;
@@ -73,6 +77,8 @@ export declare class ProfilesController {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        minimumAvailable: number | null;
+        minimumAvailablePerGroup: number | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     update(id: string, dto: UpdateProfileDto): import("@prisma/client").Prisma.Prisma__ProfileClient<{
         status: import("@prisma/client").$Enums.RecordStatus;
@@ -84,6 +90,8 @@ export declare class ProfilesController {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        minimumAvailable: number | null;
+        minimumAvailablePerGroup: number | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     remove(id: string): import("@prisma/client").Prisma.Prisma__ProfileClient<{
         status: import("@prisma/client").$Enums.RecordStatus;
@@ -95,5 +103,7 @@ export declare class ProfilesController {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        minimumAvailable: number | null;
+        minimumAvailablePerGroup: number | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
 }

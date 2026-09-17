@@ -307,10 +307,27 @@ Le stock se compte **groupe par groupe**, pas seulement par profil : un groupe
 descendu à trois ou quatre posts est réalimenté même quand le profil, tous
 groupes confondus, paraît fourni. Deux seuils pilotent l'opération :
 
-| Réglage | Rôle |
-| --- | --- |
-| `minimumAvailablePerGroup` | Cibles disponibles attendues dans chaque groupe actif |
-| `minimumAvailablePerProfile` | Plancher global, tous groupes confondus |
+| Réglage | Portée | Rôle |
+| --- | --- | --- |
+| `minimumAvailablePerGroup` | Global | Cibles disponibles attendues dans chaque groupe actif |
+| `minimumAvailablePerProfile` | Global | Plancher du profil, tous groupes confondus |
+| `Profile.minimumAvailablePerGroup` | Un profil | Remplace le seuil global par groupe |
+| `Profile.minimumAvailable` | Un profil | Remplace le plancher global du profil |
+
+Les deux champs du profil sont facultatifs : à `null`, le profil suit les
+réglages globaux. Une valeur l'emporte pour ce profil seul.
+
+```http
+PATCH /api/profiles/{profileId}
+Content-Type: application/json
+
+{ "minimumAvailable": 30, "minimumAvailablePerGroup": 12 }
+```
+
+Remettre `null` efface la surcharge et fait retomber le profil sur le global.
+La réponse de `replenish-now` indique dans `thresholds` quels seuils ont
+réellement servi — sans ça, impossible de savoir si un profil a suivi son
+propre réglage ou le réglage général.
 
 #### Quand l'alimentation se déclenche
 
@@ -366,13 +383,14 @@ Pour chaque groupe en manque, dans cet ordre :
    même article réalimente donc un groupe indéfiniment, plutôt que de le
    laisser vide.
 
-La réponse détaille l'état de chaque groupe :
+La réponse détaille l'état de chaque groupe et les seuils appliqués :
 
 ```json
 {
   "profileId": "profile_id",
   "generated": 5,
   "reused": 2,
+  "thresholds": { "perProfile": 10, "perGroup": 8 },
   "groups": [{ "groupId": "g1", "name": "Groupe 1", "available": 8, "missing": 0 }]
 }
 ```

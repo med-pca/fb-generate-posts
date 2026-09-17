@@ -22,6 +22,9 @@ type Scenario = {
   reusable?: Record<string, string[]>;
   minimumAvailablePerGroup?: number;
   minimumAvailablePerProfile?: number;
+  /** Seuils portés par le profil lui-même ; null suit le réglage global. */
+  profileMinimumAvailable?: number | null;
+  profileMinimumAvailablePerGroup?: number | null;
 };
 
 const GROUPS = [
@@ -53,7 +56,14 @@ function makeHarness(scenario: Scenario) {
         minimumAvailablePerGroup: scenario.minimumAvailablePerGroup ?? 8,
       })),
     },
-    profile: { findFirst: jest.fn(async () => ({ id: 'profile_1' })) },
+    profile: {
+      findFirst: jest.fn(async () => ({
+        id: 'profile_1',
+        minimumAvailable: scenario.profileMinimumAvailable ?? null,
+        minimumAvailablePerGroup:
+          scenario.profileMinimumAvailablePerGroup ?? null,
+      })),
+    },
     group: { findMany: jest.fn(async () => GROUPS) },
     article: { findMany: jest.fn(async () => scenario.articles) },
     postTarget: {
@@ -171,6 +181,43 @@ describe('SettingsService — alimentation par groupe', () => {
     expect(result.generated).toBe(0);
     expect(result.reused).toBe(0);
     expect(prisma.post.create).not.toHaveBeenCalled();
+  });
+
+  it('préfère le seuil porté par le profil à celui des réglages', async () => {
+    const { service, createdPosts } = makeHarness({
+      stock: { group_1: 8, group_2: 8 },
+      profileAvailable: 40,
+      minimumAvailablePerGroup: 8,
+      // Ce profil-ci en veut 12 par groupe : il manque 4 partout.
+      profileMinimumAvailablePerGroup: 12,
+      articles: [article('art_1', 2)],
+    });
+
+    const result = await service.replenishProfile('profile_1');
+
+    expect(result.thresholds).toEqual({ perProfile: 10, perGroup: 12 });
+    expect(result.generated).toBe(4);
+    for (const post of createdPosts) {
+      expect(post.targets.create).toEqual([
+        { groupId: 'group_1' },
+        { groupId: 'group_2' },
+      ]);
+    }
+  });
+
+  it('retombe sur les réglages globaux quand le profil ne fixe rien', async () => {
+    const { service } = makeHarness({
+      stock: { group_1: 8, group_2: 8 },
+      profileAvailable: 40,
+      minimumAvailablePerProfile: 10,
+      minimumAvailablePerGroup: 8,
+      articles: [article('art_1', 2)],
+    });
+
+    const result = await service.replenishProfile('profile_1');
+
+    expect(result.thresholds).toEqual({ perProfile: 10, perGroup: 8 });
+    expect(result.generated).toBe(0);
   });
 
   it('sert tous les groupes actifs quand seul le seuil du profil manque', async () => {

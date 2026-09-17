@@ -6,4 +6,6 @@ export declare class CreateProfileDto {
     defaultImageUrl?: string;
     minPostsPerJob: number;
     maxPostsPerJob: number;
+    minimumAvailable?: number | null;
+    minimumAvailablePerGroup?: number | null;
 }

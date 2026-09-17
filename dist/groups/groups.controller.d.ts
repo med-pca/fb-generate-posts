@@ -43,6 +43,8 @@ export declare class GroupsController {
             defaultImageUrl: string | null;
             minPostsPerJob: number;
             maxPostsPerJob: number;
+            minimumAvailable: number | null;
+            minimumAvailablePerGroup: number | null;
         };
         group: {
             status: import("@prisma/client").$Enums.RecordStatus;
@@ -96,6 +98,8 @@ export declare class GroupsCatalogController {
                     defaultImageUrl: string | null;
                     minPostsPerJob: number;
                     maxPostsPerJob: number;
+                    minimumAvailable: number | null;
+                    minimumAvailablePerGroup: number | null;
                 };
             } & {
                 status: import("@prisma/client").$Enums.RecordStatus;

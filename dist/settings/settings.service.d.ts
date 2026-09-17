@@ -17,17 +17,17 @@ export declare class SettingsService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        minimumAvailablePerGroup: number;
         autoReplenishEnabled: boolean;
         minimumAvailablePerProfile: number;
-        minimumAvailablePerGroup: number;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
     update(dto: UpdateSettingsDto): Prisma.Prisma__AutomationSettingClient<{
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        minimumAvailablePerGroup: number;
         autoReplenishEnabled: boolean;
         minimumAvailablePerProfile: number;
-        minimumAvailablePerGroup: number;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
     replenishAll(): Promise<({
         profileId: string;
@@ -35,6 +35,10 @@ export declare class SettingsService {
         generated: number;
         reused: number;
         skipped: string;
+        thresholds: {
+            perProfile: number;
+            perGroup: number;
+        } | undefined;
         groups: never[];
     } | {
         profileId: string;
@@ -42,6 +46,10 @@ export declare class SettingsService {
         generated: number;
         reused: number;
         skipped: string | undefined;
+        thresholds: {
+            perProfile: number;
+            perGroup: number;
+        } | undefined;
         groups: GroupStock[];
         remaining: number;
     })[]>;
@@ -51,6 +59,10 @@ export declare class SettingsService {
         generated: number;
         reused: number;
         skipped: string;
+        thresholds: {
+            perProfile: number;
+            perGroup: number;
+        } | undefined;
         groups: never[];
     } | {
         profileId: string;
@@ -58,6 +70,10 @@ export declare class SettingsService {
         generated: number;
         reused: number;
         skipped: string | undefined;
+        thresholds: {
+            perProfile: number;
+            perGroup: number;
+        } | undefined;
         groups: GroupStock[];
         remaining: number;
     }>;

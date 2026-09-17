@@ -266,6 +266,28 @@
         /></label>
         <div class="two">
           <label
+            >Stock minimum du profil<input
+              name="minimumAvailable"
+              type="number"
+              min="1"
+              max="1000"
+              placeholder="réglage global"
+          /></label>
+          <label
+            >Stock minimum par groupe<input
+              name="minimumAvailablePerGroup"
+              type="number"
+              min="1"
+              max="1000"
+              placeholder="réglage global"
+          /></label>
+        </div>
+        <p class="form-help">
+          Laissez vides pour suivre les seuils des Paramètres. Une valeur ici ne
+          vaut que pour ce profil.
+        </p>
+        <div class="two">
+          <label
             >Posts minimum<input
               name="minPostsPerJob"
               type="number"

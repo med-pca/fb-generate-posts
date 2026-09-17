@@ -10,17 +10,17 @@ export declare class SettingsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        minimumAvailablePerGroup: number;
         autoReplenishEnabled: boolean;
         minimumAvailablePerProfile: number;
-        minimumAvailablePerGroup: number;
     }>;
     update(dto: UpdateSettingsDto): import("@prisma/client").Prisma.Prisma__AutomationSettingClient<{
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        minimumAvailablePerGroup: number;
         autoReplenishEnabled: boolean;
         minimumAvailablePerProfile: number;
-        minimumAvailablePerGroup: number;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     replenishNow(): Promise<({
         profileId: string;
@@ -28,6 +28,10 @@ export declare class SettingsController {
         generated: number;
         reused: number;
         skipped: string;
+        thresholds: {
+            perProfile: number;
+            perGroup: number;
+        } | undefined;
         groups: never[];
     } | {
         profileId: string;
@@ -35,6 +39,10 @@ export declare class SettingsController {
         generated: number;
         reused: number;
         skipped: string | undefined;
+        thresholds: {
+            perProfile: number;
+            perGroup: number;
+        } | undefined;
         groups: {
             groupId: string;
             name: string;
@@ -68,6 +76,10 @@ export declare class SettingsController {
         generated: number;
         reused: number;
         skipped: string;
+        thresholds: {
+            perProfile: number;
+            perGroup: number;
+        } | undefined;
         groups: never[];
     } | {
         profileId: string;
@@ -75,6 +87,10 @@ export declare class SettingsController {
         generated: number;
         reused: number;
         skipped: string | undefined;
+        thresholds: {
+            perProfile: number;
+            perGroup: number;
+        } | undefined;
         groups: {
             groupId: string;
             name: string;

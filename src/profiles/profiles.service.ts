@@ -22,11 +22,11 @@ export class ProfilesService {
     const where = {};
     const [data, total] = await this.prisma.$transaction([
       this.prisma.profile.findMany({
-      where,
-      include: { _count: { select: { profileGroups: true, posts: true } } },
-      orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
+        where,
+        include: { _count: { select: { profileGroups: true, posts: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
       }),
       this.prisma.profile.count({ where }),
     ]);

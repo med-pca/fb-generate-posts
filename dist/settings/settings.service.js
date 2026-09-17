@@ -57,10 +57,16 @@ let SettingsService = SettingsService_1 = class SettingsService {
         }
         const profile = await this.prisma.profile.findFirst({
             where: { id: profileId, status: 'ACTIVE' },
-            select: { id: true },
+            select: {
+                id: true,
+                minimumAvailable: true,
+                minimumAvailablePerGroup: true,
+            },
         });
         if (!profile)
             return this.empty(profileId, 'inactive_profile');
+        const perGroup = profile.minimumAvailablePerGroup ?? settings.minimumAvailablePerGroup;
+        const perProfile = profile.minimumAvailable ?? settings.minimumAvailablePerProfile;
         const groups = await this.prisma.group.findMany({
             where: {
                 status: 'ACTIVE',
@@ -71,20 +77,21 @@ let SettingsService = SettingsService_1 = class SettingsService {
         });
         if (!groups.length)
             return this.empty(profileId, 'no_active_group');
-        const stocks = await this.groupStocks(profileId, groups, settings.minimumAvailablePerGroup);
+        const stocks = await this.groupStocks(profileId, groups, perGroup);
         const reused = await this.reuseExistingPosts(profileId, stocks);
         const profileAvailable = await this.countAvailablePosts(profileId);
-        const profileMissing = Math.max(0, settings.minimumAvailablePerProfile - profileAvailable);
+        const profileMissing = Math.max(0, perProfile - profileAvailable);
         const missing = Math.max(profileMissing, ...stocks.map((stock) => stock.missing));
+        const thresholds = { perProfile, perGroup };
         const toCreate = Math.min(MAX_POSTS_PER_RUN, missing);
         if (toCreate === 0) {
-            return this.report(profileId, profileAvailable, 0, reused, stocks);
+            return this.report(profileId, profileAvailable, 0, reused, stocks, undefined, thresholds);
         }
         const { generated, skipped } = await this.generatePosts(profileId, stocks, groups.map(({ id }) => id), toCreate);
         if (generated || reused) {
             await this.logReplenishment(profileId, generated, reused, stocks);
         }
-        return this.report(profileId, profileAvailable + generated, generated, reused, stocks, skipped);
+        return this.report(profileId, profileAvailable + generated, generated, reused, stocks, skipped, thresholds);
     }
     async groupStocks(profileId, groups, minimum) {
         const counts = await this.prisma.postTarget.groupBy({
@@ -271,16 +278,18 @@ let SettingsService = SettingsService_1 = class SettingsService {
             generated: 0,
             reused: 0,
             skipped,
+            thresholds: undefined,
             groups: [],
         };
     }
-    report(profileId, available, generated, reused, stocks, skipped) {
+    report(profileId, available, generated, reused, stocks, skipped, thresholds) {
         return {
             profileId,
             available,
             generated,
             reused,
             skipped,
+            thresholds,
             groups: stocks,
             remaining: stocks.reduce((total, stock) => total + stock.missing, 0),
         };

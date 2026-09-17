@@ -71,9 +71,19 @@ export class SettingsService {
     }
     const profile = await this.prisma.profile.findFirst({
       where: { id: profileId, status: 'ACTIVE' },
-      select: { id: true },
+      select: {
+        id: true,
+        minimumAvailable: true,
+        minimumAvailablePerGroup: true,
+      },
     });
     if (!profile) return this.empty(profileId, 'inactive_profile');
+
+    // Un seuil porté par le profil l'emporte ; NULL suit le réglage global.
+    const perGroup =
+      profile.minimumAvailablePerGroup ?? settings.minimumAvailablePerGroup;
+    const perProfile =
+      profile.minimumAvailable ?? settings.minimumAvailablePerProfile;
 
     const groups = await this.prisma.group.findMany({
       where: {
@@ -85,25 +95,27 @@ export class SettingsService {
     });
     if (!groups.length) return this.empty(profileId, 'no_active_group');
 
-    const stocks = await this.groupStocks(
-      profileId,
-      groups,
-      settings.minimumAvailablePerGroup,
-    );
+    const stocks = await this.groupStocks(profileId, groups, perGroup);
     const reused = await this.reuseExistingPosts(profileId, stocks);
 
     const profileAvailable = await this.countAvailablePosts(profileId);
-    const profileMissing = Math.max(
-      0,
-      settings.minimumAvailablePerProfile - profileAvailable,
-    );
+    const profileMissing = Math.max(0, perProfile - profileAvailable);
     const missing = Math.max(
       profileMissing,
       ...stocks.map((stock) => stock.missing),
     );
+    const thresholds = { perProfile, perGroup };
     const toCreate = Math.min(MAX_POSTS_PER_RUN, missing);
     if (toCreate === 0) {
-      return this.report(profileId, profileAvailable, 0, reused, stocks);
+      return this.report(
+        profileId,
+        profileAvailable,
+        0,
+        reused,
+        stocks,
+        undefined,
+        thresholds,
+      );
     }
 
     const { generated, skipped } = await this.generatePosts(
@@ -122,6 +134,7 @@ export class SettingsService {
       reused,
       stocks,
       skipped,
+      thresholds,
     );
   }
 
@@ -365,6 +378,8 @@ export class SettingsService {
       generated: 0,
       reused: 0,
       skipped,
+      thresholds: undefined as
+        { perProfile: number; perGroup: number } | undefined,
       groups: [],
     };
   }
@@ -376,6 +391,7 @@ export class SettingsService {
     reused: number,
     stocks: GroupStock[],
     skipped?: string,
+    thresholds?: { perProfile: number; perGroup: number },
   ) {
     return {
       profileId,
@@ -383,6 +399,9 @@ export class SettingsService {
       generated,
       reused,
       skipped,
+      // Quels seuils ont réellement servi : sans ça, impossible de savoir si
+      // un profil a suivi son propre réglage ou le réglage global.
+      thresholds,
       groups: stocks,
       remaining: stocks.reduce((total, stock) => total + stock.missing, 0),
     };

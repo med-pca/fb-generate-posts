@@ -540,6 +540,10 @@ $('#profile-form').onsubmit = async (e) => {
   d.maxPostsPerJob = +d.maxPostsPerJob;
   if (!d.externalId) delete d.externalId;
   if (!d.defaultImageUrl) delete d.defaultImageUrl;
+  // Champ vidé : null efface la valeur propre au profil et le fait retomber
+  // sur le réglage global. Le supprimer laisserait l'ancienne en place.
+  for (const k of ['minimumAvailable', 'minimumAvailablePerGroup'])
+    d[k] = d[k] === '' ? null : +d[k];
   try {
     await api(id ? `/profiles/${id}` : '/profiles', {
       method: id ? 'PATCH' : 'POST',
@@ -720,6 +724,8 @@ document.addEventListener('click', (e) => {
       'defaultImageUrl',
       'minPostsPerJob',
       'maxPostsPerJob',
+      'minimumAvailable',
+      'minimumAvailablePerGroup',
       'status',
     ])
       f.elements[k].value = p[k] ?? '';

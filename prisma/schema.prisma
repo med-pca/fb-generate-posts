@@ -57,6 +57,9 @@ model Profile {
   defaultImageUrl  String?      @map("default_image_url")
   minPostsPerJob   Int          @default(2) @map("min_posts_per_job")
   maxPostsPerJob   Int          @default(6) @map("max_posts_per_job")
+  /// Seuils d'alimentation propres au profil. NULL = suivre le réglage global.
+  minimumAvailable Int?         @map("minimum_available")
+  minimumAvailablePerGroup Int? @map("minimum_available_per_group")
   status           RecordStatus @default(ACTIVE)
   profileGroups    ProfileGroup[]
   posts            Post[]

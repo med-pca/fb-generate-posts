@@ -115,6 +115,8 @@ export declare class PostsController {
             defaultImageUrl: string | null;
             minPostsPerJob: number;
             maxPostsPerJob: number;
+            minimumAvailable: number | null;
+            minimumAvailablePerGroup: number | null;
         };
         targets: ({
             group: {
