@@ -52,25 +52,7 @@ let JobsService = class JobsService {
         const ttlMinutes = this.config.get('CLAIM_TTL_MINUTES', 30);
         const claimExpiresAt = new Date(Date.now() + ttlMinutes * 60_000);
         const job = await this.prisma.$transaction(async (tx) => {
-            const now = new Date();
-            await tx.publicationJob.updateMany({
-                where: {
-                    status: client_1.JobStatus.CLAIMED,
-                    claimExpiresAt: { lt: now },
-                },
-                data: { status: client_1.JobStatus.EXPIRED },
-            });
-            await tx.postTarget.updateMany({
-                where: {
-                    status: client_1.TargetStatus.CLAIMED,
-                    claimExpiresAt: { lt: now },
-                },
-                data: {
-                    status: client_1.TargetStatus.AVAILABLE,
-                    claimedAt: null,
-                    claimExpiresAt: null,
-                },
-            });
+            await this.releaseExpiredClaims(tx);
             const targets = await tx.$queryRaw(client_1.Prisma.sql `
         SELECT pt.id, pt.post_id AS "postId"
         FROM post_targets pt
@@ -226,6 +208,22 @@ let JobsService = class JobsService {
             skipped,
         };
     }
+    async releaseExpiredClaims(tx = this.prisma) {
+        const now = new Date();
+        await tx.publicationJob.updateMany({
+            where: { status: client_1.JobStatus.CLAIMED, claimExpiresAt: { lt: now } },
+            data: { status: client_1.JobStatus.EXPIRED },
+        });
+        const released = await tx.postTarget.updateMany({
+            where: { status: client_1.TargetStatus.CLAIMED, claimExpiresAt: { lt: now } },
+            data: {
+                status: client_1.TargetStatus.AVAILABLE,
+                claimedAt: null,
+                claimExpiresAt: null,
+            },
+        });
+        return released.count;
+    }
     async claimByProfileExternalId(profileExternalId, groupExternalId) {
         const profile = await this.prisma.profile.findFirst({
             where: { externalId: profileExternalId, status: 'ACTIVE' },
@@ -256,6 +254,7 @@ let JobsService = class JobsService {
                 message: `Ce profil traite déjà le job ${active.id}`,
             };
         }
+        await this.releaseExpiredClaims();
         await this.settings.replenishProfile(profile.id);
         const groups = await this.prisma.group.findMany({
             where: {

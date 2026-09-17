@@ -1,16 +1,19 @@
 import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { ReplenishScheduler } from './replenish.scheduler';
 import { SettingsService } from './settings.service';
 export declare class SettingsController {
     private readonly settings;
-    constructor(settings: SettingsService);
-    get(): import("@prisma/client").Prisma.Prisma__AutomationSettingClient<{
+    private readonly scheduler;
+    constructor(settings: SettingsService, scheduler: ReplenishScheduler);
+    get(): Promise<{
+        replenishIntervalMinutes: number;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         autoReplenishEnabled: boolean;
         minimumAvailablePerProfile: number;
         minimumAvailablePerGroup: number;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+    }>;
     update(dto: UpdateSettingsDto): import("@prisma/client").Prisma.Prisma__AutomationSettingClient<{
         id: string;
         createdAt: Date;
@@ -40,6 +43,25 @@ export declare class SettingsController {
         }[];
         remaining: number;
     })[]>;
+    runScheduledPass(): Promise<{
+        skipped: "already_running";
+        profiles?: undefined;
+        generated?: undefined;
+        reused?: undefined;
+        error?: undefined;
+    } | {
+        profiles: number;
+        generated: number;
+        reused: number;
+        skipped?: undefined;
+        error?: undefined;
+    } | {
+        error: string;
+        skipped?: undefined;
+        profiles?: undefined;
+        generated?: undefined;
+        reused?: undefined;
+    }>;
     replenishProfile(profileId: string): Promise<{
         profileId: string;
         available: number;

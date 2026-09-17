@@ -9,6 +9,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SettingsModule = void 0;
 const common_1 = require("@nestjs/common");
 const articles_module_1 = require("../articles/articles.module");
+const replenish_scheduler_1 = require("./replenish.scheduler");
 const settings_controller_1 = require("./settings.controller");
 const settings_service_1 = require("./settings.service");
 let SettingsModule = class SettingsModule {
@@ -18,7 +19,7 @@ exports.SettingsModule = SettingsModule = __decorate([
     (0, common_1.Module)({
         imports: [articles_module_1.ArticlesModule],
         controllers: [settings_controller_1.SettingsController],
-        providers: [settings_service_1.SettingsService],
+        providers: [settings_service_1.SettingsService, replenish_scheduler_1.ReplenishScheduler],
         exports: [settings_service_1.SettingsService],
     })
 ], SettingsModule);

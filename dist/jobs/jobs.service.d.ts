@@ -73,6 +73,7 @@ export declare class JobsService {
         jobs: BatchClaim[];
         skipped: BatchSkip[];
     }>;
+    releaseExpiredClaims(tx?: Prisma.TransactionClient): Promise<number>;
     claimByProfileExternalId(profileExternalId: string, groupExternalId?: string): Promise<ClaimedJob | EmptyClaim>;
     markConsumed(jobId: string, postId: string): Promise<{
         error: string | null;
