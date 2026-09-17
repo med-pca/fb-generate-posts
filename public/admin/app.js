@@ -149,6 +149,12 @@ function renderSettings() {
   form.elements.autoReplenishEnabled.checked = state.settings.autoReplenishEnabled;
   form.elements.minimumAvailablePerProfile.value = state.settings.minimumAvailablePerProfile;
   form.elements.minimumAvailablePerGroup.value = state.settings.minimumAvailablePerGroup;
+  // La cadence vient de l'environnement du serveur : l'afficher évite de
+  // croire que l'alimentation tourne alors que le minuteur est coupé.
+  const minutes = state.settings.replenishIntervalMinutes;
+  $('#replenish-cadence').textContent = minutes
+    ? `Un passage automatique a lieu toutes les ${minutes} minutes, en plus de celui déclenché avant chaque réservation d’un automate.`
+    : 'Passage automatique désactivé (REPLENISH_INTERVAL_MINUTES=0) : le stock ne se refait qu’avant une réservation ou avec le bouton ci-dessous.';
 }
 function renderPosts() {
   $('#post-cards').innerHTML =

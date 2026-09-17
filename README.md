@@ -312,13 +312,46 @@ groupes confondus, paraît fourni. Deux seuils pilotent l'opération :
 | `minimumAvailablePerGroup` | Cibles disponibles attendues dans chaque groupe actif |
 | `minimumAvailablePerProfile` | Plancher global, tous groupes confondus |
 
-Le réapprovisionnement se déclenche avant chaque réservation par `externalId`
-et se lance à la demande :
+#### Quand l'alimentation se déclenche
+
+| Déclencheur | Quand | Couvre |
+| --- | --- | --- |
+| Avant chaque réservation | `POST /jobs/claim/profile/{externalId}` et `claim/batch` | La période d'activité |
+| **Minuteur interne** | Toutes les `REPLENISH_INTERVAL_MINUTES` (15 par défaut) | **La période creuse** |
+| À la demande | `POST /api/settings/replenish-now` | Après un import d'articles |
+
+Le minuteur est le filet : sans lui, un profil au repos descend sous son seuil
+et y reste, puisque plus rien ne réserve. Mettre
+`REPLENISH_INTERVAL_MINUTES=0` le désactive ; `autoReplenishEnabled` en base
+coupe l'alimentation dans tous les cas. `GET /api/settings` renvoie la cadence
+effective, et l'écran Paramètres l'affiche.
+
+Un passage ne chevauche jamais le précédent : sur beaucoup de profils
+l'alimentation peut durer plus longtemps que l'intervalle, le tour est alors
+sauté. Une erreur est avalée et tracée en `REPLENISH_FAILED` — si elle
+remontait, le minuteur mourrait et les profils se videraient en silence. Un
+passage qui n'a rien produit n'écrit rien en base : 96 lignes par jour
+noieraient les journaux utiles.
+
+Sur plusieurs instances, chacune fera tourner son minuteur. Les collisions sont
+absorbées (`P2002`), mais réglez `REPLENISH_INTERVAL_MINUTES=0` sur toutes sauf
+une pour éviter le travail en double.
 
 ```http
 PATCH /api/settings
-POST  /api/settings/replenish-now
-POST  /api/settings/replenish-now/{profileId}
+POST  /api/settings/replenish-now             # tous les profils actifs
+POST  /api/settings/replenish-now/{profileId} # un seul profil
+POST  /api/settings/replenish-now/all         # un passage du minuteur
+```
+
+Depuis cron ou à la main, `scripts/replenish.sh` fait la même chose en ligne de
+commande :
+
+```bash
+export API_BASE=https://post.pulserecipe.com/api
+export ADMIN_USERNAME=... ADMIN_PASSWORD=...
+./scripts/replenish.sh                # tous les profils
+./scripts/replenish.sh <profileId>    # un seul
 ```
 
 Pour chaque groupe en manque, dans cet ordre :
@@ -432,6 +465,8 @@ Ce que chaque bloc sert à trancher :
 | `JOB_FINALIZED` | INFO | Toutes les URL sont en place |
 | `CLAIM_LOST` | ERROR | Réservation reprise — vérification manuelle |
 | `POSTS_REPLENISHED` | INFO | Réapprovisionnement, détail par groupe dans `metadata` |
+| `REPLENISH_SCHEDULED` | INFO | Passage du minuteur ayant produit des posts |
+| `REPLENISH_FAILED` | ERROR | Passage du minuteur en échec |
 
 La section **Journaux** de l'interface d'administration reprend ces éléments :
 compteurs, bandeau d'alerte sur les réservations perdues, répartition par
@@ -449,6 +484,7 @@ export ADMIN_USERNAME=... ADMIN_PASSWORD=... AUTOMATION_API_KEY=...
 
 ./scripts/smoke-job-lifecycle.sh   # claim -> consumed -> published -> complete
 ./scripts/smoke-comment-link.sh    # le parcours post -> commentaire -> URL
+./scripts/replenish.sh             # forcer une alimentation depuis les articles
 ```
 
 `smoke-comment-link.sh` vérifie qu’aucune URL ne figure dans le lot réservé,

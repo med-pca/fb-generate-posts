@@ -238,6 +238,7 @@
               <label>Nombre minimum de posts disponibles par profil<input name="minimumAvailablePerProfile" type="number" min="1" max="1000" value="10" required /></label>
               <label>Nombre minimum de posts disponibles par groupe<input name="minimumAvailablePerGroup" type="number" min="1" max="1000" value="8" required /></label>
               <p class="form-help">Le stock est compté groupe par groupe : un groupe descendu à trois ou quatre posts est réalimenté même si le profil paraît fourni. Les posts déjà disponibles qui ne visent pas encore ce groupe lui sont rattachés en premier ; ensuite, les légendes des articles actifs deviennent de nouveaux posts, en rejouant les mêmes articles en variantes lorsque le catalogue est épuisé.</p>
+              <p class="form-help" id="replenish-cadence"></p>
               <div class="actions"><button type="button" class="secondary" id="replenish-now">Lancer maintenant</button><button class="primary">Enregistrer</button></div>
             </form>
           </div>
