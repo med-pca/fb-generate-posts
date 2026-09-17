@@ -111,25 +111,7 @@ export class JobsService {
     const claimExpiresAt = new Date(Date.now() + ttlMinutes * 60_000);
 
     const job = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      await tx.publicationJob.updateMany({
-        where: {
-          status: JobStatus.CLAIMED,
-          claimExpiresAt: { lt: now },
-        },
-        data: { status: JobStatus.EXPIRED },
-      });
-      await tx.postTarget.updateMany({
-        where: {
-          status: TargetStatus.CLAIMED,
-          claimExpiresAt: { lt: now },
-        },
-        data: {
-          status: TargetStatus.AVAILABLE,
-          claimedAt: null,
-          claimExpiresAt: null,
-        },
-      });
+      await this.releaseExpiredClaims(tx);
 
       const targets = await tx.$queryRaw<LockedTarget[]>(Prisma.sql`
         SELECT pt.id, pt.post_id AS "postId"
@@ -297,6 +279,32 @@ export class JobsService {
     };
   }
 
+  /** Rendre au pool les posts des réservations expirées.
+   *
+   * Ce balayage ne vivait qu'à l'intérieur de la transaction de claim. Or
+   * claimByProfileExternalId cherche des cibles AVAILABLE AVANT d'appeler
+   * claim, et sort aussitôt s'il n'en trouve aucune : quand toutes les cibles
+   * sont tenues par des réservations expirées, le balayage n'était jamais
+   * atteint et plus rien ne pouvait être réservé. Il doit donc tourner avant
+   * que quoi que ce soit ne regarde la disponibilité.
+   */
+  async releaseExpiredClaims(tx: Prisma.TransactionClient = this.prisma) {
+    const now = new Date();
+    await tx.publicationJob.updateMany({
+      where: { status: JobStatus.CLAIMED, claimExpiresAt: { lt: now } },
+      data: { status: JobStatus.EXPIRED },
+    });
+    const released = await tx.postTarget.updateMany({
+      where: { status: TargetStatus.CLAIMED, claimExpiresAt: { lt: now } },
+      data: {
+        status: TargetStatus.AVAILABLE,
+        claimedAt: null,
+        claimExpiresAt: null,
+      },
+    });
+    return released.count;
+  }
+
   async claimByProfileExternalId(
     profileExternalId: string,
     groupExternalId?: string,
@@ -336,6 +344,9 @@ export class JobsService {
       };
     }
 
+    // Avant de regarder ce qui est disponible : une réservation expirée tient
+    // encore ses posts tant qu'elle n'a pas été balayée.
+    await this.releaseExpiredClaims();
     await this.settings.replenishProfile(profile.id);
 
     const groups = await this.prisma.group.findMany({

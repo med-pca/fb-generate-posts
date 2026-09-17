@@ -259,12 +259,21 @@ describe('JobsService — réservation par lot', () => {
         findMany: jest.fn(async () => [{ id: 'p1', name: 'Profil 1', externalId: 'demo-1' }]),
         findFirst: jest.fn(async () => ({ id: 'p1' })),
       },
-      publicationJob: { findFirst: jest.fn(async () => null) },
+      // Le balayage des réservations expirées tourne avant de regarder le
+      // stock : sans lui, un profil dont toutes les cibles sont tenues par des
+      // réservations périmées ne pourrait plus jamais rien réserver.
+      publicationJob: {
+        findFirst: jest.fn(async () => null),
+        updateMany: jest.fn(async () => ({ count: 0 })),
+      },
+      postTarget: { updateMany: jest.fn(async () => ({ count: 0 })) },
       group: { findMany: jest.fn(async () => []) },
       activityLog: { create: jest.fn(async () => ({})) },
     };
 
     const result = await service(prisma).claimBatch({ limit: 10 });
+
+    expect(prisma.postTarget.updateMany).toHaveBeenCalled();
 
     expect(result.claimed).toBe(0);
     expect(result.skipped[0].status).toBe('empty');
