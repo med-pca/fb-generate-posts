@@ -139,7 +139,7 @@ function renderArticles() {
     state.articles
       .map(
         (a) =>
-          `<article class="article-card ${a.status === 'INACTIVE' ? 'inactive' : ''}">${a.coverImageUrl ? `<img src="${esc(a.coverImageUrl)}" alt="" loading="lazy">` : '<div class="article-placeholder">Aucune image</div>'}<div class="article-body"><div class="post-meta"><span>${esc(a.source.name)}</span><span>${a.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.excerpt || a.metaDescription || '')}</p><div class="article-facts"><span>${esc(a.course || 'Article')}</span>${a.totalMinutes ? `<span>${a.totalMinutes} min</span>` : ''}<span>${a._count.posts} posts</span></div><div class="card-actions"><a class="edit" href="${esc(a.articleUrl)}" target="_blank">Voir ↗</a><button class="edit" data-toggle-article="${a.id}">${a.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-article="${a.id}">Modifier</button><button class="danger" data-delete-article="${a.id}">Supprimer</button><button class="primary compact" data-generate="${a.id}" ${a.status === 'INACTIVE' ? 'disabled' : ''}>Créer les posts</button></div></div></article>`,
+          `<article class="article-card ${a.status === 'INACTIVE' ? 'inactive' : ''}">${a.coverImageUrl ? `<img src="${esc(a.coverImageUrl)}" alt="" loading="lazy">` : '<div class="article-placeholder">Aucune image</div>'}<div class="article-body"><div class="post-meta"><span>${esc(a.source.name)}</span><span>${a.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.excerpt || a.metaDescription || '')}</p><div class="article-facts"><span>${esc(a.course || 'Article')}</span>${a.totalMinutes ? `<span>${a.totalMinutes} min</span>` : ''}<span>${a._count.posts} posts</span></div><div class="card-actions"><a class="edit" href="${esc(a.articleUrl)}" target="_blank">Voir ↗</a><button class="edit" data-toggle-article="${a.id}">${a.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-article="${a.id}">Modifier</button><button class="danger" data-delete-article="${a.id}">Supprimer</button><button class="danger" data-delete-article-posts="${a.id}" ${a._count.posts ? '' : 'disabled'}>Supprimer les posts</button><button class="primary compact" data-generate="${a.id}" ${a.status === 'INACTIVE' ? 'disabled' : ''}>Créer les posts</button></div></div></article>`,
       )
       .join('') || '<div class="empty">Importez votre premier article JSON.</div>';
 }
@@ -644,6 +644,29 @@ $('#post-form').onsubmit = async (e) => {
     notice(x.message, 'error');
   }
 };
+async function deleteArticlePosts(article, button) {
+  const message = `Supprimer définitivement tous les posts liés à l’article « ${article.title} », pour tous les profils ? L’article sera conservé. Les posts réservés par un automate en cours seront conservés.` +
+    (article.status === 'ACTIVE' ? ` L’alimentation automatique pourra créer de nouveaux posts tant que l’article est actif.` : '');
+  if (!confirm(message)) return;
+  button.disabled = true;
+  try {
+    const result = await api('/posts/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ articleId: article.id }),
+    });
+    await load();
+    notice(
+      `${result.deleted} post(s) supprimé(s) pour cet article.` +
+        (result.blocked ? ` ${result.blocked} post(s) réservé(s) ont été conservés. Réessayez après la fin des jobs.` : ''),
+      result.blocked ? 'error' : 'success',
+    );
+  } catch (error) {
+    notice(error.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 document.addEventListener('click', (e) => {
   if (e.target.dataset.pageResource) {
     const resource = e.target.dataset.pageResource;
@@ -674,6 +697,11 @@ document.addEventListener('click', (e) => {
   if (deleteGroup) {
     if (!confirm(`Supprimer définitivement le groupe « ${deleteGroup.name} » et ses associations ?`)) return;
     api(`/groups/${deleteGroup.id}`, { method: 'DELETE' }).then(load).then(() => notice('Groupe supprimé.')).catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  const articlePosts = state.articles.find((x) => x.id === e.target.dataset.deleteArticlePosts);
+  if (articlePosts) {
+    if (!e.target.disabled) void deleteArticlePosts(articlePosts, e.target);
     return;
   }
   const deleteArticle = state.articles.find((x) => x.id === e.target.dataset.deleteArticle);
