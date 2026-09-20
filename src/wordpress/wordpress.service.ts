@@ -16,7 +16,7 @@ export function wordpressCaption(dto: WordpressArticleDto) {
     clean(dto.excerpt || '') || clean(dto.content) || clean(dto.title);
   const excerpt =
     text.length > 280 ? text.slice(0, 277).replace(/\s+\S*$/, '') + '…' : text;
-  return `${excerpt}\n\nLire la suite sur le site : lien en commentaire 👇`;
+  return `${excerpt}\n\n📖 Read more on our website 👉 Link in the comments 👇`;
 }
 
 @Injectable()
