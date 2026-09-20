@@ -1,3 +1,4 @@
+import { WordpressModule } from './wordpress/wordpress.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
@@ -28,6 +29,7 @@ import { AuthModule } from './auth/auth.module';
     LogsModule,
     ArticlesModule,
     SettingsModule,
+    WordpressModule,
   ],
   controllers: [AppController],
   providers: [AppService],

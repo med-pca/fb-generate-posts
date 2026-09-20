@@ -1,0 +1,70 @@
+<?php
+// Standalone behavior tests using a minimal WordPress API double.
+define('ABSPATH', __DIR__);
+$GLOBALS['meta'] = $GLOBALS['events'] = $GLOBALS['options'] = array();
+function add_action(...$args) {}
+function add_filter(...$args) {}
+function wp_is_post_revision($id) { return false; }
+function get_post_meta($id, $key, $single) { return $GLOBALS['meta'][$id][$key] ?? ''; }
+function add_post_meta($id, $key, $value, $unique) {
+    if (isset($GLOBALS['meta'][$id][$key])) { return false; }
+    $GLOBALS['meta'][$id][$key] = $value; return true;
+}
+function update_post_meta($id, $key, $value) { $GLOBALS['meta'][$id][$key] = $value; }
+function delete_post_meta($id, $key) { unset($GLOBALS['meta'][$id][$key]); }
+function wp_slash($value) { return $value; }
+function wp_strip_all_tags($s) { return strip_tags($s); }
+function strip_shortcodes($s) { return $s; }
+function home_url() { return 'https://example.com/'; }
+function untrailingslashit($s) { return rtrim($s, '/'); }
+function get_bloginfo($s) { return 'Site'; }
+function get_permalink($id) { return 'https://example.com/article'; }
+function get_post_time(...$args) { return '2026-09-20T10:00:00+00:00'; }
+function get_the_post_thumbnail_url(...$args) { return 'https://example.com/image.jpg'; }
+function wp_next_scheduled($hook, $args) { return $GLOBALS['events'][$args[0]] ?? false; }
+function wp_schedule_single_event($time, $hook, $args, $error) { $GLOBALS['events'][$args[0]] = $time; return true; }
+function wp_clear_scheduled_hook($hook, $args) { unset($GLOBALS['events'][$args[0]]); }
+function is_wp_error($v) { return $v instanceof Exception; }
+function get_post($id) { return $GLOBALS['post']; }
+function get_option($name, $default) { return $GLOBALS['options'][$name] ?? $default; }
+function wp_json_encode($v) { return json_encode($v); }
+function wp_remote_post($url, $args) { $GLOBALS['request'] = $args; return $GLOBALS['response']; }
+function wp_remote_retrieve_response_code($v) { return $v['code']; }
+function wp_remote_retrieve_body($v) { return $v['body']; }
+function current_time(...$args) { return '2026-09-20 10:00:00'; }
+require dirname(__DIR__) . '/data-fb-posting/data-fb-posting.php';
+function check($value, $message) { if (!$value) { throw new Exception($message); } echo "PASS: $message\n"; }
+$post = (object) array('post_type' => 'post', 'post_status' => 'draft', 'post_password' => '', 'post_title' => 'Titre', 'post_content' => 'Contenu original', 'post_excerpt' => '');
+$GLOBALS['post'] = $post;
+DFB_Posting::published(42, $post, true, null);
+check(empty($GLOBALS['events']), 'Drafts do not trigger delivery');
+$post->post_status = 'publish';
+DFB_Posting::published(42, $post, true, (object) array('post_status' => 'future'));
+check(isset($GLOBALS['events'][42]), 'Scheduled publication queues delivery');
+$post->post_content = 'Changed';
+DFB_Posting::published(42, $post, true, (object) array('post_status' => 'publish'));
+check(get_post_meta(42, '_dfb_snapshot', true)['content'] === 'Contenu original', 'Later edits preserve original snapshot');
+unset($GLOBALS['events'][42]); // WP-Cron removes the current event before executing it.
+DFB_Posting::deliver(42);
+check(isset($GLOBALS['events'][42]) && !get_post_meta(42, '_dfb_sent', true), 'Missing configuration retries');
+$GLOBALS['options'][DFB_Posting::OPTION] = array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => 'test');
+$GLOBALS['response'] = new Exception('timeout');
+unset($GLOBALS['events'][42]); DFB_Posting::deliver(42);
+check(isset($GLOBALS['events'][42]) && !get_post_meta(42, '_dfb_sent', true), 'Network failure retries');
+$GLOBALS['response'] = array('code' => 401, 'body' => '{}');
+unset($GLOBALS['events'][42]); DFB_Posting::deliver(42);
+check(isset($GLOBALS['events'][42]) && !get_post_meta(42, '_dfb_sent', true), 'Authentication failure remains pending');
+$GLOBALS['response'] = array('code' => 200, 'body' => '<html>Wrong endpoint</html>');
+unset($GLOBALS['events'][42]); DFB_Posting::deliver(42);
+check(!get_post_meta(42, '_dfb_sent', true), 'Invalid success response is not acknowledged');
+$post->post_status = 'private'; unset($GLOBALS['request']);
+unset($GLOBALS['events'][42]); DFB_Posting::deliver(42);
+check(!isset($GLOBALS['request']), 'Withdrawn articles are not sent');
+$post->post_status = 'publish';
+$GLOBALS['response'] = array('code' => 201, 'body' => '{"articleId":"a1","duplicate":true}');
+unset($GLOBALS['events'][42]); DFB_Posting::deliver(42);
+check((bool) get_post_meta(42, '_dfb_sent', true) && empty($GLOBALS['events']), 'Duplicate acknowledgement completes delivery');
+check(json_decode($GLOBALS['request']['body'], true)['content'] === 'Contenu original', 'Retries send the original snapshot');
+check($GLOBALS['request']['redirection'] === 0, 'API key is never forwarded through redirects');
+unset($GLOBALS['request']); DFB_Posting::deliver(42);
+check(!isset($GLOBALS['request']), 'Acknowledged articles are never sent again');

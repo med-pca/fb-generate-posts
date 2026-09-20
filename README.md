@@ -520,3 +520,9 @@ temps constant) sur `/api/jobs/*` et `/api/logs`.
 Renseigner `AUTOMATION_API_KEY`, `ADMIN_PASSWORD` et `AUTH_SECRET` dans `.env`.
 Les secrets ne doivent jamais être enregistrés en base ou transmis dans les
 logs.
+
+## Intégration WordPress
+
+Le plugin installable [`wordpress/data-fb-posting.zip`](wordpress/data-fb-posting.zip) transmet les nouveaux articles publiés à `POST /api/wordpress/articles`, protégé par la clé dédiée `WORDPRESS_API_KEY`. Chaque article prépare automatiquement un post court par profil actif, avec l’URL destinée au commentaire. Les modifications ultérieures et les envois répétés ne régénèrent pas les posts.
+
+Voir le [guide d’installation et de fonctionnement](wordpress/README.md).
