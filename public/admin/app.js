@@ -1,12 +1,13 @@
 const API = '/api',
   state = {
-    profiles: [], groups: [], articles: [], posts: [], profileOptions: [], settings: null,
+    profiles: [], groups: [], articles: [], posts: [], settings: null,
+    profileOptions: [], articleOptions: [], groupOptions: [],
     page: { profiles: 1, groups: 1, articles: 1, posts: 1, logs: 1 }, meta: {},
     logs: [], logsSummary: null,
     logFilters: { hours: 24, level: '', eventType: '', profileId: '', search: '', onlyIncidents: false },
-    // Le filtre est appliqué par l'API : la sélection « tout » doit porter
+    // Les filtres sont appliqués par l'API : la sélection « tout » doit porter
     // sur le même ensemble que celui que la suppression en masse vise.
-    postProfileId: '', selection: new Set(),
+    postFilters: { profileId: '', articleId: '', groupId: '' }, selection: new Set(),
   };
 let accessToken = localStorage.getItem('postflow_token') || '';
 const $ = (s, r = document) => r.querySelector(s),
@@ -59,17 +60,17 @@ function notice(message, type = 'success') {
 async function load() {
   if (!accessToken) { showLogin(); return; }
   try {
-    const [profiles, groups, articles, posts, profileOptions, settings] = await Promise.all([
+    const postQuery = new URLSearchParams({ page: state.page.posts, limit: 12 });
+    for (const [key, value] of Object.entries(state.postFilters))
+      if (value) postQuery.set(key, value);
+    const [profiles, groups, articles, posts, profileOptions, articleOptions, groupOptions, settings] = await Promise.all([
       api(`/profiles?page=${state.page.profiles}&limit=12`),
       api(`/groups?page=${state.page.groups}&limit=12`),
       api(`/articles?page=${state.page.articles}&limit=12`),
-      api(
-        `/posts?page=${state.page.posts}&limit=12` +
-          (state.postProfileId
-            ? `&profileId=${encodeURIComponent(state.postProfileId)}`
-            : ''),
-      ),
+      api(`/posts?${postQuery}`),
       api('/profiles?page=1&limit=100'),
+      api('/articles?page=1&limit=100'),
+      api('/groups?page=1&limit=100'),
       api('/settings'),
     ]);
     state.profiles = profiles.data; state.meta.profiles = profiles.meta;
@@ -78,6 +79,8 @@ async function load() {
     state.posts = posts.data; state.meta.posts = posts.meta;
     state.selection.clear();
     state.profileOptions = profileOptions.data;
+    state.articleOptions = articleOptions.data;
+    state.groupOptions = groupOptions.data;
     state.settings = settings;
     render();
   } catch (e) {
@@ -118,6 +121,7 @@ function render() {
   renderArticles();
   renderSettings();
   fillProfiles();
+  fillPostFilters();
   renderPosts();
   renderPagination();
 }
@@ -289,7 +293,7 @@ function fillProfiles() {
     '<option value="">Choisir un profil</option>' + options;
   const f = $('#post-filter');
   f.innerHTML = '<option value="">Tous les profils</option>' + options;
-  f.value = state.postProfileId;
+  f.value = state.postFilters.profileId;
   const logProfile = $('#log-profile');
   logProfile.innerHTML =
     '<option value="">Tous les profils</option>' +
@@ -298,6 +302,41 @@ function fillProfiles() {
       .join('');
   logProfile.value = state.logFilters.profileId;
   fillGroupProfiles([]);
+}
+/** Les deux listes viennent du catalogue complet et non de la page affichée :
+ * filtrer sur un article ou un groupe absent de la page courante doit rester
+ * possible. Les groupes se limitent au profil choisi, sinon la liste propose
+ * des cibles qui ne peuvent rien renvoyer. */
+function fillPostFilters() {
+  const { profileId, articleId, groupId } = state.postFilters,
+    articleSelect = $('#post-article-filter'),
+    groupSelect = $('#post-group-filter'),
+    groups = profileId
+      ? state.groupOptions.filter((g) =>
+          g.profiles.some(
+            (x) => x.profileId === profileId && x.status === 'ACTIVE',
+          ),
+        )
+      : state.groupOptions;
+  articleSelect.innerHTML =
+    '<option value="">Tous les articles</option>' +
+    state.articleOptions
+      .map((a) => `<option value="${a.id}">${esc(a.title)}</option>`)
+      .join('');
+  groupSelect.innerHTML =
+    '<option value="">Tous les groupes</option>' +
+    groups
+      .map((g) => `<option value="${g.id}">${esc(g.name)}</option>`)
+      .join('');
+  // Un article ou un groupe supprimé entre-temps ne doit pas rester appliqué
+  // en silence : le filtre retombe sur « tous » plutôt que de vider la liste
+  // sans que rien ne l'explique à l'écran.
+  articleSelect.value = state.articleOptions.some((a) => a.id === articleId)
+    ? articleId
+    : '';
+  groupSelect.value = groups.some((g) => g.id === groupId) ? groupId : '';
+  state.postFilters.articleId = articleSelect.value;
+  state.postFilters.groupId = groupSelect.value;
 }
 function fillGroupProfiles(selected = []) {
   $('#group-profiles').innerHTML =
@@ -392,10 +431,34 @@ $$('[data-open]').forEach((b) => (b.onclick = () => openModal(b.dataset.open)));
 $$('[data-close]').forEach(
   (b) => (b.onclick = () => b.closest('dialog').close()),
 );
-$('#post-filter').onchange = (e) => {
-  state.postProfileId = e.target.value;
+function applyPostFilters() {
   state.page.posts = 1;
   load();
+}
+$('#post-filter').onchange = (e) => {
+  state.postFilters.profileId = e.target.value;
+  // Un groupe étranger au profil choisi ne renverrait plus aucun post : le
+  // filtre tombe en même temps que le groupe quitte la liste.
+  const group = state.groupOptions.find(
+    (g) => g.id === state.postFilters.groupId,
+  );
+  if (
+    group &&
+    e.target.value &&
+    !group.profiles.some(
+      (x) => x.profileId === e.target.value && x.status === 'ACTIVE',
+    )
+  )
+    state.postFilters.groupId = '';
+  applyPostFilters();
+};
+$('#post-article-filter').onchange = (e) => {
+  state.postFilters.articleId = e.target.value;
+  applyPostFilters();
+};
+$('#post-group-filter').onchange = (e) => {
+  state.postFilters.groupId = e.target.value;
+  applyPostFilters();
 };
 $('#post-select-all').onchange = (e) => {
   state.selection.clear();
