@@ -309,8 +309,12 @@ Content-Type: application/json
 
 Sans `status`, la liste rend les groupes `NOT_JOINED` et `FAILED` ; `status=all`
 rend tout. `error` (facultatif) accompagne un `FAILED`. Chaque mise à jour écrit
-un journal `GROUP_JOIN_UPDATED`. Le statut n’influence pas encore la réservation
-des lots.
+un journal `GROUP_JOIN_UPDATED`.
+
+La réservation des lots (`/jobs/claim…`) ne considère que les groupes `JOINED`
+pour le profil : un groupe lié mais pas encore rejoint ne reçoit aucune
+publication. Les liens créés avant cette fonctionnalité ont été passés à
+`JOINED` par la migration.
 
 ## Alimentation des contenus
 

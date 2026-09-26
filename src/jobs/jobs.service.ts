@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JobStatus, Prisma, TargetStatus } from '@prisma/client';
+import { JobStatus, JoinStatus, Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaimJobDto } from './dto/claim-job.dto';
 import { ClaimBatchDto } from './dto/claim-batch.dto';
@@ -95,13 +95,20 @@ export class JobsService {
       where: {
         id: dto.groupId,
         status: 'ACTIVE',
+        // Le compte ne peut publier que dans un groupe qu'il a déjà rejoint.
         profiles: {
-          some: { profileId: dto.profileId, status: 'ACTIVE' },
+          some: {
+            profileId: dto.profileId,
+            status: 'ACTIVE',
+            joinStatus: JoinStatus.JOINED,
+          },
         },
       },
     });
     if (!group)
-      throw new NotFoundException('Groupe introuvable pour ce profil');
+      throw new NotFoundException(
+        'Groupe introuvable ou pas encore rejoint par ce profil',
+      );
 
     const count = this.randomInt(
       profile.minPostsPerJob,
@@ -353,7 +360,13 @@ export class JobsService {
       where: {
         status: 'ACTIVE',
         externalId: groupExternalId || undefined,
-        profiles: { some: { profileId: profile.id, status: 'ACTIVE' } },
+        profiles: {
+          some: {
+            profileId: profile.id,
+            status: 'ACTIVE',
+            joinStatus: JoinStatus.JOINED,
+          },
+        },
         targets: {
           some: {
             status: TargetStatus.AVAILABLE,
@@ -369,8 +382,8 @@ export class JobsService {
         job: null,
         posts: [],
         message: groupExternalId
-          ? 'Aucun post disponible pour ce profil et ce groupe'
-          : 'Aucun post disponible pour ce profil',
+          ? 'Aucun post disponible pour ce profil et ce groupe (ou groupe pas encore rejoint)'
+          : 'Aucun post disponible dans les groupes rejoints par ce profil',
       };
     }
 

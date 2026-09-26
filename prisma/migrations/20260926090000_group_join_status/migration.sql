@@ -8,3 +8,7 @@ ALTER TABLE "profile_groups"
   ADD COLUMN "join_error" TEXT;
 
 CREATE INDEX "profile_groups_profile_id_join_status_idx" ON "profile_groups"("profile_id", "join_status");
+
+-- Les liens existants publiaient déjà : ils sont considérés comme rejoints,
+-- sans quoi la réservation des lots (limitée aux groupes JOINED) s'arrêterait.
+UPDATE "profile_groups" SET "join_status" = 'JOINED', "join_checked_at" = NOW();

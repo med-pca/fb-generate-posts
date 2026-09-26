@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
-import { JobStatus, TargetStatus } from '@prisma/client';
+import { JobStatus, JoinStatus, TargetStatus } from '@prisma/client';
 import { JobsService } from './jobs.service';
 
 const CLAIM_EXPIRES = new Date('2026-09-14T12:00:00.000Z');
@@ -176,6 +176,53 @@ describe('JobsService — clôture du job', () => {
       expect.objectContaining({
         data: expect.objectContaining({ status: JobStatus.FAILED }),
       }),
+    );
+  });
+});
+
+describe('JobsService — groupes rejoints uniquement', () => {
+  function makeClaimHarness() {
+    const prisma: any = {
+      profile: {
+        findFirst: jest.fn(async () => ({ id: 'profile_1', status: 'ACTIVE' })),
+      },
+      publicationJob: { findFirst: jest.fn(async () => null) },
+      publicationJobItem: {},
+      postTarget: { updateMany: jest.fn(async () => ({ count: 0 })) },
+      group: {
+        findFirst: jest.fn(async () => null),
+        findMany: jest.fn(async () => []),
+      },
+      activityLog: { create: jest.fn(async () => ({})) },
+    };
+    prisma.publicationJob.updateMany = jest.fn(async () => ({ count: 0 }));
+    const settings: any = { replenishProfile: jest.fn(async () => ({})) };
+    const service = new JobsService(prisma, {} as any, settings);
+    return { service, prisma };
+  }
+
+  const joinedLink = {
+    profiles: {
+      some: expect.objectContaining({ joinStatus: JoinStatus.JOINED }),
+    },
+  };
+
+  it('refuse de réserver dans un groupe que le profil n’a pas rejoint', async () => {
+    const { service, prisma } = makeClaimHarness();
+    await expect(
+      service.claim({ profileId: 'profile_1', groupId: 'group_1' }),
+    ).rejects.toThrow('pas encore rejoint');
+    expect(prisma.group.findFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining(joinedLink),
+    });
+  });
+
+  it('ne choisit que parmi les groupes rejoints', async () => {
+    const { service, prisma } = makeClaimHarness();
+    const result = await service.claimByProfileExternalId('demo-profile');
+    expect(result).toMatchObject({ job: null, posts: [] });
+    expect(prisma.group.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining(joinedLink) }),
     );
   });
 });
