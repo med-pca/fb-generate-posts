@@ -26,6 +26,10 @@ export type LlmProvider = {
    * `max_completion_tokens` ; les passerelles compatibles, elles, n'ont
    * souvent que l'ancien nom. */
   tokenParam: 'max_tokens' | 'max_completion_tokens';
+  /** Budget de sortie. Les modèles à raisonnement consomment plusieurs
+   * milliers de tokens avant d'écrire la première phrase : leur laisser le
+   * budget d'un modèle ordinaire tronque la réponse. 0 = celui de l'appel. */
+  maxTokens: number;
 };
 
 export type JsonRequest = {
@@ -52,22 +56,42 @@ const DEFAULTS = {
     // Non vérifié sur ce compte : le mode JSON libre marche partout.
     jsonSchema: false,
     tokenParam: 'max_tokens',
+    maxTokens: 0,
+    timeoutMs: 0,
   },
   openai: {
     baseURL: undefined,
     model: 'gpt-4.1-mini',
     jsonSchema: true,
     tokenParam: 'max_completion_tokens',
+    maxTokens: 0,
+    timeoutMs: 0,
+  },
+  deepseek: {
+    baseURL: 'https://api.deepseek.com/v1',
+    // `deepseek-v4-pro` rend le même article que `deepseek-flash` pour un
+    // tiers de tokens en moins, à latence égale.
+    model: 'deepseek-v4-pro',
+    // Vérifié : le schéma strict est refusé (« response_format type is
+    // unavailable »), le mode JSON libre passe.
+    jsonSchema: false,
+    tokenParam: 'max_tokens',
+    // Mesuré : ~2 500 tokens de raisonnement avant la première phrase.
+    maxTokens: 8000,
+    // Mesuré : 75 s pour un article complet, trop près du délai commun.
+    timeoutMs: 180_000,
   },
   gemini: {
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
     model: 'gemini-2.5-flash',
     jsonSchema: true,
     tokenParam: 'max_tokens',
+    maxTokens: 0,
+    timeoutMs: 0,
   },
 } as const;
 
-const DEFAULT_ORDER = 'kimi,openai,gemini';
+const DEFAULT_ORDER = 'openai,deepseek,gemini,kimi';
 const DEFAULT_TIMEOUT_MS = 90_000;
 
 /** Le transport réel. Le SDK OpenAI parle à n'importe quelle passerelle
@@ -84,7 +108,7 @@ export const chatCompletionsTransport: LlmTransport = async (
   });
   const response = await client.chat.completions.create({
     model: provider.model,
-    [provider.tokenParam]: request.maxTokens,
+    [provider.tokenParam]: provider.maxTokens || request.maxTokens,
     messages: [
       { role: 'system', content: request.instructions },
       { role: 'user', content: request.input },
@@ -131,6 +155,10 @@ export class LlmService {
         if (!apiKey) return null;
         const flag = this.config.get<string>(`${prefix}_JSON_SCHEMA`);
         const tokenParam = this.config.get<string>(`${prefix}_TOKEN_PARAM`);
+        const budget = Number(
+          this.config.get<string>(`${prefix}_MAX_TOKENS`) ||
+            this.config.get<string>('LLM_MAX_TOKENS'),
+        );
         const timeout = Number(
           this.config.get<string>(`${prefix}_TIMEOUT_MS`) ||
             this.config.get<string>('LLM_TIMEOUT_MS'),
@@ -150,12 +178,16 @@ export class LlmService {
           timeoutMs:
             Number.isFinite(timeout) && timeout > 0
               ? timeout
-              : DEFAULT_TIMEOUT_MS,
+              : DEFAULTS[name].timeoutMs || DEFAULT_TIMEOUT_MS,
           tokenParam:
             tokenParam === 'max_tokens' ||
             tokenParam === 'max_completion_tokens'
               ? tokenParam
               : DEFAULTS[name].tokenParam,
+          maxTokens:
+            Number.isFinite(budget) && budget > 0
+              ? budget
+              : DEFAULTS[name].maxTokens,
         };
       })
       .filter((provider): provider is LlmProvider => provider !== null);

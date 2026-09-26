@@ -25,7 +25,53 @@ describe('LlmService.providers', () => {
     const names = setup({ KIMI_API_KEY: 'k', GEMINI_API_KEY: 'g' }, never)
       .providers()
       .map((provider) => provider.name);
-    expect(names).toEqual(['kimi', 'gemini']);
+    expect(names).toEqual(['gemini', 'kimi']);
+  });
+
+  // Vérifié sur l'API : le schéma strict est refusé, le mode JSON libre
+  // passe. Demander le schéma ferait échouer chaque appel en 400.
+  it('demande à DeepSeek du JSON libre, pas un schéma strict', () => {
+    const [deepseek] = setup({ DEEPSEEK_API_KEY: 'd' }, never).providers();
+    expect(deepseek).toMatchObject({
+      name: 'deepseek',
+      baseURL: 'https://api.deepseek.com/v1',
+      model: 'deepseek-v4-pro',
+      jsonSchema: false,
+      tokenParam: 'max_tokens',
+      // ~2 500 tokens de raisonnement avant la première phrase : au budget
+      // ordinaire, la réponse est tronquée.
+      maxTokens: 8000,
+      // Mesuré : 75 s pour un article complet.
+      timeoutMs: 180_000,
+    });
+  });
+
+  it('laisse le budget de l’appel aux modèles sans raisonnement', () => {
+    const [openai] = setup({ OPENAI_API_KEY: 'o' }, never).providers();
+    expect(openai.maxTokens).toBe(0);
+  });
+
+  it('laisse relever le budget par fournisseur', () => {
+    const [openai] = setup(
+      { OPENAI_API_KEY: 'o', OPENAI_MAX_TOKENS: '20000' },
+      never,
+    ).providers();
+    expect(openai.maxTokens).toBe(20_000);
+  });
+
+  it('place OpenAI puis DeepSeek en tête par défaut', () => {
+    const names = setup(
+      {
+        OPENAI_API_KEY: 'o',
+        DEEPSEEK_API_KEY: 'd',
+        KIMI_API_KEY: 'k',
+        GEMINI_API_KEY: 'g',
+      },
+      never,
+    )
+      .providers()
+      .map((provider) => provider.name);
+    expect(names).toEqual(['openai', 'deepseek', 'gemini', 'kimi']);
   });
 
   it('respecte l’ordre demandé', () => {
@@ -123,7 +169,12 @@ describe('LlmService.providers', () => {
 });
 
 describe('LlmService.completeJson', () => {
-  const env = { KIMI_API_KEY: 'k', OPENAI_API_KEY: 'o', GEMINI_API_KEY: 'g' };
+  const env = {
+    LLM_PROVIDERS: 'kimi,openai,gemini',
+    KIMI_API_KEY: 'k',
+    OPENAI_API_KEY: 'o',
+    GEMINI_API_KEY: 'g',
+  };
 
   it('s’arrête au premier fournisseur qui répond', async () => {
     const transport = jest.fn(() => Promise.resolve('{"ok":1}'));

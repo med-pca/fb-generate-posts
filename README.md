@@ -629,17 +629,29 @@ chaîne** ; le premier qui rend un JSON exploitable l’emporte. Un compte
 suspendu, un quota dépassé, une panne ou une réponse illisible font passer au
 suivant, et le journal dit sur lequel on a basculé.
 
-| Fournisseur | Clé | Modèle par défaut | Passerelle |
-| --- | --- | --- | --- |
-| `kimi` | `KIMI_API_KEY` | `kimi-k2.6` | `https://api.moonshot.ai/v1` |
-| `openai` | `OPENAI_API_KEY` | `gpt-4.1-mini` | celle du SDK |
-| `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` | passerelle compatible OpenAI |
+| Fournisseur | Clé | Modèle par défaut | Schéma strict | Budget / délai |
+| --- | --- | --- | --- | --- |
+| `openai` | `OPENAI_API_KEY` | `gpt-4.1-mini` | oui | ceux de l’appel |
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` | **non** | 8 000 tokens, 180 s |
+| `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` | oui | ceux de l’appel |
+| `kimi` | `KIMI_API_KEY` | `kimi-k2.6` | non | ceux de l’appel |
+
+Deux particularités mesurées sur l’API, pas devinées. DeepSeek **refuse le
+schéma strict** (`response_format type is unavailable`) : la chaîne bascule
+sur le mode JSON libre, le schéma part dans la consigne, et la sortie est de
+toute façon renormalisée. Et ses modèles **raisonnent** — environ 2 500 tokens
+avant la première phrase, 75 s pour un article complet — d’où son budget et
+son délai propres, sans quoi la réponse serait tronquée.
+
+Les modèles OpenAI récents refusent `max_tokens` et veulent
+`max_completion_tokens` ; les passerelles compatibles n’ont souvent que
+l’ancien nom. Le bon est choisi par fournisseur.
 
 Tous sont appelés en « Chat Completions » : c’est la seule interface que les
-trois exposent. `<PREFIX>_MODEL`, `<PREFIX>_BASE_URL` et `<PREFIX>_TIMEOUT_MS`
-surchargent chacun le sien ; `<PREFIX>_JSON_SCHEMA` dit si le fournisseur
-accepte un schéma strict — sinon la consigne porte le schéma et la sortie est
-renormalisée de toute façon.
+quatre exposent. Chaque réglage se surcharge par fournisseur —
+`<PREFIX>_MODEL`, `<PREFIX>_BASE_URL`, `<PREFIX>_TIMEOUT_MS`,
+`<PREFIX>_MAX_TOKENS`, `<PREFIX>_TOKEN_PARAM`, `<PREFIX>_JSON_SCHEMA` — ou
+globalement avec `LLM_TIMEOUT_MS` et `LLM_MAX_TOKENS`.
 
 Sans aucune clé, la reprise s’arrête en `REWRITING` et le dit dans
 `lastError`. `/admin/posts/generate` reste sur OpenAI seul, sans repli.

@@ -27,21 +27,35 @@ const DEFAULTS = {
         model: 'kimi-k2.6',
         jsonSchema: false,
         tokenParam: 'max_tokens',
+        maxTokens: 0,
+        timeoutMs: 0,
     },
     openai: {
         baseURL: undefined,
         model: 'gpt-4.1-mini',
         jsonSchema: true,
         tokenParam: 'max_completion_tokens',
+        maxTokens: 0,
+        timeoutMs: 0,
+    },
+    deepseek: {
+        baseURL: 'https://api.deepseek.com/v1',
+        model: 'deepseek-v4-pro',
+        jsonSchema: false,
+        tokenParam: 'max_tokens',
+        maxTokens: 8000,
+        timeoutMs: 180_000,
     },
     gemini: {
         baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
         model: 'gemini-2.5-flash',
         jsonSchema: true,
         tokenParam: 'max_tokens',
+        maxTokens: 0,
+        timeoutMs: 0,
     },
 };
-const DEFAULT_ORDER = 'kimi,openai,gemini';
+const DEFAULT_ORDER = 'openai,deepseek,gemini,kimi';
 const DEFAULT_TIMEOUT_MS = 90_000;
 const chatCompletionsTransport = async (provider, request) => {
     const client = new openai_1.default({
@@ -52,7 +66,7 @@ const chatCompletionsTransport = async (provider, request) => {
     });
     const response = await client.chat.completions.create({
         model: provider.model,
-        [provider.tokenParam]: request.maxTokens,
+        [provider.tokenParam]: provider.maxTokens || request.maxTokens,
         messages: [
             { role: 'system', content: request.instructions },
             { role: 'user', content: request.input },
@@ -99,6 +113,8 @@ let LlmService = LlmService_1 = class LlmService {
                 return null;
             const flag = this.config.get(`${prefix}_JSON_SCHEMA`);
             const tokenParam = this.config.get(`${prefix}_TOKEN_PARAM`);
+            const budget = Number(this.config.get(`${prefix}_MAX_TOKENS`) ||
+                this.config.get('LLM_MAX_TOKENS'));
             const timeout = Number(this.config.get(`${prefix}_TIMEOUT_MS`) ||
                 this.config.get('LLM_TIMEOUT_MS'));
             return {
@@ -112,11 +128,14 @@ let LlmService = LlmService_1 = class LlmService {
                     : flag === 'true',
                 timeoutMs: Number.isFinite(timeout) && timeout > 0
                     ? timeout
-                    : DEFAULT_TIMEOUT_MS,
+                    : DEFAULTS[name].timeoutMs || DEFAULT_TIMEOUT_MS,
                 tokenParam: tokenParam === 'max_tokens' ||
                     tokenParam === 'max_completion_tokens'
                     ? tokenParam
                     : DEFAULTS[name].tokenParam,
+                maxTokens: Number.isFinite(budget) && budget > 0
+                    ? budget
+                    : DEFAULTS[name].maxTokens,
             };
         })
             .filter((provider) => provider !== null);

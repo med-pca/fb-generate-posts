@@ -7,6 +7,7 @@ export type LlmProvider = {
     jsonSchema: boolean;
     timeoutMs: number;
     tokenParam: 'max_tokens' | 'max_completion_tokens';
+    maxTokens: number;
 };
 export type JsonRequest = {
     instructions: string;
