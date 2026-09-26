@@ -23,6 +23,7 @@ const profiles_module_1 = require("./profiles/profiles.module");
 const articles_module_1 = require("./articles/articles.module");
 const settings_module_1 = require("./settings/settings.module");
 const auth_module_1 = require("./auth/auth.module");
+const ingest_module_1 = require("./ingest/ingest.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -42,6 +43,7 @@ exports.AppModule = AppModule = __decorate([
             articles_module_1.ArticlesModule,
             settings_module_1.SettingsModule,
             wordpress_module_1.WordpressModule,
+            ingest_module_1.IngestModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],

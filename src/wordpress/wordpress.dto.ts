@@ -47,4 +47,12 @@ export class WordpressArticleDto {
 
   @IsDateString()
   publishedAt!: string;
+
+  /** Posé par le plugin quand l'article vient d'une reprise : il rattache
+   * l'article à sa fiche et fait porter aux posts la légende et l'image du
+   * post d'origine, à la place de l'extrait automatique. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  ingestRef?: string;
 }

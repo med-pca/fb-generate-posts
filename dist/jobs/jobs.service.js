@@ -42,12 +42,16 @@ let JobsService = class JobsService {
                 id: dto.groupId,
                 status: 'ACTIVE',
                 profiles: {
-                    some: { profileId: dto.profileId, status: 'ACTIVE' },
+                    some: {
+                        profileId: dto.profileId,
+                        status: 'ACTIVE',
+                        joinStatus: client_1.JoinStatus.JOINED,
+                    },
                 },
             },
         });
         if (!group)
-            throw new common_1.NotFoundException('Groupe introuvable pour ce profil');
+            throw new common_1.NotFoundException('Groupe introuvable ou pas encore rejoint par ce profil');
         const count = this.randomInt(profile.minPostsPerJob, profile.maxPostsPerJob);
         const ttlMinutes = this.config.get('CLAIM_TTL_MINUTES', 30);
         const claimExpiresAt = new Date(Date.now() + ttlMinutes * 60_000);
@@ -260,7 +264,13 @@ let JobsService = class JobsService {
             where: {
                 status: 'ACTIVE',
                 externalId: groupExternalId || undefined,
-                profiles: { some: { profileId: profile.id, status: 'ACTIVE' } },
+                profiles: {
+                    some: {
+                        profileId: profile.id,
+                        status: 'ACTIVE',
+                        joinStatus: client_1.JoinStatus.JOINED,
+                    },
+                },
                 targets: {
                     some: {
                         status: client_1.TargetStatus.AVAILABLE,
@@ -275,8 +285,8 @@ let JobsService = class JobsService {
                 job: null,
                 posts: [],
                 message: groupExternalId
-                    ? 'Aucun post disponible pour ce profil et ce groupe'
-                    : 'Aucun post disponible pour ce profil',
+                    ? 'Aucun post disponible pour ce profil et ce groupe (ou groupe pas encore rejoint)'
+                    : 'Aucun post disponible dans les groupes rejoints par ce profil',
             };
         }
         const shuffled = groups.sort(() => Math.random() - 0.5);

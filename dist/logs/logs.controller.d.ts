@@ -11,10 +11,10 @@ export declare class LogsController {
         createdAt: Date;
         groupId: string | null;
         postId: string | null;
-        metadata: import("@prisma/client/runtime/library").JsonValue | null;
         eventType: string;
         level: import("@prisma/client").$Enums.LogLevel;
         message: string;
+        metadata: import("@prisma/client/runtime/library").JsonValue | null;
         postTargetId: string | null;
         jobId: string | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
@@ -24,10 +24,10 @@ export declare class LogsController {
         createdAt: Date;
         groupId: string | null;
         postId: string | null;
-        metadata: import("@prisma/client/runtime/library").JsonValue | null;
         eventType: string;
         level: import("@prisma/client").$Enums.LogLevel;
         message: string;
+        metadata: import("@prisma/client/runtime/library").JsonValue | null;
         postTargetId: string | null;
         jobId: string | null;
     }[]>;
@@ -55,10 +55,10 @@ export declare class LogsAdminController {
             createdAt: Date;
             groupId: string | null;
             postId: string | null;
-            metadata: import("@prisma/client/runtime/library").JsonValue | null;
             eventType: string;
             level: import("@prisma/client").$Enums.LogLevel;
             message: string;
+            metadata: import("@prisma/client/runtime/library").JsonValue | null;
             postTargetId: string | null;
             jobId: string | null;
         })[];
@@ -111,10 +111,10 @@ export declare class LogsAdminController {
             createdAt: Date;
             groupId: string | null;
             postId: string | null;
-            metadata: import("@prisma/client/runtime/library").JsonValue | null;
             eventType: string;
             level: import("@prisma/client").$Enums.LogLevel;
             message: string;
+            metadata: import("@prisma/client/runtime/library").JsonValue | null;
             postTargetId: string | null;
             jobId: string | null;
         })[];

@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Data FB Posting
- * Description: Envoie les articles publiés vers Data FB Posting et resynchronise leurs modifications (titre, contenu, image).
- * Version: 1.1.0
+ * Description: Envoie les articles publiés vers Data FB Posting, resynchronise leurs modifications (titre, contenu, image), et reçoit les articles réécrits que l'API dépose.
+ * Version: 1.2.1
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
@@ -11,9 +11,17 @@ if (!defined('ABSPATH')) { exit; }
 final class DFB_Posting {
     const OPTION = 'dfb_posting_settings';
     const HOOK = 'dfb_posting_deliver';
+    const INGEST_META = '_dfb_ingest';
+    /** Le corps arrive en JSON : une image de plus de 10 Mo n'y a pas sa place. */
+    const MAX_IMAGE_BYTES = 10485760;
+    const IMAGE_TYPES = array('image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif');
 
     public static function boot() {
         add_action('wp_after_insert_post', array(__CLASS__, 'saved'), 10, 4);
+        add_action('rest_api_init', array(__CLASS__, 'routes'));
+        // Priorité tardive : le filtre d'un plugin de sécurité doit avoir
+        // rendu son verdict avant qu'on rouvre notre seule route.
+        add_filter('rest_authentication_errors', array(__CLASS__, 'unlock'), 99);
         add_action(self::HOOK, array(__CLASS__, 'deliver'), 10, 1);
         add_action('admin_menu', array(__CLASS__, 'menu'));
         add_action('admin_init', array(__CLASS__, 'register'));
@@ -42,6 +50,11 @@ final class DFB_Posting {
         );
         $image = get_the_post_thumbnail_url($id, 'full');
         if ($image) { $payload['imageUrl'] = $image; }
+        // Champ conditionnel : ajouté à tous les articles, il modifierait
+        // l'empreinte de ceux déjà suivis et provoquerait un renvoi complet
+        // du catalogue à la première sauvegarde.
+        $ingest = get_post_meta($id, self::INGEST_META, true);
+        if ($ingest) { $payload['ingestRef'] = $ingest; }
         return $payload;
     }
 
@@ -136,6 +149,112 @@ final class DFB_Posting {
         update_post_meta($id, '_dfb_attempt', $attempt);
         update_post_meta($id, '_dfb_error', $error);
         self::schedule($id, min(3600, 60 * pow(2, min($attempt - 1, 6))));
+    }
+
+    public static function routes() {
+        register_rest_route('dfb/v1', '/articles', array(
+            'methods' => 'POST',
+            'callback' => array(__CLASS__, 'receive'),
+            'permission_callback' => array(__CLASS__, 'authorized'),
+        ));
+    }
+
+    /** Même clé que les envois sortants, comparée en temps constant. Sans clé
+     * enregistrée, la route reste fermée : un site fraîchement installé ne
+     * doit pas accepter d'articles. */
+    public static function authorized($request) {
+        $settings = get_option(self::OPTION, array());
+        $key = isset($settings['key']) ? (string) $settings['key'] : '';
+        $provided = (string) $request->get_header('x-api-key');
+        if ($key === '' || $provided === '' || !hash_equals($key, $provided)) {
+            return new WP_Error('dfb_forbidden', 'Clé invalide.', array('status' => 401));
+        }
+        return true;
+    }
+
+    /** Beaucoup de sites ferment toute l'API REST aux visiteurs non
+     * connectés (« rest_login_required »). Ce verrou s'applique avant le
+     * `permission_callback` de chaque route : sans cela, notre dépôt serait
+     * refusé même avec la bonne clé. On rouvre donc la seule route dfb, et
+     * seulement quand la clé est déjà correcte — le `permission_callback` la
+     * revérifie juste après. */
+    public static function unlock($result) {
+        if (!is_wp_error($result)) { return $result; }
+        $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '';
+        if (strpos($uri, 'dfb/v1/articles') === false) { return $result; }
+        $settings = get_option(self::OPTION, array());
+        $key = isset($settings['key']) ? (string) $settings['key'] : '';
+        $provided = isset($_SERVER['HTTP_X_API_KEY']) ? (string) wp_unslash($_SERVER['HTTP_X_API_KEY']) : '';
+        if ($key === '' || $provided === '' || !hash_equals($key, $provided)) { return $result; }
+        return true;
+    }
+
+    /** Dépose l'article réécrit. Publié en deux temps : brouillon d'abord, le
+     * temps de poser la référence de reprise et l'image à la une, puis mise en
+     * ligne — c'est elle qui déclenche le renvoi vers l'API, et il doit porter
+     * ces deux éléments. */
+    public static function receive($request) {
+        $body = $request->get_json_params();
+        if (!is_array($body)) {
+            return new WP_Error('dfb_bad_body', 'Corps JSON attendu.', array('status' => 400));
+        }
+        $title = isset($body['title']) ? sanitize_text_field((string) $body['title']) : '';
+        $content = isset($body['contentHtml']) ? (string) $body['contentHtml'] : '';
+        if ($title === '' || trim($content) === '') {
+            return new WP_Error('dfb_incomplete', 'title et contentHtml sont requis.', array('status' => 400));
+        }
+        $id = wp_insert_post(array(
+            'post_type' => 'post',
+            'post_status' => 'draft',
+            'post_title' => $title,
+            'post_name' => isset($body['slug']) ? sanitize_title((string) $body['slug']) : '',
+            'post_excerpt' => isset($body['excerpt']) ? sanitize_text_field((string) $body['excerpt']) : '',
+            'post_content' => wp_kses_post($content),
+            // Posée à l'insertion : `wp_after_insert_post` la lira au passage
+            // en ligne, et l'API saura à quelle reprise rattacher l'article.
+            'meta_input' => array(self::INGEST_META => isset($body['ingestRef']) ? sanitize_text_field((string) $body['ingestRef']) : ''),
+        ), true);
+        if (is_wp_error($id)) { return $id; }
+        $warning = self::attach_image($id, isset($body['image']) ? $body['image'] : null);
+        $published = wp_update_post(array('ID' => $id, 'post_status' => 'publish'), true);
+        if (is_wp_error($published)) { return $published; }
+        return array(
+            'postId' => (string) $id,
+            'permalink' => get_permalink($id),
+            'imageWarning' => $warning,
+        );
+    }
+
+    /** L'image arrive en base64 : l'URL d'origine expire, et le site
+     * WordPress n'a pas à aller la chercher lui-même. Un échec ici ne fait pas
+     * échouer le dépôt — un article sans image reste publiable. */
+    public static function attach_image($id, $image) {
+        if (!is_array($image) || empty($image['data'])) { return null; }
+        $type = isset($image['mimeType']) ? (string) $image['mimeType'] : '';
+        if (!isset(self::IMAGE_TYPES[$type])) { return 'Type d’image non accepté : ' . $type; }
+        $bytes = base64_decode((string) $image['data'], true);
+        if ($bytes === false || $bytes === '') { return 'Image illisible.'; }
+        if (strlen($bytes) > self::MAX_IMAGE_BYTES) { return 'Image trop volumineuse.'; }
+        $name = sanitize_file_name(!empty($image['filename']) ? (string) $image['filename'] : 'image.' . self::IMAGE_TYPES[$type]);
+        if (!preg_match('/\.' . preg_quote(self::IMAGE_TYPES[$type], '/') . '$/i', $name)) {
+            $name .= '.' . self::IMAGE_TYPES[$type];
+        }
+        $upload = wp_upload_bits($name, null, $bytes);
+        if (!empty($upload['error'])) { return 'Dépôt refusé : ' . $upload['error']; }
+        $attachment = wp_insert_attachment(array(
+            'post_mime_type' => $type,
+            'post_title' => pathinfo($name, PATHINFO_FILENAME),
+            'post_status' => 'inherit',
+        ), $upload['file'], $id, true);
+        if (is_wp_error($attachment)) { return 'Pièce jointe refusée.'; }
+        // Chargée à la demande : la génération des tailles n'est pas
+        // disponible hors de l'administration.
+        if (!function_exists('wp_generate_attachment_metadata')) {
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+        }
+        wp_update_attachment_metadata($attachment, wp_generate_attachment_metadata($attachment, $upload['file']));
+        set_post_thumbnail($id, $attachment);
+        return null;
     }
 
     public static function menu() {

@@ -13,6 +13,9 @@ export declare class GroupsController {
             createdAt: Date;
             updatedAt: Date;
             groupId: string;
+            joinStatus: import("@prisma/client").$Enums.JoinStatus;
+            joinCheckedAt: Date | null;
+            joinError: string | null;
         }[];
     } & {
         status: import("@prisma/client").$Enums.RecordStatus;
@@ -62,6 +65,9 @@ export declare class GroupsController {
         createdAt: Date;
         updatedAt: Date;
         groupId: string;
+        joinStatus: import("@prisma/client").$Enums.JoinStatus;
+        joinCheckedAt: Date | null;
+        joinError: string | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     unlink(profileId: string, groupId: string): import("@prisma/client").Prisma.Prisma__ProfileGroupClient<{
         profileId: string;
@@ -70,6 +76,9 @@ export declare class GroupsController {
         createdAt: Date;
         updatedAt: Date;
         groupId: string;
+        joinStatus: import("@prisma/client").$Enums.JoinStatus;
+        joinCheckedAt: Date | null;
+        joinError: string | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     update(groupId: string, dto: UpdateGroupDto): import("@prisma/client").Prisma.Prisma__GroupClient<{
         status: import("@prisma/client").$Enums.RecordStatus;
@@ -111,6 +120,9 @@ export declare class GroupsCatalogController {
                 createdAt: Date;
                 updatedAt: Date;
                 groupId: string;
+                joinStatus: import("@prisma/client").$Enums.JoinStatus;
+                joinCheckedAt: Date | null;
+                joinError: string | null;
             })[];
             status: import("@prisma/client").$Enums.RecordStatus;
             id: string;

@@ -1,7 +1,9 @@
+import { JoinStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { UpdateJoinStatusDto } from './dto/update-join-status.dto';
 export declare class GroupsService {
     private readonly prisma;
     constructor(prisma: PrismaService);
@@ -13,6 +15,9 @@ export declare class GroupsService {
             createdAt: Date;
             updatedAt: Date;
             groupId: string;
+            joinStatus: import("@prisma/client").$Enums.JoinStatus;
+            joinCheckedAt: Date | null;
+            joinError: string | null;
         }[];
     } & {
         status: import("@prisma/client").$Enums.RecordStatus;
@@ -62,6 +67,9 @@ export declare class GroupsService {
         createdAt: Date;
         updatedAt: Date;
         groupId: string;
+        joinStatus: import("@prisma/client").$Enums.JoinStatus;
+        joinCheckedAt: Date | null;
+        joinError: string | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     unlink(profileId: string, groupId: string): import("@prisma/client").Prisma.Prisma__ProfileGroupClient<{
         profileId: string;
@@ -70,6 +78,9 @@ export declare class GroupsService {
         createdAt: Date;
         updatedAt: Date;
         groupId: string;
+        joinStatus: import("@prisma/client").$Enums.JoinStatus;
+        joinCheckedAt: Date | null;
+        joinError: string | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     findCatalog({ page, limit }: PaginationDto): Promise<{
         data: {
@@ -98,6 +109,9 @@ export declare class GroupsService {
                 createdAt: Date;
                 updatedAt: Date;
                 groupId: string;
+                joinStatus: import("@prisma/client").$Enums.JoinStatus;
+                joinCheckedAt: Date | null;
+                joinError: string | null;
             })[];
             status: import("@prisma/client").$Enums.RecordStatus;
             id: string;
@@ -132,4 +146,20 @@ export declare class GroupsService {
         name: string;
         url: string;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+    private findAutomationProfile;
+    findForJoin(profileExternalId: string, statuses?: JoinStatus[]): Promise<{
+        id: string;
+        externalId: string | null;
+        name: string;
+        url: string;
+        joinStatus: import("@prisma/client").$Enums.JoinStatus;
+        joinCheckedAt: Date | null;
+        joinError: string | null;
+    }[]>;
+    updateJoinStatus(profileExternalId: string, groupId: string, { joinStatus, error }: UpdateJoinStatusDto): Promise<{
+        groupId: string;
+        joinStatus: import("@prisma/client").$Enums.JoinStatus;
+        joinCheckedAt: Date | null;
+        joinError: string | null;
+    }>;
 }

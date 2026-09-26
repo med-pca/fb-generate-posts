@@ -5,14 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { isIP } from 'node:net';
-import { lookup } from 'node:dns/promises';
 import { PrismaService } from '../prisma/prisma.service';
 import { GenerateArticlePostsDto } from './dto/generate-article-posts.dto';
 import { ImportArticleDto } from './dto/import-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
+import { assertSafeRemoteUrl } from '../common/safe-fetch';
 
 type SocialCaption = { text: string; angle?: string };
 type ArticleRecord = {
@@ -80,7 +79,7 @@ export class ArticlesService {
 
   async import(dto: ImportArticleDto) {
     const normalizedJsonUrl = this.toJsonUrl(dto.jsonUrl);
-    const jsonUrl = await this.assertSafeRemoteUrl(normalizedJsonUrl);
+    const jsonUrl = await assertSafeRemoteUrl(normalizedJsonUrl);
     const payload = await this.fetchPayload(jsonUrl);
     this.validatePayload(payload);
 
@@ -309,25 +308,6 @@ export class ArticlesService {
     }
   }
 
-  private async assertSafeRemoteUrl(value: string) {
-    const url = new URL(value);
-    if (url.protocol !== 'https:') {
-      throw new BadRequestException('Seules les sources HTTPS sont acceptées');
-    }
-    let addresses: Array<{ address: string; family: number }>;
-    try {
-      addresses = await lookup(url.hostname, { all: true });
-    } catch {
-      throw new BadGatewayException(
-        'Le nom de domaine de la source est temporairement inaccessible',
-      );
-    }
-    if (!addresses.length || addresses.some(({ address }) => this.isPrivateIp(address))) {
-      throw new BadRequestException('Les adresses locales ou privées sont interdites');
-    }
-    return url;
-  }
-
   private toJsonUrl(value: string) {
     const url = new URL(value);
     const recipeMatch = url.pathname.match(/^\/recipes\/([^/]+)\/?$/);
@@ -337,22 +317,6 @@ export class ArticlesService {
       url.hash = '';
     }
     return url.toString();
-  }
-
-  private isPrivateIp(address: string) {
-    if (!isIP(address)) return true;
-    const normalized = address.toLowerCase();
-    return (
-      normalized === '::1' ||
-      normalized.startsWith('fc') ||
-      normalized.startsWith('fd') ||
-      normalized.startsWith('fe80:') ||
-      normalized.startsWith('127.') ||
-      normalized.startsWith('10.') ||
-      normalized.startsWith('192.168.') ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(normalized) ||
-      /^169\.254\./.test(normalized)
-    );
   }
 
   private randomInt(min: number, max: number) {

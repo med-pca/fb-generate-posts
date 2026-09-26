@@ -26,6 +26,7 @@ async function bootstrap() {
         .addTag('imports', 'Importation de contenus JSON')
         .addTag('generation', 'Génération textuelle OpenAI')
         .addTag('logs', 'Journaux d’activité')
+        .addTag('ingest', 'Reprise de publications Facebook')
         .build();
     const swaggerDocument = swagger_1.SwaggerModule.createDocument(app, swaggerConfig);
     swagger_1.SwaggerModule.setup('api/docs', app, swaggerDocument, {

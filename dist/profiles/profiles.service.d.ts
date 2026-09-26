@@ -66,6 +66,9 @@ export declare class ProfilesService {
             createdAt: Date;
             updatedAt: Date;
             groupId: string;
+            joinStatus: import("@prisma/client").$Enums.JoinStatus;
+            joinCheckedAt: Date | null;
+            joinError: string | null;
         })[];
     } & {
         status: import("@prisma/client").$Enums.RecordStatus;

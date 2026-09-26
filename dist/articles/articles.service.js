@@ -11,10 +11,9 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ArticlesService = void 0;
 const common_1 = require("@nestjs/common");
-const node_net_1 = require("node:net");
-const promises_1 = require("node:dns/promises");
 const prisma_service_1 = require("../prisma/prisma.service");
 const paginated_1 = require("../common/paginated");
+const safe_fetch_1 = require("../common/safe-fetch");
 let ArticlesService = class ArticlesService {
     prisma;
     constructor(prisma) {
@@ -46,7 +45,7 @@ let ArticlesService = class ArticlesService {
     }
     async import(dto) {
         const normalizedJsonUrl = this.toJsonUrl(dto.jsonUrl);
-        const jsonUrl = await this.assertSafeRemoteUrl(normalizedJsonUrl);
+        const jsonUrl = await (0, safe_fetch_1.assertSafeRemoteUrl)(normalizedJsonUrl);
         const payload = await this.fetchPayload(jsonUrl);
         this.validatePayload(payload);
         const articleUrl = new URL(payload.articleUrl);
@@ -226,23 +225,6 @@ let ArticlesService = class ArticlesService {
             throw new common_1.BadRequestException('JSON incomplet : id, title, slug, articleUrl et socialPost.captions sont requis');
         }
     }
-    async assertSafeRemoteUrl(value) {
-        const url = new URL(value);
-        if (url.protocol !== 'https:') {
-            throw new common_1.BadRequestException('Seules les sources HTTPS sont acceptées');
-        }
-        let addresses;
-        try {
-            addresses = await (0, promises_1.lookup)(url.hostname, { all: true });
-        }
-        catch {
-            throw new common_1.BadGatewayException('Le nom de domaine de la source est temporairement inaccessible');
-        }
-        if (!addresses.length || addresses.some(({ address }) => this.isPrivateIp(address))) {
-            throw new common_1.BadRequestException('Les adresses locales ou privées sont interdites');
-        }
-        return url;
-    }
     toJsonUrl(value) {
         const url = new URL(value);
         const recipeMatch = url.pathname.match(/^\/recipes\/([^/]+)\/?$/);
@@ -252,20 +234,6 @@ let ArticlesService = class ArticlesService {
             url.hash = '';
         }
         return url.toString();
-    }
-    isPrivateIp(address) {
-        if (!(0, node_net_1.isIP)(address))
-            return true;
-        const normalized = address.toLowerCase();
-        return (normalized === '::1' ||
-            normalized.startsWith('fc') ||
-            normalized.startsWith('fd') ||
-            normalized.startsWith('fe80:') ||
-            normalized.startsWith('127.') ||
-            normalized.startsWith('10.') ||
-            normalized.startsWith('192.168.') ||
-            /^172\.(1[6-9]|2\d|3[01])\./.test(normalized) ||
-            /^169\.254\./.test(normalized));
     }
     randomInt(min, max) {
         return Math.floor(Math.random() * (max - min + 1)) + min;

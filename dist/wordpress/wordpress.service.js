@@ -8,10 +8,12 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var WordpressService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WordpressService = void 0;
 exports.wordpressCaption = wordpressCaption;
 exports.wordpressArticleFields = wordpressArticleFields;
+exports.ingestArticleFields = ingestArticleFields;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
@@ -39,9 +41,19 @@ function wordpressArticleFields(dto) {
         rawData: { ...dto },
     };
 }
-let WordpressService = class WordpressService {
+function ingestArticleFields(fields, generated) {
+    if (!generated?.caption)
+        return fields;
+    return {
+        ...fields,
+        captions: [{ text: generated.caption, angle: 'facebook' }],
+        hashtags: Array.isArray(generated.hashtags) ? generated.hashtags : [],
+    };
+}
+let WordpressService = WordpressService_1 = class WordpressService {
     prisma;
     articles;
+    logger = new common_1.Logger(WordpressService_1.name);
     constructor(prisma, articles) {
         this.prisma = prisma;
         this.articles = articles;
@@ -60,7 +72,8 @@ let WordpressService = class WordpressService {
         }
         const siteUrl = site.origin + site.pathname.replace(/\/+$/, '');
         const externalId = `wordpress:${dto.postId}`;
-        const fields = wordpressArticleFields(dto);
+        const ingest = await this.ingestFor(dto, siteUrl);
+        const fields = ingestArticleFields(wordpressArticleFields(dto), ingest?.generated);
         return this.prisma.$transaction(async (tx) => {
             await tx.$executeRaw `SELECT pg_advisory_xact_lock(hashtext(${siteUrl}))`;
             const source = await tx.contentSource.upsert({
@@ -71,8 +84,11 @@ let WordpressService = class WordpressService {
             const existing = await tx.article.findUnique({
                 where: { sourceId_externalId: { sourceId: source.id, externalId } },
             });
-            if (existing)
+            if (existing) {
+                if (ingest)
+                    await this.closeIngest(tx, ingest.id, existing.id);
                 return this.synchronize(tx, existing, fields);
+            }
             const article = await tx.article.create({
                 data: {
                     sourceId: source.id,
@@ -84,10 +100,21 @@ let WordpressService = class WordpressService {
                 },
             });
             const profiles = await tx.profile.findMany({
-                where: { status: 'ACTIVE' },
+                where: {
+                    status: 'ACTIVE',
+                    ...(ingest?.profileIds.length
+                        ? { id: { in: ingest.profileIds } }
+                        : {}),
+                },
                 include: {
                     profileGroups: {
-                        where: { status: 'ACTIVE', group: { status: 'ACTIVE' } },
+                        where: {
+                            status: 'ACTIVE',
+                            group: { status: 'ACTIVE' },
+                            ...(ingest?.groupIds.length
+                                ? { groupId: { in: ingest.groupIds } }
+                                : {}),
+                        },
                     },
                 },
             });
@@ -107,6 +134,8 @@ let WordpressService = class WordpressService {
                     },
                 });
             }
+            if (ingest)
+                await this.closeIngest(tx, ingest.id, article.id);
             return {
                 articleId: article.id,
                 duplicate: false,
@@ -116,6 +145,31 @@ let WordpressService = class WordpressService {
                 skipped: 0,
             };
         }, { timeout: 30000 });
+    }
+    async ingestFor(dto, siteUrl) {
+        if (!dto.ingestRef)
+            return null;
+        const ingest = await this.prisma.sourceIngest.findUnique({
+            where: { id: dto.ingestRef },
+        });
+        if (!ingest) {
+            this.logger.warn(`Reprise ${dto.ingestRef} inconnue : article reçu seul`);
+            return null;
+        }
+        if (ingest.siteUrl !== siteUrl) {
+            this.logger.warn(`Reprise ${dto.ingestRef} rattachée à ${ingest.siteUrl}, dépôt reçu de ${siteUrl}`);
+            return null;
+        }
+        return ingest;
+    }
+    async closeIngest(tx, ingestId, articleId) {
+        const { count } = await tx.sourceIngest.updateMany({
+            where: { id: ingestId, OR: [{ articleId: null }, { articleId }] },
+            data: { articleId, status: client_1.IngestStatus.COMPLETED, lastError: null },
+        });
+        if (!count) {
+            this.logger.warn(`Reprise ${ingestId} déjà rattachée à un autre article : rattachement ignoré`);
+        }
     }
     async synchronize(tx, existing, fields) {
         const unchanged = {
@@ -151,7 +205,9 @@ let WordpressService = class WordpressService {
             existing.coverImageUrl !== fields.coverImageUrl ||
             existing.excerpt !== fields.excerpt ||
             existing.publishedAt?.getTime() !== fields.publishedAt.getTime() ||
-            caption?.text !== fields.captions[0].text);
+            caption?.text !== fields.captions[0].text ||
+            (fields.hashtags !== undefined &&
+                existing.hashtags.join(' ') !== fields.hashtags.join(' ')));
     }
     syncablePosts(articleId) {
         return {
@@ -177,7 +233,7 @@ let WordpressService = class WordpressService {
     }
 };
 exports.WordpressService = WordpressService;
-exports.WordpressService = WordpressService = __decorate([
+exports.WordpressService = WordpressService = WordpressService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         articles_service_1.ArticlesService])

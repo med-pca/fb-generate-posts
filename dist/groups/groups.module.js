@@ -10,12 +10,13 @@ exports.GroupsModule = void 0;
 const common_1 = require("@nestjs/common");
 const groups_controller_1 = require("./groups.controller");
 const groups_service_1 = require("./groups.service");
+const group_join_controller_1 = require("./group-join.controller");
 let GroupsModule = class GroupsModule {
 };
 exports.GroupsModule = GroupsModule;
 exports.GroupsModule = GroupsModule = __decorate([
     (0, common_1.Module)({
-        controllers: [groups_controller_1.GroupsController, groups_controller_1.GroupsCatalogController],
+        controllers: [groups_controller_1.GroupsController, groups_controller_1.GroupsCatalogController, group_join_controller_1.GroupJoinController],
         providers: [groups_service_1.GroupsService],
     })
 ], GroupsModule);

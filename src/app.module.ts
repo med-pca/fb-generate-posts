@@ -14,6 +14,7 @@ import { ProfilesModule } from './profiles/profiles.module';
 import { ArticlesModule } from './articles/articles.module';
 import { SettingsModule } from './settings/settings.module';
 import { AuthModule } from './auth/auth.module';
+import { IngestModule } from './ingest/ingest.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { AuthModule } from './auth/auth.module';
     ArticlesModule,
     SettingsModule,
     WordpressModule,
+    IngestModule,
   ],
   controllers: [AppController],
   providers: [AppService],

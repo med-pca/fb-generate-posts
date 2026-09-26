@@ -83,6 +83,64 @@ let GroupsService = class GroupsService {
     remove(id) {
         return this.prisma.group.delete({ where: { id } });
     }
+    async findAutomationProfile(profileExternalId) {
+        const profile = await this.prisma.profile.findFirst({
+            where: { externalId: profileExternalId, status: 'ACTIVE' },
+        });
+        if (!profile)
+            throw new common_1.NotFoundException('Profil introuvable');
+        return profile;
+    }
+    async findForJoin(profileExternalId, statuses) {
+        const profile = await this.findAutomationProfile(profileExternalId);
+        const links = await this.prisma.profileGroup.findMany({
+            where: {
+                profileId: profile.id,
+                status: 'ACTIVE',
+                group: { status: 'ACTIVE' },
+                ...(statuses ? { joinStatus: { in: statuses } } : {}),
+            },
+            include: { group: true },
+            orderBy: { createdAt: 'asc' },
+        });
+        return links.map(({ group, joinStatus, joinCheckedAt, joinError }) => ({
+            id: group.id,
+            externalId: group.externalId,
+            name: group.name,
+            url: group.url,
+            joinStatus,
+            joinCheckedAt,
+            joinError,
+        }));
+    }
+    async updateJoinStatus(profileExternalId, groupId, { joinStatus, error }) {
+        const profile = await this.findAutomationProfile(profileExternalId);
+        const link = await this.prisma.profileGroup.findUnique({
+            where: { profileId_groupId: { profileId: profile.id, groupId } },
+        });
+        if (!link)
+            throw new common_1.NotFoundException('Groupe non lié à ce profil');
+        const updated = await this.prisma.profileGroup.update({
+            where: { id: link.id },
+            data: { joinStatus, joinCheckedAt: new Date(), joinError: error ?? null },
+        });
+        await this.prisma.activityLog.create({
+            data: {
+                profileId: profile.id,
+                groupId,
+                eventType: 'GROUP_JOIN_UPDATED',
+                level: joinStatus === 'FAILED' ? 'WARN' : 'INFO',
+                message: `Adhésion au groupe : ${joinStatus}`,
+                metadata: { previous: link.joinStatus, joinStatus, error },
+            },
+        });
+        return {
+            groupId,
+            joinStatus: updated.joinStatus,
+            joinCheckedAt: updated.joinCheckedAt,
+            joinError: updated.joinError,
+        };
+    }
 };
 exports.GroupsService = GroupsService;
 exports.GroupsService = GroupsService = __decorate([

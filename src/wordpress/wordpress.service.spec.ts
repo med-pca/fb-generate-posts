@@ -33,7 +33,27 @@ type PostData = ReturnType<ArticlesService['postDataForSlot']> & {
 type PostContent = ReturnType<ArticlesService['postContent']>;
 type ArticleData = Record<string, unknown> & { title: string };
 type ClaimFilter = { none: { status: string; claimExpiresAt: { gt: Date } } };
-function setup() {
+type StoredIngest = {
+  id: string;
+  siteUrl: string;
+  profileIds: string[];
+  groupIds: string[];
+  generated: { caption: string; hashtags: string[] } | null;
+};
+/** La reprise telle que la réception la trouve en base. */
+const ingest = (over: Partial<StoredIngest> = {}): StoredIngest => ({
+  id: 'ing_1',
+  siteUrl: 'https://example.com',
+  profileIds: [],
+  groupIds: [],
+  generated: {
+    caption: 'Le couscous, plat du Maghreb 🍲',
+    hashtags: ['couscous', 'maghreb'],
+  },
+  ...over,
+});
+
+function setup(stored_ingest: StoredIngest | null = null) {
   const tx = {
     $executeRaw: jest.fn(() => Promise.resolve(1)),
     contentSource: {
@@ -74,17 +94,23 @@ function setup() {
       ),
       count: jest.fn(() => Promise.resolve(5)),
     },
+    sourceIngest: {
+      updateMany: jest.fn(() => Promise.resolve({ count: 1 })),
+    },
   };
   const prisma = {
     $transaction: jest.fn((callback: (value: typeof tx) => Promise<unknown>) =>
       callback(tx),
     ),
+    sourceIngest: {
+      findUnique: jest.fn(() => Promise.resolve(stored_ingest)),
+    },
   };
   const service = new WordpressService(
     prisma as unknown as PrismaService,
     new ArticlesService(prisma as unknown as PrismaService),
   );
-  return { service, tx };
+  return { service, tx, prisma };
 }
 
 describe('WordPress publication', () => {
@@ -277,5 +303,104 @@ describe('WordPress publication', () => {
         ).length,
       ).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('Réception d’un article issu d’une reprise', () => {
+  const withRef = { ...payload, ingestRef: 'ing_1' };
+
+  /** Sans cela, le post partirait avec « Read more on our website », alors
+   * que toute la reprise sert à garder le ton du post d’origine. */
+  it('fait porter au post la légende réécrite, pas l’extrait automatique', async () => {
+    const { service, tx } = setup(ingest());
+    await service.publish(withRef);
+    const { description } = tx.post.create.mock.calls[0][0].data;
+    expect(description).toContain('Le couscous, plat du Maghreb 🍲');
+    expect(description).toContain('#couscous #maghreb');
+    expect(description).not.toContain('Link in the comments');
+  });
+
+  it('referme la reprise sur l’article produit', async () => {
+    const { service, tx } = setup(ingest());
+    await service.publish(withRef);
+    expect(tx.sourceIngest.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'ing_1',
+        OR: [{ articleId: null }, { articleId: 'article' }],
+      },
+      data: { articleId: 'article', status: 'COMPLETED', lastError: null },
+    });
+  });
+
+  it('restreint la diffusion à la portée demandée', async () => {
+    const { service, tx } = setup(
+      ingest({ profileIds: ['p1'], groupIds: ['g1'] }),
+    );
+    await service.publish(withRef);
+    expect(tx.profile.findMany).toHaveBeenCalledWith({
+      where: { status: 'ACTIVE', id: { in: ['p1'] } },
+      include: {
+        profileGroups: {
+          where: {
+            status: 'ACTIVE',
+            group: { status: 'ACTIVE' },
+            groupId: { in: ['g1'] },
+          },
+        },
+      },
+    });
+  });
+
+  // Un renvoi identique ne modifie rien, mais doit refermer la reprise :
+  // sinon elle resterait indéfiniment en attente du plugin.
+  it('referme la reprise même sur un renvoi qui ne change rien', async () => {
+    const { service, tx } = setup(ingest());
+    tx.article.findUnique.mockResolvedValueOnce({
+      ...stored(),
+      captions: [
+        { text: 'Le couscous, plat du Maghreb 🍲', angle: 'facebook' },
+      ],
+      hashtags: ['couscous', 'maghreb'],
+    });
+    const result = await service.publish(withRef);
+    expect(result).toMatchObject({ duplicate: true, updated: false });
+    expect(tx.sourceIngest.updateMany).toHaveBeenCalled();
+  });
+
+  // Les mots-clés font partie du texte publié : les ignorer laisserait un
+  // post avec les anciens hashtags après une correction.
+  it('resynchronise quand seuls les mots-clés changent', async () => {
+    const { service, tx } = setup(ingest());
+    tx.article.findUnique.mockResolvedValueOnce({
+      ...stored(),
+      captions: [
+        { text: 'Le couscous, plat du Maghreb 🍲', angle: 'facebook' },
+      ],
+      hashtags: ['ancien'],
+    });
+    expect(await service.publish(withRef)).toMatchObject({ updated: true });
+  });
+
+  it('reçoit l’article seul quand la référence est inconnue', async () => {
+    const { service, tx } = setup(null);
+    await service.publish(withRef);
+    expect(tx.sourceIngest.updateMany).not.toHaveBeenCalled();
+    expect(tx.post.create.mock.calls[0][0].data.description).toContain(
+      'Link in the comments',
+    );
+  });
+
+  // Une reprise déclarée pour un autre site ne doit pas se voir rattacher
+  // l'article d'un site tiers qui connaîtrait son identifiant.
+  it('ignore une reprise déclarée pour un autre site', async () => {
+    const { service, tx } = setup(ingest({ siteUrl: 'https://autre.test' }));
+    await service.publish(withRef);
+    expect(tx.sourceIngest.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('ne consulte aucune reprise quand le plugin n’en annonce pas', async () => {
+    const { service, prisma } = setup(ingest());
+    await service.publish(payload);
+    expect(prisma.sourceIngest.findUnique).not.toHaveBeenCalled();
   });
 });

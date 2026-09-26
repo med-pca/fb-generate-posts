@@ -300,9 +300,7 @@ export declare class ArticlesService {
     private articleData;
     private fetchPayload;
     private validatePayload;
-    private assertSafeRemoteUrl;
     private toJsonUrl;
-    private isPrivateIp;
     private randomInt;
 }
 export {};

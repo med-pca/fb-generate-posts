@@ -508,6 +508,14 @@ Ce que chaque bloc sert à trancher :
 | `POSTS_REPLENISHED` | INFO | Réapprovisionnement, détail par groupe dans `metadata` |
 | `REPLENISH_SCHEDULED` | INFO | Passage du minuteur ayant produit des posts |
 | `REPLENISH_FAILED` | ERROR | Passage du minuteur en échec |
+| `INGEST_CREATED` | INFO | Une reprise a été enregistrée |
+| `INGEST_SCRAPE_CLAIMED` | INFO | Une extension a réservé une collecte |
+| `INGEST_SCRAPED` | INFO | Le texte et l’image du post d’origine sont arrivés |
+| `INGEST_SOURCE_READ` | INFO | La page source a été lue |
+| `INGEST_REWRITTEN` | INFO | L’article réécrit est prêt |
+| `INGEST_PUBLISHED` | INFO | L’article réécrit est déposé sur WordPress |
+| `INGEST_IMAGE_SKIPPED` | INFO | Article en ligne, mais sans son image |
+| `INGEST_FAILED` | ERROR | Étape en échec : `metadata.stage` dit laquelle |
 
 La section **Journaux** de l'interface d'administration reprend ces éléments :
 compteurs, bandeau d'alerte sur les réservations perdues, répartition par
@@ -528,6 +536,27 @@ export ADMIN_USERNAME=... ADMIN_PASSWORD=... AUTOMATION_API_KEY=...
 ./scripts/replenish.sh             # forcer une alimentation depuis les articles
 ```
 
+`smoke-ingest.sh` déroule une reprise complète sur une API qui tourne, étage
+par étage, et dit où elle s'arrête : lecture de la page, réécriture, dépôt
+WordPress, renvoi du plugin, posts fabriqués. La reprise créée est supprimée
+à la fin (`KEEP=1` pour la garder).
+
+```bash
+export API_BASE=http://localhost:3000/api
+export ADMIN_USERNAME=... ADMIN_PASSWORD=... AUTOMATION_API_KEY=...
+./scripts/smoke-ingest.sh                          # source par défaut
+./scripts/smoke-ingest.sh https://exemple.com/article
+```
+
+`read-source.ts` s'essaie à la lecture d'une page et, avec `--rewrite`, à sa
+réécriture. Rien n'est écrit : ni base, ni WordPress, ni Facebook. De quoi
+vérifier qu'un site se laisse extraire avant de lui confier une reprise.
+
+```bash
+npx ts-node scripts/read-source.ts https://exemple.com/article
+npx ts-node scripts/read-source.ts https://exemple.com/article --rewrite --lang fr
+```
+
 `smoke-comment-link.sh` vérifie qu’aucune URL ne figure dans le lot réservé,
 que `link-updates` est refusé avant la clôture, que `complete` bascule en
 `AWAITING_LINK`, que l’URL est bien livrée ensuite, et qu’un profil déjà occupé
@@ -543,6 +572,137 @@ temps constant) sur `/api/jobs/*` et `/api/logs`.
 Renseigner `AUTOMATION_API_KEY`, `ADMIN_PASSWORD` et `AUTH_SECRET` dans `.env`.
 Les secrets ne doivent jamais être enregistrés en base ou transmis dans les
 logs.
+
+## Reprise d’une publication Facebook
+
+Une reprise part d’un post Facebook et de la page qui en porte le contenu.
+L’API lit la page, en fait réécrire un article, le dépose sur WordPress, et le
+retour du plugin fabrique le nouveau post — image d’origine, texte réécrit,
+lien vers le nouvel article.
+
+```bash
+# 1. Enregistrer la reprise. `siteUrl` est facultatif : défaut WORDPRESS_SITE_URL.
+curl -X POST "$API_BASE/admin/ingest" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "facebookUrl": "https://www.facebook.com/exemple/posts/123",
+    "sourceUrl": "https://exemple.com/article",
+    "language": "fr"
+  }'
+
+# 2. La collecte. En temps normal l’extension s’en charge (voir plus bas) ;
+#    à la main, la réponse attend la suite du traitement : compter une minute.
+curl -X POST "$API_BASE/admin/ingest/$ID/scrape-result" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"caption": "Texte du post d’origine", "imageUrl": "https://.../image.jpg"}'
+
+# 3. Suivre, et relancer ce qui a échoué.
+curl "$API_BASE/admin/ingest/$ID" -H "Authorization: Bearer $TOKEN"
+curl -X POST "$API_BASE/admin/ingest/$ID/retry" -H "Authorization: Bearer $TOKEN"
+```
+
+`profileIds` et `groupIds` restreignent la diffusion ; laissés vides, la
+reprise s’adresse à tous les profils actifs et à leurs groupes.
+
+### Ce que chaque étape garde
+
+Une étape qui échoue ne fait pas perdre celles d’avant : le statut reste celui
+de l’étape à refaire, `attempts` monte, `lastError` dit pourquoi. `retry`
+repart de ce que la fiche contient déjà — une réécriture obtenue n’est jamais
+repayée, une page déjà lue n’est jamais relue. Au bout de cinq échecs la
+reprise passe en `FAILED` et cesse de se relancer seule.
+
+| Statut | Ce qu’on attend |
+| --- | --- |
+| `PENDING_SCRAPE` | Le texte et l’image du post d’origine |
+| `SCRAPED` | La lecture de la page source |
+| `REWRITING` | La réécriture par le modèle |
+| `REWRITTEN` | Le dépôt sur WordPress |
+| `AWAITING_ECHO` | Le retour du plugin, qui fabrique les posts |
+| `COMPLETED` | Rien : la boucle est fermée |
+| `FAILED` | Une décision : `retry` ou suppression |
+
+### Fournisseurs de réécriture
+
+Les modèles sont essayés dans l’ordre de `LLM_PROVIDERS` (défaut
+`kimi,openai,gemini`). **Seul un fournisseur muni d’une clé entre dans la
+chaîne** ; le premier qui rend un JSON exploitable l’emporte. Un compte
+suspendu, un quota dépassé, une panne ou une réponse illisible font passer au
+suivant, et le journal dit sur lequel on a basculé.
+
+| Fournisseur | Clé | Modèle par défaut | Passerelle |
+| --- | --- | --- | --- |
+| `kimi` | `KIMI_API_KEY` | `kimi-k2.6` | `https://api.moonshot.ai/v1` |
+| `openai` | `OPENAI_API_KEY` | `gpt-4.1-mini` | celle du SDK |
+| `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` | passerelle compatible OpenAI |
+
+Tous sont appelés en « Chat Completions » : c’est la seule interface que les
+trois exposent. `<PREFIX>_MODEL`, `<PREFIX>_BASE_URL` et `<PREFIX>_TIMEOUT_MS`
+surchargent chacun le sien ; `<PREFIX>_JSON_SCHEMA` dit si le fournisseur
+accepte un schéma strict — sinon la consigne porte le schéma et la sortie est
+renormalisée de toute façon.
+
+Sans aucune clé, la reprise s’arrête en `REWRITING` et le dit dans
+`lastError`. `/admin/posts/generate` reste sur OpenAI seul, sans repli.
+
+### La collecte par l’extension
+
+Un post Facebook ne se lit pas depuis le serveur : une requête sur une
+permalink renvoie un mur de connexion. L’extension, elle, est déjà connectée
+au compte. Elle interroge donc les mêmes routes que les lots de publication,
+avec la même clé `X-API-Key` :
+
+```bash
+# Réserver une collecte. Rend `scrape: null` quand la file est vide.
+curl -X POST "$API_BASE/jobs/scrape/claim?profileExternalId=mon-profil" -H "X-API-Key: $KEY"
+# → {"scrape": {"scrapeId": "...", "facebookUrl": "...", "claimExpiresAt": "..."}}
+
+# Rendre ce qu’on a relevé. La réponse est immédiate.
+curl -X POST "$API_BASE/jobs/scrape/$SCRAPE_ID/result" -H "X-API-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"caption": "Texte du post", "imageUrl": "https://.../photo.jpg"}'
+
+# Ou signaler que la publication est illisible.
+curl -X POST "$API_BASE/jobs/scrape/$SCRAPE_ID/failed" -H "X-API-Key: $KEY" \
+  -H 'Content-Type: application/json' -d '{"error": "Publication supprimée"}'
+```
+
+Deux extensions qui interrogent en même temps repartent avec deux reprises
+différentes : la réservation se fait en `SKIP LOCKED`. Une réservation expire
+après `CLAIM_TTL_MINUTES` et la reprise **revient d’elle-même dans la file**,
+sans balayage séparé — une extension qui disparaît en cours de route ne
+bloque rien. Un résultat déposé après l’expiration reste accepté : la
+collecte est faite, la perdre n’aurait pas de sens.
+
+`result` rend la main tout de suite et laisse la lecture de la page, la
+réécriture et le dépôt WordPress se poursuivre côté serveur : l’extension a
+d’autres lots à traiter. L’avancement se suit sur `/admin/ingest/:id`.
+
+`failed` remet la reprise dans la file ; au bout de cinq échecs elle passe en
+`FAILED` et n’est plus proposée.
+
+### Le dépôt et le retour
+
+Une fois l’article réécrit, l’API le dépose sur `POST
+{siteUrl}/wp-json/dfb/v1/articles`, protégé par `WORDPRESS_API_KEY` — la même
+clé que la réception, et le **plugin 1.2.0** est requis. L’image du post
+d’origine part en base64 dans le corps : une URL de CDN Facebook est signée et
+expire, et le site WordPress n’a aucune raison d’y accéder.
+
+Le plugin publie, ce qui déclenche son envoi habituel vers
+`POST /api/wordpress/articles` — avec `ingestRef` en plus. **C’est ce retour,
+et lui seul, qui fabrique les posts** : rien n’est dupliqué, la réception
+WordPress sait déjà le faire. La seule différence est que le post porte la
+légende réécrite et ses mots-clés au lieu de l’extrait automatique, et que la
+diffusion se limite à `profileIds` / `groupIds` si la reprise en a fixé.
+
+Une image qui ne suit pas n’arrête rien : l’article est en ligne, et
+`INGEST_IMAGE_SKIPPED` le signale.
+
+Pour essayer la chaîne sans rien écrire :
+
+```bash
+npx ts-node scripts/read-source.ts https://exemple.com/article --rewrite
+```
 
 ## Intégration WordPress
 

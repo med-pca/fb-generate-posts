@@ -86,9 +86,9 @@ export declare class JobsService {
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
         postId: string;
-        externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
+        externalPostUrl: string | null;
     }>;
     markPublished(jobId: string, postId: string, dto: PublishJobItemDto): Promise<{
         error: string | null;
@@ -101,9 +101,9 @@ export declare class JobsService {
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
         postId: string;
-        externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
+        externalPostUrl: string | null;
     }>;
     markFailed(jobId: string, postId: string, error: string): Promise<{
         error: string | null;
@@ -116,9 +116,9 @@ export declare class JobsService {
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
         postId: string;
-        externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
+        externalPostUrl: string | null;
     }>;
     complete(jobId: string): Promise<{
         awaitingLink: number;
@@ -144,13 +144,13 @@ export declare class JobsService {
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
         postId: string;
-        externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
+        externalPostUrl: string | null;
     }>;
     linkUpdates(jobId: string): Promise<{
         jobId: string;
-        status: "FAILED" | "AWAITING_LINK" | "PARTIALLY_COMPLETED" | "COMPLETED" | "EXPIRED";
+        status: "FAILED" | "COMPLETED" | "AWAITING_LINK" | "PARTIALLY_COMPLETED" | "EXPIRED";
         completedAt: Date | null;
         profile: {
             id: string;
@@ -202,9 +202,9 @@ export declare class JobsService {
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
         postId: string;
-        externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
+        externalPostUrl: string | null;
     }>;
     private awaitsLink;
     private outcomeFor;

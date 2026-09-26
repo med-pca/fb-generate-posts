@@ -12,10 +12,10 @@ export declare class LogsService {
         createdAt: Date;
         groupId: string | null;
         postId: string | null;
-        metadata: Prisma.JsonValue | null;
         eventType: string;
         level: import("@prisma/client").$Enums.LogLevel;
         message: string;
+        metadata: Prisma.JsonValue | null;
         postTargetId: string | null;
         jobId: string | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
@@ -25,10 +25,10 @@ export declare class LogsService {
         createdAt: Date;
         groupId: string | null;
         postId: string | null;
-        metadata: Prisma.JsonValue | null;
         eventType: string;
         level: import("@prisma/client").$Enums.LogLevel;
         message: string;
+        metadata: Prisma.JsonValue | null;
         postTargetId: string | null;
         jobId: string | null;
     }[]>;
@@ -52,10 +52,10 @@ export declare class LogsService {
             createdAt: Date;
             groupId: string | null;
             postId: string | null;
-            metadata: Prisma.JsonValue | null;
             eventType: string;
             level: import("@prisma/client").$Enums.LogLevel;
             message: string;
+            metadata: Prisma.JsonValue | null;
             postTargetId: string | null;
             jobId: string | null;
         })[];
@@ -108,10 +108,10 @@ export declare class LogsService {
             createdAt: Date;
             groupId: string | null;
             postId: string | null;
-            metadata: Prisma.JsonValue | null;
             eventType: string;
             level: import("@prisma/client").$Enums.LogLevel;
             message: string;
+            metadata: Prisma.JsonValue | null;
             postTargetId: string | null;
             jobId: string | null;
         })[];

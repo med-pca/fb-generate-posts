@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { PostStatus, Prisma, TargetStatus } from '@prisma/client';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { IngestStatus, PostStatus, Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ArticlesService } from '../articles/articles.service';
 import { WordpressArticleDto } from './wordpress.dto';
@@ -34,7 +34,24 @@ export function wordpressArticleFields(dto: WordpressArticleDto) {
   };
 }
 
-type ArticleFields = ReturnType<typeof wordpressArticleFields>;
+/** Ce qu'une reprise impose à la fiche : la légende réécrite pour Facebook
+ * et ses mots-clés, au lieu de l'extrait automatique. Le reste de l'article —
+ * titre, lien, image, date — vient de WordPress comme pour tout autre. */
+export function ingestArticleFields(
+  fields: ReturnType<typeof wordpressArticleFields>,
+  generated: { caption?: string; hashtags?: string[] } | null,
+) {
+  if (!generated?.caption) return fields;
+  return {
+    ...fields,
+    captions: [{ text: generated.caption, angle: 'facebook' }],
+    hashtags: Array.isArray(generated.hashtags) ? generated.hashtags : [],
+  };
+}
+
+type ArticleFields = ReturnType<typeof wordpressArticleFields> & {
+  hashtags?: string[];
+};
 /** La fiche en base, réduite à ce que la synchronisation lit et réécrit. */
 type StoredArticle = {
   id: string;
@@ -49,6 +66,8 @@ type StoredArticle = {
 
 @Injectable()
 export class WordpressService {
+  private readonly logger = new Logger(WordpressService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly articles: ArticlesService,
@@ -72,7 +91,11 @@ export class WordpressService {
     }
     const siteUrl = site.origin + site.pathname.replace(/\/+$/, '');
     const externalId = `wordpress:${dto.postId}`;
-    const fields = wordpressArticleFields(dto);
+    const ingest = await this.ingestFor(dto, siteUrl);
+    const fields = ingestArticleFields(
+      wordpressArticleFields(dto),
+      ingest?.generated as { caption?: string; hashtags?: string[] } | null,
+    );
     return this.prisma.$transaction(
       async (tx) => {
         // Lock per site, including source creation, so simultaneous deliveries are atomic.
@@ -85,7 +108,12 @@ export class WordpressService {
         const existing = await tx.article.findUnique({
           where: { sourceId_externalId: { sourceId: source.id, externalId } },
         });
-        if (existing) return this.synchronize(tx, existing, fields);
+        if (existing) {
+          // Un renvoi identique ne touche rien, mais il doit quand même
+          // refermer la reprise : sans cela elle resterait en attente.
+          if (ingest) await this.closeIngest(tx, ingest.id, existing.id);
+          return this.synchronize(tx, existing, fields);
+        }
         const article = await tx.article.create({
           data: {
             sourceId: source.id,
@@ -97,10 +125,21 @@ export class WordpressService {
           },
         });
         const profiles = await tx.profile.findMany({
-          where: { status: 'ACTIVE' },
+          where: {
+            status: 'ACTIVE',
+            ...(ingest?.profileIds.length
+              ? { id: { in: ingest.profileIds } }
+              : {}),
+          },
           include: {
             profileGroups: {
-              where: { status: 'ACTIVE', group: { status: 'ACTIVE' } },
+              where: {
+                status: 'ACTIVE',
+                group: { status: 'ACTIVE' },
+                ...(ingest?.groupIds.length
+                  ? { groupId: { in: ingest.groupIds } }
+                  : {}),
+              },
             },
           },
         });
@@ -120,6 +159,7 @@ export class WordpressService {
             },
           });
         }
+        if (ingest) await this.closeIngest(tx, ingest.id, article.id);
         return {
           articleId: article.id,
           duplicate: false,
@@ -131,6 +171,47 @@ export class WordpressService {
       },
       { timeout: 30000 },
     );
+  }
+
+  /** La reprise que le plugin annonce, si elle attend bien ce dépôt. Une
+   * référence inconnue, déjà refermée ou venue d'un autre site est ignorée :
+   * l'article est reçu normalement, et la réception ne casse pas pour
+   * autant. */
+  private async ingestFor(dto: WordpressArticleDto, siteUrl: string) {
+    if (!dto.ingestRef) return null;
+    const ingest = await this.prisma.sourceIngest.findUnique({
+      where: { id: dto.ingestRef },
+    });
+    if (!ingest) {
+      this.logger.warn(`Reprise ${dto.ingestRef} inconnue : article reçu seul`);
+      return null;
+    }
+    if (ingest.siteUrl !== siteUrl) {
+      this.logger.warn(
+        `Reprise ${dto.ingestRef} rattachée à ${ingest.siteUrl}, dépôt reçu de ${siteUrl}`,
+      );
+      return null;
+    }
+    return ingest;
+  }
+
+  /** Referme la reprise sur l'article produit. `articleId` est unique : une
+   * reprise déjà rattachée à un autre article ne se laisse pas réécrire, ce
+   * qui rend un renvoi inattendu inoffensif. */
+  private async closeIngest(
+    tx: Prisma.TransactionClient,
+    ingestId: string,
+    articleId: string,
+  ) {
+    const { count } = await tx.sourceIngest.updateMany({
+      where: { id: ingestId, OR: [{ articleId: null }, { articleId }] },
+      data: { articleId, status: IngestStatus.COMPLETED, lastError: null },
+    });
+    if (!count) {
+      this.logger.warn(
+        `Reprise ${ingestId} déjà rattachée à un autre article : rattachement ignoré`,
+      );
+    }
   }
 
   /** Un article déjà reçu n'est jamais recréé : on réaligne sa fiche, puis le
@@ -176,7 +257,11 @@ export class WordpressService {
       existing.coverImageUrl !== fields.coverImageUrl ||
       existing.excerpt !== fields.excerpt ||
       existing.publishedAt?.getTime() !== fields.publishedAt.getTime() ||
-      caption?.text !== fields.captions[0].text
+      caption?.text !== fields.captions[0].text ||
+      // Les mots-clés d'une reprise font partie du texte publié : les
+      // oublier ici laisserait un post avec les anciens hashtags.
+      (fields.hashtags !== undefined &&
+        existing.hashtags.join(' ') !== fields.hashtags.join(' '))
     );
   }
 

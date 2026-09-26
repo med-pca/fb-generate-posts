@@ -171,9 +171,9 @@ export declare class JobsController {
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
         postId: string;
-        externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
+        externalPostUrl: string | null;
     }>;
     published(jobId: string, postId: string, dto: PublishJobItemDto): Promise<{
         error: string | null;
@@ -186,9 +186,9 @@ export declare class JobsController {
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
         postId: string;
-        externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
+        externalPostUrl: string | null;
     }>;
     failed(jobId: string, postId: string, dto: FailJobItemDto): Promise<{
         error: string | null;
@@ -201,9 +201,9 @@ export declare class JobsController {
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
         postId: string;
-        externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
+        externalPostUrl: string | null;
     }>;
     commented(jobId: string, postId: string, dto: CommentJobItemDto): Promise<{
         error: string | null;
@@ -216,9 +216,9 @@ export declare class JobsController {
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
         postId: string;
-        externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
+        externalPostUrl: string | null;
     }>;
     complete(jobId: string): Promise<{
         awaitingLink: number;
@@ -235,7 +235,7 @@ export declare class JobsController {
     }>;
     linkUpdates(jobId: string): Promise<{
         jobId: string;
-        status: "FAILED" | "AWAITING_LINK" | "PARTIALLY_COMPLETED" | "COMPLETED" | "EXPIRED";
+        status: "FAILED" | "COMPLETED" | "AWAITING_LINK" | "PARTIALLY_COMPLETED" | "EXPIRED";
         completedAt: Date | null;
         profile: {
             id: string;
@@ -267,8 +267,8 @@ export declare class JobsController {
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
         postId: string;
-        externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
+        externalPostUrl: string | null;
     }>;
 }

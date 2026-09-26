@@ -22,11 +22,62 @@ export declare function wordpressArticleFields(dto: WordpressArticleDto): {
         articleUrl: string;
         imageUrl?: string;
         publishedAt: string;
+        ingestRef?: string;
+    };
+};
+export declare function ingestArticleFields(fields: ReturnType<typeof wordpressArticleFields>, generated: {
+    caption?: string;
+    hashtags?: string[];
+} | null): {
+    title: string;
+    articleUrl: string;
+    coverImageUrl: string | null;
+    excerpt: string | null;
+    publishedAt: Date;
+    captions: {
+        text: string;
+        angle: string;
+    }[];
+    rawData: {
+        siteUrl: string;
+        siteName: string;
+        postId: string;
+        title: string;
+        content: string;
+        excerpt?: string;
+        articleUrl: string;
+        imageUrl?: string;
+        publishedAt: string;
+        ingestRef?: string;
+    };
+} | {
+    captions: {
+        text: string;
+        angle: string;
+    }[];
+    hashtags: string[];
+    title: string;
+    articleUrl: string;
+    coverImageUrl: string | null;
+    excerpt: string | null;
+    publishedAt: Date;
+    rawData: {
+        siteUrl: string;
+        siteName: string;
+        postId: string;
+        title: string;
+        content: string;
+        excerpt?: string;
+        articleUrl: string;
+        imageUrl?: string;
+        publishedAt: string;
+        ingestRef?: string;
     };
 };
 export declare class WordpressService {
     private readonly prisma;
     private readonly articles;
+    private readonly logger;
     constructor(prisma: PrismaService, articles: ArticlesService);
     publish(dto: WordpressArticleDto): Promise<{
         articleId: string;
@@ -36,6 +87,8 @@ export declare class WordpressService {
         synchronized: number;
         skipped: number;
     }>;
+    private ingestFor;
+    private closeIngest;
     private synchronize;
     private hasChanges;
     private syncablePosts;

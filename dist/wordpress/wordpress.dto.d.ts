@@ -8,4 +8,5 @@ export declare class WordpressArticleDto {
     articleUrl: string;
     imageUrl?: string;
     publishedAt: string;
+    ingestRef?: string;
 }
