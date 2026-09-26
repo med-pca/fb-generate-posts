@@ -226,3 +226,11 @@ check(DFB_Posting::unlock($locked) === $locked, 'Other REST routes stay locked e
 $_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/articles';
 check(DFB_Posting::unlock(null) === null, 'A site without a lockdown is left untouched');
 check(DFB_Posting::unlock(true) === true, 'An already authenticated request is left untouched');
+
+
+// La route de diagnostic doit franchir le même verrou que le dépôt.
+$_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/status';
+$_SERVER['HTTP_X_API_KEY'] = 'secret';
+check(DFB_Posting::unlock($locked) === true, 'The status route is unlocked too');
+check(DFB_Posting::status_route()['version'] === '1.2.2', 'The status route reports the version');
+check(isset($GLOBALS['routes']['dfb/v1/status']), 'The status route is registered');

@@ -2,13 +2,14 @@
 /**
  * Plugin Name: Data FB Posting
  * Description: Envoie les articles publiés vers Data FB Posting, resynchronise leurs modifications (titre, contenu, image), et reçoit les articles réécrits que l'API dépose.
- * Version: 1.2.1
+ * Version: 1.2.2
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
 if (!defined('ABSPATH')) { exit; }
 
 final class DFB_Posting {
+    const VERSION = '1.2.2';
     const OPTION = 'dfb_posting_settings';
     const HOOK = 'dfb_posting_deliver';
     const INGEST_META = '_dfb_ingest';
@@ -19,9 +20,10 @@ final class DFB_Posting {
     public static function boot() {
         add_action('wp_after_insert_post', array(__CLASS__, 'saved'), 10, 4);
         add_action('rest_api_init', array(__CLASS__, 'routes'));
-        // Priorité tardive : le filtre d'un plugin de sécurité doit avoir
-        // rendu son verdict avant qu'on rouvre notre seule route.
-        add_filter('rest_authentication_errors', array(__CLASS__, 'unlock'), 99);
+        // Priorité maximale : le filtre d'un plugin de sécurité doit avoir
+        // rendu son verdict avant qu'on rouvre notre seule route. À 99, un
+        // plugin accroché plus tard reprenait la main.
+        add_filter('rest_authentication_errors', array(__CLASS__, 'unlock'), PHP_INT_MAX);
         add_action(self::HOOK, array(__CLASS__, 'deliver'), 10, 1);
         add_action('admin_menu', array(__CLASS__, 'menu'));
         add_action('admin_init', array(__CLASS__, 'register'));
@@ -157,6 +159,13 @@ final class DFB_Posting {
             'callback' => array(__CLASS__, 'receive'),
             'permission_callback' => array(__CLASS__, 'authorized'),
         ));
+        // De quoi vérifier, sans rien publier, que l'extension est bien la
+        // bonne version et que la clé passe le verrou du site.
+        register_rest_route('dfb/v1', '/status', array(
+            'methods' => 'GET',
+            'callback' => array(__CLASS__, 'status_route'),
+            'permission_callback' => array(__CLASS__, 'authorized'),
+        ));
     }
 
     /** Même clé que les envois sortants, comparée en temps constant. Sans clé
@@ -172,6 +181,14 @@ final class DFB_Posting {
         return true;
     }
 
+    public static function status_route() {
+        return array(
+            'plugin' => 'data-fb-posting',
+            'version' => self::VERSION,
+            'endpointConfigured' => !empty(get_option(self::OPTION, array())['endpoint']),
+        );
+    }
+
     /** Beaucoup de sites ferment toute l'API REST aux visiteurs non
      * connectés (« rest_login_required »). Ce verrou s'applique avant le
      * `permission_callback` de chaque route : sans cela, notre dépôt serait
@@ -181,7 +198,7 @@ final class DFB_Posting {
     public static function unlock($result) {
         if (!is_wp_error($result)) { return $result; }
         $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '';
-        if (strpos($uri, 'dfb/v1/articles') === false) { return $result; }
+        if (strpos($uri, 'dfb/v1/') === false) { return $result; }
         $settings = get_option(self::OPTION, array());
         $key = isset($settings['key']) ? (string) $settings['key'] : '';
         $provided = isset($_SERVER['HTTP_X_API_KEY']) ? (string) wp_unslash($_SERVER['HTTP_X_API_KEY']) : '';
