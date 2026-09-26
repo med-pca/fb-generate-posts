@@ -293,6 +293,25 @@ Dimensionnez `CLAIM_TTL_MINUTES` au-dessus de la durée réelle d’un lot
 (`maxPostsPerJob` × `delay`), sans quoi une réservation expire en cours de
 publication.
 
+### 7. Adhésion aux groupes (extension navigateur)
+
+Chaque lien profil ↔ groupe porte un `joinStatus` : `NOT_JOINED` (par défaut),
+`REQUESTED`, `JOINED`, `QUESTIONS` ou `FAILED`. L’extension
+`fb-extention-join` le lit et le met à jour avec la clé `X-API-Key` :
+
+```http
+GET  /api/join/profiles/{profileExternalId}/groups?status=NOT_JOINED,FAILED
+POST /api/join/profiles/{profileExternalId}/groups/{groupId}/join-status
+Content-Type: application/json
+
+{ "joinStatus": "JOINED" }
+```
+
+Sans `status`, la liste rend les groupes `NOT_JOINED` et `FAILED` ; `status=all`
+rend tout. `error` (facultatif) accompagne un `FAILED`. Chaque mise à jour écrit
+un journal `GROUP_JOIN_UPDATED`. Le statut n’influence pas encore la réservation
+des lots.
+
 ## Alimentation des contenus
 
 - `POST /api/admin/imports/json-data` importe un tableau JSON déjà disponible.

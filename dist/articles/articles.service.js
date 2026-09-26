@@ -148,6 +148,14 @@ let ArticlesService = class ArticlesService {
             rawData: caption,
         };
     }
+    postContent(article, slot = 0) {
+        const { profileId, delay, sourceType, externalId, ...content } = this.postDataForSlot(article, slot, {
+            profileId: '',
+            delayMin: 0,
+            delayMax: 0,
+        });
+        return content;
+    }
     slotExternalId(articleId, profileId, slot, captionCount) {
         const index = slot % captionCount;
         const variant = Math.floor(slot / captionCount);

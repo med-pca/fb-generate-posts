@@ -215,6 +215,19 @@ export class ArticlesService {
     };
   }
 
+  /** Ce qu'un post reprend de son article, sans rien qui lui appartienne en
+   * propre (profil, délai, identité) : de quoi réaligner un post existant
+   * quand l'article change de titre, de texte ou d'image. */
+  postContent(article: ArticleRecord, slot = 0) {
+    const { profileId, delay, sourceType, externalId, ...content } =
+      this.postDataForSlot(article, slot, {
+        profileId: '',
+        delayMin: 0,
+        delayMax: 0,
+      });
+    return content;
+  }
+
   /** La variante 0 garde le format historique : les posts déjà en base
    * restent reconnus par leur `externalId` et sont mis à jour, pas dupliqués. */
   slotExternalId(

@@ -6,9 +6,9 @@ export declare class LogsController {
     private readonly logs;
     constructor(logs: LogsService);
     create(dto: CreateLogDto): import("@prisma/client").Prisma.Prisma__ActivityLogClient<{
+        profileId: string | null;
         id: string;
         createdAt: Date;
-        profileId: string | null;
         groupId: string | null;
         postId: string | null;
         metadata: import("@prisma/client/runtime/library").JsonValue | null;
@@ -19,9 +19,9 @@ export declare class LogsController {
         jobId: string | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     findAll(profileId?: string): import("@prisma/client").Prisma.PrismaPromise<{
+        profileId: string | null;
         id: string;
         createdAt: Date;
-        profileId: string | null;
         groupId: string | null;
         postId: string | null;
         metadata: import("@prisma/client/runtime/library").JsonValue | null;
@@ -38,21 +38,21 @@ export declare class LogsAdminController {
     search(query: QueryLogsDto): Promise<{
         data: ({
             profile: {
-                name: string;
                 id: string;
+                name: string;
             } | null;
             group: {
-                name: string;
                 id: string;
+                name: string;
             } | null;
             post: {
-                id: string;
                 title: string;
+                id: string;
             } | null;
         } & {
+            profileId: string | null;
             id: string;
             createdAt: Date;
-            profileId: string | null;
             groupId: string | null;
             postId: string | null;
             metadata: import("@prisma/client/runtime/library").JsonValue | null;
@@ -94,21 +94,21 @@ export declare class LogsAdminController {
         }[];
         incidents: ({
             profile: {
-                name: string;
                 id: string;
+                name: string;
             } | null;
             group: {
-                name: string;
                 id: string;
+                name: string;
             } | null;
             post: {
-                id: string;
                 title: string;
+                id: string;
             } | null;
         } & {
+            profileId: string | null;
             id: string;
             createdAt: Date;
-            profileId: string | null;
             groupId: string | null;
             postId: string | null;
             metadata: import("@prisma/client/runtime/library").JsonValue | null;

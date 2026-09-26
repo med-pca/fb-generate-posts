@@ -6,8 +6,11 @@
 2. Construire et redémarrer l’API avec cette version (`npm run build`, puis le mécanisme de déploiement habituel). Aucune migration supplémentaire ni dépendance n’est nécessaire.
 3. Dans WordPress : **Extensions → Ajouter une extension → Téléverser**, sélectionner `data-fb-posting.zip`, installer et activer.
 4. Dans **Réglages → Data FB Posting**, renseigner l’URL complète `https://VOTRE-API/api/wordpress/articles` et la même clé `WORDPRESS_API_KEY`.
-5. Publier un nouvel article public, avec une image à la une si souhaité. La colonne **Facebook** dans la liste des articles indique « En attente », une erreur explicite ou « Transmis ».
+5. Publier un nouvel article public, avec une image à la une si souhaité. La colonne **Facebook** dans la liste des articles indique « En attente », « Mise à jour en attente », une erreur explicite ou « Transmis ».
 6. Vérifier dans Data FB Posting l’article importé et les posts associés aux profils actifs. Les groupes actifs associés à chaque profil deviennent les destinataires.
+7. Modifier ensuite l’article (titre, contenu, extrait, image à la une, lien ou date) : après le passage de WP-Cron, l’article et les posts pas encore publiés reprennent la nouvelle version.
+
+Mise à jour depuis la 1.0.0 : remplacer l’extension par le nouveau ZIP. Les articles déjà transmis sont repris automatiquement à leur première modification, sans renvoi inutile.
 
 Le site WordPress, ses liens d’article et d’image, ainsi que l’API doivent utiliser HTTPS. Le serveur API doit être accessible depuis l’hébergement WordPress. WordPress 5.6+ et PHP 7.4+ requis.
 
@@ -15,8 +18,11 @@ Le site WordPress, ses liens d’article et d’image, ainsi que l’API doivent
 
 - Première publication d’un article standard (`post`), immédiate ou programmée. Brouillons, pages, révisions, articles privés et protégés par mot de passe sont exclus.
 - L’envoi est mis en file via WP-Cron pour ne pas bloquer l’éditeur. Il démarre lorsque WordPress exécute sa prochaine tâche cron. Pour les sites peu visités, configurer l’hébergeur pour appeler régulièrement `wp-cron.php`.
-- Le titre, le contenu en texte brut (100 000 caractères maximum), l’extrait, le lien, l’image à la une et la date sont figés à la publication. Aucune synchronisation des modifications ultérieures, aucun import rétroactif des anciens articles.
-- Un post initial par profil actif. Le descriptif reprend au maximum 280 caractères de l’extrait WordPress ou du contenu, avec « Lire la suite sur le site : lien en commentaire 👇 ». Cette version utilise un extrait automatique, sans appel IA ni coût de génération externe.
+- Le titre, le contenu en texte brut (100 000 caractères maximum), l’extrait, le lien, l’image à la une et la date sont les seuls champs suivis : eux seuls déclenchent un envoi. Modifier les catégories, les étiquettes ou les réglages SEO ne change rien. Aucun import rétroactif des anciens articles : un article publié avant l’installation n’entre dans le suivi qu’en repassant par une mise en ligne.
+- Synchronisation : chaque modification enregistrée repart vers l’API, qui réaligne la fiche de l’article puis le titre, le descriptif et l’image des posts déjà créés. Une modification enregistrée pendant un envoi est retransmise juste après ; une réception identique à ce qui est déjà en base ne touche rien.
+- Ce que la synchronisation ne réécrit jamais : un post réservé par un job en cours (l’automate est en train de le publier avec son texte actuel), un post dont toutes les cibles sont déjà consommées ou publiées (c’est l’archive de ce qui est parti sur Facebook), et un post archivé. Le profil, le délai, les groupes destinataires et l’avancement des publications restent intacts. Ce qui a déjà été publié sur Facebook n’est pas modifié : seules les publications à venir reprennent la nouvelle version.
+- La réponse de l’API indique `updated` (la fiche a changé), `synchronized` (posts réalignés) et `skipped` (posts laissés tels quels).
+- Un post initial par profil actif. Le descriptif reprend au maximum 280 caractères de l’extrait WordPress ou du contenu, suivis de « 📖 Read more on our website 👉 Link in the comments 👇 ». Cette version utilise un extrait automatique, sans appel IA ni coût de génération externe.
 - Le lien reste dans le champ `url` du post : le flux existant de `fb-lyazidi` le place dans le commentaire. Sans image à la une, le mécanisme existant d’image par défaut du profil reste applicable.
 - Identifiant d’article stable : URL du site et `wordpress:ID`. Les répétitions sont ignorées, y compris après une réponse réseau perdue. Import et création des posts sont transactionnels et protégés contre les réceptions simultanées.
 - En cas d’échec, nouvelle tentative après 1, 2, 4, 8, 16, 32 minutes puis chaque heure. Après correction d’une configuration, attendre la prochaine tentative (ou lancer les événements WP-Cron dus).

@@ -1,9 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { JoinStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
+import { UpdateJoinStatusDto } from './dto/update-join-status.dto';
 
 @Injectable()
 export class GroupsService {
@@ -83,5 +85,69 @@ export class GroupsService {
 
   remove(id: string) {
     return this.prisma.group.delete({ where: { id } });
+  }
+
+  private async findAutomationProfile(profileExternalId: string) {
+    const profile = await this.prisma.profile.findFirst({
+      where: { externalId: profileExternalId, status: 'ACTIVE' },
+    });
+    if (!profile) throw new NotFoundException('Profil introuvable');
+    return profile;
+  }
+
+  async findForJoin(profileExternalId: string, statuses?: JoinStatus[]) {
+    const profile = await this.findAutomationProfile(profileExternalId);
+    const links = await this.prisma.profileGroup.findMany({
+      where: {
+        profileId: profile.id,
+        status: 'ACTIVE',
+        group: { status: 'ACTIVE' },
+        ...(statuses ? { joinStatus: { in: statuses } } : {}),
+      },
+      include: { group: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return links.map(({ group, joinStatus, joinCheckedAt, joinError }) => ({
+      id: group.id,
+      externalId: group.externalId,
+      name: group.name,
+      url: group.url,
+      joinStatus,
+      joinCheckedAt,
+      joinError,
+    }));
+  }
+
+  async updateJoinStatus(
+    profileExternalId: string,
+    groupId: string,
+    { joinStatus, error }: UpdateJoinStatusDto,
+  ) {
+    const profile = await this.findAutomationProfile(profileExternalId);
+    const link = await this.prisma.profileGroup.findUnique({
+      where: { profileId_groupId: { profileId: profile.id, groupId } },
+    });
+    if (!link) throw new NotFoundException('Groupe non lié à ce profil');
+
+    const updated = await this.prisma.profileGroup.update({
+      where: { id: link.id },
+      data: { joinStatus, joinCheckedAt: new Date(), joinError: error ?? null },
+    });
+    await this.prisma.activityLog.create({
+      data: {
+        profileId: profile.id,
+        groupId,
+        eventType: 'GROUP_JOIN_UPDATED',
+        level: joinStatus === 'FAILED' ? 'WARN' : 'INFO',
+        message: `Adhésion au groupe : ${joinStatus}`,
+        metadata: { previous: link.joinStatus, joinStatus, error },
+      },
+    });
+    return {
+      groupId,
+      joinStatus: updated.joinStatus,
+      joinCheckedAt: updated.joinCheckedAt,
+      joinError: updated.joinError,
+    };
   }
 }

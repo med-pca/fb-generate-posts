@@ -87,6 +87,13 @@ async function load() {
     notice(e.message, 'error');
   }
 }
+const JOIN_LABELS = {
+  NOT_JOINED: 'Non rejoint',
+  REQUESTED: 'Demande envoyée',
+  JOINED: 'Rejoint',
+  QUESTIONS: 'Questions',
+  FAILED: 'Échec',
+};
 function render() {
   $('#n-profiles').textContent = state.meta.profiles.total;
   $('#n-groups').textContent = state.meta.groups.total;
@@ -114,7 +121,7 @@ function render() {
     state.groups
       .map(
         (g) =>
-          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip">${esc(x.profile.name)}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
+          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip join-${(x.joinStatus || 'NOT_JOINED').toLowerCase()}" title="${esc(JOIN_LABELS[x.joinStatus] || '')}${x.joinError ? ' · ' + esc(x.joinError) : ''}">${esc(x.profile.name)} · ${esc(JOIN_LABELS[x.joinStatus] || 'Non rejoint')}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
       )
       .join('') ||
     '<tr><td colspan="6"><div class="empty">Aucun groupe</div></td></tr>';

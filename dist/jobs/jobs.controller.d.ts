@@ -9,9 +9,9 @@ export declare class JobsController {
     private readonly jobs;
     constructor(jobs: JobsService);
     listProfiles(): import("@prisma/client").Prisma.PrismaPromise<{
-        name: string;
-        externalId: string | null;
         id: string;
+        externalId: string | null;
+        name: string;
     }[]>;
     claim(dto: ClaimJobDto): Promise<{
         jobId: string;
@@ -103,14 +103,14 @@ export declare class JobsController {
         jobId: string;
         completedAt: Date | null;
         profile: {
-            name: string;
-            externalId: string | null;
             id: string;
+            externalId: string | null;
+            name: string;
         };
         group: {
-            name: string;
-            externalId: string | null;
             id: string;
+            externalId: string | null;
+            name: string;
         };
         updates: {
             postId: string;
@@ -164,13 +164,13 @@ export declare class JobsController {
         error: string | null;
         status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
+        publishedAt: Date | null;
         createdAt: Date;
         updatedAt: Date;
-        postId: string;
-        publishedAt: Date | null;
         commentExternalId: string | null;
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
+        postId: string;
         externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
@@ -179,13 +179,13 @@ export declare class JobsController {
         error: string | null;
         status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
+        publishedAt: Date | null;
         createdAt: Date;
         updatedAt: Date;
-        postId: string;
-        publishedAt: Date | null;
         commentExternalId: string | null;
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
+        postId: string;
         externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
@@ -194,13 +194,13 @@ export declare class JobsController {
         error: string | null;
         status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
+        publishedAt: Date | null;
         createdAt: Date;
         updatedAt: Date;
-        postId: string;
-        publishedAt: Date | null;
         commentExternalId: string | null;
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
+        postId: string;
         externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
@@ -209,13 +209,13 @@ export declare class JobsController {
         error: string | null;
         status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
+        publishedAt: Date | null;
         createdAt: Date;
         updatedAt: Date;
-        postId: string;
-        publishedAt: Date | null;
         commentExternalId: string | null;
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
+        postId: string;
         externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;
@@ -223,14 +223,14 @@ export declare class JobsController {
     complete(jobId: string): Promise<{
         awaitingLink: number;
         missingComments: number;
+        profileId: string;
         status: import("@prisma/client").$Enums.JobStatus;
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        profileId: string;
-        groupId: string;
         claimedAt: Date;
         claimExpiresAt: Date;
+        groupId: string;
         completedAt: Date | null;
     }>;
     linkUpdates(jobId: string): Promise<{
@@ -238,14 +238,14 @@ export declare class JobsController {
         status: "FAILED" | "AWAITING_LINK" | "PARTIALLY_COMPLETED" | "COMPLETED" | "EXPIRED";
         completedAt: Date | null;
         profile: {
-            name: string;
-            externalId: string | null;
             id: string;
+            externalId: string | null;
+            name: string;
         };
         group: {
-            name: string;
-            externalId: string | null;
             id: string;
+            externalId: string | null;
+            name: string;
         };
         updates: {
             postId: string;
@@ -260,13 +260,13 @@ export declare class JobsController {
         error: string | null;
         status: import("@prisma/client").$Enums.TargetStatus;
         id: string;
+        publishedAt: Date | null;
         createdAt: Date;
         updatedAt: Date;
-        postId: string;
-        publishedAt: Date | null;
         commentExternalId: string | null;
         commentedAt: Date | null;
         linkUpdatedAt: Date | null;
+        postId: string;
         externalPostUrl: string | null;
         postTargetId: string;
         jobId: string;

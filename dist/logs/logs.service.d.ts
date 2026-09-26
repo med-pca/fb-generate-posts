@@ -7,9 +7,9 @@ export declare class LogsService {
     private readonly prisma;
     constructor(prisma: PrismaService);
     create(dto: CreateLogDto): Prisma.Prisma__ActivityLogClient<{
+        profileId: string | null;
         id: string;
         createdAt: Date;
-        profileId: string | null;
         groupId: string | null;
         postId: string | null;
         metadata: Prisma.JsonValue | null;
@@ -20,9 +20,9 @@ export declare class LogsService {
         jobId: string | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
     findAll(profileId?: string): Prisma.PrismaPromise<{
+        profileId: string | null;
         id: string;
         createdAt: Date;
-        profileId: string | null;
         groupId: string | null;
         postId: string | null;
         metadata: Prisma.JsonValue | null;
@@ -35,21 +35,21 @@ export declare class LogsService {
     search({ page, limit, ...filters }: QueryLogsDto): Promise<{
         data: ({
             profile: {
-                name: string;
                 id: string;
+                name: string;
             } | null;
             group: {
-                name: string;
                 id: string;
+                name: string;
             } | null;
             post: {
-                id: string;
                 title: string;
+                id: string;
             } | null;
         } & {
+            profileId: string | null;
             id: string;
             createdAt: Date;
-            profileId: string | null;
             groupId: string | null;
             postId: string | null;
             metadata: Prisma.JsonValue | null;
@@ -91,21 +91,21 @@ export declare class LogsService {
         }[];
         incidents: ({
             profile: {
-                name: string;
                 id: string;
+                name: string;
             } | null;
             group: {
-                name: string;
                 id: string;
+                name: string;
             } | null;
             post: {
-                id: string;
                 title: string;
+                id: string;
             } | null;
         } & {
+            profileId: string | null;
             id: string;
             createdAt: Date;
-            profileId: string | null;
             groupId: string | null;
             postId: string | null;
             metadata: Prisma.JsonValue | null;

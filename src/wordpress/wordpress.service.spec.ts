@@ -15,9 +15,24 @@ const payload: WordpressArticleDto = {
   imageUrl: 'https://example.com/image.jpg',
 };
 
+/** L'article tel qu'il est en base après une première réception. */
+const stored = () => ({
+  id: 'existing',
+  title: payload.title,
+  articleUrl: payload.articleUrl,
+  coverImageUrl: payload.imageUrl ?? null,
+  excerpt: null,
+  publishedAt: new Date(payload.publishedAt),
+  captions: [{ text: wordpressCaption(payload), angle: 'wordpress' }],
+  hashtags: [] as string[],
+});
+
 type PostData = ReturnType<ArticlesService['postDataForSlot']> & {
   targets: { create: { groupId: string }[] };
 };
+type PostContent = ReturnType<ArticlesService['postContent']>;
+type ArticleData = Record<string, unknown> & { title: string };
+type ClaimFilter = { none: { status: string; claimExpiresAt: { gt: Date } } };
 function setup() {
   const tx = {
     $executeRaw: jest.fn(() => Promise.resolve(1)),
@@ -28,11 +43,15 @@ function setup() {
       }),
     },
     article: {
-      findUnique: jest.fn<Promise<{ id: string } | null>, unknown[]>(() =>
-        Promise.resolve(null),
+      findUnique: jest.fn<Promise<ReturnType<typeof stored> | null>, unknown[]>(
+        () => Promise.resolve(null),
       ),
       create: jest.fn(({ data }: { data: { externalId: string } }) =>
         Promise.resolve({ id: 'article', ...data }),
+      ),
+      update: jest.fn(
+        ({ where, data }: { where: { id: string }; data: ArticleData }) =>
+          Promise.resolve({ ...stored(), id: where.id, ...data }),
       ),
     },
     profile: {
@@ -47,6 +66,13 @@ function setup() {
       create: jest.fn((_args: { data: PostData }) =>
         Promise.resolve({ id: _args.data.externalId }),
       ),
+      updateMany: jest.fn(
+        (_args: { where: Record<string, any>; data: PostContent }) => {
+          void _args;
+          return Promise.resolve({ count: 3 });
+        },
+      ),
+      count: jest.fn(() => Promise.resolve(5)),
     },
   };
   const prisma = {
@@ -67,7 +93,10 @@ describe('WordPress publication', () => {
     expect(await service.publish(payload)).toEqual({
       articleId: 'article',
       duplicate: false,
+      updated: false,
       generated: 2,
+      synchronized: 0,
+      skipped: 0,
     });
     expect(tx.profile.findMany).toHaveBeenCalledWith({
       where: { status: 'ACTIVE' },
@@ -86,23 +115,97 @@ describe('WordPress publication', () => {
       imageUrl: payload.imageUrl,
       targets: { create: [{ groupId: 'g1' }] },
     });
-    expect(data.description).toContain('lien en commentaire');
+    expect(data.description).toContain('Link in the comments');
     expect(data.description).not.toContain(payload.articleUrl);
     expect(tx.post.create.mock.calls[1][0].data.targets.create).toEqual([]);
     expect(tx.$executeRaw).toHaveBeenCalled();
   });
 
-  it('ignores repeated deliveries and later changes without touching existing posts', async () => {
+  it('ignores a delivery that repeats what is already stored', async () => {
     const { service, tx } = setup();
-    tx.article.findUnique.mockResolvedValue({ id: 'existing' });
-    expect(await service.publish({ ...payload, title: 'Changed' })).toEqual({
+    tx.article.findUnique.mockResolvedValue(stored());
+    expect(await service.publish(payload)).toEqual({
       articleId: 'existing',
       duplicate: true,
+      updated: false,
       generated: 0,
+      synchronized: 0,
+      skipped: 0,
     });
     expect(tx.article.create).not.toHaveBeenCalled();
-    expect(tx.post.create).not.toHaveBeenCalled();
+    expect(tx.article.update).not.toHaveBeenCalled();
+    expect(tx.post.updateMany).not.toHaveBeenCalled();
     expect(tx.profile.findMany).not.toHaveBeenCalled();
+  });
+
+  it('synchronizes title, text and image onto the posts that can still change', async () => {
+    const { service, tx } = setup();
+    tx.article.findUnique.mockResolvedValue(stored());
+    expect(
+      await service.publish({
+        ...payload,
+        title: 'Titre corrigé',
+        content: 'Contenu corrigé.',
+        imageUrl: 'https://example.com/autre.jpg',
+      }),
+    ).toEqual({
+      articleId: 'existing',
+      duplicate: true,
+      updated: true,
+      generated: 0,
+      synchronized: 3,
+      skipped: 2,
+    });
+    expect(tx.article.update.mock.calls[0][0].data).toMatchObject({
+      title: 'Titre corrigé',
+      coverImageUrl: 'https://example.com/autre.jpg',
+    });
+    const { data } = tx.post.updateMany.mock.calls[0][0];
+    expect(data).toMatchObject({
+      title: 'Titre corrigé',
+      imageUrl: 'https://example.com/autre.jpg',
+      url: payload.articleUrl,
+    });
+    expect(data.description).toContain('Contenu corrigé');
+    // Ni le profil, ni le délai, ni l'identité du post ne sont réécrits.
+    for (const field of ['profileId', 'delay', 'externalId', 'sourceType']) {
+      expect(data).not.toHaveProperty(field);
+    }
+    expect(tx.post.create).not.toHaveBeenCalled();
+  });
+
+  it('leaves claimed, fully consumed and archived posts untouched', async () => {
+    const { service, tx } = setup();
+    tx.article.findUnique.mockResolvedValue(stored());
+    await service.publish({ ...payload, title: 'Titre corrigé' });
+    const { where } = tx.post.updateMany.mock.calls[0][0];
+    expect(where).toMatchObject({
+      articleId: 'existing',
+      status: { not: 'ARCHIVED' },
+    });
+    const claim = (where.targets as ClaimFilter).none;
+    expect(claim.status).toBe('CLAIMED');
+    expect(claim.claimExpiresAt.gt).toBeInstanceOf(Date);
+    expect(where.OR).toEqual([
+      { targets: { none: {} } },
+      { targets: { some: { status: { in: ['AVAILABLE', 'CLAIMED'] } } } },
+    ]);
+  });
+
+  it('follows a removed featured image and a corrected publication date', async () => {
+    const { service, tx } = setup();
+    tx.article.findUnique.mockResolvedValue(stored());
+    const { imageUrl, ...withoutImage } = payload;
+    void imageUrl;
+    await service.publish({
+      ...withoutImage,
+      publishedAt: '2026-09-21T08:30:00Z',
+    });
+    expect(tx.article.update.mock.calls[0][0].data).toMatchObject({
+      coverImageUrl: null,
+      publishedAt: new Date('2026-09-21T08:30:00Z'),
+    });
+    expect(tx.post.updateMany.mock.calls[0][0].data.imageUrl).toBeNull();
   });
 
   it('keeps installations in subdirectories separate and namespaces WordPress IDs', async () => {

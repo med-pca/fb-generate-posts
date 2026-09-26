@@ -267,6 +267,26 @@ h2 {
   font-size: 0.72rem;
   font-weight: 700;
 }
+.chip.join-not_joined {
+  color: #667085;
+  background: #eef1f6;
+}
+.chip.join-joined {
+  color: #17803d;
+  background: #e3f7ea;
+}
+.chip.join-requested {
+  color: #315cb4;
+  background: #e8f0ff;
+}
+.chip.join-questions {
+  color: #9a5b00;
+  background: #fff1d6;
+}
+.chip.join-failed {
+  color: #b42318;
+  background: #fde8e7;
+}
 .quick {
   padding: 25px;
   color: #fff;

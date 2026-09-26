@@ -25,7 +25,7 @@ class BulkDeletePostsDto {
     dryRun = false;
     force = false;
     static _OPENAPI_METADATA_FACTORY() {
-        return { ids: { required: false, type: () => [String], minItems: 1, maxItems: 500 }, profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, articleId: { required: false, type: () => String }, status: { required: false, enum: ["AVAILABLE", "DRAFT", "ARCHIVED"] }, sourceType: { required: false, enum: ["MANUAL", "OPENAI", "JSON"] }, dryRun: { required: true, type: () => Object, default: false }, force: { required: true, type: () => Object, default: false } };
+        return { ids: { required: false, type: () => [String], minItems: 1, maxItems: 500 }, profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, articleId: { required: false, type: () => String }, status: { required: false, enum: ["DRAFT", "AVAILABLE", "ARCHIVED"] }, sourceType: { required: false, enum: ["MANUAL", "OPENAI", "JSON"] }, dryRun: { required: true, type: () => Object, default: false }, force: { required: true, type: () => Object, default: false } };
     }
 }
 exports.BulkDeletePostsDto = BulkDeletePostsDto;

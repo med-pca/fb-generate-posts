@@ -12,6 +12,15 @@ enum RecordStatus {
   INACTIVE
 }
 
+/// Adhésion du compte Facebook (profil) au groupe, renseignée par l'extension.
+enum JoinStatus {
+  NOT_JOINED
+  REQUESTED
+  JOINED
+  QUESTIONS
+  FAILED
+}
+
 enum PostStatus {
   DRAFT
   AVAILABLE
@@ -95,11 +104,15 @@ model ProfileGroup {
   groupId   String       @map("group_id")
   group     Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
   status    RecordStatus @default(ACTIVE)
+  joinStatus    JoinStatus @default(NOT_JOINED) @map("join_status")
+  joinCheckedAt DateTime?  @map("join_checked_at")
+  joinError     String?    @db.Text @map("join_error")
   createdAt DateTime     @default(now()) @map("created_at")
   updatedAt DateTime     @updatedAt @map("updated_at")
 
   @@unique([profileId, groupId])
   @@index([groupId, status])
+  @@index([profileId, joinStatus])
   @@map("profile_groups")
 }
 

@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Data FB Posting
- * Description: Envoie les nouveaux articles publiés vers Data FB Posting pour préparer les posts Facebook.
- * Version: 1.0.0
+ * Description: Envoie les articles publiés vers Data FB Posting et resynchronise leurs modifications (titre, contenu, image).
+ * Version: 1.1.0
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
@@ -13,7 +13,7 @@ final class DFB_Posting {
     const HOOK = 'dfb_posting_deliver';
 
     public static function boot() {
-        add_action('wp_after_insert_post', array(__CLASS__, 'published'), 10, 4);
+        add_action('wp_after_insert_post', array(__CLASS__, 'saved'), 10, 4);
         add_action(self::HOOK, array(__CLASS__, 'deliver'), 10, 1);
         add_action('admin_menu', array(__CLASS__, 'menu'));
         add_action('admin_init', array(__CLASS__, 'register'));
@@ -27,10 +27,9 @@ final class DFB_Posting {
         return function_exists('mb_substr') ? mb_substr($text, 0, $length, 'UTF-8') : substr($text, 0, $length);
     }
 
-    public static function published($id, $post, $update, $before) {
-        if ($post->post_type !== 'post' || $post->post_status !== 'publish' || $post->post_password !== '' ||
-            ($before && $before->post_status === 'publish') || wp_is_post_revision($id) ||
-            get_post_meta($id, '_dfb_snapshot', true) || get_post_meta($id, '_dfb_sent', true)) { return; }
+    /** Les seuls champs suivis : tout le reste (catégories, SEO, réglages)
+     * peut changer sans déclencher d'envoi. */
+    public static function payload($id, $post) {
         $payload = array(
             'siteUrl' => untrailingslashit(home_url()),
             'siteName' => self::plain(get_bloginfo('name'), 200),
@@ -43,8 +42,38 @@ final class DFB_Posting {
         );
         $image = get_the_post_thumbnail_url($id, 'full');
         if ($image) { $payload['imageUrl'] = $image; }
-        // Snapshot preserved across retries: later article edits are never synchronized.
-        if (!add_post_meta($id, '_dfb_snapshot', wp_slash($payload), true)) { return; }
+        return $payload;
+    }
+
+    public static function hash($payload) { return md5((string) wp_json_encode($payload)); }
+
+    /** Reprise des articles suivis par la version sans synchronisation :
+     * l'ancien instantané devient l'empreinte de ce qui est déjà parti, ou
+     * l'envoi resté en attente. */
+    public static function adopt($id) {
+        $legacy = get_post_meta($id, '_dfb_snapshot', true);
+        if (!$legacy) { return; }
+        if (get_post_meta($id, '_dfb_sent', true)) {
+            update_post_meta($id, '_dfb_hash', self::hash($legacy));
+        } elseif (!get_post_meta($id, '_dfb_pending', true)) {
+            update_post_meta($id, '_dfb_pending', wp_slash($legacy));
+        }
+        delete_post_meta($id, '_dfb_snapshot');
+    }
+
+    public static function saved($id, $post, $update, $before) {
+        if ($post->post_type !== 'post' || $post->post_status !== 'publish' ||
+            $post->post_password !== '' || wp_is_post_revision($id)) { return; }
+        self::adopt($id);
+        $known = get_post_meta($id, '_dfb_sent', true) || get_post_meta($id, '_dfb_pending', true);
+        // Aucun import rétroactif : un article publié avant l'installation
+        // n'entre dans le suivi qu'en repassant par une mise en ligne.
+        if (!$known && $before && $before->post_status === 'publish') { return; }
+        $payload = self::payload($id, $post);
+        // Déjà transmis à l'identique : rien à resynchroniser.
+        if (self::hash($payload) === get_post_meta($id, '_dfb_hash', true)) { return; }
+        // La dernière version enregistrée remplace celle qui attendait encore.
+        update_post_meta($id, '_dfb_pending', wp_slash($payload));
         self::schedule($id, 1);
     }
 
@@ -58,8 +87,8 @@ final class DFB_Posting {
     }
 
     public static function deliver($id) {
-        if (get_post_meta($id, '_dfb_sent', true)) { return; }
-        $payload = get_post_meta($id, '_dfb_snapshot', true);
+        self::adopt($id);
+        $payload = get_post_meta($id, '_dfb_pending', true);
         $post = get_post($id);
         if (!$payload || !$post) { return; }
         // Never send an article withdrawn or made private before delivery.
@@ -88,9 +117,18 @@ final class DFB_Posting {
             self::failed($id, 'Réponse API invalide (HTTP ' . intval($code) . '). Vérifier URL et clé.');
             return;
         }
+        $sent = self::hash($payload);
         update_post_meta($id, '_dfb_sent', current_time('mysql', true));
+        update_post_meta($id, '_dfb_hash', $sent);
         delete_post_meta($id, '_dfb_error');
+        delete_post_meta($id, '_dfb_attempt');
         wp_clear_scheduled_hook(self::HOOK, array($id));
+        // Une modification enregistrée pendant l'envoi reste à transmettre.
+        if (self::hash(get_post_meta($id, '_dfb_pending', true)) === $sent) {
+            delete_post_meta($id, '_dfb_pending');
+        } else {
+            self::schedule($id, 1);
+        }
     }
 
     public static function failed($id, $error) {
@@ -124,7 +162,7 @@ final class DFB_Posting {
         $settings = get_option(self::OPTION, array());
         ?>
         <div class="wrap"><h1>Data FB Posting</h1>
-        <p>Chaque nouvel article public prépare un post pour tous les profils actifs. Les modifications ultérieures ne sont pas envoyées.</p>
+        <p>Chaque nouvel article public prépare un post pour tous les profils actifs. Modifier ensuite le titre, le contenu, l’extrait, le lien, la date ou l’image à la une met à jour les posts qui n’ont pas encore été publiés.</p>
         <form action="options.php" method="post">
             <?php settings_fields('dfb_posting'); ?>
             <table class="form-table"><tr><th><label for="dfb-url">URL de réception</label></th><td>
@@ -141,9 +179,13 @@ final class DFB_Posting {
     public static function columns($columns) { $columns['dfb_status'] = 'Facebook'; return $columns; }
     public static function status($column, $id) {
         if ($column !== 'dfb_status') { return; }
-        if (get_post_meta($id, '_dfb_sent', true)) { echo 'Transmis'; return; }
-        if (!get_post_meta($id, '_dfb_snapshot', true)) { echo '—'; return; }
-        echo esc_html(get_post_meta($id, '_dfb_error', true) ?: 'En attente');
+        $sent = get_post_meta($id, '_dfb_sent', true);
+        $pending = get_post_meta($id, '_dfb_pending', true) || get_post_meta($id, '_dfb_snapshot', true);
+        if ($pending) {
+            echo esc_html(get_post_meta($id, '_dfb_error', true) ?: ($sent ? 'Mise à jour en attente' : 'En attente'));
+            return;
+        }
+        echo $sent ? 'Transmis' : '—';
     }
 }
 DFB_Posting::boot();

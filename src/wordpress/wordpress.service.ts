@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { PostStatus, Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ArticlesService } from '../articles/articles.service';
 import { WordpressArticleDto } from './wordpress.dto';
@@ -18,6 +19,33 @@ export function wordpressCaption(dto: WordpressArticleDto) {
     text.length > 280 ? text.slice(0, 277).replace(/\s+\S*$/, '') + '…' : text;
   return `${excerpt}\n\n📖 Read more on our website 👉 Link in the comments 👇`;
 }
+
+/** Tout ce qu'une réception WordPress (re)définit. Le reste de la fiche —
+ * source, identifiant externe, slug, URL JSON — est fixé à la création. */
+export function wordpressArticleFields(dto: WordpressArticleDto) {
+  return {
+    title: dto.title,
+    articleUrl: dto.articleUrl,
+    coverImageUrl: dto.imageUrl ?? null,
+    excerpt: dto.excerpt ?? null,
+    publishedAt: new Date(dto.publishedAt),
+    captions: [{ text: wordpressCaption(dto), angle: 'wordpress' }],
+    rawData: { ...dto },
+  };
+}
+
+type ArticleFields = ReturnType<typeof wordpressArticleFields>;
+/** La fiche en base, réduite à ce que la synchronisation lit et réécrit. */
+type StoredArticle = {
+  id: string;
+  title: string;
+  articleUrl: string;
+  coverImageUrl: string | null;
+  excerpt: string | null;
+  publishedAt: Date | null;
+  captions: Prisma.JsonValue;
+  hashtags: string[];
+};
 
 @Injectable()
 export class WordpressService {
@@ -44,6 +72,7 @@ export class WordpressService {
     }
     const siteUrl = site.origin + site.pathname.replace(/\/+$/, '');
     const externalId = `wordpress:${dto.postId}`;
+    const fields = wordpressArticleFields(dto);
     return this.prisma.$transaction(
       async (tx) => {
         // Lock per site, including source creation, so simultaneous deliveries are atomic.
@@ -56,22 +85,15 @@ export class WordpressService {
         const existing = await tx.article.findUnique({
           where: { sourceId_externalId: { sourceId: source.id, externalId } },
         });
-        if (existing)
-          return { articleId: existing.id, duplicate: true, generated: 0 };
+        if (existing) return this.synchronize(tx, existing, fields);
         const article = await tx.article.create({
           data: {
             sourceId: source.id,
             externalId,
             slug: externalId,
             jsonUrl: `${siteUrl}/?rest_route=/wp/v2/posts/${dto.postId}`,
-            title: dto.title,
-            articleUrl: dto.articleUrl,
-            coverImageUrl: dto.imageUrl,
-            excerpt: dto.excerpt,
-            publishedAt: new Date(dto.publishedAt),
-            captions: [{ text: wordpressCaption(dto), angle: 'wordpress' }],
             hashtags: [],
-            rawData: { ...dto },
+            ...fields,
           },
         });
         const profiles = await tx.profile.findMany({
@@ -101,10 +123,89 @@ export class WordpressService {
         return {
           articleId: article.id,
           duplicate: false,
+          updated: false,
           generated: profiles.length,
+          synchronized: 0,
+          skipped: 0,
         };
       },
       { timeout: 30000 },
     );
+  }
+
+  /** Un article déjà reçu n'est jamais recréé : on réaligne sa fiche, puis le
+   * titre, le texte et l'image des posts qui peuvent encore changer. Une
+   * réception à l'identique (renvoi réseau, retouche sans effet éditorial) ne
+   * touche rien. */
+  private async synchronize(
+    tx: Prisma.TransactionClient,
+    existing: StoredArticle,
+    fields: ArticleFields,
+  ) {
+    const unchanged = {
+      articleId: existing.id,
+      duplicate: true,
+      updated: false,
+      generated: 0,
+      synchronized: 0,
+      skipped: 0,
+    };
+    if (!this.hasChanges(existing, fields)) return unchanged;
+    const article = await tx.article.update({
+      where: { id: existing.id },
+      data: fields,
+    });
+    const { count } = await tx.post.updateMany({
+      where: this.syncablePosts(article.id),
+      data: this.articles.postContent(article),
+    });
+    const total = await tx.post.count({ where: { articleId: article.id } });
+    return {
+      ...unchanged,
+      updated: true,
+      synchronized: count,
+      skipped: total - count,
+    };
+  }
+
+  private hasChanges(existing: StoredArticle, fields: ArticleFields) {
+    const [caption] = this.articles.captionsOf(existing);
+    return (
+      existing.title !== fields.title ||
+      existing.articleUrl !== fields.articleUrl ||
+      existing.coverImageUrl !== fields.coverImageUrl ||
+      existing.excerpt !== fields.excerpt ||
+      existing.publishedAt?.getTime() !== fields.publishedAt.getTime() ||
+      caption?.text !== fields.captions[0].text
+    );
+  }
+
+  /** Ce qui reste réécrivable : un post réservé par un job en cours est en
+   * train d'être publié avec son texte actuel, et un post dont toutes les
+   * cibles sont parties est l'archive de ce qui a été diffusé. Entre les deux,
+   * tout ce qui attend encore une publication reçoit la dernière version. */
+  private syncablePosts(articleId: string): Prisma.PostWhereInput {
+    return {
+      articleId,
+      status: { not: PostStatus.ARCHIVED },
+      targets: {
+        none: {
+          status: TargetStatus.CLAIMED,
+          claimExpiresAt: { gt: new Date() },
+        },
+      },
+      OR: [
+        { targets: { none: {} } },
+        {
+          targets: {
+            some: {
+              // Une réservation expirée repassera en AVAILABLE : ce post
+              // sert encore.
+              status: { in: [TargetStatus.AVAILABLE, TargetStatus.CLAIMED] },
+            },
+          },
+        },
+      ],
+    };
   }
 }
