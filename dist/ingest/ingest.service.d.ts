@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { IngestStatus, Prisma, SourceIngest } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { CaptureIngestDto } from './dto/capture-ingest.dto';
 import { CreateIngestDto } from './dto/create-ingest.dto';
 import { ScrapeResultDto } from './dto/scrape-result.dto';
 import { RewriterService } from './rewriter.service';
@@ -142,6 +143,30 @@ export declare class IngestService {
         attempts: number;
     }>;
     remove(id: string): Promise<{
+        groupIds: string[];
+        status: import("@prisma/client").$Enums.IngestStatus;
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        articleId: string | null;
+        claimedAt: Date | null;
+        claimExpiresAt: Date | null;
+        lastError: string | null;
+        siteUrl: string;
+        facebookUrl: string;
+        sourceUrl: string;
+        language: string;
+        fbCaption: string | null;
+        fbImageUrl: string | null;
+        sourceTitle: string | null;
+        sourceText: string | null;
+        generated: Prisma.JsonValue | null;
+        wpPostId: string | null;
+        wpPermalink: string | null;
+        profileIds: string[];
+        attempts: number;
+    }>;
+    capture(dto: CaptureIngestDto): Promise<{
         groupIds: string[];
         status: import("@prisma/client").$Enums.IngestStatus;
         id: string;

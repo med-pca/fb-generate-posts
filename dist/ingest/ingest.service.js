@@ -93,6 +93,13 @@ let IngestService = IngestService_1 = class IngestService {
         await this.load(id);
         return this.prisma.sourceIngest.delete({ where: { id } });
     }
+    async capture(dto) {
+        const ingest = await this.create(dto);
+        return this.submitScrape(ingest.id, {
+            caption: dto.caption,
+            imageUrl: dto.imageUrl,
+        });
+    }
     async claimScrape(profileExternalId) {
         const ttlMinutes = this.config.get('CLAIM_TTL_MINUTES', 30);
         const claimExpiresAt = new Date(Date.now() + ttlMinutes * 60_000);

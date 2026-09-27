@@ -1,9 +1,16 @@
+import { CaptureIngestDto } from './dto/capture-ingest.dto';
 import { FailScrapeDto } from './dto/fail-scrape.dto';
 import { ScrapeResultDto } from './dto/scrape-result.dto';
 import { IngestService } from './ingest.service';
 export declare class ScrapeController {
     private readonly ingest;
     constructor(ingest: IngestService);
+    capture(dto: CaptureIngestDto): Promise<{
+        accepted: boolean;
+        ingestId: string;
+        status: import("@prisma/client").$Enums.IngestStatus;
+        followUrl: string;
+    }>;
     claim(profileExternalId?: string): Promise<{
         scrape: null;
         message: string;

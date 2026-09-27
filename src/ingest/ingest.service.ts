@@ -9,6 +9,7 @@ import { IngestStatus, Prisma, SourceIngest } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
+import { CaptureIngestDto } from './dto/capture-ingest.dto';
 import { CreateIngestDto } from './dto/create-ingest.dto';
 import { ScrapeResultDto } from './dto/scrape-result.dto';
 import { GeneratedArticle, RewriterService } from './rewriter.service';
@@ -107,6 +108,17 @@ export class IngestService {
   async remove(id: string) {
     await this.load(id);
     return this.prisma.sourceIngest.delete({ where: { id } });
+  }
+
+  /** Enregistre une reprise déjà collectée, en un seul appel. C'est le
+   * chemin de l'extension : l'utilisateur est devant la publication, il a
+   * décidé de la reprendre, et il n'y a rien à réserver ni à attendre. */
+  async capture(dto: CaptureIngestDto) {
+    const ingest = await this.create(dto);
+    return this.submitScrape(ingest.id, {
+      caption: dto.caption,
+      imageUrl: dto.imageUrl,
+    });
   }
 
   /** Confie une collecte à une extension. Une réservation expirée revient

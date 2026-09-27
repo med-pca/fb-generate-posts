@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
+import { CaptureIngestDto } from './dto/capture-ingest.dto';
 import { FailScrapeDto } from './dto/fail-scrape.dto';
 import { ScrapeResultDto } from './dto/scrape-result.dto';
 import { IngestService } from './ingest.service';
@@ -21,6 +22,26 @@ import { IngestService } from './ingest.service';
 @Controller('jobs/scrape')
 export class ScrapeController {
   constructor(private readonly ingest: IngestService) {}
+
+  @Post('capture')
+  @ApiOperation({
+    summary: 'Reprendre une publication en un seul appel',
+    description:
+      'Le chemin de l’extension : l’utilisateur est devant la publication ' +
+      'et décide de la reprendre. Rend la main tout de suite ; la lecture ' +
+      'de la source, la réécriture et le dépôt WordPress suivent côté ' +
+      'serveur. Suivre l’avancement sur /admin/ingest/:id.',
+  })
+  async capture(@Body() dto: CaptureIngestDto) {
+    const ingest = await this.ingest.capture(dto);
+    void this.ingest.advance(ingest.id).catch(() => undefined);
+    return {
+      accepted: true,
+      ingestId: ingest.id,
+      status: ingest.status,
+      followUrl: `/admin/ingest/${ingest.id}`,
+    };
+  }
 
   @Post('claim')
   @ApiOperation({

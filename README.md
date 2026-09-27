@@ -658,6 +658,29 @@ Sans aucune clé, la reprise s’arrête en `REWRITING` et le dit dans
 
 ### La collecte par l’extension
 
+Deux chemins, selon qu’on décide au coup par coup ou qu’on laisse tourner.
+
+**Au coup par coup — l’extension [`extension/fb-catch-post`](extension/fb-catch-post/).**
+On est devant une publication qui marche, on clique, on colle l’adresse de
+l’article à réécrire, et tout part en un seul appel :
+
+```bash
+curl -X POST "$API_BASE/jobs/scrape/capture" -H "X-API-Key: $KEY" \
+  -H 'Content-Type: application/json' -d '{
+    "facebookUrl": "https://www.facebook.com/…/posts/…",
+    "sourceUrl":   "https://exemple.com/article",
+    "caption":     "Le texte du post, tel quel",
+    "imageUrl":    "https://scontent…/photo.jpg",
+    "profileIds":  ["<un profil>"]
+  }'
+```
+
+La réponse est immédiate ; la suite se fait côté serveur. C’est le seul appel
+dont l’extension a besoin : ni réservation, ni attente.
+
+**En continu — la file de collecte.** Pour un automate qui traite une liste
+préparée à l’avance :
+
 Un post Facebook ne se lit pas depuis le serveur : une requête sur une
 permalink renvoie un mur de connexion. L’extension, elle, est déjà connectée
 au compte. Elle interroge donc les mêmes routes que les lots de publication,

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>Reprendre cette publication</h1>
+
+    <section id="capture" class="hidden">
+      <img id="preview" alt="" />
+      <label for="caption">Texte de la publication <small>repart à l'identique</small></label>
+      <textarea id="caption" rows="5"></textarea>
+    </section>
+
+    <label for="source">URL de l'article à réécrire</label>
+    <input id="source" type="url" placeholder="https://exemple.com/la-recette" />
+
+    <button id="send" disabled>Envoyer</button>
+    <p id="status" role="status"></p>
+    <a id="follow" class="hidden" target="_blank" rel="noreferrer">Suivre l'avancement</a>
+  </body>
+  <script src="config.js"></script>
+  <script src="popup.js"></script>
+</html>

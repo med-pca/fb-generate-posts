@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "FB Catch Post",
+  "version": "1.0.0",
+  "description": "Reprend une publication Facebook : son image et son texte partent avec l'URL d'un article à réécrire.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://*.facebook.com/*",
+    "https://post.pulserecipe.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Reprendre cette publication"
+  }
+}
