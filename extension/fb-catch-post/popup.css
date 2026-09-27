@@ -18,3 +18,15 @@ button:disabled { opacity: .5; cursor: default; }
 #status.ok { color: #1a7f37; }
 a { display: block; margin-top: 6px; color: var(--accent); }
 .hidden { display: none; }
+
+#posts { list-style: none; margin: 0; padding: 0; max-height: 190px; overflow-y: auto;
+  border: 1px solid var(--edge); border-radius: 6px; }
+#posts li { padding: 7px 9px; cursor: pointer; border-bottom: 1px solid var(--edge); }
+#posts li:last-child { border-bottom: 0; }
+#posts li:hover { background: rgba(127,127,127,.12); }
+#posts li[aria-selected="true"] { background: rgba(27,116,228,.15); font-weight: 600; }
+#posts li b { display: block; font-weight: inherit; }
+#posts li span { color: var(--muted); font-size: 11px; font-weight: 400; }
+#done { margin-top: 8px; padding: 8px; border-radius: 6px; font-size: 12px;
+  background: rgba(127,127,127,.12); }
+#done code { user-select: all; }

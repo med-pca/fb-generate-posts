@@ -1,7 +1,7 @@
 /**
- * Vérifie la lecture d'une publication contre une page qui imite la
- * structure de Facebook. Un double suffit : ce qu'on teste, c'est le choix
- * du bon article, de la bonne image et du bon texte, pas le rendu de
+ * Vérifie l'énumération et la lecture des publications, contre une page qui
+ * imite la structure de Facebook. Un double suffit : ce qu'on teste, c'est
+ * qu'on rende LA publication demandée et la bonne image, pas le rendu de
  * Facebook. Une vérification sur une vraie page reste nécessaire.
  *
  *   node extension/fb-catch-post/tests/capture-test.js
@@ -12,66 +12,105 @@ const fs = require('fs');
 const { JSDOM } = require(path.join(__dirname, '../../../node_modules/jsdom'));
 const CAPTURE = fs.readFileSync(path.join(__dirname, '../capture.js'), 'utf8');
 
-// Une page qui imite la structure de Facebook : le post, ses commentaires,
-// un avatar, des icônes, et un « Voir plus » qui cache la fin du texte.
-const page = (opts = {}) => `<!doctype html><html><body>
-  <div role="article" aria-label="Publication de Cuisine du Maghreb">
-    <img src="https://scontent.test/avatar.jpg" alt="avatar">
-    <div data-ad-preview="message">${opts.text || 'Le secret du tajine de ma grand-mère 🥘 Une cuisson lente et des épices généreuses.'}
-      ${opts.seeMore ? '<span id="more">Voir plus</span>' : ''}</div>
-    <img id="photo" src="https://scontent.test/tajine.jpg" alt="photo du plat">
-    <img src="https://scontent.test/reaction.png" alt="j-aime">
-    <a href="https://www.facebook.com/CuisineDuMaghreb/posts/998877?comment_id=1">28 septembre</a>
-  </div>
-  <div role="article" aria-label="Commentaire de Untel">
-    <div data-ad-preview="message">Super recette, merci !</div>
-  </div>
+const POT_ROAST = '𝐏𝐋𝐄𝐀𝐒𝐄 𝐒.𝐀.𝐘 𝐒𝟎𝐌𝐄𝐓𝐇𝐥𝐍𝐆 — Classic pot roast 🤤 FULL RECIPE HERE';
+const POOL = 'HAS A POOL! | Built in 1933 | 18 Beds | 14 Baths | 5.89 Acres';
+
+const article = (id, message, opts = {}) => `
+  <div role="article" aria-label="Publication de ${id}">
+    <img alt="avatar-${id}" src="https://scontent.test/${id}-avatar.jpg">
+    <div data-ad-preview="message">${message}${opts.seeMore ? '<span class="more">See more</span>' : ''}</div>
+    <img alt="photo-${id}" src="https://scontent.test/${id}.jpg">
+    <img alt="reaction-${id}" src="https://scontent.test/${id}-like.png">
+    <a href="https://www.facebook.com/g/posts/${id}?comment_id=9">hier</a>
+    <div role="article" aria-label="Comment by Untel">
+      <div data-ad-preview="message">Un commentaire qui ne doit jamais être pris</div>
+    </div>
+  </div>`;
+
+// Un fil : deux publications, celle qu'on veut n'est pas la première.
+const FEED = `<!doctype html><html><body>
+  ${article('potroast', POT_ROAST)}
+  ${article('pool', POOL, { seeMore: true })}
 </body></html>`;
 
-function run(html, sizes) {
-  const dom = new JSDOM(html, { url: 'https://www.facebook.com/CuisineDuMaghreb/posts/998877?foo=1', pretendToBeVisual: true, runScripts: 'outside-only' });
-  const { window } = dom;
-  // jsdom ne fait pas de mise en page : on donne leurs tailles aux images.
-  window.Element.prototype.getBoundingClientRect = function () {
-    const s = sizes[this.id] || sizes[this.getAttribute('alt')] || sizes._default || { w: 0, h: 0, top: 0 };
-    return { width: s.w, height: s.h, top: s.top || 0, left: 0, right: s.w, bottom: s.h };
-  };
-  window.innerHeight = 800;
-  // Le clic sur « Voir plus » révèle la suite, comme Facebook le fait.
-  const more = window.document.getElementById('more');
-  if (more) more.addEventListener('click', () => {
-    const box = window.document.querySelector('[data-ad-preview="message"]');
-    more.remove();
-    box.append(window.document.createTextNode(' Et cette odeur qui remplit la maison.'));
-  });
-  return window.eval(CAPTURE);
-}
-
-const sizes = {
-  photo: { w: 500, h: 400, top: 200 },
-  avatar: { w: 40, h: 40, top: 100 },
-  'j-aime': { w: 18, h: 18, top: 500 },
-  _default: { w: 600, h: 500, top: 150 },
+const SIZES = {
+  'photo-potroast': { w: 500, h: 400 }, 'photo-pool': { w: 520, h: 420 },
+  'avatar-potroast': { w: 40, h: 40 }, 'avatar-pool': { w: 40, h: 40 },
+  'reaction-potroast': { w: 18, h: 18 }, 'reaction-pool': { w: 18, h: 18 },
+  _default: { w: 600, h: 500 },
 };
 
+function load(html) {
+  const dom = new JSDOM(html, {
+    url: 'https://www.facebook.com/groups/immo/?ref=feed',
+    pretendToBeVisual: true,
+    runScripts: 'outside-only',
+  });
+  const { window } = dom;
+  // jsdom ne fait pas de mise en page : on donne leurs tailles aux éléments.
+  window.Element.prototype.getBoundingClientRect = function () {
+    const size = SIZES[this.getAttribute('alt')] || SIZES._default;
+    return { width: size.w, height: size.h, top: 0, bottom: size.h, left: 0, right: size.w };
+  };
+  window.innerHeight = 800;
+  // Le clic sur « See more » révèle la suite, comme Facebook le fait.
+  for (const more of window.document.querySelectorAll('.more')) {
+    more.addEventListener('click', () => {
+      const box = more.closest('[data-ad-preview="message"]');
+      more.remove();
+      box.append(window.document.createTextNode(' … piscine intérieure et 5,89 acres.'));
+    });
+  }
+  return { window, listed: window.eval(CAPTURE) };
+}
+
 let ko = 0;
-const check = (label, cond, got) => { console.log(`${cond ? '  ok  ' : '  KO  '}${label}${cond ? '' : ' → ' + JSON.stringify(got)}`); if (!cond) ko++; };
+const check = (label, ok, got) => {
+  console.log(`${ok ? '  ok  ' : '  KO  '}${label}${ok ? '' : ' → ' + JSON.stringify(got)}`);
+  if (!ok) ko += 1;
+};
 
-let r = run(page(), sizes);
-check('texte du post lu', r.caption.startsWith('Le secret du tajine'), r.caption);
-check('commentaire ignoré', !r.caption.includes('Super recette'), r.caption);
-check('photo retenue, pas l’avatar ni la réaction', r.imageUrl === 'https://scontent.test/tajine.jpg', r.imageUrl);
-check('permalink sans paramètres', r.facebookUrl === 'https://www.facebook.com/CuisineDuMaghreb/posts/998877', r.facebookUrl);
-check('un seul post détecté', r.postsOnPage === 1, r.postsOnPage);
-check('non bloqué', r.blocked === false, r.blocked);
+const { window, listed } = load(FEED);
+check('les deux publications sont listées', listed.posts.length === 2, listed.posts.length);
+check('les commentaires ne sont pas listés',
+  !listed.posts.some((p) => p.preview.includes('commentaire')), listed.posts);
+check('chaque entrée porte un aperçu reconnaissable',
+  listed.posts[0].preview.includes('pot roast') && listed.posts[1].preview.includes('HAS A POOL'),
+  listed.posts.map((p) => p.preview.slice(0, 40)));
+check('la présence d’une image est signalée', listed.posts.every((p) => p.hasImage), listed.posts);
+check('page non bloquée', listed.blocked === false, listed.blocked);
 
-r = run(page({ seeMore: true }), sizes);
-check('« Voir plus » déplié avant lecture', r.caption.includes('odeur qui remplit la maison'), r.caption);
+/** Le bug corrigé : la seconde publication doit rendre SON texte, pas celui
+ * de la première, qu'une heuristique de position avait ramené. */
+(async () => {
+  const pool = await window.__fcpCatch.read(1);
+  check('la publication choisie rend son propre texte',
+    pool.caption.startsWith('HAS A POOL'), pool.caption);
+  check('pas le texte de la publication voisine',
+    !pool.caption.includes('pot roast'), pool.caption);
+  check('« See more » déplié dans cette publication seulement',
+    pool.caption.includes('piscine intérieure'), pool.caption);
+  check('son image, pas celle de la voisine',
+    pool.imageUrl === 'https://scontent.test/pool.jpg', pool.imageUrl);
+  check('avatar et réaction écartés',
+    !/avatar|like/.test(pool.imageUrl), pool.imageUrl);
+  check('permalink de cette publication, sans paramètres',
+    pool.facebookUrl === 'https://www.facebook.com/g/posts/pool', pool.facebookUrl);
 
-r = run('<!doctype html><html><body><div>Connectez-vous pour continuer</div></body></html>', sizes);
-check('mur de connexion signalé', r.blocked === true, r);
+  const roast = await window.__fcpCatch.read(0);
+  check('l’autre publication reste lisible séparément',
+    roast.caption.includes('pot roast') && !roast.caption.includes('HAS A POOL'), roast.caption);
 
-r = run(page({ text: 'Trop court' }), sizes);
-check('texte trop court rendu tel quel (le popup refusera)', r.caption === 'Trop court', r.caption);
+  const absent = await window.__fcpCatch.read(9);
+  check('un indice hors liste est refusé', Boolean(absent.error), absent);
 
-process.exit(ko ? 1 : 0);
+  // Une permalink : une seule publication, le popup n'a rien à demander.
+  const single = load(`<!doctype html><html><body>${article('pool', POOL)}</body></html>`);
+  check('une permalink ne liste qu’une publication',
+    single.listed.posts.length === 1, single.listed.posts.length);
+
+  const wall = load('<!doctype html><html><body><div>Connectez-vous pour continuer</div></body></html>');
+  check('mur de connexion signalé', wall.listed.blocked === true, wall.listed);
+
+  process.exit(ko ? 1 : 0);
+})();

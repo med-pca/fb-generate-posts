@@ -29,13 +29,17 @@ groupes. Le renseigner pour n'en viser qu'un.
 
 ## Utilisation
 
-Ouvrir **la publication elle-même** — un clic sur sa date — plutôt que de
-rester dans le fil : la page ne contient alors qu'un post, et il n'y a pas
-d'ambiguïté. Dans un fil, l'extension prend celui qui est au centre de
-l'écran et le dit ; le texte relevé s'affiche, corrigible avant l'envoi.
+Cliquer sur l'extension depuis l'onglet Facebook. **Elle ne devine pas** la
+publication que vous visez : elle liste celles de la page, avec un aperçu de
+chacune, et vous choisissez. Sur une permalink — un clic sur la date d'un
+post — il n'y en a qu'une, elle est prise directement.
 
-Le bouton ne s'active qu'avec un texte d'au moins 15 caractères et une URL
-source valide.
+Le texte relevé s'affiche ensuite, corrigible avant l'envoi. Le bouton ne
+s'active qu'avec un texte d'au moins 15 caractères et une URL source valide.
+
+Une version précédente prenait la publication la plus proche du centre de
+l'écran : elle se trompait de post. Rien dans la page ne dit laquelle vous
+intéresse, donc rien n'est deviné.
 
 ## Ce qui part, et ce qui change
 
@@ -59,7 +63,8 @@ petits, la pièce jointe ne l'est pas. Ça survit à un changement de balisage
 qu'aucun sélecteur ne suivrait.
 
 Les textes longs sont dépliés (« Voir plus ») avant lecture, sans quoi la fin
-n'est tout simplement pas dans la page.
+n'est tout simplement pas dans la page — et uniquement dans la publication
+choisie, pour ne pas toucher aux autres.
 
 ## Vérifications
 
@@ -67,20 +72,29 @@ n'est tout simplement pas dans la page.
 node extension/fb-catch-post/tests/capture-test.js
 ```
 
-Le test joue la lecture contre une page qui imite la structure de Facebook :
-bon article choisi parmi les commentaires, photo retenue plutôt que l'avatar,
-permalink nettoyé, « Voir plus » déplié, mur de connexion signalé. C'est un
-double — **une vérification sur une vraie publication reste nécessaire**.
+Le test joue l'énumération et la lecture contre une page à deux publications
+imitant la structure de Facebook : chacune rend **son** texte et **son**
+image, les commentaires ne sont jamais listés, la photo est retenue plutôt
+que l'avatar, « Voir plus » n'est déplié que dans la publication choisie, le
+mur de connexion est signalé. C'est un double — **une vérification sur une
+vraie publication reste nécessaire**.
 
 ## Quand ça ne marche pas
 
 | Message | Ce qu'il faut faire |
 | --- | --- |
 | « Ouvrez d'abord la publication Facebook » | L'onglet actif n'est pas sur facebook.com |
-| « Aucun texte trouvé » | Ouvrir la publication elle-même, pas le fil |
+| « Aucune publication lisible » | La page n'en montre aucune avec du texte |
 | « Facebook n'a pas montré la publication » | Ce compte ne voit pas ce contenu |
 | « Serveur injoignable » | `apiBase` dans `config.js`, ou l'API est arrêtée |
 | « Refusé (HTTP 401) » | `apiKey` ne correspond pas à `AUTOMATION_API_KEY` |
 
-Après l'envoi, l'avancement se suit sur `/api/admin/ingest/:id`. Une reprise
-qui s'arrête le dit dans `lastError`.
+Après l'envoi, le popup affiche l'identifiant de la reprise. L'avancement se
+lit sur `GET /api/admin/ingest/<id>` (session admin) : `lastError` dit ce qui
+bloque, et `status` où on en est.
+
+**`AWAITING_ECHO` n'est pas une erreur** : l'article est publié sur
+WordPress, mais le site ne l'a pas encore renvoyé à l'API — c'est WP-Cron,
+qui ne tourne que lorsqu'une page du site est visitée. Tant que ce renvoi
+n'est pas arrivé, aucun post Facebook n'est fabriqué. Sur un site peu
+visité, faire appeler `wp-cron.php` régulièrement par l'hébergeur.

@@ -5,7 +5,12 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <h1>Reprendre cette publication</h1>
+    <h1>Reprendre une publication</h1>
+
+    <section id="picker" class="hidden">
+      <label>Quelle publication ?</label>
+      <ul id="posts"></ul>
+    </section>
 
     <section id="capture" class="hidden">
       <img id="preview" alt="" />
@@ -18,7 +23,7 @@
 
     <button id="send" disabled>Envoyer</button>
     <p id="status" role="status"></p>
-    <a id="follow" class="hidden" target="_blank" rel="noreferrer">Suivre l'avancement</a>
+    <p id="done" class="hidden"></p>
   </body>
   <script src="config.js"></script>
   <script src="popup.js"></script>
