@@ -36,11 +36,16 @@ export class CreateIngestDto {
   @MaxLength(2000)
   siteUrl?: string;
 
-  @ApiPropertyOptional({ default: 'fr' })
+  @ApiPropertyOptional({
+    default: 'auto',
+    description:
+      '« auto » garde la langue de la page source. Une langue imposée fait ' +
+      'traduire l’article au passage.',
+  })
   @IsOptional()
   @IsString()
   @Length(2, 10)
-  language = 'fr';
+  language = 'auto';
 
   @ApiPropertyOptional({
     type: [String],

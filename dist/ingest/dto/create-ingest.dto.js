@@ -18,11 +18,11 @@ class CreateIngestDto {
     facebookUrl;
     sourceUrl;
     siteUrl;
-    language = 'fr';
+    language = 'auto';
     profileIds;
     groupIds;
     static _OPENAPI_METADATA_FACTORY() {
-        return { facebookUrl: { required: true, type: () => String, maxLength: 2000, format: "uri" }, sourceUrl: { required: true, type: () => String, maxLength: 2000, format: "uri" }, siteUrl: { required: false, type: () => String, maxLength: 2000, format: "uri" }, language: { required: true, type: () => Object, default: "fr", minLength: 2, maxLength: 10 }, profileIds: { required: false, type: () => [String] }, groupIds: { required: false, type: () => [String] } };
+        return { facebookUrl: { required: true, type: () => String, maxLength: 2000, format: "uri" }, sourceUrl: { required: true, type: () => String, maxLength: 2000, format: "uri" }, siteUrl: { required: false, type: () => String, maxLength: 2000, format: "uri" }, language: { required: true, type: () => Object, default: "auto", minLength: 2, maxLength: 10 }, profileIds: { required: false, type: () => [String] }, groupIds: { required: false, type: () => [String] } };
     }
 }
 exports.CreateIngestDto = CreateIngestDto;
@@ -51,7 +51,11 @@ __decorate([
     __metadata("design:type", String)
 ], CreateIngestDto.prototype, "siteUrl", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ default: 'fr' }),
+    (0, swagger_1.ApiPropertyOptional)({
+        default: 'auto',
+        description: '« auto » garde la langue de la page source. Une langue imposée fait ' +
+            'traduire l’article au passage.',
+    }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.Length)(2, 10),

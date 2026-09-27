@@ -19,7 +19,10 @@ async function main() {
     );
     process.exit(1);
   }
-  const language = flags[flags.indexOf('--lang') + 1] || 'fr';
+  // `indexOf` rend -1 quand le drapeau est absent, et flags[0] serait alors
+  // pris pour la langue.
+  const at = flags.indexOf('--lang');
+  const language = at >= 0 ? flags[at + 1] || 'auto' : 'auto';
 
   const source = await new SourceReaderService().read(url);
   console.log('\n=== Page source ===');

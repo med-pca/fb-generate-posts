@@ -64,13 +64,25 @@ async function start() {
     return;
   }
   const usable = (found.posts || []).filter((post) => post.preview.length >= 15);
+  // Sur une page photo, toujours montrer la liste : un seul bloc retenu ne
+  // veut pas dire que c'est la légende.
+  const autoPick = found.kind === 'post' && usable.length === 1;
   if (!usable.length) {
-    say('Aucune publication lisible sur cette page.', 'error');
+    // Le détail évite d'avoir à ouvrir la console : il dit si la page n'a
+    // rien montré du tout, ou si c'est la lecture qui échoue.
+    const seen = found.seen || {};
+    say(
+      'Aucune publication lisible sur cette page.\n' +
+        `Vu : ${seen.messages ?? '?'} message(s), ${seen.articles ?? '?'} article(s), ` +
+        `${seen.texts ?? '?'} bloc(s) de texte, ${seen.images ?? '?'} image(s).\n` +
+        'Faites défiler jusqu’à la publication, puis rouvrez l’extension.',
+      'error',
+    );
     return;
   }
 
   // Une seule publication — une permalink — ne demande aucun choix.
-  if (usable.length === 1) {
+  if (autoPick) {
     await choose(usable[0].index);
     return;
   }
@@ -88,7 +100,13 @@ async function start() {
     item.addEventListener('click', () => void choose(post.index));
     els.posts.append(item);
   }
-  say(`${usable.length} publications sur la page — choisissez la vôtre.`);
+  // Sur une page photo, ce ne sont pas des publications mais les textes de
+  // la page : le dire évite de chercher un post dans la liste.
+  say(
+    found.kind === 'text'
+      ? `Page photo : ${usable.length} textes trouvés — choisissez la légende.`
+      : `${usable.length} publications sur la page — choisissez la vôtre.`,
+  );
 }
 
 async function choose(index) {

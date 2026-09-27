@@ -31,6 +31,7 @@ let SourceReaderService = class SourceReaderService {
         const dom = new jsdom_1.JSDOM(html, { url, virtualConsole: new jsdom_1.VirtualConsole() });
         const { document } = dom.window;
         const title = document.title;
+        const language = this.language(document);
         const leadImageUrl = this.leadImage(document, url);
         const siteName = this.meta(document, 'og:site_name');
         const article = new readability_1.Readability(document).parse();
@@ -45,6 +46,7 @@ let SourceReaderService = class SourceReaderService {
             excerpt: article.excerpt ? normalizeText(article.excerpt) : null,
             leadImageUrl,
             siteName: siteName || article.siteName || null,
+            language,
         };
     }
     async fetchHtml(sourceUrl) {
@@ -147,6 +149,13 @@ let SourceReaderService = class SourceReaderService {
             }
         }
         return title.slice(0, 300);
+    }
+    language(document) {
+        const declared = document.documentElement.getAttribute('lang') ||
+            this.meta(document, 'og:locale') ||
+            '';
+        const code = declared.trim().slice(0, 2).toLowerCase();
+        return /^[a-z]{2}$/.test(code) ? code : null;
     }
     meta(document, property) {
         return (document

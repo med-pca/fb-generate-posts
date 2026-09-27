@@ -729,6 +729,32 @@ et lui seul, qui fabrique les posts** : rien n’est dupliqué, la réception
 WordPress sait déjà le faire. La diffusion se limite à `profileIds` /
 `groupIds` si la reprise en a fixé.
 
+### La langue, et ce que « réécrire » veut dire
+
+`language` vaut **`auto`** par défaut : l'article garde la langue de la page
+source, lue sur son `<html lang>` puis sur son `og:locale`. Une langue
+imposée (`fr`, `en`, …) l'emporte, mais elle fait **traduire** l'article au
+passage — réécrire n'est pas traduire. La langue retenue est enregistrée sur
+la reprise, donc une relance ne la redemande pas.
+
+La consigne du modèle étant en français, il ne suffisait pas de lui demander
+de « garder la langue des notes » : il repartait en français. La langue est
+donc nommée explicitement, et la règle porte sur **chaque champ** du JSON —
+l'énumérer champ par champ laissait `metaDescription` en français pendant
+que le reste était en anglais.
+
+La consigne demande une **réécriture fidèle**, pas un article neuf : mêmes
+informations, même ordre, même niveau de détail, mots neufs. Rien n'est
+ajouté ni retiré, et des notes brèves donnent un article bref. Une version
+précédente demandait « structure, plan et formulation entièrement
+nouveaux » — elle produisait un autre article sur le même thème.
+
+Le contenu vient bien de l'URL fournie : la page est lue et extraite
+(Readability), et `sourceText` sur la reprise dit combien de caractères ont
+été retenus. **Une source pauvre donne un article pauvre** : si `sourceText`
+est de l'ordre du millier de caractères, c'est la page source qu'il faut
+changer, pas la consigne.
+
 ### Ce qui change, et ce qui ne change pas
 
 C’est le cœur de la reprise : **seul l’article change**.

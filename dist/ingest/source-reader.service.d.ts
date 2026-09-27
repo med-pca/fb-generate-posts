@@ -5,6 +5,7 @@ export type SourceArticle = {
     excerpt: string | null;
     leadImageUrl: string | null;
     siteName: string | null;
+    language: string | null;
 };
 export declare function normalizeText(value: string): string;
 export declare class SourceReaderService {
@@ -15,6 +16,7 @@ export declare class SourceReaderService {
     private decode;
     private textFromHtml;
     private cleanTitle;
+    private language;
     private meta;
     private leadImage;
 }

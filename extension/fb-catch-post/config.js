@@ -4,8 +4,9 @@ self.FCP_CONFIG = {
   apiBase: 'https://post.pulserecipe.com',
   // AUTOMATION_API_KEY du serveur, en-tête X-API-Key.
   apiKey: 'd2c62f6b64d43f2ffd2ad2bbbb9aacc8c61dacf1ab5042dc13df36875ff4c295',
-  // Langue de rédaction de l'article réécrit.
-  language: 'fr',
+  // Langue de l'article réécrit. « auto » garde celle de la page source :
+  // une langue imposée la ferait traduire au passage.
+  language: 'auto',
   // Vide = tous les profils actifs reçoivent un post. Renseigner pour
   // restreindre la diffusion : ["cmxxxx", "cmyyyy"].
   profileIds: [],

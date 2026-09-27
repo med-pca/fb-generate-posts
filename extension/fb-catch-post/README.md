@@ -30,16 +30,30 @@ groupes. Le renseigner pour n'en viser qu'un.
 ## Utilisation
 
 Cliquer sur l'extension depuis l'onglet Facebook. **Elle ne devine pas** la
-publication que vous visez : elle liste celles de la page, avec un aperçu de
-chacune, et vous choisissez. Sur une permalink — un clic sur la date d'un
-post — il n'y en a qu'une, elle est prise directement.
+publication que vous visez : elle liste ce qu'elle trouve, avec un aperçu de
+chacune, et vous choisissez.
+
+Deux structures très différentes, toutes deux prises en charge :
+
+| Vous êtes sur… | Ce que le popup propose |
+| --- | --- |
+| un fil ou une permalink de post | les publications de la page ; une seule → prise directement |
+| une **page photo** (`/photo/?fbid=…`) | les textes de la page — choisissez la légende |
+
+La page photo est celle qu'on obtient en cliquant sur l'image d'un post.
+Facebook n'y marque pas la légende : impossible de la reconnaître à coup
+sûr, donc le popup liste les textes et vous désignez le bon. L'image, elle,
+est la grande photo de la visionneuse.
 
 Le texte relevé s'affiche ensuite, corrigible avant l'envoi. Le bouton ne
 s'active qu'avec un texte d'au moins 15 caractères et une URL source valide.
 
-Une version précédente prenait la publication la plus proche du centre de
-l'écran : elle se trompait de post. Rien dans la page ne dit laquelle vous
-intéresse, donc rien n'est deviné.
+Une version précédente s'appuyait sur `role="article"` et prenait la
+publication la plus proche du centre de l'écran. Beaucoup de pages Facebook
+ne posent pas cet attribut : elle retombait alors sur la page entière et
+rendait le **premier** texte trouvé, donc le mauvais post. L'ancrage se fait
+désormais sur le texte de la publication, d'où on remonte jusqu'au
+conteneur qui porte son lien ou sa grande image.
 
 ## Ce qui part, et ce qui change
 
@@ -47,11 +61,16 @@ intéresse, donc rien n'est deviné.
 | --- | --- |
 | Texte du post | **inchangé**, tel qu'il est relevé |
 | Image | **inchangée**, réhébergée sur le site WordPress |
-| Article | **réécrit** à partir de l'URL source |
+| Article | **réécrit** à partir de l'URL source, dans la langue de celle-ci |
 | Lien | celui du **nouvel** article, placé en commentaire |
 
 La seule retouche du texte est faite côté serveur : l'URL qu'il contenait
 éventuellement est retirée, car elle renverrait vers le site repris.
+
+`language: 'auto'` dans `config.js` garde la langue de la page source. Une
+langue imposée ferait traduire l'article au passage. Et la réécriture suit
+la source pas à pas — mêmes informations, même ordre, mots neufs : ce n'est
+pas un nouvel article sur le même thème.
 
 ## Ce sur quoi l'extension ne s'appuie pas
 
@@ -84,7 +103,7 @@ vraie publication reste nécessaire**.
 | Message | Ce qu'il faut faire |
 | --- | --- |
 | « Ouvrez d'abord la publication Facebook » | L'onglet actif n'est pas sur facebook.com |
-| « Aucune publication lisible » | La page n'en montre aucune avec du texte |
+| « Aucune publication lisible » | Le détail affiché dit ce que la page contenait ; faire défiler jusqu'à la publication puis rouvrir |
 | « Facebook n'a pas montré la publication » | Ce compte ne voit pas ce contenu |
 | « Serveur injoignable » | `apiBase` dans `config.js`, ou l'API est arrêtée |
 | « Refusé (HTTP 401) » | `apiKey` ne correspond pas à `AUTOMATION_API_KEY` |

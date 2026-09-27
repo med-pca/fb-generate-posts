@@ -15,21 +15,27 @@ const CAPTURE = fs.readFileSync(path.join(__dirname, '../capture.js'), 'utf8');
 const POT_ROAST = '𝐏𝐋𝐄𝐀𝐒𝐄 𝐒.𝐀.𝐘 𝐒𝟎𝐌𝐄𝐓𝐇𝐥𝐍𝐆 — Classic pot roast 🤤 FULL RECIPE HERE';
 const POOL = 'HAS A POOL! | Built in 1933 | 18 Beds | 14 Baths | 5.89 Acres';
 
+/** Une publication telle que Facebook la rend : pas de `role="article"` —
+ * beaucoup de pages n'en posent pas, et c'est ce qui cassait tout. Le
+ * commentaire est délibérément marqué comme un message sur demande, pour
+ * vérifier qu'il ne devient jamais une entrée à part. */
 const article = (id, message, opts = {}) => `
-  <div role="article" aria-label="Publication de ${id}">
-    <img alt="avatar-${id}" src="https://scontent.test/${id}-avatar.jpg">
+  <div class="post-wrapper">
+    <div class="header">
+      <img alt="avatar-${id}" src="https://scontent.test/${id}-avatar.jpg">
+      <a href="https://www.facebook.com/g/posts/${id}?comment_id=9">hier</a>
+    </div>
     <div data-ad-preview="message">${message}${opts.seeMore ? '<span class="more">See more</span>' : ''}</div>
     <img alt="photo-${id}" src="https://scontent.test/${id}.jpg">
     <img alt="reaction-${id}" src="https://scontent.test/${id}-like.png">
-    <a href="https://www.facebook.com/g/posts/${id}?comment_id=9">hier</a>
-    <div role="article" aria-label="Comment by Untel">
-      <div data-ad-preview="message">Un commentaire qui ne doit jamais être pris</div>
+    <div class="comments">
+      <div ${opts.markedComment ? 'data-ad-preview="message"' : 'class="comment-body"'}>Un commentaire qui ne doit jamais être pris</div>
     </div>
   </div>`;
 
 // Un fil : deux publications, celle qu'on veut n'est pas la première.
 const FEED = `<!doctype html><html><body>
-  ${article('potroast', POT_ROAST)}
+  ${article('potroast', POT_ROAST, { markedComment: true })}
   ${article('pool', POOL, { seeMore: true })}
 </body></html>`;
 
@@ -40,9 +46,9 @@ const SIZES = {
   _default: { w: 600, h: 500 },
 };
 
-function load(html) {
+function load(html, url = 'https://www.facebook.com/groups/immo/?ref=feed') {
   const dom = new JSDOM(html, {
-    url: 'https://www.facebook.com/groups/immo/?ref=feed',
+    url,
     pretendToBeVisual: true,
     runScripts: 'outside-only',
   });
@@ -74,6 +80,8 @@ const { window, listed } = load(FEED);
 check('les deux publications sont listées', listed.posts.length === 2, listed.posts.length);
 check('les commentaires ne sont pas listés',
   !listed.posts.some((p) => p.preview.includes('commentaire')), listed.posts);
+check('aucun role="article" n’est nécessaire',
+  listed.seen.articles === 0 && listed.posts.length === 2, listed.seen);
 check('chaque entrée porte un aperçu reconnaissable',
   listed.posts[0].preview.includes('pot roast') && listed.posts[1].preview.includes('HAS A POOL'),
   listed.posts.map((p) => p.preview.slice(0, 40)));
@@ -109,8 +117,51 @@ check('page non bloquée', listed.blocked === false, listed.blocked);
   check('une permalink ne liste qu’une publication',
     single.listed.posts.length === 1, single.listed.posts.length);
 
+  // Le commentaire de la première publication est marqué comme un message :
+  // il doit se fondre dans son post, pas s'ajouter à la liste.
+  check('un commentaire marqué comme message ne crée pas d’entrée',
+    listed.posts.length === 2
+      && !listed.posts.some((p) => p.preview.includes('commentaire')),
+    listed.posts.map((p) => p.preview.slice(0, 30)));
+
   const wall = load('<!doctype html><html><body><div>Connectez-vous pour continuer</div></body></html>');
   check('mur de connexion signalé', wall.listed.blocked === true, wall.listed);
+
+  // ─── Page photo : la visionneuse ouverte en cliquant sur une image.
+  // Aucun `data-ad-preview`, la légende est un bloc de texte parmi d'autres.
+  const PHOTO = `<!doctype html><html><body>
+    <div class="viewer"><img alt="grande-photo" src="https://scontent.test/grande.jpg"></div>
+    <div class="side">
+      <div><a href="/profile"><span dir="auto">Immo Deals</span></a></div>
+      <div dir="auto">${POOL} — une demeure de 1933 avec piscine intérieure et 5,89 acres de terrain.</div>
+      <div role="button"><span dir="auto">J’aime · Commenter · Partager</span></div>
+      <div class="comments">
+        <div dir="auto">Magnifique maison, quel est le prix demandé exactement ?</div>
+      </div>
+    </div>
+  </body></html>`;
+  const photo = load(PHOTO, 'https://web.facebook.com/photo/?fbid=986814304446230&set=gm.288624353434&fbclid=pistage');
+  check('page photo : la structure de fil n’est pas reconnue',
+    photo.listed.kind === 'text', photo.listed.kind);
+  check('page photo : la légende est proposée',
+    photo.listed.posts.some((p) => p.preview.includes('HAS A POOL')),
+    photo.listed.posts.map((p) => p.preview.slice(0, 40)));
+  check('page photo : le nom de l’auteur est trop court pour être proposé',
+    !photo.listed.posts.some((p) => p.preview === 'Immo Deals'), photo.listed.posts);
+  check('page photo : les libellés de boutons sont écartés',
+    !photo.listed.posts.some((p) => p.preview.includes('Partager')), photo.listed.posts);
+
+  const legend = photo.listed.posts.findIndex((p) => p.preview.includes('HAS A POOL'));
+  const read = await photo.window.__fcpCatch.read(legend);
+  check('page photo : la légende choisie est rendue entière',
+    read.caption.includes('piscine intérieure et 5,89 acres'), read.caption);
+  check('page photo : la grande image de la visionneuse est retenue',
+    read.imageUrl === 'https://scontent.test/grande.jpg', read.imageUrl);
+  /** L'identité de la publication vit dans la requête : la couper rendrait
+   * le lien inutilisable. Le pistage, lui, doit partir. */
+  check('page photo : fbid et set conservés, pistage retiré',
+    read.facebookUrl === 'https://web.facebook.com/photo/?fbid=986814304446230&set=gm.288624353434',
+    read.facebookUrl);
 
   process.exit(ko ? 1 : 0);
 })();

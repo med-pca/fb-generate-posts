@@ -13,7 +13,10 @@ const BODY = Array.from(
     `<p>Phrase numéro ${index} du corps de l'article, assez longue pour que l'extraction la retienne comme du contenu réel.</p>`,
 ).join('');
 
-const page = (extra = '') => `<!doctype html><html lang="fr"><head>
+const page = (
+  extra = '',
+  lang = 'fr',
+) => `<!doctype html><html lang="${lang}"><head>
   <title>Ma recette de couscous | Exemple</title>
   <meta property="og:image" content="/images/couverture.jpg">
   <meta property="og:site_name" content="Exemple">
@@ -82,6 +85,33 @@ describe('SourceReaderService', () => {
     await expect(read()).resolves.toMatchObject({
       title: 'Ma recette de couscous | Exemple',
     });
+  });
+
+  /** Réécrire n'est pas traduire : la langue déclarée par la page décide de
+   * celle de l'article. */
+  it('relève la langue déclarée par la page', async () => {
+    fetchMock.mockResolvedValue(html(page('', 'en-GB')));
+    await expect(read()).resolves.toMatchObject({ language: 'en' });
+  });
+
+  it('se rabat sur og:locale quand <html> ne dit rien', async () => {
+    fetchMock.mockResolvedValue(
+      html(
+        page('<meta property="og:locale" content="es_ES">').replace(
+          '<html lang="fr">',
+          '<html>',
+        ),
+      ),
+    );
+    await expect(read()).resolves.toMatchObject({ language: 'es' });
+  });
+
+  // Mieux vaut le dire au modèle que lui imposer une langue au hasard.
+  it('rend null quand la page ne déclare aucune langue', async () => {
+    fetchMock.mockResolvedValue(
+      html(page().replace('<html lang="fr">', '<html>')),
+    );
+    await expect(read()).resolves.toMatchObject({ language: null });
   });
 
   it('suit une redirection et rend l’URL réellement lue', async () => {

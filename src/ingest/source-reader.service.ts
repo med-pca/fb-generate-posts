@@ -18,6 +18,9 @@ export type SourceArticle = {
   excerpt: string | null;
   leadImageUrl: string | null;
   siteName: string | null;
+  /** La langue déclarée par la page, en code à deux lettres. Réécrire n'est
+   * pas traduire : c'est elle qui décide de la langue de l'article. */
+  language: string | null;
 };
 
 const MAX_BYTES = 2_000_000;
@@ -52,6 +55,7 @@ export class SourceReaderService {
     const dom = new JSDOM(html, { url, virtualConsole: new VirtualConsole() });
     const { document } = dom.window;
     const title = document.title;
+    const language = this.language(document);
     const leadImageUrl = this.leadImage(document, url);
     const siteName = this.meta(document, 'og:site_name');
     // Readability vide le document en l'analysant : tout ce qui vient de
@@ -70,6 +74,7 @@ export class SourceReaderService {
       excerpt: article.excerpt ? normalizeText(article.excerpt) : null,
       leadImageUrl,
       siteName: siteName || article.siteName || null,
+      language,
     };
   }
 
@@ -196,6 +201,18 @@ export class SourceReaderService {
       }
     }
     return title.slice(0, 300);
+  }
+
+  /** La langue déclarée par la page : `<html lang>` d'abord, puis
+   * `og:locale`. Une balise absente rend `null` plutôt qu'une supposition —
+   * mieux vaut le dire au modèle que lui imposer une langue au hasard. */
+  private language(document: Document) {
+    const declared =
+      document.documentElement.getAttribute('lang') ||
+      this.meta(document, 'og:locale') ||
+      '';
+    const code = declared.trim().slice(0, 2).toLowerCase();
+    return /^[a-z]{2}$/.test(code) ? code : null;
   }
 
   private meta(document: Document, property: string) {

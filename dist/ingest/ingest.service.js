@@ -250,15 +250,23 @@ let IngestService = IngestService_1 = class IngestService {
     }
     async readSource(ingest) {
         const source = await this.reader.read(ingest.sourceUrl);
+        const resolved = this.resolvedLanguage(ingest.language, source.language);
         return this.prisma.sourceIngest.update({
             where: { id: ingest.id },
             data: {
                 sourceTitle: source.title,
                 sourceText: source.text,
+                language: resolved,
                 status: client_1.IngestStatus.REWRITING,
                 lastError: null,
             },
         });
+    }
+    resolvedLanguage(requested, detected) {
+        const wanted = requested.trim().toLowerCase();
+        if (wanted && wanted !== 'auto')
+            return requested;
+        return detected ?? 'auto';
     }
     async rewrite(ingest) {
         const generated = await this.rewriter.rewrite({
@@ -269,6 +277,7 @@ let IngestService = IngestService_1 = class IngestService {
                 excerpt: null,
                 leadImageUrl: null,
                 siteName: null,
+                language: null,
             },
             fbCaption: ingest.fbCaption,
             language: ingest.language,

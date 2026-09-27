@@ -146,12 +146,93 @@ describe('RewriterService', () => {
     excerpt: null,
     leadImageUrl: null,
     siteName: null,
+    language: null,
+  };
+
+  const GOOD = {
+    title: 'T',
+    slug: 't',
+    excerpt: 'e',
+    metaDescription: 'm',
+    contentHtml: '<p>Corps</p>',
+    caption: 'Une légende',
+    hashtags: [],
   };
 
   const llmReturning = (value: unknown) =>
     ({
       completeJson: jest.fn(() => Promise.resolve({ value, provider: 'kimi' })),
     }) as unknown as LlmService;
+
+  /** Ce que le modèle reçoit décide du résultat : on le lit plutôt que de
+   * le supposer. */
+  const askedWith = async (
+    language: string,
+    sourceLanguage: string | null = null,
+  ) => {
+    const completeJson = jest.fn(() =>
+      Promise.resolve({ value: GOOD, provider: 'kimi' }),
+    );
+    await new RewriterService({
+      completeJson,
+    } as unknown as LlmService).rewrite({
+      source: { ...source, language: sourceLanguage },
+      language,
+    });
+    const [request] = completeJson.mock.calls[0] as unknown as [
+      { instructions: string; input: string },
+    ];
+    return request;
+  };
+
+  // Imposer une langue ferait traduire l'article au passage : réécrire n'est
+  // pas traduire.
+  it('garde la langue de la source par défaut', async () => {
+    const { input } = await askedWith('auto', 'en');
+    expect(input).toContain('Langue de rédaction : en');
+  });
+
+  /** La consigne système est en français : une simple invitation à « garder
+   * la langue des notes » laissait le modèle repartir en français. La langue
+   * doit être nommée. */
+  it('nomme la langue plutôt que d’y faire allusion', async () => {
+    const { input } = await askedWith('auto', 'en');
+    expect(input).not.toContain('la langue des notes');
+  });
+
+  /** Énumérer les champs en laissait passer un : metaDescription sortait en
+   * français pendant que le reste était en anglais. */
+  it('étend la langue à tous les champs, pas à une liste', async () => {
+    const { input } = await askedWith('auto', 'en');
+    expect(input).toContain('CHAQUE champ du JSON');
+    expect(input).toContain('metaDescription');
+  });
+
+  it('se rabat sur les notes quand la page ne déclare rien', async () => {
+    const { input } = await askedWith('auto', null);
+    expect(input).toContain('la langue des notes');
+    expect(input).toContain('quelle que soit la langue de cette consigne');
+  });
+
+  it('accepte malgré tout une langue imposée', async () => {
+    const { input } = await askedWith('fr', 'en');
+    expect(input).toContain('Langue de rédaction : fr');
+  });
+
+  it('traite une langue absente comme « auto »', async () => {
+    const { input } = await askedWith('', 'es');
+    expect(input).toContain('Langue de rédaction : es');
+  });
+
+  /** L'objectif est de réécrire l'article de la source, pas d'en produire
+   * un autre sur le même thème : la consigne doit demander de suivre les
+   * notes, pas de repartir d'un plan neuf. */
+  it('demande une réécriture fidèle, pas un article neuf', async () => {
+    const { instructions } = await askedWith('auto');
+    expect(instructions).toContain('même ordre');
+    expect(instructions).toContain('n’étoffe pas');
+    expect(instructions).not.toContain('entièrement nouveaux');
+  });
 
   it('renormalise ce que le fournisseur rend', async () => {
     const generated = await new RewriterService(

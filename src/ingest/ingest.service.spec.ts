@@ -17,6 +17,7 @@ const SOURCE = {
   excerpt: null,
   leadImageUrl: null,
   siteName: null,
+  language: 'en',
 };
 
 const GENERATED = {
@@ -167,6 +168,32 @@ describe('IngestService.advance', () => {
       generated: GENERATED,
       lastError: null,
     });
+  });
+
+  /** « auto » se résout à la lecture : la fiche dit ensuite dans quelle
+   * langue l'article a été écrit, et une relance ne la redemande pas. */
+  it('retient la langue déclarée par la page source', async () => {
+    const { service, rewriter, current } = setup(
+      ingest({
+        status: IngestStatus.SCRAPED,
+        fbCaption: 'x',
+        language: 'auto',
+      }),
+    );
+    await service.advance('ing_1');
+    expect(current().language).toBe('en');
+    expect(rewriter.rewrite).toHaveBeenCalledWith(
+      expect.objectContaining({ language: 'en' }),
+    );
+  });
+
+  // Une langue demandée explicitement est une décision, pas un défaut.
+  it('respecte une langue imposée malgré celle de la page', async () => {
+    const { service, current } = setup(
+      ingest({ status: IngestStatus.SCRAPED, fbCaption: 'x', language: 'fr' }),
+    );
+    await service.advance('ing_1');
+    expect(current().language).toBe('fr');
   });
 
   it('n’enchaîne rien tant que la collecte n’est pas arrivée', async () => {

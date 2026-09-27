@@ -277,6 +277,7 @@ export declare class IngestService {
     private step;
     private guard;
     private readSource;
+    private resolvedLanguage;
     private rewrite;
     private publishToWordpress;
     private siteUrl;

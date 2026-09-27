@@ -144,13 +144,14 @@ const SCHEMA = {
     ],
 };
 const INSTRUCTIONS = [
-    'Tu es rédacteur web. À partir des notes fournies, écris un article original.',
-    'Même sujet et mêmes faits que les notes ; structure, plan et formulation entièrement nouveaux.',
-    'Ne reprends aucune phrase des notes, et n’invente aucun fait qui ne s’y trouve pas.',
+    'Tu réécris un article : même contenu, mots neufs.',
+    'Suis les notes pas à pas — mêmes informations, même ordre, même niveau de détail.',
+    'Reformule chaque phrase ; n’en recopie aucune telle quelle.',
+    'N’ajoute ni fait, ni section, ni développement absent des notes, et n’en retire aucun.',
+    'Des notes brèves donnent un article bref : ne comble pas, n’étoffe pas, n’invente pas.',
     'Le corps est en HTML simple : <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>.',
     'Aucun attribut, aucun lien, aucune image, aucun titre de niveau 1.',
-    'La légende accompagne une image sur Facebook : elle donne envie de lire sans résumer',
-    'toute la page, ne contient ni URL ni hashtag, et ne recopie pas la légende d’origine.',
+    'La légende accompagne une image sur Facebook : 2 à 4 phrases, sans URL ni hashtag.',
     'Réponds par un seul objet JSON, sans texte autour, de la forme :',
     '{"title": string, "slug": string, "excerpt": string, "metaDescription": string,',
     '"contentHtml": string, "caption": string, "hashtags": string[]}.',
@@ -178,8 +179,15 @@ let RewriterService = RewriterService_1 = class RewriterService {
     }
     prompt({ source, fbCaption, language }) {
         const notes = source.text.slice(0, MAX_SOURCE_CHARS);
+        const wanted = language.trim().toLowerCase();
+        const effective = !wanted || wanted === 'auto' ? (source.language ?? '') : language;
         return [
-            `Langue de rédaction : ${language}.`,
+            effective
+                ? `Langue de rédaction : ${effective}. CHAQUE champ du JSON est ` +
+                    'dans cette langue, sans exception — y compris metaDescription — ' +
+                    'et rien n’est traduit.'
+                : 'Rédige dans la langue des notes ci-dessous, sans en changer, et ' +
+                    'quelle que soit la langue de cette consigne.',
             `Titre de la source : ${source.title}`,
             fbCaption?.trim()
                 ? `Ton de la publication d’origine, à ne pas recopier : ${fbCaption.trim()}`

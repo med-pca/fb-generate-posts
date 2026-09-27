@@ -319,15 +319,29 @@ export class IngestService {
 
   private async readSource(ingest: SourceIngest) {
     const source = await this.reader.read(ingest.sourceUrl);
+    // « auto » se résout ici, une fois pour toutes : la langue déclarée par
+    // la page est enregistrée, donc une relance ne la redemande pas et la
+    // fiche dit dans quelle langue l'article a été écrit.
+    const resolved = this.resolvedLanguage(ingest.language, source.language);
     return this.prisma.sourceIngest.update({
       where: { id: ingest.id },
       data: {
         sourceTitle: source.title,
         sourceText: source.text,
+        language: resolved,
         status: IngestStatus.REWRITING,
         lastError: null,
       },
     });
+  }
+
+  /** Une langue demandée explicitement l'emporte : c'est une décision. Sinon
+   * on prend celle de la page ; si elle n'en déclare aucune, « auto » reste,
+   * et la consigne demandera au modèle de s'aligner sur les notes. */
+  private resolvedLanguage(requested: string, detected: string | null) {
+    const wanted = requested.trim().toLowerCase();
+    if (wanted && wanted !== 'auto') return requested;
+    return detected ?? 'auto';
   }
 
   private async rewrite(ingest: SourceIngest) {
@@ -339,6 +353,7 @@ export class IngestService {
         excerpt: null,
         leadImageUrl: null,
         siteName: null,
+        language: null,
       },
       fbCaption: ingest.fbCaption,
       language: ingest.language,
