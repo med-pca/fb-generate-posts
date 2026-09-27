@@ -6,6 +6,11 @@
 #   API_BASE=http://localhost:3000/api \
 #   ADMIN_USERNAME=... ADMIN_PASSWORD=... AUTOMATION_API_KEY=... \
 #   ./scripts/smoke-ingest.sh [url-source]
+#
+# PROFILE_IDS limite la diffusion : sans lui, le renvoi du plugin fabrique
+# des posts pour TOUS les profils actifs, que l'extension peut publier dans
+# de vrais groupes. Le préciser pour un essai.
+#   PROFILE_IDS=id1,id2 ./scripts/smoke-ingest.sh
 set -uo pipefail
 
 API_BASE="${API_BASE:-http://localhost:3000/api}"
@@ -41,9 +46,17 @@ TOKEN=$(curl -s -X POST "$API_BASE/auth/login" -H 'Content-Type: application/jso
 green "connecté"
 
 step "2. Création de la reprise"
+if [ -n "${PROFILE_IDS:-}" ]; then
+  SCOPE=",\"profileIds\":[$(echo "$PROFILE_IDS" | sed 's/[^,]*/"&"/g')]"
+  green "portée limitée à : $PROFILE_IDS"
+else
+  SCOPE=""
+  warn "portée non limitée : TOUS les profils actifs recevront un post"
+  warn "  PROFILE_IDS=<id> pour restreindre"
+fi
 BODY=$(curl -s -X POST "$API_BASE/admin/ingest" -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d "{\"facebookUrl\":\"$FB_URL\",\"sourceUrl\":\"$SOURCE_URL\",\"language\":\"${LANG_CODE:-fr}\"}")
+  -d "{\"facebookUrl\":\"$FB_URL\",\"sourceUrl\":\"$SOURCE_URL\",\"language\":\"${LANG_CODE:-fr}\"$SCOPE}")
 INGEST_ID=$(echo "$BODY" | field id)
 if [ -z "$INGEST_ID" ]; then
   red "refusée : $BODY"

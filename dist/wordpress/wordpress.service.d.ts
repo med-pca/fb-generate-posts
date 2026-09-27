@@ -25,9 +25,13 @@ export declare function wordpressArticleFields(dto: WordpressArticleDto): {
         ingestRef?: string;
     };
 };
-export declare function ingestArticleFields(fields: ReturnType<typeof wordpressArticleFields>, generated: {
-    caption?: string;
-    hashtags?: string[];
+export declare function facebookCaption(text: string): string;
+export declare function ingestArticleFields(fields: ReturnType<typeof wordpressArticleFields>, ingest: {
+    fbCaption?: string | null;
+    generated?: {
+        caption?: string;
+        hashtags?: string[];
+    } | null;
 } | null): {
     title: string;
     articleUrl: string;

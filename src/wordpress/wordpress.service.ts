@@ -34,18 +34,41 @@ export function wordpressArticleFields(dto: WordpressArticleDto) {
   };
 }
 
-/** Ce qu'une reprise impose à la fiche : la légende réécrite pour Facebook
- * et ses mots-clés, au lieu de l'extrait automatique. Le reste de l'article —
- * titre, lien, image, date — vient de WordPress comme pour tout autre. */
+/** La légende du post d'origine part telle quelle : c'est elle qui a
+ * fonctionné, et le but de la reprise est de reproduire la publication. Seul
+ * le lien est retiré — celui d'origine renverrait vers le site repris, alors
+ * que le nouveau arrive plus tard, dans le commentaire. Hashtags et emojis
+ * restent : ils font partie du texte. */
+export function facebookCaption(text: string) {
+  return text
+    .replace(/(?:https?:\/\/|www\.)\S+/gi, '')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Ce qu'une reprise impose à la fiche : la publication d'origine reprend son
+ * texte, mot pour mot. L'article, lui, a été réécrit — c'est la seule chose
+ * qui change. La légende réécrite ne sert que de secours, quand la collecte
+ * n'a rapporté aucun texte. */
 export function ingestArticleFields(
   fields: ReturnType<typeof wordpressArticleFields>,
-  generated: { caption?: string; hashtags?: string[] } | null,
+  ingest: {
+    fbCaption?: string | null;
+    generated?: { caption?: string; hashtags?: string[] } | null;
+  } | null,
 ) {
-  if (!generated?.caption) return fields;
+  const original = facebookCaption(ingest?.fbCaption ?? '');
+  const fallback = ingest?.generated?.caption ?? '';
+  const text = original || fallback;
+  if (!text) return fields;
   return {
     ...fields,
-    captions: [{ text: generated.caption, angle: 'facebook' }],
-    hashtags: Array.isArray(generated.hashtags) ? generated.hashtags : [],
+    captions: [{ text, angle: original ? 'facebook' : 'facebook-fallback' }],
+    // Rien n'est accolé à la légende d'origine : y ajouter des mots-clés la
+    // changerait, et c'est précisément ce qu'on veut éviter.
+    hashtags: original ? [] : (ingest?.generated?.hashtags ?? []),
   };
 }
 
@@ -94,7 +117,13 @@ export class WordpressService {
     const ingest = await this.ingestFor(dto, siteUrl);
     const fields = ingestArticleFields(
       wordpressArticleFields(dto),
-      ingest?.generated as { caption?: string; hashtags?: string[] } | null,
+      ingest && {
+        fbCaption: ingest.fbCaption,
+        generated: ingest.generated as {
+          caption?: string;
+          hashtags?: string[];
+        } | null,
+      },
     );
     return this.prisma.$transaction(
       async (tx) => {

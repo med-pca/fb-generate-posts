@@ -38,6 +38,7 @@ type StoredIngest = {
   siteUrl: string;
   profileIds: string[];
   groupIds: string[];
+  fbCaption: string | null;
   generated: { caption: string; hashtags: string[] } | null;
 };
 /** La reprise telle que la réception la trouve en base. */
@@ -46,8 +47,9 @@ const ingest = (over: Partial<StoredIngest> = {}): StoredIngest => ({
   siteUrl: 'https://example.com',
   profileIds: [],
   groupIds: [],
+  fbCaption: 'Le couscous de ma grand-mère 🍲 #recette #maghreb\nUn régal !',
   generated: {
-    caption: 'Le couscous, plat du Maghreb 🍲',
+    caption: 'Une légende réécrite par le modèle',
     hashtags: ['couscous', 'maghreb'],
   },
   ...over,
@@ -309,15 +311,46 @@ describe('WordPress publication', () => {
 describe('Réception d’un article issu d’une reprise', () => {
   const withRef = { ...payload, ingestRef: 'ing_1' };
 
-  /** Sans cela, le post partirait avec « Read more on our website », alors
-   * que toute la reprise sert à garder le ton du post d’origine. */
-  it('fait porter au post la légende réécrite, pas l’extrait automatique', async () => {
+  /** Le but de la reprise est de reproduire la publication : le texte part
+   * mot pour mot, ni l’extrait automatique, ni la version réécrite. */
+  it('reprend la légende d’origine telle quelle', async () => {
     const { service, tx } = setup(ingest());
     await service.publish(withRef);
     const { description } = tx.post.create.mock.calls[0][0].data;
-    expect(description).toContain('Le couscous, plat du Maghreb 🍲');
-    expect(description).toContain('#couscous #maghreb');
+    expect(description).toBe(
+      'Le couscous de ma grand-mère 🍲 #recette #maghreb\nUn régal !',
+    );
     expect(description).not.toContain('Link in the comments');
+    expect(description).not.toContain('réécrite');
+  });
+
+  // Y accoler les mots-clés générés modifierait la légende, et c’est
+  // exactement ce qu’on veut éviter.
+  it('n’ajoute aucun mot-clé à la légende d’origine', async () => {
+    const { service, tx } = setup(ingest());
+    await service.publish(withRef);
+    expect(tx.post.create.mock.calls[0][0].data.description).not.toContain(
+      '#couscous',
+    );
+  });
+
+  /** Le lien d’origine renverrait vers le site repris. Le nouveau arrive
+   * plus tard, dans le commentaire. */
+  it('retire l’URL de la légende d’origine', async () => {
+    const { service, tx } = setup(
+      ingest({ fbCaption: 'Recette ici https://site-repris.test/x 🍲' }),
+    );
+    await service.publish(withRef);
+    const { description } = tx.post.create.mock.calls[0][0].data;
+    expect(description).toBe('Recette ici 🍲');
+  });
+
+  it('retombe sur la légende réécrite quand la collecte n’a rien rapporté', async () => {
+    const { service, tx } = setup(ingest({ fbCaption: null }));
+    await service.publish(withRef);
+    const { description } = tx.post.create.mock.calls[0][0].data;
+    expect(description).toContain('Une légende réécrite par le modèle');
+    expect(description).toContain('#couscous #maghreb');
   });
 
   it('referme la reprise sur l’article produit', async () => {
@@ -358,9 +391,12 @@ describe('Réception d’un article issu d’une reprise', () => {
     tx.article.findUnique.mockResolvedValueOnce({
       ...stored(),
       captions: [
-        { text: 'Le couscous, plat du Maghreb 🍲', angle: 'facebook' },
+        {
+          text: 'Le couscous de ma grand-mère 🍲 #recette #maghreb\nUn régal !',
+          angle: 'facebook',
+        },
       ],
-      hashtags: ['couscous', 'maghreb'],
+      hashtags: [],
     });
     const result = await service.publish(withRef);
     expect(result).toMatchObject({ duplicate: true, updated: false });
@@ -374,7 +410,10 @@ describe('Réception d’un article issu d’une reprise', () => {
     tx.article.findUnique.mockResolvedValueOnce({
       ...stored(),
       captions: [
-        { text: 'Le couscous, plat du Maghreb 🍲', angle: 'facebook' },
+        {
+          text: 'Le couscous de ma grand-mère 🍲 #recette #maghreb\nUn régal !',
+          angle: 'facebook',
+        },
       ],
       hashtags: ['ancien'],
     });

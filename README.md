@@ -703,9 +703,25 @@ expire, et le site WordPress n’a aucune raison d’y accéder.
 Le plugin publie, ce qui déclenche son envoi habituel vers
 `POST /api/wordpress/articles` — avec `ingestRef` en plus. **C’est ce retour,
 et lui seul, qui fabrique les posts** : rien n’est dupliqué, la réception
-WordPress sait déjà le faire. La seule différence est que le post porte la
-légende réécrite et ses mots-clés au lieu de l’extrait automatique, et que la
-diffusion se limite à `profileIds` / `groupIds` si la reprise en a fixé.
+WordPress sait déjà le faire. La diffusion se limite à `profileIds` /
+`groupIds` si la reprise en a fixé.
+
+### Ce qui change, et ce qui ne change pas
+
+C’est le cœur de la reprise : **seul l’article change**.
+
+| | |
+| --- | --- |
+| Texte du post Facebook | **identique** à la publication d’origine, mot pour mot |
+| Image du post | **identique**, simplement réhébergée sur le site |
+| Contenu de l’article | **réécrit** intégralement |
+| Lien en commentaire | le **nouvel** article |
+
+Seule l’URL qui figurait dans la légende d’origine est retirée : elle
+renverrait vers le site repris, alors que le nouveau lien arrive plus tard,
+dans le commentaire. Hashtags et emojis de la légende restent, et rien ne
+leur est ajouté. La légende réécrite par le modèle ne sert que de secours,
+quand la collecte n’a rapporté aucun texte.
 
 Une image qui ne suit pas n’arrête rien : l’article est en ligne, et
 `INGEST_IMAGE_SKIPPED` le signale.

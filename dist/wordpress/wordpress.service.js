@@ -13,6 +13,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WordpressService = void 0;
 exports.wordpressCaption = wordpressCaption;
 exports.wordpressArticleFields = wordpressArticleFields;
+exports.facebookCaption = facebookCaption;
 exports.ingestArticleFields = ingestArticleFields;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
@@ -41,13 +42,24 @@ function wordpressArticleFields(dto) {
         rawData: { ...dto },
     };
 }
-function ingestArticleFields(fields, generated) {
-    if (!generated?.caption)
+function facebookCaption(text) {
+    return text
+        .replace(/(?:https?:\/\/|www\.)\S+/gi, '')
+        .replace(/[^\S\n]+/g, ' ')
+        .replace(/ *\n */g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+function ingestArticleFields(fields, ingest) {
+    const original = facebookCaption(ingest?.fbCaption ?? '');
+    const fallback = ingest?.generated?.caption ?? '';
+    const text = original || fallback;
+    if (!text)
         return fields;
     return {
         ...fields,
-        captions: [{ text: generated.caption, angle: 'facebook' }],
-        hashtags: Array.isArray(generated.hashtags) ? generated.hashtags : [],
+        captions: [{ text, angle: original ? 'facebook' : 'facebook-fallback' }],
+        hashtags: original ? [] : (ingest?.generated?.hashtags ?? []),
     };
 }
 let WordpressService = WordpressService_1 = class WordpressService {
@@ -73,7 +85,10 @@ let WordpressService = WordpressService_1 = class WordpressService {
         const siteUrl = site.origin + site.pathname.replace(/\/+$/, '');
         const externalId = `wordpress:${dto.postId}`;
         const ingest = await this.ingestFor(dto, siteUrl);
-        const fields = ingestArticleFields(wordpressArticleFields(dto), ingest?.generated);
+        const fields = ingestArticleFields(wordpressArticleFields(dto), ingest && {
+            fbCaption: ingest.fbCaption,
+            generated: ingest.generated,
+        });
         return this.prisma.$transaction(async (tx) => {
             await tx.$executeRaw `SELECT pg_advisory_xact_lock(hashtext(${siteUrl}))`;
             const source = await tx.contentSource.upsert({
