@@ -19,6 +19,7 @@ export declare class SettingsService {
         updatedAt: Date;
         minimumAvailablePerGroup: number;
         autoReplenishEnabled: boolean;
+        publishingEnabled: boolean;
         minimumAvailablePerProfile: number;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
     update(dto: UpdateSettingsDto): Prisma.Prisma__AutomationSettingClient<{
@@ -27,6 +28,7 @@ export declare class SettingsService {
         updatedAt: Date;
         minimumAvailablePerGroup: number;
         autoReplenishEnabled: boolean;
+        publishingEnabled: boolean;
         minimumAvailablePerProfile: number;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
     replenishAll(): Promise<({

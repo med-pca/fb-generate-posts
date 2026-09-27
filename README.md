@@ -421,6 +421,79 @@ La réponse détaille l'état de chaque groupe et les seuils appliqués :
 Chaque exécution est plafonnée à 200 posts et tracée en `POSTS_REPLENISHED`
 dans les journaux.
 
+## Pilotage des profils
+
+L'admin décide quand chaque profil publie ; le terrain vient lire cet ordre.
+Page **Pilotage** de l'administration.
+
+```
+admin ──mode, fenêtre horaire, réglages──> API
+                                            ▲ ▲
+         agent local (ouvre les profils) ───┘ │
+         extension de chaque navigateur ──────┘
+                  (battement toutes les minutes)
+```
+
+L'ordre voyage toujours dans ce sens : l'API de NSTBrowser n'écoute que sur la
+machine où elle tourne, et un navigateur n'a pas d'adresse joignable. L'API ne
+peut donc rien lancer elle-même — elle publie une décision, que l'agent local et
+les extensions viennent chercher.
+
+### Ce que l'admin règle, par profil
+
+| Mode | Effet |
+| --- | --- |
+| `OFF` | le profil s'arrête (après l'étape en cours, jamais au milieu d'un post) |
+| `AUTO` | il publie dans sa fenêtre horaire, à **son** fuseau |
+| `ON` | il publie tout de suite, fenêtre ignorée |
+
+La fenêtre est en minutes depuis minuit (`windowStart`/`windowEnd`) plus des
+jours ISO (`days: "1,2,3,4,5"`). Deux détails qui ne se voient qu'à l'usage :
+des bornes égales valent « toute la journée », et une fenêtre de nuit
+(22:00 → 06:00) appartient au jour où elle **commence** — « vendredi 22 h → 6 h »
+va donc jusqu'au samedi matin.
+
+`settings` est un JSON poussé à l'extension à chaque battement (rythme entre
+lots, groupe imposé, premier commentaire…). L'extension ne retient que les clés
+qu'elle connaît et **refuse** l'adresse de l'API, sa clé et l'identifiant de
+profil : ce sont eux qui font qu'un navigateur est bien celui-là.
+
+`publishingEnabled` (Paramètres) est le coupe-circuit global : à `false`, aucun
+profil ne publie, quel que soit son mode.
+
+### Les routes
+
+Côté admin (jeton) :
+
+```http
+GET   /api/runners                 tous les profils, leur ordre et leur état
+PATCH /api/runners/{profileId}     { mode, windowStart, windowEnd, days, timezone, settings }
+PATCH /api/runners/all             { mode }   tout allumer / tout éteindre
+```
+
+Côté terrain (`X-API-Key`) :
+
+```http
+GET   /api/control/profile/{externalId}            l'ordre seul
+POST  /api/control/profile/{externalId}/heartbeat  rapporter ET recevoir l'ordre
+GET   /api/control/launcher                        quoi ouvrir, quoi fermer
+POST  /api/control/launcher/{externalId}           ce qu'est devenu le navigateur
+```
+
+Le battement porte les deux moitiés en un aller-retour : un état sans ordre
+obligerait à un second appel, un ordre sans état laisserait l'admin aveugle.
+
+### Ce qui protège une publication en cours
+
+`mayClose` est distinct de `shouldRun` dans le plan de l'agent local. Tant que
+l'extension a battu récemment en disant travailler, son navigateur n'est **pas**
+fermable, même après un ordre d'arrêt : le fermer couperait la page sous une
+publication en cours, et personne ne saurait si le post est sorti. Il se referme
+au tour suivant, une fois le post terminé.
+
+Réciproquement, un worker mort reste `running: true` pour toujours — c'est
+pourquoi l'admin distingue « il dit travailler » de « vu il y a 20 s ».
+
 ## Journaux et décision
 
 Les automates écrivent dans `activity_logs` (réservations, publications,

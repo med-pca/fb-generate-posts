@@ -5,6 +5,14 @@ export class UpdateSettingsDto {
   @IsBoolean()
   autoReplenishEnabled!: boolean;
 
+  /** Le coupe-circuit de la publication. Sans valeur, l'état actuel est
+   * conservé : un enregistrement des seuils ne doit pas rallumer ce qu'on
+   * venait de couper. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  publishingEnabled?: boolean;
+
   @IsInt()
   @Min(1)
   @Max(1000)

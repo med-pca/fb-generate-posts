@@ -18,6 +18,7 @@ import { IngestModule } from './ingest/ingest.module';
 import { SitesModule } from './sites/sites.module';
 import { UsersModule } from './users/users.module';
 import { AccessModule } from './access/access.module';
+import { RunnersModule } from './runners/runners.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { AccessModule } from './access/access.module';
     SitesModule,
     UsersModule,
     AccessModule,
+    RunnersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

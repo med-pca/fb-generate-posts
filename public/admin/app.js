@@ -13,6 +13,7 @@ const API = '/api',
     meta: {},
     logs: [],
     logsSummary: null,
+    runners: null,
     logFilters: {
       hours: 24,
       level: '',
@@ -182,6 +183,208 @@ function render() {
   renderPosts();
   renderPagination();
 }
+/* ── Pilotage des profils ────────────────────────────────────────────────
+ *
+ * L'admin décide, le terrain obéit. Rien ici ne lance un navigateur :
+ * l'agent local et les extensions viennent lire ces ordres, parce que l'API
+ * de NSTBrowser n'écoute que sur la machine où elle tourne.
+ */
+const MODE_LABELS = { OFF: 'Arrêté', ON: 'Marche forcée', AUTO: 'Auto' };
+const BROWSER_LABELS = {
+  STOPPED: 'fermé',
+  STARTING: 'ouverture…',
+  RUNNING: 'ouvert',
+  ERROR: 'erreur',
+};
+const PHASE_LABELS = {
+  claim: 'réservation',
+  publish: 'publication',
+  wait: 'attente',
+  complete: 'clôture',
+  link: 'pose du lien',
+  recover: 'reprise',
+};
+/** « il y a 20 s » se lit mieux qu'un horodatage : ce qu'on veut savoir, c'est
+ * si le profil parle encore. */
+function ago(at) {
+  if (!at) return 'jamais vu';
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(at)) / 1000));
+  if (seconds < 60) return `il y a ${seconds} s`;
+  if (seconds < 3600) return `il y a ${Math.round(seconds / 60)} min`;
+  if (seconds < 86400) return `il y a ${Math.round(seconds / 3600)} h`;
+  return `il y a ${Math.round(seconds / 86400)} j`;
+}
+const minutesToTime = (minutes) =>
+  minutes === null || minutes === undefined
+    ? ''
+    : `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+const timeToMinutes = (value) => {
+  if (!value) return null;
+  const [h, m] = value.split(':').map(Number);
+  return h * 60 + (m || 0);
+};
+async function loadRunners() {
+  if (!accessToken) return;
+  try {
+    state.runners = await api('/runners');
+    renderRunners();
+  } catch (e) {
+    notice(e.message, 'error');
+  }
+}
+function renderRunners() {
+  const data = state.runners;
+  if (!data) return;
+  $('#publishing-enabled').checked = data.publishingEnabled;
+  $('#runners-note').textContent = data.publishingEnabled
+    ? 'Un ordre est pris en compte au battement suivant du navigateur, soit moins d’une minute.'
+    : 'Publication coupée : aucun profil ne publie, quel que soit son mode.';
+  $('#runner-rows').innerHTML =
+    data.profiles
+      .map((r) => {
+        const worker = r.atWork
+          ? `<span class="chip join-joined">au travail · ${esc(PHASE_LABELS[r.phase] || r.phase || '—')}</span>`
+          : r.running
+            ? `<span class="chip join-failed">muet · dit travailler</span>`
+            : `<span class="chip join-not_joined">à l’arrêt</span>`;
+        const browser = `<span class="chip join-${r.browserState === 'RUNNING' ? 'joined' : r.browserState === 'ERROR' ? 'failed' : 'not_joined'}">${BROWSER_LABELS[r.browserState] || r.browserState}</span>`;
+        const modes = ['OFF', 'AUTO', 'ON']
+          .map(
+            (m) =>
+              `<option value="${m}" ${r.mode === m ? 'selected' : ''}>${MODE_LABELS[m]}</option>`,
+          )
+          .join('');
+        return `<tr class="${r.status === 'INACTIVE' ? 'inactive' : ''}">
+        <td><strong>${esc(r.name)}</strong><small>${esc(r.externalId || 'sans identifiant NSTBrowser')}</small></td>
+        <td><select data-runner-mode="${r.profileId}">${modes}</select><small class="${r.shouldRun ? '' : 'muted'}">${r.shouldRun ? '▶ doit publier' : '■ ' + esc(r.reason)}</small></td>
+        <td>${esc(r.window)}<small>${esc(r.timezone)}</small></td>
+        <td>${browser}<small>${esc(ago(r.browserSeenAt))}${r.browserMessage ? ' · ' + esc(r.browserMessage) : ''}</small></td>
+        <td>${worker}<small>${esc(ago(r.lastSeenAt))}</small></td>
+        <td>${r.published} publiés · ${r.failed} échecs · ${r.links} liens${r.message ? `<small>${esc(r.message)}</small>` : ''}</td>
+        <td><div class="row-actions"><button class="edit" data-runner-edit="${r.profileId}">Réglages</button></div></td>
+      </tr>`;
+      })
+      .join('') ||
+    '<tr><td colspan="7"><div class="empty">Aucun profil à piloter.</div></td></tr>';
+  $$('[data-runner-mode]').forEach(
+    (select) =>
+      (select.onchange = () =>
+        patchRunner(select.dataset.runnerMode, { mode: select.value })),
+  );
+  $$('[data-runner-edit]').forEach(
+    (button) => (button.onclick = () => openRunnerModal(button.dataset.runnerEdit)),
+  );
+}
+async function patchRunner(profileId, patch) {
+  try {
+    const answer = await api(`/runners/${profileId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+    notice(answer.run ? `Ordre : publier (${answer.reason})` : `Ordre : arrêt (${answer.reason})`);
+    await loadRunners();
+  } catch (e) {
+    notice(e.message, 'error');
+    await loadRunners();
+  }
+}
+function openRunnerModal(profileId) {
+  const runner = state.runners?.profiles.find((r) => r.profileId === profileId);
+  if (!runner) return;
+  const dialog = $('#runner-modal'),
+    form = $('#runner-form');
+  form.reset();
+  form.elements.profileId.value = profileId;
+  form.elements.mode.value = runner.mode;
+  form.elements.windowStart.value = minutesToTime(runner.windowStart);
+  form.elements.windowEnd.value = minutesToTime(runner.windowEnd);
+  form.elements.timezone.value = runner.timezone || '';
+  form.elements.settings.value = runner.settings
+    ? JSON.stringify(runner.settings, null, 2)
+    : '';
+  const days = String(runner.days || '')
+    .split(',')
+    .filter(Boolean);
+  $('#runner-days').innerHTML = [
+    'lundi',
+    'mardi',
+    'mercredi',
+    'jeudi',
+    'vendredi',
+    'samedi',
+    'dimanche',
+  ]
+    .map(
+      (label, index) =>
+        `<label class="chip"><input type="checkbox" name="days" value="${index + 1}" ${days.includes(String(index + 1)) ? 'checked' : ''}> ${label}</label>`,
+    )
+    .join('');
+  $('#runner-modal-title').textContent = runner.name;
+  dialog.showModal();
+}
+$('#runner-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  let settings = null;
+  const raw = form.elements.settings.value.trim();
+  if (raw) {
+    try {
+      settings = JSON.parse(raw);
+    } catch {
+      notice('Les réglages poussés ne sont pas du JSON valide', 'error');
+      return;
+    }
+  }
+  const days = $$('#runner-days input:checked')
+    .map((input) => input.value)
+    .join(',');
+  await patchRunner(form.elements.profileId.value, {
+    mode: form.elements.mode.value,
+    windowStart: timeToMinutes(form.elements.windowStart.value),
+    windowEnd: timeToMinutes(form.elements.windowEnd.value),
+    days,
+    timezone: form.elements.timezone.value.trim() || 'Europe/Paris',
+    settings,
+  });
+  $('#runner-modal').close();
+};
+$('#runners-refresh').onclick = () => loadRunners();
+$('#runners-all-auto').onclick = () => patchAllRunners('AUTO');
+$('#runners-all-off').onclick = () => patchAllRunners('OFF');
+async function patchAllRunners(mode) {
+  if (!confirm(mode === 'OFF' ? 'Arrêter tous les profils actifs ?' : 'Passer tous les profils actifs en auto ?'))
+    return;
+  try {
+    const answer = await api('/runners/all', {
+      method: 'PATCH',
+      body: JSON.stringify({ mode }),
+    });
+    notice(`${answer.updated} profil(s) réglé(s)`);
+    await loadRunners();
+  } catch (e) {
+    notice(e.message, 'error');
+  }
+}
+/** Le coupe-circuit vit dans les réglages globaux : les seuils de stock sont
+ * renvoyés avec lui, sinon la validation de l'API les refuserait. */
+$('#publishing-enabled').onchange = async (e) => {
+  try {
+    state.settings = await api('/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        autoReplenishEnabled: state.settings.autoReplenishEnabled,
+        minimumAvailablePerProfile: state.settings.minimumAvailablePerProfile,
+        minimumAvailablePerGroup: state.settings.minimumAvailablePerGroup,
+        publishingEnabled: e.target.checked,
+      }),
+    });
+    notice(e.target.checked ? 'Publication autorisée' : 'Publication coupée');
+    await loadRunners();
+  } catch (err) {
+    notice(err.message, 'error');
+    await loadRunners();
+  }
+};
 function paginationBox(resource) {
   const meta = state.meta[resource];
   if (!meta) return '';
@@ -490,11 +693,19 @@ function view(id) {
     articles: 'Articles',
     posts: 'Posts',
     logs: 'Journaux',
+    runners: 'Pilotage',
     settings: 'Paramètres',
   }[id];
   // Les journaux se relisent à chaque ouverture : une synthèse périmée
   // conduirait à décider sur l'état d'hier.
   if (id === 'logs') loadLogs();
+  // Le pilotage se rafraîchit tant qu'il est à l'écran : cette page sert à
+  // regarder des navigateurs travailler, un état figé n'y apprend rien.
+  clearInterval(view.runnersTimer);
+  if (id === 'runners') {
+    loadRunners();
+    view.runnersTimer = setInterval(loadRunners, 10000);
+  }
 }
 function refreshLogs() {
   state.page.logs = 1;

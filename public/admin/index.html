@@ -28,6 +28,8 @@
           ><button class="nav" data-view="logs">≡ <span>Journaux</span></button
           ><button class="nav admin-only" data-view="users">
             ⚭ <span>Comptes</span></button
+          ><button class="nav" data-view="runners">
+            ⏻ <span>Pilotage</span></button
           ><button class="nav" data-view="settings">⚙ <span>Paramètres</span></button>
         </nav>
         <a href="/api/docs" target="_blank">Documentation API ↗</a>
@@ -287,6 +289,43 @@
           </div>
           <div class="pagination" id="logs-pagination"></div>
         </section>
+        <section id="runners" class="view">
+          <div class="toolbar">
+            <p>
+              Chaque profil publie quand cette page le dit. L’agent local ouvre
+              les navigateurs ; l’extension de chacun obéit au même ordre.
+            </p>
+            <div class="toolbar-group">
+              <label class="switch-row"
+                ><input id="publishing-enabled" type="checkbox" /> Publication
+                autorisée</label
+              ><button class="secondary" id="runners-all-auto">
+                Tout en auto
+              </button
+              ><button class="danger" id="runners-all-off">Tout arrêter</button
+              ><button class="secondary" id="runners-refresh">
+                Rafraîchir
+              </button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Profil</th>
+                  <th>Pilotage</th>
+                  <th>Fenêtre</th>
+                  <th>Navigateur</th>
+                  <th>Extension</th>
+                  <th>Compteurs</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="runner-rows"></tbody>
+            </table>
+          </div>
+          <p class="form-help" id="runners-note"></p>
+        </section>
         <section id="settings" class="view">
           <div class="panel settings-panel">
             <div class="panel-head"><div><small>AUTOMATISATION</small><h2>Stock minimum par profil</h2></div></div>
@@ -302,6 +341,54 @@
         </section>
       </main>
     </div>
+    <dialog id="runner-modal">
+      <form id="runner-form">
+        <input type="hidden" name="profileId" />
+        <div class="modal-head">
+          <div>
+            <small>PILOTAGE</small>
+            <h2 id="runner-modal-title">Fenêtre de publication</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <label
+          >Mode<select name="mode">
+            <option value="OFF">Arrêté</option>
+            <option value="AUTO">Auto (dans la fenêtre)</option>
+            <option value="ON">Marche forcée</option>
+          </select></label
+        >
+        <div class="two">
+          <label>Début<input name="windowStart" type="time" /></label
+          ><label>Fin<input name="windowEnd" type="time" /></label>
+        </div>
+        <label
+          >Fuseau horaire<input name="timezone" placeholder="Europe/Paris"
+        /></label>
+        <p class="form-help">
+          Les deux heures vides = 24 h/24. Un début après la fin traverse la
+          nuit (22:00 → 06:00). Les heures sont celles du fuseau choisi, pas
+          celles du serveur.
+        </p>
+        <div id="runner-days" class="chips"></div>
+        <p class="form-help">Aucun jour coché = tous les jours.</p>
+        <label
+          >Réglages poussés au navigateur (JSON)<textarea
+            name="settings"
+            rows="5"
+            placeholder='{"staggerSeconds": 300}'
+          ></textarea
+        ></label>
+        <p class="form-help">
+          Envoyés à l’extension à chaque battement : elle ne retient que les
+          réglages qu’elle connaît. Vide = elle garde les siens.
+        </p>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="profile-modal">
       <form id="profile-form">
         <input type="hidden" name="id" />

@@ -27,6 +27,7 @@ const ingest_module_1 = require("./ingest/ingest.module");
 const sites_module_1 = require("./sites/sites.module");
 const users_module_1 = require("./users/users.module");
 const access_module_1 = require("./access/access.module");
+const runners_module_1 = require("./runners/runners.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -50,6 +51,7 @@ exports.AppModule = AppModule = __decorate([
             sites_module_1.SitesModule,
             users_module_1.UsersModule,
             access_module_1.AccessModule,
+            runners_module_1.RunnersModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],

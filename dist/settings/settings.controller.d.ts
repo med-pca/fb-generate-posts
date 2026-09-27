@@ -12,6 +12,7 @@ export declare class SettingsController {
         updatedAt: Date;
         minimumAvailablePerGroup: number;
         autoReplenishEnabled: boolean;
+        publishingEnabled: boolean;
         minimumAvailablePerProfile: number;
     }>;
     update(dto: UpdateSettingsDto): import("@prisma/client").Prisma.Prisma__AutomationSettingClient<{
@@ -20,6 +21,7 @@ export declare class SettingsController {
         updatedAt: Date;
         minimumAvailablePerGroup: number;
         autoReplenishEnabled: boolean;
+        publishingEnabled: boolean;
         minimumAvailablePerProfile: number;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     replenishNow(): Promise<({

@@ -80,6 +80,24 @@ enum LogLevel {
   ERROR
 }
 
+/// Ce que l'admin veut d'un profil. AUTO = il publie dans sa fenetre horaire,
+/// ON = tout de suite et sans fenetre, OFF = il s'arrete.
+enum RunnerMode {
+  OFF
+  ON
+  AUTO
+}
+
+/// Ou en est le navigateur du profil, tel que l'agent local le rapporte.
+/// L'API ne peut pas l'ouvrir elle-meme : le client NSTBrowser n'ecoute que
+/// sur la machine ou il tourne.
+enum BrowserState {
+  STOPPED
+  STARTING
+  RUNNING
+  ERROR
+}
+
 /// Un compte de la plateforme. Le premier ADMIN naît des identifiants du
 /// `.env` à la première connexion : une installation existante n'a rien à
 /// faire pour continuer à fonctionner.
@@ -127,6 +145,9 @@ model Profile {
   ownerId          String?      @map("owner_id")
   owner            User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   status           RecordStatus @default(ACTIVE)
+  /// Son pilotage : marche/arret, fenetre horaire, et ce que son navigateur
+  /// rapporte. Absent = jamais pilote (donc a l'arret).
+  runner           ProfileRunner?
   profileGroups    ProfileGroup[]
   posts            Post[]
   publicationJobs  PublicationJob[]
@@ -355,6 +376,9 @@ model SourceIngest {
 model AutomationSetting {
   id                       String   @id @default("global")
   autoReplenishEnabled     Boolean  @default(true) @map("auto_replenish_enabled")
+  /// Coupe-circuit : a false, aucun profil ne publie, quel que soit son mode.
+  /// Un seul interrupteur a couper quand quelque chose tourne mal.
+  publishingEnabled        Boolean  @default(true) @map("publishing_enabled")
   minimumAvailablePerProfile Int    @default(10) @map("minimum_available_per_profile")
   minimumAvailablePerGroup   Int    @default(8) @map("minimum_available_per_group")
   createdAt                DateTime @default(now()) @map("created_at")
@@ -428,6 +452,55 @@ model PublicationJobItem {
 
   @@unique([jobId, postId])
   @@map("publication_job_items")
+}
+
+/// Le pilotage d'un profil : ce que l'admin veut, et ce que le terrain
+/// rapporte. Deux moities dans la meme ligne parce qu'elles se lisent
+/// toujours ensemble -- un interrupteur sans etat ne dit pas si l'ordre est
+/// arrive.
+///
+/// Rien ici ne lance un navigateur : l'API de NSTBrowser est locale a la
+/// machine. L'agent local lit `mode` et ouvre/ferme le profil, l'extension du
+/// navigateur lit la meme chose et publie ou s'arrete.
+model ProfileRunner {
+  id        String  @id @default(cuid())
+  profileId String  @unique @map("profile_id")
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  mode RunnerMode @default(OFF)
+
+  /// Fenetre de publication, en minutes depuis minuit dans `timezone`.
+  /// NULL = pas de limite. Un debut superieur a la fin traverse la nuit.
+  windowStart Int?   @map("window_start")
+  windowEnd   Int?   @map("window_end")
+  /// Jours ISO autorises, "1,2,3,4,5" pour lundi-vendredi. Vide = tous.
+  days        String? @map("days")
+  timezone    String @default("Europe/Paris")
+
+  /// Reglages pousses au navigateur, fusionnes par-dessus ses valeurs par
+  /// defaut : l'operateur n'a plus rien a regler profil par profil.
+  settings Json?
+
+  /// Ce que l'extension rapporte a chaque battement.
+  lastSeenAt DateTime? @map("last_seen_at")
+  running    Boolean   @default(false)
+  phase      String?
+  message    String?   @db.Text
+  published  Int       @default(0)
+  failed     Int       @default(0)
+  links      Int       @default(0)
+  agent      String?
+
+  /// Ce que l'agent local rapporte sur le navigateur lui-meme.
+  browserState   BrowserState @default(STOPPED) @map("browser_state")
+  browserSeenAt  DateTime?    @map("browser_seen_at")
+  browserMessage String?      @db.Text @map("browser_message")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([mode])
+  @@map("profile_runners")
 }
 
 model ActivityLog {

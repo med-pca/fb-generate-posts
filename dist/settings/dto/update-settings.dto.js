@@ -15,10 +15,11 @@ const swagger_1 = require("@nestjs/swagger");
 const class_validator_1 = require("class-validator");
 class UpdateSettingsDto {
     autoReplenishEnabled;
+    publishingEnabled;
     minimumAvailablePerProfile;
     minimumAvailablePerGroup;
     static _OPENAPI_METADATA_FACTORY() {
-        return { autoReplenishEnabled: { required: true, type: () => Boolean }, minimumAvailablePerProfile: { required: true, type: () => Number, minimum: 1, maximum: 1000 }, minimumAvailablePerGroup: { required: false, type: () => Number, minimum: 1, maximum: 1000 } };
+        return { autoReplenishEnabled: { required: true, type: () => Boolean }, publishingEnabled: { required: false, type: () => Boolean }, minimumAvailablePerProfile: { required: true, type: () => Number, minimum: 1, maximum: 1000 }, minimumAvailablePerGroup: { required: false, type: () => Number, minimum: 1, maximum: 1000 } };
     }
 }
 exports.UpdateSettingsDto = UpdateSettingsDto;
@@ -26,6 +27,12 @@ __decorate([
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], UpdateSettingsDto.prototype, "autoReplenishEnabled", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateSettingsDto.prototype, "publishingEnabled", void 0);
 __decorate([
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
