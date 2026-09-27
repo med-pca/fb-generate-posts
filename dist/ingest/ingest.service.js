@@ -300,6 +300,7 @@ let IngestService = IngestService_1 = class IngestService {
             ingestRef: ingest.id,
             article: generated,
             imageUrl: ingest.fbImageUrl,
+            language: ingest.language,
         });
         if (deposit.imageWarning) {
             await this.log(ingest.id, 'INGEST_IMAGE_SKIPPED', deposit.imageWarning);

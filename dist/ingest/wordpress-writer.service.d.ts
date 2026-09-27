@@ -10,6 +10,7 @@ export type DepositInput = {
     ingestRef: string;
     article: GeneratedArticle;
     imageUrl: string | null;
+    language?: string | null;
 };
 export declare class WordpressWriterService {
     private readonly config;

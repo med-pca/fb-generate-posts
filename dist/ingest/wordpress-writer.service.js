@@ -13,6 +13,7 @@ exports.WordpressWriterService = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const safe_fetch_1 = require("../common/safe-fetch");
+const paginate_1 = require("./paginate");
 const MAX_IMAGE_BYTES = 10_000_000;
 const IMAGE_TYPES = new Set([
     'image/jpeg',
@@ -21,6 +22,7 @@ const IMAGE_TYPES = new Set([
     'image/gif',
 ]);
 const TIMEOUT_MS = 60_000;
+const DEFAULT_PAGES = 3;
 let WordpressWriterService = class WordpressWriterService {
     config;
     constructor(config) {
@@ -31,6 +33,8 @@ let WordpressWriterService = class WordpressWriterService {
         if (!key) {
             throw new common_1.ServiceUnavailableException('WORDPRESS_API_KEY doit être configuré pour déposer un article');
         }
+        const pages = Number(this.config.get('ARTICLE_PAGES') ?? DEFAULT_PAGES);
+        const contentHtml = (0, paginate_1.paginateHtml)(input.article.contentHtml, Number.isFinite(pages) ? pages : DEFAULT_PAGES, input.language);
         const image = input.imageUrl ? await this.fetchImage(input.imageUrl) : null;
         const endpoint = `${input.siteUrl}/wp-json/dfb/v1/articles`;
         let response;
@@ -43,7 +47,7 @@ let WordpressWriterService = class WordpressWriterService {
                     title: input.article.title,
                     slug: input.article.slug,
                     excerpt: input.article.excerpt,
-                    contentHtml: input.article.contentHtml,
+                    contentHtml,
                     ingestRef: input.ingestRef,
                     image,
                 }),

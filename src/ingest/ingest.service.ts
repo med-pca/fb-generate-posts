@@ -379,6 +379,7 @@ export class IngestService {
       ingestRef: ingest.id,
       article: generated,
       imageUrl: ingest.fbImageUrl,
+      language: ingest.language,
     });
     if (deposit.imageWarning) {
       // L'article est en ligne : le signaler suffit, l'arrêter serait pire.

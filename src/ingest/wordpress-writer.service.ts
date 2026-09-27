@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { assertSafeRemoteUrl } from '../common/safe-fetch';
+import { paginateHtml } from './paginate';
 import { GeneratedArticle } from './rewriter.service';
 
 /** Ce que le plugin renvoie une fois l'article déposé. `imageWarning` dit
@@ -21,6 +22,8 @@ export type DepositInput = {
   ingestRef: string;
   article: GeneratedArticle;
   imageUrl: string | null;
+  /** Décide la langue de l'invitation « page suivante ». */
+  language?: string | null;
 };
 
 const MAX_IMAGE_BYTES = 10_000_000;
@@ -31,6 +34,9 @@ const IMAGE_TYPES = new Set([
   'image/gif',
 ]);
 const TIMEOUT_MS = 60_000;
+/** Pages par article. Chaque page vue en est une de plus pour la régie
+ * publicitaire ; 1 rend l'article d'un seul tenant. */
+const DEFAULT_PAGES = 3;
 
 @Injectable()
 export class WordpressWriterService {
@@ -43,6 +49,17 @@ export class WordpressWriterService {
         'WORDPRESS_API_KEY doit être configuré pour déposer un article',
       );
     }
+    // Le découpage se fait ici, pas à la réécriture : le texte conservé sur
+    // la reprise reste d'un seul tenant, et un nouveau dépôt peut le
+    // redécouper autrement.
+    const pages = Number(
+      this.config.get<string>('ARTICLE_PAGES') ?? DEFAULT_PAGES,
+    );
+    const contentHtml = paginateHtml(
+      input.article.contentHtml,
+      Number.isFinite(pages) ? pages : DEFAULT_PAGES,
+      input.language,
+    );
     const image = input.imageUrl ? await this.fetchImage(input.imageUrl) : null;
     const endpoint = `${input.siteUrl}/wp-json/dfb/v1/articles`;
     let response: Response;
@@ -55,7 +72,7 @@ export class WordpressWriterService {
           title: input.article.title,
           slug: input.article.slug,
           excerpt: input.article.excerpt,
-          contentHtml: input.article.contentHtml,
+          contentHtml,
           ingestRef: input.ingestRef,
           image,
         }),

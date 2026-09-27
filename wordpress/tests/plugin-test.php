@@ -57,7 +57,13 @@ function register_rest_route($ns, $route, $args) { $GLOBALS['routes'][$ns . $rou
 function sanitize_text_field($s) { return trim(strip_tags((string) $s)); }
 function sanitize_title($s) { return strtolower(preg_replace('/[^a-z0-9]+/i', '-', (string) $s)); }
 function sanitize_file_name($s) { return preg_replace('/[^A-Za-z0-9._-]/', '', (string) $s); }
-function wp_kses_post($s) { return preg_replace('#<script\b[^>]*>.*?</script>#is', '', (string) $s); }
+// Double volontairement plus sévère que le vrai `wp_kses_post` : il retire
+// TOUT commentaire. Si la coupure de page survit ici, elle survivra à
+// WordPress quelle que soit sa politique sur les commentaires.
+function wp_kses_post($s) {
+    $s = preg_replace('#<script\b[^>]*>.*?</script>#is', '', (string) $s);
+    return preg_replace('/<!--.*?-->/s', '', $s);
+}
 function wp_insert_post($data, $error = false) {
     $id = $GLOBALS['next_id']++;
     // Comme WordPress : les données arrivent échappées et sont déséchappées.
@@ -218,10 +224,19 @@ $_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/articles';
 
 $_SERVER['HTTP_X_API_KEY'] = 'secret';
 check(DFB_Posting::unlock($locked) === true, 'A global REST lockdown is lifted for our route with the right key');
+// Trois refus distincts : rendre le verrou du site tel quel ne disait pas
+// si l'extension avait seulement eu la parole.
 $_SERVER['HTTP_X_API_KEY'] = 'mauvaise';
-check(DFB_Posting::unlock($locked) === $locked, 'The lockdown stays in place with a wrong key');
+$refus = DFB_Posting::unlock($locked);
+check($refus instanceof WP_Error && $refus->code === 'dfb_bad_key', 'A wrong key is named as such');
+check($refus->data['version'] === DFB_Posting::VERSION, 'The refusal says which version answered');
 unset($_SERVER['HTTP_X_API_KEY']);
-check(DFB_Posting::unlock($locked) === $locked, 'The lockdown stays in place without a key');
+$sans = DFB_Posting::unlock($locked);
+check($sans instanceof WP_Error && $sans->code === 'dfb_no_header', 'A missing header is named as such');
+$GLOBALS['options'][DFB_Posting::OPTION]['key'] = '';
+$vide = DFB_Posting::unlock($locked);
+check($vide instanceof WP_Error && $vide->code === 'dfb_no_key', 'An unsaved key is named as such');
+$GLOBALS['options'][DFB_Posting::OPTION]['key'] = 'secret';
 
 // Rouvrir tout le reste de l'API REST serait une régression de sécurité du
 // site, pas une correction.
@@ -239,7 +254,7 @@ check(DFB_Posting::unlock(true) === true, 'An already authenticated request is l
 $_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/status';
 $_SERVER['HTTP_X_API_KEY'] = 'secret';
 check(DFB_Posting::unlock($locked) === true, 'The status route is unlocked too');
-check(DFB_Posting::status_route()['version'] === '1.2.3', 'The status route reports the version');
+check(DFB_Posting::status_route()['version'] === '1.3.0', 'The status route reports the version');
 check(isset($GLOBALS['routes']['dfb/v1/status']), 'The status route is registered');
 
 
@@ -253,3 +268,17 @@ $slashed = DFB_Posting::receive(new DFB_Request(array(
 $stored = $GLOBALS['posts'][(int) $slashed['postId']]['post_content'];
 check(strpos($stored, chr(92) . 'n') !== false, 'A literal backslash in the body survives wp_insert_post');
 check(!preg_match('/<\/p>n/', $stored), 'It never degrades into a stray "n"');
+
+
+// Les coupures de page font vivre l'article sur plusieurs vues : les perdre
+// au filtrage reviendrait à rendre l'article d'un seul tenant.
+$GLOBALS['options'][DFB_Posting::OPTION]['key'] = 'secret';
+$paged = DFB_Posting::receive(new DFB_Request(array(
+    'title' => 'Article en pages',
+    'contentHtml' => '<h2>Un</h2><p>Texte.</p><p>Suite</p>' . DFB_Posting::NEXT_PAGE
+        . '<h2>Deux</h2><p>Texte.</p><script>vol()</script>',
+)));
+$body = $GLOBALS['posts'][(int) $paged['postId']]['post_content'];
+check(substr_count($body, DFB_Posting::NEXT_PAGE) === 1, 'The page break survives the body filter');
+check(strpos($body, '<script') === false, 'Each page is still filtered');
+check(strpos($body, '<h2>Deux</h2>') !== false, 'Nothing after the break is lost');

@@ -2,17 +2,19 @@
 /**
  * Plugin Name: Data FB Posting
  * Description: Envoie les articles publiés vers Data FB Posting, resynchronise leurs modifications (titre, contenu, image), et reçoit les articles réécrits que l'API dépose.
- * Version: 1.2.3
+ * Version: 1.3.0
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
 if (!defined('ABSPATH')) { exit; }
 
 final class DFB_Posting {
-    const VERSION = '1.2.3';
+    const VERSION = '1.3.0';
     const OPTION = 'dfb_posting_settings';
     const HOOK = 'dfb_posting_deliver';
     const INGEST_META = '_dfb_ingest';
+    /** Marqueur de coupure de page reconnu par WordPress. */
+    const NEXT_PAGE = '<!--nextpage-->';
     /** Le corps arrive en JSON : une image de plus de 10 Mo n'y a pas sa place. */
     const MAX_IMAGE_BYTES = 10485760;
     const IMAGE_TYPES = array('image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif');
@@ -199,10 +201,25 @@ final class DFB_Posting {
         if (!is_wp_error($result)) { return $result; }
         $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '';
         if (strpos($uri, 'dfb/v1/') === false) { return $result; }
+        // Rendre le verrou du site tel quel ne dirait pas si l'extension a
+        // seulement eu la parole. Trois réponses distinctes, et la version
+        // qui a répondu : de quoi trancher à distance entre « extension
+        // inactive », « aucune clé » et « clé différente ».
         $settings = get_option(self::OPTION, array());
         $key = isset($settings['key']) ? (string) $settings['key'] : '';
         $provided = isset($_SERVER['HTTP_X_API_KEY']) ? (string) wp_unslash($_SERVER['HTTP_X_API_KEY']) : '';
-        if ($key === '' || $provided === '' || !hash_equals($key, $provided)) { return $result; }
+        if ($key === '') {
+            return new WP_Error('dfb_no_key', 'Aucune clé enregistrée dans Réglages > Data FB Posting.',
+                array('status' => 401, 'version' => self::VERSION));
+        }
+        if ($provided === '') {
+            return new WP_Error('dfb_no_header', 'En-tête x-api-key absent.',
+                array('status' => 401, 'version' => self::VERSION));
+        }
+        if (!hash_equals($key, $provided)) {
+            return new WP_Error('dfb_bad_key', 'La clé présentée ne correspond pas à celle enregistrée.',
+                array('status' => 401, 'version' => self::VERSION, 'expectedLength' => strlen($key)));
+        }
         return true;
     }
 
@@ -230,7 +247,7 @@ final class DFB_Posting {
             'post_title' => wp_slash($title),
             'post_name' => isset($body['slug']) ? sanitize_title((string) $body['slug']) : '',
             'post_excerpt' => wp_slash(isset($body['excerpt']) ? sanitize_text_field((string) $body['excerpt']) : ''),
-            'post_content' => wp_slash(wp_kses_post($content)),
+            'post_content' => wp_slash(self::clean_body($content)),
             // Posée à l'insertion : `wp_after_insert_post` la lira au passage
             // en ligne, et l'API saura à quelle reprise rattacher l'article.
             'meta_input' => array(self::INGEST_META => isset($body['ingestRef']) ? sanitize_text_field((string) $body['ingestRef']) : ''),
@@ -244,6 +261,20 @@ final class DFB_Posting {
             'permalink' => get_permalink($id),
             'imageWarning' => $warning,
         );
+    }
+
+    /** Filtre le corps sans perdre les coupures de page.
+     *
+     * `<!--nextpage-->` est ce qui fait qu'un article se lit en plusieurs
+     * pages. Le passer à `wp_kses_post` avec le reste reviendrait à parier
+     * sur son traitement des commentaires : on filtre chaque page
+     * séparément et on recolle. */
+    public static function clean_body($content) {
+        $pages = explode(self::NEXT_PAGE, (string) $content);
+        foreach ($pages as $index => $page) {
+            $pages[$index] = wp_kses_post($page);
+        }
+        return implode(self::NEXT_PAGE, $pages);
     }
 
     /** L'image arrive en base64 : l'URL d'origine expire, et le site

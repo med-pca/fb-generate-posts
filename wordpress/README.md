@@ -23,6 +23,7 @@ La 1.2.0 ouvre une route entrante, `POST /wp-json/dfb/v1/articles`, par laquelle
 - Réponse : `{postId, permalink, imageWarning}`. `imageWarning` non nul signifie que l’article est publié mais sans image : ce n’est pas un échec.
 - Le renvoi vers l’API porte alors `ingestRef`, qui rattache l’article à sa reprise. **Ce champ n’est ajouté qu’aux articles qui en ont un** : l’ajouter partout changerait l’empreinte de tous les articles déjà suivis et provoquerait un renvoi du catalogue entier à la première sauvegarde.
 - Seuls des articles standards (`post`) sont créés, avec l’auteur par défaut de `wp_insert_post`.
+- **Coupures de page** : l’API dépose un corps déjà découpé sur `<!--nextpage-->`, ce qui fait lire l’article en plusieurs pages. Le filtrage s’applique page par page, puis recolle : passer le corps entier à `wp_kses_post` reviendrait à parier sur son traitement des commentaires (depuis la 1.3.0).
 - Les données sont passées **échappées** à `wp_insert_post`, qui leur applique `wp_unslash`. Sans cela, tout antislash du contenu disparaît : un `\n` écrit en toutes lettres par le modèle ressortait en « n » isolé au milieu de l’article (corrigé en 1.2.3).
 - **Sites dont l’API REST est fermée** (réponse `rest_login_required`) : beaucoup d’extensions de sécurité verrouillent l’API REST pour les visiteurs non connectés, et ce verrou s’applique *avant* le `permission_callback` de chaque route. Depuis la 1.2.1, l’extension rouvre **sa seule route**, et seulement quand la clé présentée est déjà la bonne ; tout le reste de l’API REST demeure fermé. Rien à configurer.
 
@@ -40,6 +41,28 @@ La 1.2.0 ouvre une route entrante, `POST /wp-json/dfb/v1/articles`, par laquelle
 - En cas d’échec, nouvelle tentative après 1, 2, 4, 8, 16, 32 minutes puis chaque heure. Après correction d’une configuration, attendre la prochaine tentative (ou lancer les événements WP-Cron dus).
 - Un profil sans groupe actif reçoit un post sans destinataire. Sans profil actif, seul l’article est importé. Le réapprovisionnement existant continue de fonctionner et peut produire ses variantes habituelles ; un nouvel envoi WordPress ne relance pas la génération.
 - Le statut « Transmis » signifie que l’API a reçu l’article, pas que Facebook l’a publié.
+
+## Diagnostiquer un refus
+
+Le verrou REST d'un site rend toujours la même réponse, quelle qu'en soit la
+raison. Depuis la 1.2.4, l'extension répond à sa place sur ses propres
+routes, en nommant la cause et la version qui a répondu :
+
+```sh
+curl -X POST "https://VOTRE-SITE/wp-json/dfb/v1/articles" \
+  -H "x-api-key: VOTRE_CLE" -H 'Content-Type: application/json' -d '{}'
+```
+
+| Code rendu | Ce que ça veut dire |
+| --- | --- |
+| `dfb_incomplete` | Tout va bien : la clé passe, il manquait juste le contenu |
+| `dfb_bad_key` | L'extension tourne, mais la clé enregistrée est différente |
+| `dfb_no_key` | Aucune clé dans Réglages > Data FB Posting |
+| `dfb_no_header` | L'appelant n'envoie pas d'en-tête `x-api-key` |
+| `rest_login_required` | **L'extension n'a pas eu la parole** : désactivée, ou un filtre du site passe après elle |
+
+Les quatre premiers portent la version dans `data.version` : c'est la preuve
+de quel code a répondu.
 
 ## Vérifications
 

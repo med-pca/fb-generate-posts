@@ -1,0 +1,110 @@
+import { continueLabel, NEXT_PAGE, paginateHtml } from './paginate';
+
+/** Un article de la forme que le réécriveur produit : des sections menées
+ * par un <h2>, avec assez de texte pour mériter d'être coupé. */
+const section = (title: string, paragraphs = 3) =>
+  `<h2>${title}</h2>` +
+  Array.from(
+    { length: paragraphs },
+    (_, index) =>
+      `<p>${title} paragraphe ${index}. ${'Du texte de remplissage assez long pour compter. '.repeat(4)}</p>`,
+  ).join('');
+
+const ARTICLE = ['Origines', 'La cuisson', 'Les épices', 'Les variantes']
+  .map((title) => section(title))
+  .join('');
+
+const pagesOf = (html: string) => html.split(NEXT_PAGE);
+
+describe('continueLabel', () => {
+  it('parle la langue de l’article', () => {
+    expect(continueLabel('en')).toBe('Continued on the next page');
+    expect(continueLabel('fr')).toBe('Suite à la page suivante');
+    expect(continueLabel('es')).toContain('página siguiente');
+  });
+
+  it('accepte une étiquette régionale', () => {
+    expect(continueLabel('pt-BR')).toContain('próxima página');
+  });
+
+  // Un texte anglais sous un article dans une autre langue se voit, mais
+  // vaut mieux qu'une page sans invitation.
+  it('retombe sur l’anglais pour une langue inconnue', () => {
+    expect(continueLabel('xx')).toBe('Continued on the next page');
+    expect(continueLabel(null)).toBe('Continued on the next page');
+  });
+});
+
+describe('paginateHtml', () => {
+  it('découpe en autant de pages que demandé', () => {
+    expect(pagesOf(paginateHtml(ARTICLE, 3, 'fr'))).toHaveLength(3);
+  });
+
+  /** Couper au milieu d'un raisonnement donne une page qui commence dans le
+   * vide : chaque page nouvelle s'ouvre sur un titre. */
+  it('coupe au début d’une section', () => {
+    for (const page of pagesOf(paginateHtml(ARTICLE, 3, 'fr')).slice(1)) {
+      expect(page.trimStart().startsWith('<h2>')).toBe(true);
+    }
+  });
+
+  it('place l’invitation avant chaque coupure, dans la bonne langue', () => {
+    const paginated = paginateHtml(ARTICLE, 3, 'en');
+    expect(paginated.split('Continued on the next page')).toHaveLength(3);
+    for (const page of pagesOf(paginated).slice(0, -1)) {
+      expect(page.trimEnd().endsWith('<p>Continued on the next page</p>')).toBe(
+        true,
+      );
+    }
+  });
+
+  it('ne perd rien du texte au passage', () => {
+    const plain = (html: string) =>
+      html
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const paginated = paginateHtml(ARTICLE, 3, 'fr');
+    expect(plain(paginated)).toContain(
+      plain(section('Les variantes')).slice(0, 60),
+    );
+    for (const title of [
+      'Origines',
+      'La cuisson',
+      'Les épices',
+      'Les variantes',
+    ]) {
+      expect(paginated).toContain(`<h2>${title}</h2>`);
+    }
+  });
+
+  it('laisse l’article entier quand on n’en demande qu’une page', () => {
+    expect(paginateHtml(ARTICLE, 1, 'fr')).toBe(ARTICLE);
+  });
+
+  // Mieux vaut moins de pages que des pages vides.
+  it('refuse de couper un article trop court', () => {
+    const court =
+      '<h2>Titre</h2><p>Trois mots.</p><h2>Autre</h2><p>Trois mots.</p>';
+    expect(paginateHtml(court, 3, 'fr')).toBe(court);
+  });
+
+  it('réduit le nombre de pages plutôt que d’en faire de maigres', () => {
+    const deux = section('Une', 3) + section('Deux', 3);
+    expect(pagesOf(paginateHtml(deux, 4, 'fr')).length).toBeLessThanOrEqual(2);
+  });
+
+  it('se coupe sur une frontière de bloc quand il n’y a pas de titre', () => {
+    const sansTitre = Array.from(
+      { length: 8 },
+      (_, i) =>
+        `<p>Paragraphe ${i}. ${'Du texte assez long pour compter. '.repeat(5)}</p>`,
+    ).join('');
+    expect(pagesOf(paginateHtml(sansTitre, 2, 'fr'))).toHaveLength(2);
+  });
+
+  it('rend le texte inchangé quand il n’y a rien à découper', () => {
+    expect(paginateHtml('<p>Seul.</p>', 3, 'fr')).toBe('<p>Seul.</p>');
+    expect(paginateHtml('', 3, 'fr')).toBe('');
+  });
+});

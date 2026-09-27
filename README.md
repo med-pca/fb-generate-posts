@@ -755,6 +755,24 @@ Le contenu vient bien de l'URL fournie : la page est lue et extraite
 est de l'ordre du millier de caractères, c'est la page source qu'il faut
 changer, pas la consigne.
 
+### L'article déposé est découpé en pages
+
+WordPress coupe un article sur `<!--nextpage-->` et rend un lien « page
+suivante ». `ARTICLE_PAGES` (défaut **3**) dit en combien de pages l'article
+déposé est coupé ; `1` le laisse d'un seul tenant.
+
+La coupure est décidée à l'API, pas par le modèle : on veut un nombre de
+pages prévisible, et un modèle qui oublie la consigne rendrait un article
+d'une seule page sans qu'on le sache. Elle tombe **au début d'une section**,
+juste avant un `<h2>`, et une invitation à poursuivre la précède, dans la
+langue de l'article.
+
+Un article trop court fait **moins** de pages que demandé plutôt que des
+pages vides : en deçà de 350 caractères par page, la coupure est abandonnée.
+
+Le texte gardé sur la reprise reste d'un seul tenant : c'est au dépôt que le
+découpage s'applique, donc un nouveau dépôt peut le redécouper autrement.
+
 ### Ce qui change, et ce qui ne change pas
 
 C’est le cœur de la reprise : **seul l’article change**.
