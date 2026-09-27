@@ -10,7 +10,7 @@
 6. Vérifier dans Data FB Posting l’article importé et les posts associés aux profils actifs. Les groupes actifs associés à chaque profil deviennent les destinataires.
 7. Modifier ensuite l’article (titre, contenu, extrait, image à la une, lien ou date) : après le passage de WP-Cron, l’article et les posts pas encore publiés reprennent la nouvelle version.
 
-Mise à jour depuis la 1.0.0, la 1.1.0 ou la 1.2.0 : remplacer l’extension par le nouveau ZIP. Les articles déjà transmis sont repris automatiquement à leur première modification, sans renvoi inutile. La 1.2.0 n’ajoute aucun réglage : la route entrante utilise la clé déjà enregistrée.
+Mise à jour depuis une version antérieure : remplacer l’extension par le nouveau ZIP. Les articles déjà transmis sont repris automatiquement à leur première modification, sans renvoi inutile. La 1.2.0 n’ajoute aucun réglage : la route entrante utilise la clé déjà enregistrée.
 
 Le site WordPress, ses liens d’article et d’image, ainsi que l’API doivent utiliser HTTPS. Le serveur API doit être accessible depuis l’hébergement WordPress. WordPress 5.6+ et PHP 7.4+ requis.
 
@@ -23,6 +23,7 @@ La 1.2.0 ouvre une route entrante, `POST /wp-json/dfb/v1/articles`, par laquelle
 - Réponse : `{postId, permalink, imageWarning}`. `imageWarning` non nul signifie que l’article est publié mais sans image : ce n’est pas un échec.
 - Le renvoi vers l’API porte alors `ingestRef`, qui rattache l’article à sa reprise. **Ce champ n’est ajouté qu’aux articles qui en ont un** : l’ajouter partout changerait l’empreinte de tous les articles déjà suivis et provoquerait un renvoi du catalogue entier à la première sauvegarde.
 - Seuls des articles standards (`post`) sont créés, avec l’auteur par défaut de `wp_insert_post`.
+- Les données sont passées **échappées** à `wp_insert_post`, qui leur applique `wp_unslash`. Sans cela, tout antislash du contenu disparaît : un `\n` écrit en toutes lettres par le modèle ressortait en « n » isolé au milieu de l’article (corrigé en 1.2.3).
 - **Sites dont l’API REST est fermée** (réponse `rest_login_required`) : beaucoup d’extensions de sécurité verrouillent l’API REST pour les visiteurs non connectés, et ce verrou s’applique *avant* le `permission_callback` de chaque route. Depuis la 1.2.1, l’extension rouvre **sa seule route**, et seulement quand la clé présentée est déjà la bonne ; tout le reste de l’API REST demeure fermé. Rien à configurer.
 
 ## Fonctionnement

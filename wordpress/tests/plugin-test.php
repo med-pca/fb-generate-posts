@@ -14,7 +14,14 @@ function add_post_meta($id, $key, $value, $unique) {
 }
 function update_post_meta($id, $key, $value) { $GLOBALS['meta'][$id][$key] = $value; }
 function delete_post_meta($id, $key) { unset($GLOBALS['meta'][$id][$key]); }
-function wp_slash($value) { return $value; }
+function wp_slash($value) {
+    if (is_array($value)) { return array_map('wp_slash', $value); }
+    return is_string($value) ? addslashes($value) : $value;
+}
+function wp_unslash($value) {
+    if (is_array($value)) { return array_map('wp_unslash', $value); }
+    return is_string($value) ? stripslashes($value) : $value;
+}
 function wp_strip_all_tags($s) { return strip_tags($s); }
 function strip_shortcodes($s) { return $s; }
 function esc_html($s) { return $s; }
@@ -47,14 +54,14 @@ function wp_remote_retrieve_response_code($v) { return $v['code']; }
 function wp_remote_retrieve_body($v) { return $v['body']; }
 function current_time(...$args) { return '2026-09-20 10:00:00'; }
 function register_rest_route($ns, $route, $args) { $GLOBALS['routes'][$ns . $route] = $args; }
-function wp_unslash($v) { return $v; }
 function sanitize_text_field($s) { return trim(strip_tags((string) $s)); }
 function sanitize_title($s) { return strtolower(preg_replace('/[^a-z0-9]+/i', '-', (string) $s)); }
 function sanitize_file_name($s) { return preg_replace('/[^A-Za-z0-9._-]/', '', (string) $s); }
 function wp_kses_post($s) { return preg_replace('#<script\b[^>]*>.*?</script>#is', '', (string) $s); }
 function wp_insert_post($data, $error = false) {
     $id = $GLOBALS['next_id']++;
-    $GLOBALS['posts'][$id] = $data;
+    // Comme WordPress : les données arrivent échappées et sont déséchappées.
+    $GLOBALS['posts'][$id] = wp_unslash($data);
     foreach (($data['meta_input'] ?? array()) as $key => $value) { update_post_meta($id, $key, $value); }
     return $id;
 }
@@ -232,5 +239,17 @@ check(DFB_Posting::unlock(true) === true, 'An already authenticated request is l
 $_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/status';
 $_SERVER['HTTP_X_API_KEY'] = 'secret';
 check(DFB_Posting::unlock($locked) === true, 'The status route is unlocked too');
-check(DFB_Posting::status_route()['version'] === '1.2.2', 'The status route reports the version');
+check(DFB_Posting::status_route()['version'] === '1.2.3', 'The status route reports the version');
 check(isset($GLOBALS['routes']['dfb/v1/status']), 'The status route is registered');
+
+
+// Un « \n » écrit en toutes lettres par le modèle ressortait en « n » isolé :
+// `wp_insert_post` déséchappe ce qu'on lui donne, et l'antislash disparaissait.
+$GLOBALS['options'][DFB_Posting::OPTION]['key'] = 'secret';
+$slashed = DFB_Posting::receive(new DFB_Request(array(
+    'title' => 'Un titre',
+    'contentHtml' => '<p>Avant</p>' . chr(92) . 'n' . chr(92) . 'n<p>Après</p>',
+)));
+$stored = $GLOBALS['posts'][(int) $slashed['postId']]['post_content'];
+check(strpos($stored, chr(92) . 'n') !== false, 'A literal backslash in the body survives wp_insert_post');
+check(!preg_match('/<\/p>n/', $stored), 'It never degrades into a stray "n"');

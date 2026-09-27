@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Data FB Posting
  * Description: Envoie les articles publiés vers Data FB Posting, resynchronise leurs modifications (titre, contenu, image), et reçoit les articles réécrits que l'API dépose.
- * Version: 1.2.2
+ * Version: 1.2.3
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
 if (!defined('ABSPATH')) { exit; }
 
 final class DFB_Posting {
-    const VERSION = '1.2.2';
+    const VERSION = '1.2.3';
     const OPTION = 'dfb_posting_settings';
     const HOOK = 'dfb_posting_deliver';
     const INGEST_META = '_dfb_ingest';
@@ -220,13 +220,17 @@ final class DFB_Posting {
         if ($title === '' || trim($content) === '') {
             return new WP_Error('dfb_incomplete', 'title et contentHtml sont requis.', array('status' => 400));
         }
+        // `wp_insert_post` attend des données ÉCHAPPÉES : il leur applique
+        // `wp_unslash`. Sans `wp_slash`, tout antislash du contenu est mangé,
+        // et un « \n » écrit en toutes lettres par le modèle ressortait en
+        // « n » isolé au milieu de l'article.
         $id = wp_insert_post(array(
             'post_type' => 'post',
             'post_status' => 'draft',
-            'post_title' => $title,
+            'post_title' => wp_slash($title),
             'post_name' => isset($body['slug']) ? sanitize_title((string) $body['slug']) : '',
-            'post_excerpt' => isset($body['excerpt']) ? sanitize_text_field((string) $body['excerpt']) : '',
-            'post_content' => wp_kses_post($content),
+            'post_excerpt' => wp_slash(isset($body['excerpt']) ? sanitize_text_field((string) $body['excerpt']) : ''),
+            'post_content' => wp_slash(wp_kses_post($content)),
             // Posée à l'insertion : `wp_after_insert_post` la lira au passage
             // en ligne, et l'API saura à quelle reprise rattacher l'article.
             'meta_input' => array(self::INGEST_META => isset($body['ingestRef']) ? sanitize_text_field((string) $body['ingestRef']) : ''),

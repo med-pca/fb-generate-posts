@@ -80,6 +80,22 @@ describe('sanitizeArticleHtml', () => {
     );
   });
 
+  /** Le modèle écrit parfois « \n » en toutes lettres au lieu du saut de
+   * ligne que le JSON aurait porté. Laissé tel quel, WordPress lui mange
+   * l'antislash et l'article se retrouve parsemé de « n » isolés. */
+  it('convertit un saut de ligne écrit en toutes lettres', () => {
+    const html = sanitizeArticleHtml('<p>Avant</p>\\n\\n<p>Après</p>');
+    expect(html).not.toMatch(/\\n|(^|>)n(<|$)/);
+    expect(html).toContain('<p>Avant</p>');
+    expect(html).toContain('<p>Après</p>');
+  });
+
+  it('convertit aussi les tabulations et retours chariot littéraux', () => {
+    expect(
+      sanitizeArticleHtml('<p>A</p>\\t<p>B</p>\\r\\n<p>C</p>'),
+    ).not.toMatch(/\\[trn]/);
+  });
+
   it('neutralise un gestionnaire d’événement', () => {
     const html = sanitizeArticleHtml('<p onclick="voler()">Texte</p>');
     expect(html).toBe('<p>Texte</p>');

@@ -87,21 +87,32 @@ export function cleanCaption(value: string) {
  * avec son contenu — n'en retirer que la balise laisserait le code en clair
  * dans l'article. */
 export function sanitizeArticleHtml(html: string) {
-  return html
-    .replace(
-      /<(script|style|iframe|object|embed|noscript|template)\b[\s\S]*?<\/\1\s*>/gi,
-      '',
-    )
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (_tag, closing, name) => {
-      const lower = String(name).toLowerCase();
-      if (!ALLOWED_TAGS.has(lower)) return '';
-      if (lower === 'br') return '<br />';
-      return closing ? `</${lower}>` : `<${lower}>`;
-    })
-    .replace(/[^\S\n]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return (
+    html
+      // Un modèle écrit parfois « \n » en toutes lettres dans le HTML, au
+      // lieu du saut de ligne que le JSON aurait porté. Laissé tel quel, il
+      // ressort en « n » isolé dans l'article : WordPress applique
+      // `wp_unslash` à ce qu'on lui confie et mange l'antislash.
+      .replace(/\\r\\n|\\n|\\r/g, '\n')
+      .replace(/\\t/g, ' ')
+      .replace(
+        /<(script|style|iframe|object|embed|noscript|template)\b[\s\S]*?<\/\1\s*>/gi,
+        '',
+      )
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(
+        /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g,
+        (_tag, closing, name) => {
+          const lower = String(name).toLowerCase();
+          if (!ALLOWED_TAGS.has(lower)) return '';
+          if (lower === 'br') return '<br />';
+          return closing ? `</${lower}>` : `<${lower}>`;
+        },
+      )
+      .replace(/[^\S\n]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  );
 }
 
 /** Les hashtags sont stockés sans dièse : `postDataForSlot` le remet. */

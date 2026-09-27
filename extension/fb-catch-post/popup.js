@@ -20,6 +20,7 @@ const els = {
 };
 let tabId = null;
 let chosen = null;
+let lastSeen = {};
 
 const say = (message, kind = '') => {
   els.status.textContent = message;
@@ -63,6 +64,7 @@ async function start() {
     say("Facebook n'a pas montré la page à ce compte.", 'error');
     return;
   }
+  lastSeen = found.seen || {};
   const usable = (found.posts || []).filter((post) => post.preview.length >= 15);
   // Sur une page photo, toujours montrer la liste : un seul bloc retenu ne
   // veut pas dire que c'est la légende.
@@ -134,7 +136,18 @@ async function choose(index) {
   if (post.imageUrl) els.preview.src = post.imageUrl;
   else els.preview.removeAttribute('src');
   els.capture.classList.remove('hidden');
-  say(post.imageUrl ? 'Texte et image relevés — vérifiez.' : 'Texte relevé, aucune image.');
+  if (post.imageUrl) {
+    say('Texte et image relevés — vérifiez.');
+  } else {
+    // Sans ce détail, « aucune image » ne dit pas si la page n'en a pas ou
+    // si elles ont toutes été écartées comme trop petites.
+    const biggest = (lastSeen.biggest || []).join('\n');
+    say(
+      'Texte relevé, aucune image retenue.' +
+        (biggest ? `\nPlus grandes vues :\n${biggest}` : ''),
+      biggest ? 'error' : '',
+    );
+  }
   refresh();
 }
 

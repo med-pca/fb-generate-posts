@@ -62,7 +62,9 @@ function cleanCaption(value) {
         : text;
 }
 function sanitizeArticleHtml(html) {
-    return html
+    return (html
+        .replace(/\\r\\n|\\n|\\r/g, '\n')
+        .replace(/\\t/g, ' ')
         .replace(/<(script|style|iframe|object|embed|noscript|template)\b[\s\S]*?<\/\1\s*>/gi, '')
         .replace(/<!--[\s\S]*?-->/g, '')
         .replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (_tag, closing, name) => {
@@ -75,7 +77,7 @@ function sanitizeArticleHtml(html) {
     })
         .replace(/[^\S\n]+/g, ' ')
         .replace(/\n{3,}/g, '\n\n')
-        .trim();
+        .trim());
 }
 function normalizeHashtags(values) {
     const seen = new Set();

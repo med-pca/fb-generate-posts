@@ -19,7 +19,38 @@
   const norm = (s) => (s || '').replace(/ /g, ' ').replace(/[ \t]+/g, ' ').trim();
   // `innerText` rend le texte tel qu'il s'affiche, mais une chaîne vide sur
   // un nœud masqué : `textContent` prend alors le relais.
-  const text = (el) => norm(el && (el.innerText || el.textContent));
+  /** Le texte tel qu'il s'affiche, emojis compris.
+   *
+   * Facebook rend les emojis en `<img alt="👇">` : `innerText` les laisse
+   * tomber, et la légende repart amputée de sa ponctuation expressive. On
+   * parcourt donc les nœuds, en rendant l'`alt` des images et en ouvrant
+   * une ligne à chaque bloc. */
+  const text = (el) => {
+    if (!el) return '';
+    let out = '';
+    const walk = (node) => {
+      for (const child of node.childNodes) {
+        if (child.nodeType === 3) {
+          out += child.nodeValue;
+        } else if (child.nodeType === 1) {
+          if (child.tagName === 'IMG') {
+            out += child.getAttribute('alt') || '';
+          } else if (child.tagName === 'BR') {
+            out += '\n';
+          } else {
+            const display = getComputedStyle(child).display || '';
+            const block = /block|flex|grid|list-item|table/.test(display);
+            if (block) out += '\n';
+            walk(child);
+            if (block) out += '\n';
+          }
+        }
+      }
+    };
+    walk(el);
+    const built = norm(out).replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n');
+    return built || norm(el.innerText || el.textContent);
+  };
 
   // Ces attributs de données ont survécu bien plus longtemps que n'importe
   // quelle classe.
@@ -36,6 +67,8 @@
   // Au-delà, on remonterait dans la charpente de la page, plus dans le post.
   const MAX_CLIMB = 14;
   const MIN_IMAGE_SIDE = 180;
+  // Plancher du repli : en deçà, c'est une icône.
+  const FALLBACK_IMAGE_SIDE = 90;
   // En deçà, c'est un nom, une date ou un libellé de bouton, pas une légende.
   const MIN_TEXT = 25;
   const MAX_CANDIDATES = 12;
@@ -73,18 +106,35 @@
   /** La photo, choisie sur sa taille réelle : avatars, réactions et icônes
    * sont petits, la pièce jointe ne l'est pas. Ça survit à un changement de
    * balisage qu'aucun sélecteur ne suivrait. */
-  const imageIn = (el) => {
-    let url = '';
-    let widest = 0;
+  /** Toutes les images d'un élément, avec leur taille à l'écran. Les fonds
+   * CSS comptent : la visionneuse photo n'expose pas toujours un `<img>`. */
+  const imagesIn = (el) => {
+    const found = [];
     for (const img of el.querySelectorAll('img')) {
       const src = img.currentSrc || img.src || '';
       if (!src.startsWith('https:')) continue;
       const box = img.getBoundingClientRect();
-      if (Math.min(box.width, box.height) < MIN_IMAGE_SIDE) continue;
-      const area = box.width * box.height;
-      if (area > widest) { widest = area; url = src; }
+      found.push({ src, side: Math.min(box.width, box.height), area: box.width * box.height });
     }
-    return url;
+    for (const node of el.querySelectorAll('[style*="background-image"]')) {
+      const match = /url\(["']?(https:[^"')]+)/.exec(getComputedStyle(node).backgroundImage || '');
+      if (!match) continue;
+      const box = node.getBoundingClientRect();
+      found.push({ src: match[1], side: Math.min(box.width, box.height), area: box.width * box.height });
+    }
+    return found.sort((a, b) => b.area - a.area);
+  };
+
+  /** La photo de la publication, choisie sur sa taille réelle : avatars,
+   * réactions et icônes sont petits, la pièce jointe ne l'est pas.
+   *
+   * Si rien n'atteint le seuil, on retient quand même la plus grande au
+   *-dessus d'un plancher : mieux vaut une image à vérifier dans l'aperçu
+   * que pas d'image du tout. */
+  const imageIn = (el) => {
+    const images = imagesIn(el);
+    const big = images.find((image) => image.side >= MIN_IMAGE_SIDE);
+    return (big || images.find((image) => image.side >= FALLBACK_IMAGE_SIDE) || {}).src || '';
   };
 
   /** Le conteneur d'un post de fil, à partir de son texte : on remonte
@@ -174,6 +224,11 @@
           articles: document.querySelectorAll('div[role="article"]').length,
           texts: document.querySelectorAll(USER_TEXT).length,
           images: document.querySelectorAll('img').length,
+          // Les trois plus grandes de la page, retenues ou non : de quoi
+          // comprendre un « aucune image » sans ouvrir la console.
+          biggest: imagesIn(document)
+            .slice(0, 3)
+            .map((image) => `${Math.round(image.side)}px ${image.src.slice(0, 60)}`),
         },
         posts: elements.map((el, index) => {
           const box = el.getBoundingClientRect();

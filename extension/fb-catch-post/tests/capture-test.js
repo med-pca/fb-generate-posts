@@ -43,6 +43,8 @@ const SIZES = {
   'photo-potroast': { w: 500, h: 400 }, 'photo-pool': { w: 520, h: 420 },
   'avatar-potroast': { w: 40, h: 40 }, 'avatar-pool': { w: 40, h: 40 },
   'reaction-potroast': { w: 18, h: 18 }, 'reaction-pool': { w: 18, h: 18 },
+  'grande-photo': { w: 700, h: 900 },
+  '👇': { w: 16, h: 16 }, '💬': { w: 16, h: 16 },
   _default: { w: 600, h: 500 },
 };
 
@@ -123,6 +125,32 @@ check('page non bloquée', listed.blocked === false, listed.blocked);
     listed.posts.length === 2
       && !listed.posts.some((p) => p.preview.includes('commentaire')),
     listed.posts.map((p) => p.preview.slice(0, 30)));
+
+  // ─── Le cas réel : une page photo dont le texte porte des emojis rendus
+  // en <img alt> et dont la grande photo doit être retrouvée.
+  const EMOJI = `<!doctype html><html><body>
+    <div class="viewer"><img alt="grande-photo" src="https://scontent.test/hopital.jpg"></div>
+    <div class="side">
+      <div dir="auto">Can You Spot the Hidden Mistake in This Hospital Picture?....<img alt="👇" src="https://static.test/e1.png"><img alt="👇" src="https://static.test/e2.png"><img alt="💬" src="https://static.test/e3.png"></div>
+    </div>
+  </body></html>`;
+  const emoji = load(EMOJI, 'https://web.facebook.com/photo/?fbid=122298425180017077&set=gm.161286034371921');
+  const emojiIndex = emoji.listed.posts.findIndex((p) => p.preview.includes('Hidden Mistake'));
+  const withEmoji = await emoji.window.__fcpCatch.read(emojiIndex);
+  /** Facebook rend les emojis en <img alt> : `innerText` les perd, et la
+   * légende repartait amputée de sa ponctuation expressive. */
+  check('les emojis rendus en images sont conservés',
+    withEmoji.caption === 'Can You Spot the Hidden Mistake in This Hospital Picture?....👇👇💬',
+    withEmoji.caption);
+  check('la grande photo est retrouvée sur une page photo',
+    withEmoji.imageUrl === 'https://scontent.test/hopital.jpg', withEmoji.imageUrl);
+  check('les petites images d’emoji ne sont pas prises pour la photo',
+    !withEmoji.imageUrl.includes('static.test'), withEmoji.imageUrl);
+  check('la liste annonce bien une image',
+    emoji.listed.posts[emojiIndex].hasImage === true, emoji.listed.posts[emojiIndex]);
+  check('le diagnostic montre les plus grandes images',
+    Array.isArray(emoji.listed.seen.biggest) && emoji.listed.seen.biggest.length > 0,
+    emoji.listed.seen);
 
   const wall = load('<!doctype html><html><body><div>Connectez-vous pour continuer</div></body></html>');
   check('mur de connexion signalé', wall.listed.blocked === true, wall.listed);
