@@ -72,6 +72,12 @@
   // En deçà, c'est un nom, une date ou un libellé de bouton, pas une légende.
   const MIN_TEXT = 25;
   const MAX_CANDIDATES = 12;
+  // Ce qui appartient à l'interface de Facebook, jamais à une publication.
+  const CHROME =
+    '[role="button"], [role="navigation"], [role="menu"], [role="menuitem"],' +
+    '[role="banner"], [role="complementary"], [role="listbox"], [role="tablist"],' +
+    'nav, header, footer';
+  const NOTIFICATIONS = /notification|notifications|إشعار|benachrichtigung/i;
 
   // Sur une page photo, l'identité de la publication est DANS la requête
   // (`?fbid=...&set=...`) : tout couper la ferait disparaître. On ne retire
@@ -173,7 +179,12 @@
    * recopierait le texte de ses enfants. */
   const textBlocks = () => {
     const all = Array.from(document.querySelectorAll(USER_TEXT))
-      .filter((el) => !el.closest('[role="button"], nav, header, footer'))
+      // La barre du haut, les menus et surtout le panneau de notifications
+      // sont pleins de phrases : sans les écarter, « John McCormick a
+      // signalé un contenu… » se retrouve proposé comme légende.
+      .filter((el) => !el.closest(CHROME))
+      .filter((el) => !el.closest('[aria-label]')?.getAttribute('aria-label')
+        ?.match(NOTIFICATIONS))
       .filter((el) => text(el).length >= MIN_TEXT);
     const innermost = all.filter((el) => !all.some((other) => other !== el && el.contains(other)));
     const seen = new Set();
@@ -184,7 +195,13 @@
       seen.add(body);
       kept.push(el);
     }
-    return kept.slice(0, MAX_CANDIDATES);
+    // Ce qu'on regarde d'abord : un bloc à l'écran a bien plus de chances
+    // d'être la légende visée qu'un texte resté hors champ.
+    const visible = (el) => {
+      const box = el.getBoundingClientRect();
+      return box.top < window.innerHeight && box.bottom > 0 ? 0 : 1;
+    };
+    return kept.sort((a, b) => visible(a) - visible(b)).slice(0, MAX_CANDIDATES);
   };
 
   /** Ce que le popup propose : les posts si la page en montre, sinon les

@@ -25,6 +25,9 @@ function makeHarness({ matched, claimed = [] }: Harness) {
         id: 'post_1',
         targets: claimed.length ? [{ id: 'target_1' }] : [],
       })),
+      // La portée passe par `findFirst` : un `findUnique` ne peut pas
+      // porter de condition de propriétaire.
+      findFirst: jest.fn(() => Promise.resolve({ id: 'post_1' })),
       delete: jest.fn(async () => ({ id: 'post_1' })),
     },
     $transaction: jest.fn(async (cb: any) => cb(tx)),

@@ -5,11 +5,11 @@ export declare class GenerationController {
     constructor(generation: GenerationService);
     generate(dto: GeneratePostsDto): Promise<({
         targets: {
-            status: import("@prisma/client").$Enums.TargetStatus;
             id: string;
-            publishedAt: Date | null;
+            status: import("@prisma/client").$Enums.TargetStatus;
             createdAt: Date;
             updatedAt: Date;
+            publishedAt: Date | null;
             claimedAt: Date | null;
             claimExpiresAt: Date | null;
             consumedAt: Date | null;
@@ -22,16 +22,16 @@ export declare class GenerationController {
             postId: string;
         }[];
     } & {
+        id: string;
+        status: import("@prisma/client").$Enums.PostStatus;
+        createdAt: Date;
+        updatedAt: Date;
         profileId: string;
         description: string;
         title: string;
-        status: import("@prisma/client").$Enums.PostStatus;
-        id: string;
         externalId: string | null;
-        rawData: import("@prisma/client/runtime/library").JsonValue | null;
-        createdAt: Date;
-        updatedAt: Date;
         url: string | null;
+        rawData: import("@prisma/client/runtime/library").JsonValue | null;
         imageUrl: string | null;
         delay: number;
         sourceType: import("@prisma/client").$Enums.SourceType;

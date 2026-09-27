@@ -13,6 +13,8 @@ import { CommentJobItemDto } from './dto/comment-job-item.dto';
 import { LinkUpdatedJobItemDto } from './dto/link-updated-job-item.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
 import { SettingsService } from '../settings/settings.service';
+import type { CurrentUser } from '../auth/current-user';
+import { jobWhere, profileWhere, scopeOf } from '../auth/scope';
 
 type LockedTarget = { id: string; postId: string };
 
@@ -77,17 +79,42 @@ export class JobsService {
   ) {}
 
   /** Les profils qu'un automate peut traiter, sans droits admin. */
-  listAutomationProfiles() {
+  listAutomationProfiles(acting: CurrentUser | null = null) {
     return this.prisma.profile.findMany({
-      where: { status: 'ACTIVE', externalId: { not: null } },
+      where: {
+        status: 'ACTIVE',
+        externalId: { not: null },
+        ...profileWhere(scopeOf(acting)),
+      },
       select: { id: true, name: true, externalId: true },
       orderBy: { createdAt: 'asc' },
     });
   }
 
-  async claim(dto: ClaimJobDto): Promise<ClaimedJob | EmptyClaim> {
+  /** Le lot doit appartenir à l'appelant. Sans ce contrôle, une clé de
+   * compte piloterait le lot d'un autre en devinant son identifiant : les
+   * routes du parcours ne prennent qu'un `jobId`. */
+  private async reachableJob(jobId: string, acting: CurrentUser | null) {
+    const job = await this.prisma.publicationJob.findFirst({
+      where: { id: jobId, ...jobWhere(scopeOf(acting)) },
+      select: { id: true },
+    });
+    if (!job) throw new NotFoundException('Job introuvable');
+    return job;
+  }
+
+  async claim(
+    dto: ClaimJobDto,
+    acting: CurrentUser | null = null,
+  ): Promise<ClaimedJob | EmptyClaim> {
+    // La clé d'un compte ne réserve que sur ses profils : sans cela, un
+    // automate atteindrait la file de publication d'un autre.
     const profile = await this.prisma.profile.findFirst({
-      where: { id: dto.profileId, status: 'ACTIVE' },
+      where: {
+        id: dto.profileId,
+        status: 'ACTIVE',
+        ...profileWhere(scopeOf(acting)),
+      },
     });
     if (!profile) throw new NotFoundException('Profil introuvable');
 
@@ -213,12 +240,16 @@ export class JobsService {
   /** Réserve un job par profil, pour autant de threads que de profils rendus.
    * Un profil déjà occupé est écarté : deux threads ne doivent jamais piloter
    * le même compte en même temps. */
-  async claimBatch({ profileExternalIds, limit }: ClaimBatchDto) {
+  async claimBatch(
+    { profileExternalIds, limit }: ClaimBatchDto,
+    acting: CurrentUser | null = null,
+  ) {
     const requested = [...new Set(profileExternalIds ?? [])];
     const profiles = await this.prisma.profile.findMany({
       where: {
         status: 'ACTIVE',
         externalId: requested.length ? { in: requested } : { not: null },
+        ...profileWhere(scopeOf(acting)),
       },
       select: { id: true, name: true, externalId: true },
       orderBy: { createdAt: 'asc' },
@@ -232,7 +263,11 @@ export class JobsService {
       profiles.map(async (profile): Promise<BatchEntry> => {
         const externalId = profile.externalId ?? '';
         try {
-          const claim = await this.claimByProfileExternalId(externalId);
+          const claim = await this.claimByProfileExternalId(
+            externalId,
+            undefined,
+            acting,
+          );
           if ('jobId' in claim) return { status: 'claimed', ...claim };
           return {
             status: claim.activeJobId ? 'busy' : 'empty',
@@ -315,9 +350,14 @@ export class JobsService {
   async claimByProfileExternalId(
     profileExternalId: string,
     groupExternalId?: string,
+    acting: CurrentUser | null = null,
   ): Promise<ClaimedJob | EmptyClaim> {
     const profile = await this.prisma.profile.findFirst({
-      where: { externalId: profileExternalId, status: 'ACTIVE' },
+      where: {
+        externalId: profileExternalId,
+        status: 'ACTIVE',
+        ...profileWhere(scopeOf(acting)),
+      },
     });
     if (!profile) {
       throw new NotFoundException(
@@ -389,21 +429,32 @@ export class JobsService {
 
     const shuffled = groups.sort(() => Math.random() - 0.5);
     for (const group of shuffled) {
-      const result = await this.claim({
-        profileId: profile.id,
-        groupId: group.id,
-      });
+      const result = await this.claim(
+        { profileId: profile.id, groupId: group.id },
+        acting,
+      );
       // `jobId` distingue une réservation aboutie d'un groupe déjà vidé.
       if ('jobId' in result) return result;
     }
     return { job: null, posts: [], message: 'Aucun post disponible' };
   }
 
-  markConsumed(jobId: string, postId: string) {
+  async markConsumed(
+    jobId: string,
+    postId: string,
+    acting: CurrentUser | null = null,
+  ) {
+    await this.reachableJob(jobId, acting);
     return this.updateItem(jobId, postId, TargetStatus.CONSUMED, {});
   }
 
-  markPublished(jobId: string, postId: string, dto: PublishJobItemDto) {
+  async markPublished(
+    jobId: string,
+    postId: string,
+    dto: PublishJobItemDto,
+    acting: CurrentUser | null = null,
+  ) {
+    await this.reachableJob(jobId, acting);
     const publishedAt = dto.publishedAt
       ? new Date(dto.publishedAt)
       : new Date();
@@ -413,13 +464,20 @@ export class JobsService {
     });
   }
 
-  markFailed(jobId: string, postId: string, error: string) {
+  async markFailed(
+    jobId: string,
+    postId: string,
+    error: string,
+    acting: CurrentUser | null = null,
+  ) {
+    await this.reachableJob(jobId, acting);
     return this.updateItem(jobId, postId, TargetStatus.FAILED, { error });
   }
 
   /** Clôture le lot. C'est ici que s'ouvre la seconde phase : une fois tout
    * validé, les commentaires déjà posés peuvent recevoir l'URL. */
-  async complete(jobId: string) {
+  async complete(jobId: string, acting: CurrentUser | null = null) {
+    await this.reachableJob(jobId, acting);
     const job = await this.prisma.publicationJob.findUnique({
       where: { id: jobId },
       include: { items: { include: { post: { select: { url: true } } } } },
@@ -489,7 +547,13 @@ export class JobsService {
   /** Étape 2 : le commentaire est posé sous le post, avec la description
    * seule. Son identifiant est indispensable — c'est lui qu'on modifiera pour
    * y placer l'URL une fois le lot validé. */
-  async markCommented(jobId: string, postId: string, dto: CommentJobItemDto) {
+  async markCommented(
+    jobId: string,
+    postId: string,
+    dto: CommentJobItemDto,
+    acting: CurrentUser | null = null,
+  ) {
+    await this.reachableJob(jobId, acting);
     const item = await this.prisma.publicationJobItem.findUnique({
       where: { jobId_postId: { jobId, postId } },
       include: { job: true, postTarget: true },
@@ -551,7 +615,8 @@ export class JobsService {
   /** Étape 3 : les URL à poser, une fois le lot validé. Tant que le job est
    * réservé, rien n'est rendu — c'est la règle « après la validation de
    * tous ». */
-  async linkUpdates(jobId: string) {
+  async linkUpdates(jobId: string, acting: CurrentUser | null = null) {
+    await this.reachableJob(jobId, acting);
     const job = await this.prisma.publicationJob.findUnique({
       where: { id: jobId },
       include: {
@@ -589,12 +654,14 @@ export class JobsService {
   async pendingLinkUpdates(
     profileExternalId: string | undefined,
     limit: number,
+    acting: CurrentUser | null = null,
   ) {
     const jobs = await this.prisma.publicationJob.findMany({
       // Pas seulement AWAITING_LINK : un job publié et commenté puis expiré
       // faute de `complete` laisse lui aussi des commentaires sans URL.
       where: {
         status: { not: JobStatus.CLAIMED },
+        ...jobWhere(scopeOf(acting)),
         ...(profileExternalId
           ? { profile: { externalId: profileExternalId } }
           : {}),
@@ -632,7 +699,9 @@ export class JobsService {
     jobId: string,
     postId: string,
     dto: LinkUpdatedJobItemDto,
+    acting: CurrentUser | null = null,
   ) {
+    await this.reachableJob(jobId, acting);
     const item = await this.prisma.publicationJobItem.findUnique({
       where: { jobId_postId: { jobId, postId } },
       include: { job: true, post: { select: { url: true } } },

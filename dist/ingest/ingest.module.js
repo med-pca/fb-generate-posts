@@ -9,6 +9,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.IngestModule = void 0;
 const common_1 = require("@nestjs/common");
 const llm_module_1 = require("../llm/llm.module");
+const sites_module_1 = require("../sites/sites.module");
 const ingest_controller_1 = require("./ingest.controller");
 const ingest_service_1 = require("./ingest.service");
 const rewriter_service_1 = require("./rewriter.service");
@@ -20,7 +21,7 @@ let IngestModule = class IngestModule {
 exports.IngestModule = IngestModule;
 exports.IngestModule = IngestModule = __decorate([
     (0, common_1.Module)({
-        imports: [llm_module_1.LlmModule],
+        imports: [llm_module_1.LlmModule, sites_module_1.SitesModule],
         controllers: [ingest_controller_1.IngestController, scrape_controller_1.ScrapeController],
         providers: [
             ingest_service_1.IngestService,

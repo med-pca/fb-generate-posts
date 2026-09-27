@@ -24,7 +24,7 @@ exports.ImportArticleDto = ImportArticleDto;
 __decorate([
     (0, swagger_1.ApiProperty)({
         example: 'https://pulserecipe.com/recipes/garlic-herb-pork-tenderloin-caramelized-apple-reduction',
-        description: "URL publique de l’article (/recipes/...) ou URL directe de son API JSON",
+        description: 'URL publique de l’article (/recipes/...) ou URL directe de son API JSON',
     }),
     (0, class_validator_1.IsUrl)({ protocols: ['https'], require_protocol: true }),
     __metadata("design:type", String)

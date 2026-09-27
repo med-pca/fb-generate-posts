@@ -1,36 +1,39 @@
 import { PrismaService } from '../prisma/prisma.service';
+import type { CurrentUser } from '../auth/current-user';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 export declare class ProfilesService {
     private readonly prisma;
     constructor(prisma: PrismaService);
-    create(dto: CreateProfileDto): import("@prisma/client").Prisma.Prisma__ProfileClient<{
-        status: import("@prisma/client").$Enums.RecordStatus;
+    create(dto: CreateProfileDto, owner: CurrentUser | null): import("@prisma/client").Prisma.Prisma__ProfileClient<{
+        name: string;
         id: string;
-        externalId: string | null;
+        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
+        ownerId: string | null;
+        externalId: string | null;
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
-    findAll({ page, limit }: PaginationDto): Promise<{
+    findAll({ page, limit }: PaginationDto, acting: CurrentUser | null): Promise<{
         data: ({
             _count: {
-                posts: number;
                 profileGroups: number;
+                posts: number;
             };
         } & {
-            status: import("@prisma/client").$Enums.RecordStatus;
+            name: string;
             id: string;
-            externalId: string | null;
+            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
+            ownerId: string | null;
+            externalId: string | null;
             defaultImageUrl: string | null;
             minPostsPerJob: number;
             maxPostsPerJob: number;
@@ -44,69 +47,74 @@ export declare class ProfilesService {
             pages: number;
         };
     }>;
-    findOne(id: string): import("@prisma/client").Prisma.Prisma__ProfileClient<{
+    findOne(id: string, acting: CurrentUser | null): Promise<{
         _count: {
             posts: number;
             publicationJobs: number;
         };
         profileGroups: ({
             group: {
-                status: import("@prisma/client").$Enums.RecordStatus;
+                name: string;
                 id: string;
-                externalId: string | null;
+                status: import("@prisma/client").$Enums.RecordStatus;
                 createdAt: Date;
                 updatedAt: Date;
-                name: string;
+                ownerId: string | null;
+                externalId: string | null;
                 url: string;
             };
         } & {
-            profileId: string;
-            status: import("@prisma/client").$Enums.RecordStatus;
             id: string;
+            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
             updatedAt: Date;
+            profileId: string;
             groupId: string;
             joinStatus: import("@prisma/client").$Enums.JoinStatus;
             joinCheckedAt: Date | null;
             joinError: string | null;
         })[];
     } & {
-        status: import("@prisma/client").$Enums.RecordStatus;
+        name: string;
         id: string;
-        externalId: string | null;
+        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
+        ownerId: string | null;
+        externalId: string | null;
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
-    update(id: string, dto: UpdateProfileDto): import("@prisma/client").Prisma.Prisma__ProfileClient<{
-        status: import("@prisma/client").$Enums.RecordStatus;
+    }>;
+    private reachable;
+    update(id: string, dto: UpdateProfileDto, acting: CurrentUser | null): Promise<{
+        name: string;
         id: string;
-        externalId: string | null;
+        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
+        ownerId: string | null;
+        externalId: string | null;
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
-    remove(id: string): import("@prisma/client").Prisma.Prisma__ProfileClient<{
-        status: import("@prisma/client").$Enums.RecordStatus;
+    }>;
+    remove(id: string, acting: CurrentUser | null): Promise<{
+        name: string;
         id: string;
-        externalId: string | null;
+        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
+        ownerId: string | null;
+        externalId: string | null;
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+    }>;
 }

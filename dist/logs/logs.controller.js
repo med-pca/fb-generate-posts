@@ -17,6 +17,7 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
+const current_user_1 = require("../auth/current-user");
 const automation_auth_guard_1 = require("../auth/automation-auth.guard");
 const create_log_dto_1 = require("./dto/create-log.dto");
 const query_logs_dto_1 = require("./dto/query-logs.dto");
@@ -30,8 +31,8 @@ let LogsController = class LogsController {
     create(dto) {
         return this.logs.create(dto);
     }
-    findAll(profileId) {
-        return this.logs.findAll(profileId);
+    findAll(acting, profileId) {
+        return this.logs.findAll(profileId, acting);
     }
 };
 exports.LogsController = LogsController;
@@ -47,9 +48,10 @@ __decorate([
     openapi.ApiQuery({ name: "profileId", required: false }),
     (0, common_1.Get)(),
     openapi.ApiResponse({ status: 200, type: Object }),
-    __param(0, (0, common_1.Query)('profileId')),
+    __param(0, (0, current_user_1.ActingUser)()),
+    __param(1, (0, common_1.Query)('profileId')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", void 0)
 ], LogsController.prototype, "findAll", null);
 exports.LogsController = LogsController = __decorate([
@@ -64,11 +66,11 @@ let LogsAdminController = class LogsAdminController {
     constructor(logs) {
         this.logs = logs;
     }
-    search(query) {
-        return this.logs.search(query);
+    search(query, acting) {
+        return this.logs.search(query, acting);
     }
-    summary(query) {
-        return this.logs.summary(query);
+    summary(query, acting) {
+        return this.logs.summary(query, acting);
     }
 };
 exports.LogsAdminController = LogsAdminController;
@@ -79,8 +81,9 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Query)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [query_logs_dto_1.QueryLogsDto]),
+    __metadata("design:paramtypes", [query_logs_dto_1.QueryLogsDto, Object]),
     __metadata("design:returntype", void 0)
 ], LogsAdminController.prototype, "search", null);
 __decorate([
@@ -90,8 +93,9 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Query)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [logs_summary_dto_1.LogsSummaryDto]),
+    __metadata("design:paramtypes", [logs_summary_dto_1.LogsSummaryDto, Object]),
     __metadata("design:returntype", void 0)
 ], LogsAdminController.prototype, "summary", null);
 exports.LogsAdminController = LogsAdminController = __decorate([

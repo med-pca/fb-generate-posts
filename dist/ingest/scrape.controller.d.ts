@@ -1,3 +1,4 @@
+import type { CurrentUser } from '../auth/current-user';
 import { CaptureIngestDto } from './dto/capture-ingest.dto';
 import { FailScrapeDto } from './dto/fail-scrape.dto';
 import { ScrapeResultDto } from './dto/scrape-result.dto';
@@ -5,13 +6,13 @@ import { IngestService } from './ingest.service';
 export declare class ScrapeController {
     private readonly ingest;
     constructor(ingest: IngestService);
-    capture(dto: CaptureIngestDto): Promise<{
+    capture(dto: CaptureIngestDto, acting: CurrentUser | null): Promise<{
         accepted: boolean;
         ingestId: string;
         status: import("@prisma/client").$Enums.IngestStatus;
         followUrl: string;
     }>;
-    claim(profileExternalId?: string): Promise<{
+    claim(acting: CurrentUser | null, profileExternalId?: string): Promise<{
         scrape: null;
         message: string;
     } | {
@@ -22,17 +23,18 @@ export declare class ScrapeController {
         };
         message?: undefined;
     }>;
-    result(id: string, dto: ScrapeResultDto): Promise<{
+    result(id: string, dto: ScrapeResultDto, acting: CurrentUser | null): Promise<{
         accepted: boolean;
         ingestId: string;
         status: import("@prisma/client").$Enums.IngestStatus;
     }>;
-    failed(id: string, dto: FailScrapeDto): Promise<{
-        groupIds: string[];
-        status: import("@prisma/client").$Enums.IngestStatus;
+    failed(id: string, dto: FailScrapeDto, acting: CurrentUser | null): Promise<{
         id: string;
+        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
         updatedAt: Date;
+        groupIds: string[];
+        ownerId: string | null;
         articleId: string | null;
         claimedAt: Date | null;
         claimExpiresAt: Date | null;

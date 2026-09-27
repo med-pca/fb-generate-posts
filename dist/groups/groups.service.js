@@ -12,22 +12,26 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.GroupsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const scope_1 = require("../auth/scope");
 const paginated_1 = require("../common/paginated");
 let GroupsService = class GroupsService {
     prisma;
     constructor(prisma) {
         this.prisma = prisma;
     }
-    create(profileId, dto) {
+    async create(profileId, dto, owner) {
+        await this.reachableProfile(profileId, owner);
         return this.prisma.group.create({
             data: {
                 ...dto,
+                ownerId: owner?.id ?? null,
                 profiles: { create: { profileId } },
             },
             include: { profiles: true },
         });
     }
-    async findAll(profileId) {
+    async findAll(profileId, acting) {
+        await this.reachableProfile(profileId, acting);
         const links = await this.prisma.profileGroup.findMany({
             where: { profileId, status: 'ACTIVE' },
             include: { group: true },
@@ -35,7 +39,9 @@ let GroupsService = class GroupsService {
         });
         return links.map((link) => link.group);
     }
-    link(profileId, groupId) {
+    async link(profileId, groupId, acting) {
+        await this.reachableProfile(profileId, acting);
+        await this.reachableGroup(groupId, acting);
         return this.prisma.profileGroup.upsert({
             where: { profileId_groupId: { profileId, groupId } },
             update: { status: 'ACTIVE' },
@@ -43,14 +49,17 @@ let GroupsService = class GroupsService {
             include: { profile: true, group: true },
         });
     }
-    unlink(profileId, groupId) {
+    async unlink(profileId, groupId, acting) {
+        await this.reachableProfile(profileId, acting);
         return this.prisma.profileGroup.delete({
             where: { profileId_groupId: { profileId, groupId } },
         });
     }
-    async findCatalog({ page, limit }) {
+    async findCatalog({ page, limit }, acting) {
+        const scoped = (0, scope_1.groupWhere)((0, scope_1.scopeOf)(acting));
         const [groups, total] = await this.prisma.$transaction([
             this.prisma.group.findMany({
+                where: scoped,
                 include: {
                     profiles: { include: { profile: true } },
                     _count: { select: { targets: true } },
@@ -59,7 +68,7 @@ let GroupsService = class GroupsService {
                 skip: (page - 1) * limit,
                 take: limit,
             }),
-            this.prisma.group.count(),
+            this.prisma.group.count({ where: scoped }),
         ]);
         const stocks = await this.prisma.postTarget.groupBy({
             by: ['groupId'],
@@ -77,10 +86,46 @@ let GroupsService = class GroupsService {
         }));
         return (0, paginated_1.paginated)(data, total, page, limit);
     }
-    update(id, dto) {
+    async reachableGroup(id, acting) {
+        const group = await this.prisma.group.findFirst({
+            where: { id, ...(0, scope_1.groupWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true },
+        });
+        if (!group)
+            throw new common_1.NotFoundException('Groupe introuvable');
+        return group;
+    }
+    async ownedGroup(id, acting) {
+        const group = await this.prisma.group.findFirst({
+            where: { id, ...(0, scope_1.groupManageWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true },
+        });
+        if (!group) {
+            const shared = await this.prisma.group.findFirst({
+                where: { id, ...(0, scope_1.groupWhere)((0, scope_1.scopeOf)(acting)) },
+                select: { id: true },
+            });
+            throw shared
+                ? new common_1.ForbiddenException('Ce groupe vous est partagé pour publier : seul son propriétaire le modifie')
+                : new common_1.NotFoundException('Groupe introuvable');
+        }
+        return group;
+    }
+    async reachableProfile(id, acting) {
+        const profile = await this.prisma.profile.findFirst({
+            where: { id, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true },
+        });
+        if (!profile)
+            throw new common_1.NotFoundException('Profil introuvable');
+        return profile;
+    }
+    async update(id, dto, acting) {
+        await this.ownedGroup(id, acting);
         return this.prisma.group.update({ where: { id }, data: dto });
     }
-    remove(id) {
+    async remove(id, acting) {
+        await this.ownedGroup(id, acting);
         return this.prisma.group.delete({ where: { id } });
     }
     async findAutomationProfile(profileExternalId) {

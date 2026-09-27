@@ -24,6 +24,9 @@ const articles_module_1 = require("./articles/articles.module");
 const settings_module_1 = require("./settings/settings.module");
 const auth_module_1 = require("./auth/auth.module");
 const ingest_module_1 = require("./ingest/ingest.module");
+const sites_module_1 = require("./sites/sites.module");
+const users_module_1 = require("./users/users.module");
+const access_module_1 = require("./access/access.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -44,6 +47,9 @@ exports.AppModule = AppModule = __decorate([
             settings_module_1.SettingsModule,
             wordpress_module_1.WordpressModule,
             ingest_module_1.IngestModule,
+            sites_module_1.SitesModule,
+            users_module_1.UsersModule,
+            access_module_1.AccessModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],

@@ -23,7 +23,9 @@ let AuthController = class AuthController {
     constructor(auth) {
         this.auth = auth;
     }
-    login(dto) { return this.auth.login(dto); }
+    login(dto) {
+        return this.auth.login(dto);
+    }
 };
 exports.AuthController = AuthController;
 __decorate([

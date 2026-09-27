@@ -29,9 +29,10 @@ let WordpressWriterService = class WordpressWriterService {
         this.config = config;
     }
     async deposit(input) {
-        const key = this.config.get('WORDPRESS_API_KEY');
+        const key = input.apiKey || this.config.get('WORDPRESS_API_KEY');
         if (!key) {
-            throw new common_1.ServiceUnavailableException('WORDPRESS_API_KEY doit être configuré pour déposer un article');
+            throw new common_1.ServiceUnavailableException(`Aucune clé pour ${input.siteUrl} : la renseigner sur le site, ` +
+                'ou configurer WORDPRESS_API_KEY');
         }
         const pages = Number(this.config.get('ARTICLE_PAGES') ?? DEFAULT_PAGES);
         const contentHtml = (0, paginate_1.paginateHtml)(input.article.contentHtml, Number.isFinite(pages) ? pages : DEFAULT_PAGES, input.language);

@@ -5,6 +5,8 @@ import { CreateLogDto } from './dto/create-log.dto';
 import { QueryLogsDto } from './dto/query-logs.dto';
 import { LogsSummaryDto } from './dto/logs-summary.dto';
 import { paginated } from '../common/paginated';
+import type { CurrentUser } from '../auth/current-user';
+import { logWhere, scopeOf, seesEverything } from '../auth/scope';
 
 /** Événements qui appellent une vérification manuelle même sans niveau ERROR.
  * `CLAIM_LOST` signale un post peut-être publié sans trace en base : il ne doit
@@ -29,9 +31,9 @@ export class LogsService {
     });
   }
 
-  findAll(profileId?: string) {
+  findAll(profileId: string | undefined, acting: CurrentUser | null) {
     return this.prisma.activityLog.findMany({
-      where: profileId ? { profileId } : undefined,
+      where: this.scoped(profileId ? { profileId } : {}, acting),
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
@@ -39,8 +41,11 @@ export class LogsService {
 
   /** Lecture filtrée et paginée, avec le nom du profil, du groupe et du post :
    * un identifiant seul ne permet de décider de rien. */
-  async search({ page, limit, ...filters }: QueryLogsDto) {
-    const where = this.buildWhere(filters);
+  async search(
+    { page, limit, ...filters }: QueryLogsDto,
+    acting: CurrentUser | null,
+  ) {
+    const where = this.scoped(this.buildWhere(filters), acting);
     const [data, total] = await this.prisma.$transaction([
       this.prisma.activityLog.findMany({
         where,
@@ -56,17 +61,24 @@ export class LogsService {
 
   /** Ce qu'il faut regarder avant d'agir : le volume par niveau, les
    * événements dominants, les profils qui échouent et les incidents ouverts. */
-  async summary({ hours, profileId }: LogsSummaryDto) {
+  async summary(
+    { hours, profileId }: LogsSummaryDto,
+    acting: CurrentUser | null,
+  ) {
     const since = new Date(Date.now() - hours * 3_600_000);
-    const where: Prisma.ActivityLogWhereInput = {
-      createdAt: { gte: since },
-      ...(profileId ? { profileId } : {}),
-    };
+    const where = this.scoped(
+      { createdAt: { gte: since }, ...(profileId ? { profileId } : {}) },
+      acting,
+    );
     const incidentWhere: Prisma.ActivityLogWhereInput = {
-      ...where,
-      OR: [
-        { level: LogLevel.ERROR },
-        { eventType: { in: INCIDENT_EVENT_TYPES } },
+      AND: [
+        where,
+        {
+          OR: [
+            { level: LogLevel.ERROR },
+            { eventType: { in: INCIDENT_EVENT_TYPES } },
+          ],
+        },
       ],
     };
 
@@ -229,6 +241,19 @@ export class LogsService {
 
   private emptyLevels(): Record<LogLevel, number> {
     return { DEBUG: 0, INFO: 0, WARN: 0, ERROR: 0 };
+  }
+
+  /** Combine la portée et les filtres par `AND`.
+   *
+   * Les deux se servent de `OR` — la recherche d'un côté, « mon profil ou
+   * mon groupe » de l'autre. Les fusionner à plat ferait disparaître l'un
+   * des deux, et c'est la portée qu'on perdrait. */
+  private scoped(
+    where: Prisma.ActivityLogWhereInput,
+    acting: CurrentUser | null,
+  ): Prisma.ActivityLogWhereInput {
+    const scope = scopeOf(acting);
+    return seesEverything(scope) ? where : { AND: [where, logWhere(scope)] };
   }
 
   private buildWhere(

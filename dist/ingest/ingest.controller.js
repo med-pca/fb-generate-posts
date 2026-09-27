@@ -17,6 +17,7 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
+const current_user_1 = require("../auth/current-user");
 const pagination_dto_1 = require("../common/dto/pagination.dto");
 const create_ingest_dto_1 = require("./dto/create-ingest.dto");
 const scrape_result_dto_1 = require("./dto/scrape-result.dto");
@@ -26,24 +27,24 @@ let IngestController = class IngestController {
     constructor(ingest) {
         this.ingest = ingest;
     }
-    create(dto) {
-        return this.ingest.create(dto);
+    create(dto, acting) {
+        return this.ingest.create(dto, acting);
     }
-    findAll(pagination) {
-        return this.ingest.findAll(pagination);
+    findAll(pagination, acting) {
+        return this.ingest.findAll(pagination, acting);
     }
-    findOne(id) {
-        return this.ingest.findOne(id);
+    findOne(id, acting) {
+        return this.ingest.findOne(id, acting);
     }
-    async scrapeResult(id, dto) {
-        await this.ingest.submitScrape(id, dto);
+    async scrapeResult(id, dto, acting) {
+        await this.ingest.submitScrape(id, dto, acting);
         return this.ingest.advance(id);
     }
-    retry(id) {
-        return this.ingest.retry(id);
+    retry(id, acting) {
+        return this.ingest.retry(id, acting);
     }
-    remove(id) {
-        return this.ingest.remove(id);
+    remove(id, acting) {
+        return this.ingest.remove(id, acting);
     }
 };
 exports.IngestController = IngestController;
@@ -56,24 +57,27 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [create_ingest_dto_1.CreateIngestDto]),
+    __metadata("design:paramtypes", [create_ingest_dto_1.CreateIngestDto, Object]),
     __metadata("design:returntype", void 0)
 ], IngestController.prototype, "create", null);
 __decorate([
     (0, common_1.Get)(),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Query)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [pagination_dto_1.PaginationDto]),
+    __metadata("design:paramtypes", [pagination_dto_1.PaginationDto, Object]),
     __metadata("design:returntype", void 0)
 ], IngestController.prototype, "findAll", null);
 __decorate([
     (0, common_1.Get)(':id'),
     openapi.ApiResponse({ status: 200, type: Object }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], IngestController.prototype, "findOne", null);
 __decorate([
@@ -86,8 +90,9 @@ __decorate([
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, scrape_result_dto_1.ScrapeResultDto]),
+    __metadata("design:paramtypes", [String, scrape_result_dto_1.ScrapeResultDto, Object]),
     __metadata("design:returntype", Promise)
 ], IngestController.prototype, "scrapeResult", null);
 __decorate([
@@ -97,16 +102,18 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], IngestController.prototype, "retry", null);
 __decorate([
     (0, common_1.Delete)(':id'),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], IngestController.prototype, "remove", null);
 exports.IngestController = IngestController = __decorate([

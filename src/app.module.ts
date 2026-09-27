@@ -15,6 +15,9 @@ import { ArticlesModule } from './articles/articles.module';
 import { SettingsModule } from './settings/settings.module';
 import { AuthModule } from './auth/auth.module';
 import { IngestModule } from './ingest/ingest.module';
+import { SitesModule } from './sites/sites.module';
+import { UsersModule } from './users/users.module';
+import { AccessModule } from './access/access.module';
 
 @Module({
   imports: [
@@ -32,6 +35,9 @@ import { IngestModule } from './ingest/ingest.module';
     SettingsModule,
     WordpressModule,
     IngestModule,
+    SitesModule,
+    UsersModule,
+    AccessModule,
   ],
   controllers: [AppController],
   providers: [AppService],

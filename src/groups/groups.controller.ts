@@ -11,6 +11,8 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
+import { ActingUser } from '../auth/current-user';
+import type { CurrentUser } from '../auth/current-user';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { GroupsService } from './groups.service';
 import { UpdateGroupDto } from './dto/update-group.dto';
@@ -24,34 +26,47 @@ export class GroupsController {
   constructor(private readonly groups: GroupsService) {}
 
   @Post()
-  create(@Param('profileId') profileId: string, @Body() dto: CreateGroupDto) {
-    return this.groups.create(profileId, dto);
+  create(
+    @Param('profileId') profileId: string,
+    @Body() dto: CreateGroupDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.groups.create(profileId, dto, acting);
   }
 
   @Get()
-  findAll(@Param('profileId') profileId: string) {
-    return this.groups.findAll(profileId);
+  findAll(
+    @Param('profileId') profileId: string,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.groups.findAll(profileId, acting);
   }
 
   @Post(':groupId/link')
   link(
     @Param('profileId') profileId: string,
     @Param('groupId') groupId: string,
+    @ActingUser() acting: CurrentUser,
   ) {
-    return this.groups.link(profileId, groupId);
+    return this.groups.link(profileId, groupId, acting);
   }
 
   @Delete(':groupId/link')
   unlink(
     @Param('profileId') profileId: string,
     @Param('groupId') groupId: string,
+    @ActingUser() acting: CurrentUser,
   ) {
-    return this.groups.unlink(profileId, groupId);
+    return this.groups.unlink(profileId, groupId, acting);
   }
 
   @Patch(':groupId')
-  update(@Param('groupId') groupId: string, @Body() dto: UpdateGroupDto) {
-    return this.groups.update(groupId, dto);
+  update(
+    @Param('groupId') groupId: string,
+    @Body() dto: UpdateGroupDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.groups.update(groupId, dto, acting);
   }
 }
 
@@ -63,17 +78,24 @@ export class GroupsCatalogController {
   constructor(private readonly groups: GroupsService) {}
 
   @Get()
-  findAll(@Query() pagination: PaginationDto) {
-    return this.groups.findCatalog(pagination);
+  findAll(
+    @Query() pagination: PaginationDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.groups.findCatalog(pagination, acting);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.groups.remove(id);
+  remove(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.groups.remove(id, acting);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateGroupDto) {
-    return this.groups.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateGroupDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.groups.update(id, dto, acting);
   }
 }

@@ -35,6 +35,9 @@ async function bootstrap() {
     .addTag('generation', 'Génération textuelle OpenAI')
     .addTag('logs', 'Journaux d’activité')
     .addTag('ingest', 'Reprise de publications Facebook')
+    .addTag('sites', 'Sites WordPress de destination')
+    .addTag('users', 'Comptes de la plateforme')
+    .addTag('access', 'Partages en publication seule')
     .build();
   const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, swaggerDocument, {

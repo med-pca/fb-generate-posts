@@ -6,6 +6,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
+import { ActingUser } from '../auth/current-user';
+import type { CurrentUser } from '../auth/current-user';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { CreateLogDto } from './dto/create-log.dto';
 import { QueryLogsDto } from './dto/query-logs.dto';
@@ -25,8 +27,11 @@ export class LogsController {
   }
 
   @Get()
-  findAll(@Query('profileId') profileId?: string) {
-    return this.logs.findAll(profileId);
+  findAll(
+    @ActingUser() acting: CurrentUser | null,
+    @Query('profileId') profileId?: string,
+  ) {
+    return this.logs.findAll(profileId, acting);
   }
 }
 
@@ -44,8 +49,8 @@ export class LogsAdminController {
     summary:
       'Journaux filtrés et paginés (niveau, événement, profil, groupe, post, job, période, recherche)',
   })
-  search(@Query() query: QueryLogsDto) {
-    return this.logs.search(query);
+  search(@Query() query: QueryLogsDto, @ActingUser() acting: CurrentUser) {
+    return this.logs.search(query, acting);
   }
 
   @Get('summary')
@@ -53,7 +58,7 @@ export class LogsAdminController {
     summary:
       'Synthèse décisionnelle : volumes par niveau, événements dominants, profils en échec, incidents ouverts',
   })
-  summary(@Query() query: LogsSummaryDto) {
-    return this.logs.summary(query);
+  summary(@Query() query: LogsSummaryDto, @ActingUser() acting: CurrentUser) {
+    return this.logs.summary(query, acting);
   }
 }

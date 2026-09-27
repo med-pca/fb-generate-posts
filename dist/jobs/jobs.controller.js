@@ -17,6 +17,7 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const automation_auth_guard_1 = require("../auth/automation-auth.guard");
+const current_user_1 = require("../auth/current-user");
 const claim_job_dto_1 = require("./dto/claim-job.dto");
 const claim_batch_dto_1 = require("./dto/claim-batch.dto");
 const comment_job_item_dto_1 = require("./dto/comment-job-item.dto");
@@ -29,42 +30,42 @@ let JobsController = class JobsController {
     constructor(jobs) {
         this.jobs = jobs;
     }
-    listProfiles() {
-        return this.jobs.listAutomationProfiles();
+    listProfiles(acting) {
+        return this.jobs.listAutomationProfiles(acting);
     }
-    claim(dto) {
-        return this.jobs.claim(dto);
+    claim(dto, acting) {
+        return this.jobs.claim(dto, acting);
     }
-    claimBatch(dto) {
-        return this.jobs.claimBatch(dto);
+    claimBatch(dto, acting) {
+        return this.jobs.claimBatch(dto, acting);
     }
-    pendingLinkUpdates(profileExternalId, limit) {
+    pendingLinkUpdates(acting, profileExternalId, limit) {
         const parsed = Number(limit);
-        return this.jobs.pendingLinkUpdates(profileExternalId, Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 200) : 50);
+        return this.jobs.pendingLinkUpdates(profileExternalId, Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 200) : 50, acting);
     }
-    claimByProfileExternalId(profileExternalId, groupExternalId) {
-        return this.jobs.claimByProfileExternalId(profileExternalId, groupExternalId);
+    claimByProfileExternalId(profileExternalId, acting, groupExternalId) {
+        return this.jobs.claimByProfileExternalId(profileExternalId, groupExternalId, acting);
     }
-    consumed(jobId, postId) {
-        return this.jobs.markConsumed(jobId, postId);
+    consumed(jobId, postId, acting) {
+        return this.jobs.markConsumed(jobId, postId, acting);
     }
-    published(jobId, postId, dto) {
-        return this.jobs.markPublished(jobId, postId, dto);
+    published(jobId, postId, dto, acting) {
+        return this.jobs.markPublished(jobId, postId, dto, acting);
     }
-    failed(jobId, postId, dto) {
-        return this.jobs.markFailed(jobId, postId, dto.error);
+    failed(jobId, postId, dto, acting) {
+        return this.jobs.markFailed(jobId, postId, dto.error, acting);
     }
-    commented(jobId, postId, dto) {
-        return this.jobs.markCommented(jobId, postId, dto);
+    commented(jobId, postId, dto, acting) {
+        return this.jobs.markCommented(jobId, postId, dto, acting);
     }
-    complete(jobId) {
-        return this.jobs.complete(jobId);
+    complete(jobId, acting) {
+        return this.jobs.complete(jobId, acting);
     }
-    linkUpdates(jobId) {
-        return this.jobs.linkUpdates(jobId);
+    linkUpdates(jobId, acting) {
+        return this.jobs.linkUpdates(jobId, acting);
     }
-    linkUpdated(jobId, postId, dto) {
-        return this.jobs.markLinkUpdated(jobId, postId, dto);
+    linkUpdated(jobId, postId, dto, acting) {
+        return this.jobs.markLinkUpdated(jobId, postId, dto, acting);
     }
 };
 exports.JobsController = JobsController;
@@ -76,16 +77,18 @@ __decorate([
             'droits admin : seuls le nom et l’externalId sont exposés.',
     }),
     openapi.ApiResponse({ status: 200, type: Object }),
+    __param(0, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "listProfiles", null);
 __decorate([
     (0, common_1.Post)('claim'),
     openapi.ApiResponse({ status: 201, type: Object }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [claim_job_dto_1.ClaimJobDto]),
+    __metadata("design:paramtypes", [claim_job_dto_1.ClaimJobDto, Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "claim", null);
 __decorate([
@@ -98,8 +101,9 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 201, type: Object }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [claim_batch_dto_1.ClaimBatchDto]),
+    __metadata("design:paramtypes", [claim_batch_dto_1.ClaimBatchDto, Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "claimBatch", null);
 __decorate([
@@ -110,10 +114,11 @@ __decorate([
     (0, swagger_1.ApiQuery)({ name: 'profileExternalId', required: false }),
     (0, swagger_1.ApiQuery)({ name: 'limit', required: false, example: 50 }),
     openapi.ApiResponse({ status: 200 }),
-    __param(0, (0, common_1.Query)('profileExternalId')),
-    __param(1, (0, common_1.Query)('limit')),
+    __param(0, (0, current_user_1.ActingUser)()),
+    __param(1, (0, common_1.Query)('profileExternalId')),
+    __param(2, (0, common_1.Query)('limit')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [Object, String, String]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "pendingLinkUpdates", null);
 __decorate([
@@ -129,9 +134,10 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 201, type: Object }),
     __param(0, (0, common_1.Param)('profileExternalId')),
-    __param(1, (0, common_1.Query)('groupExternalId')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __param(2, (0, common_1.Query)('groupExternalId')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [String, Object, String]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "claimByProfileExternalId", null);
 __decorate([
@@ -139,8 +145,9 @@ __decorate([
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Param)('postId')),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [String, String, Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "consumed", null);
 __decorate([
@@ -149,8 +156,9 @@ __decorate([
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Param)('postId')),
     __param(2, (0, common_1.Body)()),
+    __param(3, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, publish_job_item_dto_1.PublishJobItemDto]),
+    __metadata("design:paramtypes", [String, String, publish_job_item_dto_1.PublishJobItemDto, Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "published", null);
 __decorate([
@@ -159,8 +167,9 @@ __decorate([
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Param)('postId')),
     __param(2, (0, common_1.Body)()),
+    __param(3, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, fail_job_item_dto_1.FailJobItemDto]),
+    __metadata("design:paramtypes", [String, String, fail_job_item_dto_1.FailJobItemDto, Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "failed", null);
 __decorate([
@@ -174,8 +183,9 @@ __decorate([
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Param)('postId')),
     __param(2, (0, common_1.Body)()),
+    __param(3, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, comment_job_item_dto_1.CommentJobItemDto]),
+    __metadata("design:paramtypes", [String, String, comment_job_item_dto_1.CommentJobItemDto, Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "commented", null);
 __decorate([
@@ -185,8 +195,9 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Param)('jobId')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "complete", null);
 __decorate([
@@ -196,8 +207,9 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('jobId')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "linkUpdates", null);
 __decorate([
@@ -209,8 +221,9 @@ __decorate([
     __param(0, (0, common_1.Param)('jobId')),
     __param(1, (0, common_1.Param)('postId')),
     __param(2, (0, common_1.Body)()),
+    __param(3, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, link_updated_job_item_dto_1.LinkUpdatedJobItemDto]),
+    __metadata("design:paramtypes", [String, String, link_updated_job_item_dto_1.LinkUpdatedJobItemDto, Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "linkUpdated", null);
 exports.JobsController = JobsController = __decorate([

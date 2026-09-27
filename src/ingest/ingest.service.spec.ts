@@ -46,6 +46,7 @@ const ingest = (over: Partial<SourceIngest> = {}): SourceIngest => ({
   articleId: null,
   profileIds: [],
   groupIds: [],
+  ownerId: null,
   status: IngestStatus.PENDING_SCRAPE,
   claimedAt: null,
   claimExpiresAt: null,
@@ -68,6 +69,11 @@ function setup(initial: SourceIngest) {
       findUnique: jest.fn((): Promise<SourceIngest | null> =>
         Promise.resolve(row),
       ),
+      // La portée passe par `findFirst` : un `findUnique` ne peut pas
+      // porter de condition de propriétaire.
+      findFirst: jest.fn((): Promise<SourceIngest | null> =>
+        Promise.resolve(row),
+      ),
       create: jest.fn(({ data }: { data: Partial<SourceIngest> }) => {
         row = { ...row, ...data };
         return Promise.resolve(row);
@@ -76,6 +82,28 @@ function setup(initial: SourceIngest) {
         row = { ...row, ...data };
         return Promise.resolve(row);
       }),
+    },
+    // Le site de destination, déclaré et actif sauf mention contraire.
+    contentSource: {
+      findUnique: jest.fn(
+        (): Promise<{
+          id: string;
+          name: string;
+          originUrl: string;
+          depositKey: string | null;
+          status: string;
+        } | null> =>
+          Promise.resolve({
+            id: 'site_1',
+            name: 'Site de test',
+            originUrl: 'https://site.test',
+            depositKey: 'cle-du-site',
+            status: 'ACTIVE',
+          }),
+      ),
+      create: jest.fn(({ data }: { data: { originUrl: string } }) =>
+        Promise.resolve({ id: 'site_new', depositKey: null, ...data }),
+      ),
     },
     profile: { count: jest.fn(() => Promise.resolve(0)) },
     group: { count: jest.fn(() => Promise.resolve(0)) },
@@ -348,7 +376,7 @@ describe('IngestService.retry', () => {
         lastError: 'modèle indisponible',
       }),
     );
-    await service.retry('ing_1');
+    await service.retry('ing_1', null);
     expect(rewriter.rewrite).toHaveBeenCalledTimes(1);
     // Reprise à la réécriture, puis dépôt dans la foulée.
     expect(current()).toMatchObject({
@@ -385,8 +413,8 @@ describe('IngestService.findOne', () => {
   // Une fiche absente est un 404 : `findUniqueOrThrow` rendrait un 500.
   it('signale une reprise absente comme introuvable', async () => {
     const { service, prisma } = setup(ingest());
-    prisma.sourceIngest.findUnique.mockResolvedValueOnce(null);
-    await expect(service.findOne('inconnu')).rejects.toBeInstanceOf(
+    prisma.sourceIngest.findFirst.mockResolvedValueOnce(null);
+    await expect(service.findOne('inconnu', null)).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
@@ -519,5 +547,65 @@ describe('IngestService.failScrape', () => {
       status: IngestStatus.SCRAPED,
       claimExpiresAt: null,
     });
+  });
+});
+
+describe('IngestService : le site de destination', () => {
+  /** Sans cette vérification, la clé d'automatisation suffirait à faire
+   * déposer nos articles sur n'importe quel domaine. */
+  it('refuse un site qui n’est pas déclaré dans la plateforme', async () => {
+    const { service, prisma } = setup(ingest());
+    prisma.contentSource.findUnique.mockResolvedValueOnce(null);
+    await expect(
+      service.create({
+        facebookUrl: 'https://www.facebook.com/x/posts/1',
+        sourceUrl: SOURCE.url,
+        siteUrl: 'https://site-inconnu.test',
+        language: 'auto',
+      }),
+    ).rejects.toThrow(/Site inconnu/);
+  });
+
+  it('refuse un site désactivé', async () => {
+    const { service, prisma } = setup(ingest());
+    prisma.contentSource.findUnique.mockResolvedValueOnce({
+      id: 'site_1',
+      name: 'Ancien site',
+      originUrl: 'https://site.test',
+      depositKey: null,
+      status: 'INACTIVE',
+    });
+    await expect(
+      service.create({
+        facebookUrl: 'https://www.facebook.com/x/posts/1',
+        sourceUrl: SOURCE.url,
+        siteUrl: 'https://site.test',
+        language: 'auto',
+      }),
+    ).rejects.toThrow(/désactivé/);
+  });
+
+  // Sans cela, une installation neuve refuserait sa propre destination.
+  it('déclare tout seul le site par défaut la première fois', async () => {
+    const { service, prisma } = setup(ingest());
+    prisma.contentSource.findUnique.mockResolvedValueOnce(null);
+    await service.create({
+      facebookUrl: 'https://www.facebook.com/x/posts/1',
+      sourceUrl: SOURCE.url,
+      language: 'auto',
+    });
+    const [[args]] = prisma.contentSource.create.mock.calls;
+    expect(args.data).toMatchObject({ originUrl: 'https://site.test' });
+  });
+
+  /** Deux sites n'ont aucune raison de partager la même clé de plugin. */
+  it('dépose avec la clé du site visé', async () => {
+    const { service, wordpress } = setup(
+      ingest({ status: IngestStatus.REWRITTEN, generated: GENERATED }),
+    );
+    await service.advance('ing_1');
+    expect(wordpress.deposit).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: 'cle-du-site' }),
+    );
   });
 });

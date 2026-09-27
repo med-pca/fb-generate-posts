@@ -3,13 +3,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateLogDto } from './dto/create-log.dto';
 import { QueryLogsDto } from './dto/query-logs.dto';
 import { LogsSummaryDto } from './dto/logs-summary.dto';
+import type { CurrentUser } from '../auth/current-user';
 export declare class LogsService {
     private readonly prisma;
     constructor(prisma: PrismaService);
     create(dto: CreateLogDto): Prisma.Prisma__ActivityLogClient<{
-        profileId: string | null;
         id: string;
         createdAt: Date;
+        profileId: string | null;
         groupId: string | null;
         postId: string | null;
         eventType: string;
@@ -19,10 +20,10 @@ export declare class LogsService {
         postTargetId: string | null;
         jobId: string | null;
     }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
-    findAll(profileId?: string): Prisma.PrismaPromise<{
-        profileId: string | null;
+    findAll(profileId: string | undefined, acting: CurrentUser | null): Prisma.PrismaPromise<{
         id: string;
         createdAt: Date;
+        profileId: string | null;
         groupId: string | null;
         postId: string | null;
         eventType: string;
@@ -32,24 +33,24 @@ export declare class LogsService {
         postTargetId: string | null;
         jobId: string | null;
     }[]>;
-    search({ page, limit, ...filters }: QueryLogsDto): Promise<{
+    search({ page, limit, ...filters }: QueryLogsDto, acting: CurrentUser | null): Promise<{
         data: ({
             profile: {
-                id: string;
                 name: string;
+                id: string;
             } | null;
             group: {
-                id: string;
                 name: string;
+                id: string;
             } | null;
             post: {
-                title: string;
                 id: string;
+                title: string;
             } | null;
         } & {
-            profileId: string | null;
             id: string;
             createdAt: Date;
+            profileId: string | null;
             groupId: string | null;
             postId: string | null;
             eventType: string;
@@ -66,7 +67,7 @@ export declare class LogsService {
             pages: number;
         };
     }>;
-    summary({ hours, profileId }: LogsSummaryDto): Promise<{
+    summary({ hours, profileId }: LogsSummaryDto, acting: CurrentUser | null): Promise<{
         pendingLinkUpdates: {
             total: number;
             oldestJobId: string | null;
@@ -91,21 +92,21 @@ export declare class LogsService {
         }[];
         incidents: ({
             profile: {
-                id: string;
                 name: string;
+                id: string;
             } | null;
             group: {
-                id: string;
                 name: string;
+                id: string;
             } | null;
             post: {
-                title: string;
                 id: string;
+                title: string;
             } | null;
         } & {
-            profileId: string | null;
             id: string;
             createdAt: Date;
+            profileId: string | null;
             groupId: string | null;
             postId: string | null;
             eventType: string;
@@ -121,5 +122,6 @@ export declare class LogsService {
     private foldProfiles;
     private pendingLinkStock;
     private emptyLevels;
+    private scoped;
     private buildWhere;
 }

@@ -1,3 +1,4 @@
+import type { CurrentUser } from '../auth/current-user';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { GroupsService } from './groups.service';
 import { UpdateGroupDto } from './dto/update-group.dto';
@@ -5,44 +6,47 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 export declare class GroupsController {
     private readonly groups;
     constructor(groups: GroupsService);
-    create(profileId: string, dto: CreateGroupDto): import("@prisma/client").Prisma.Prisma__GroupClient<{
+    create(profileId: string, dto: CreateGroupDto, acting: CurrentUser): Promise<{
         profiles: {
-            profileId: string;
-            status: import("@prisma/client").$Enums.RecordStatus;
             id: string;
+            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
             updatedAt: Date;
+            profileId: string;
             groupId: string;
             joinStatus: import("@prisma/client").$Enums.JoinStatus;
             joinCheckedAt: Date | null;
             joinError: string | null;
         }[];
     } & {
-        status: import("@prisma/client").$Enums.RecordStatus;
+        name: string;
         id: string;
-        externalId: string | null;
+        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
+        ownerId: string | null;
+        externalId: string | null;
         url: string;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
-    findAll(profileId: string): Promise<{
-        status: import("@prisma/client").$Enums.RecordStatus;
+    }>;
+    findAll(profileId: string, acting: CurrentUser): Promise<{
+        name: string;
         id: string;
-        externalId: string | null;
+        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
+        ownerId: string | null;
+        externalId: string | null;
         url: string;
     }[]>;
-    link(profileId: string, groupId: string): import("@prisma/client").Prisma.Prisma__ProfileGroupClient<{
+    link(profileId: string, groupId: string, acting: CurrentUser): Promise<{
         profile: {
-            status: import("@prisma/client").$Enums.RecordStatus;
+            name: string;
             id: string;
-            externalId: string | null;
+            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
+            ownerId: string | null;
+            externalId: string | null;
             defaultImageUrl: string | null;
             minPostsPerJob: number;
             maxPostsPerJob: number;
@@ -50,63 +54,63 @@ export declare class GroupsController {
             minimumAvailablePerGroup: number | null;
         };
         group: {
-            status: import("@prisma/client").$Enums.RecordStatus;
+            name: string;
             id: string;
-            externalId: string | null;
+            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
+            ownerId: string | null;
+            externalId: string | null;
             url: string;
         };
     } & {
-        profileId: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
         id: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
         updatedAt: Date;
+        profileId: string;
         groupId: string;
         joinStatus: import("@prisma/client").$Enums.JoinStatus;
         joinCheckedAt: Date | null;
         joinError: string | null;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
-    unlink(profileId: string, groupId: string): import("@prisma/client").Prisma.Prisma__ProfileGroupClient<{
-        profileId: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
+    }>;
+    unlink(profileId: string, groupId: string, acting: CurrentUser): Promise<{
         id: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
         updatedAt: Date;
+        profileId: string;
         groupId: string;
         joinStatus: import("@prisma/client").$Enums.JoinStatus;
         joinCheckedAt: Date | null;
         joinError: string | null;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
-    update(groupId: string, dto: UpdateGroupDto): import("@prisma/client").Prisma.Prisma__GroupClient<{
-        status: import("@prisma/client").$Enums.RecordStatus;
-        id: string;
-        externalId: string | null;
-        createdAt: Date;
-        updatedAt: Date;
+    }>;
+    update(groupId: string, dto: UpdateGroupDto, acting: CurrentUser): Promise<{
         name: string;
+        id: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        ownerId: string | null;
+        externalId: string | null;
         url: string;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+    }>;
 }
 export declare class GroupsCatalogController {
     private readonly groups;
     constructor(groups: GroupsService);
-    findAll(pagination: PaginationDto): Promise<{
+    findAll(pagination: PaginationDto, acting: CurrentUser): Promise<{
         data: {
             availablePosts: number;
-            _count: {
-                targets: number;
-            };
             profiles: ({
                 profile: {
-                    status: import("@prisma/client").$Enums.RecordStatus;
+                    name: string;
                     id: string;
-                    externalId: string | null;
+                    status: import("@prisma/client").$Enums.RecordStatus;
                     createdAt: Date;
                     updatedAt: Date;
-                    name: string;
+                    ownerId: string | null;
+                    externalId: string | null;
                     defaultImageUrl: string | null;
                     minPostsPerJob: number;
                     maxPostsPerJob: number;
@@ -114,22 +118,26 @@ export declare class GroupsCatalogController {
                     minimumAvailablePerGroup: number | null;
                 };
             } & {
-                profileId: string;
-                status: import("@prisma/client").$Enums.RecordStatus;
                 id: string;
+                status: import("@prisma/client").$Enums.RecordStatus;
                 createdAt: Date;
                 updatedAt: Date;
+                profileId: string;
                 groupId: string;
                 joinStatus: import("@prisma/client").$Enums.JoinStatus;
                 joinCheckedAt: Date | null;
                 joinError: string | null;
             })[];
-            status: import("@prisma/client").$Enums.RecordStatus;
+            _count: {
+                targets: number;
+            };
+            name: string;
             id: string;
-            externalId: string | null;
+            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
+            ownerId: string | null;
+            externalId: string | null;
             url: string;
         }[];
         meta: {
@@ -139,22 +147,24 @@ export declare class GroupsCatalogController {
             pages: number;
         };
     }>;
-    remove(id: string): import("@prisma/client").Prisma.Prisma__GroupClient<{
-        status: import("@prisma/client").$Enums.RecordStatus;
+    remove(id: string, acting: CurrentUser): Promise<{
+        name: string;
         id: string;
-        externalId: string | null;
+        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
-        url: string;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
-    update(id: string, dto: UpdateGroupDto): import("@prisma/client").Prisma.Prisma__GroupClient<{
-        status: import("@prisma/client").$Enums.RecordStatus;
-        id: string;
+        ownerId: string | null;
         externalId: string | null;
+        url: string;
+    }>;
+    update(id: string, dto: UpdateGroupDto, acting: CurrentUser): Promise<{
+        name: string;
+        id: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
         updatedAt: Date;
-        name: string;
+        ownerId: string | null;
+        externalId: string | null;
         url: string;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+    }>;
 }

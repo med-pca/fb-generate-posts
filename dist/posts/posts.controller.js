@@ -17,6 +17,7 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
+const current_user_1 = require("../auth/current-user");
 const create_post_dto_1 = require("./dto/create-post.dto");
 const posts_service_1 = require("./posts.service");
 const update_post_dto_1 = require("./dto/update-post.dto");
@@ -27,23 +28,23 @@ let PostsController = class PostsController {
     constructor(posts) {
         this.posts = posts;
     }
-    create(dto) {
-        return this.posts.create(dto);
+    create(dto, acting) {
+        return this.posts.create(dto, acting);
     }
-    findAll(query) {
-        return this.posts.findAll(query);
+    findAll(query, acting) {
+        return this.posts.findAll(query, acting);
     }
-    bulkRemove(dto) {
-        return this.posts.bulkRemove(dto);
+    bulkRemove(dto, acting) {
+        return this.posts.bulkRemove(dto, acting);
     }
-    findOne(id) {
-        return this.posts.findOne(id);
+    findOne(id, acting) {
+        return this.posts.findOne(id, acting);
     }
-    update(id, dto) {
-        return this.posts.update(id, dto);
+    update(id, dto, acting) {
+        return this.posts.update(id, dto, acting);
     }
-    remove(id, force) {
-        return this.posts.remove(id, force === 'true');
+    remove(id, acting, force) {
+        return this.posts.remove(id, force === 'true', acting);
     }
 };
 exports.PostsController = PostsController;
@@ -51,16 +52,18 @@ __decorate([
     (0, common_1.Post)(),
     openapi.ApiResponse({ status: 201, type: Object }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [create_post_dto_1.CreatePostDto]),
+    __metadata("design:paramtypes", [create_post_dto_1.CreatePostDto, Object]),
     __metadata("design:returntype", void 0)
 ], PostsController.prototype, "create", null);
 __decorate([
     (0, common_1.Get)(),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Query)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [query_posts_dto_1.QueryPostsDto]),
+    __metadata("design:paramtypes", [query_posts_dto_1.QueryPostsDto, Object]),
     __metadata("design:returntype", void 0)
 ], PostsController.prototype, "findAll", null);
 __decorate([
@@ -71,16 +74,18 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [bulk_delete_posts_dto_1.BulkDeletePostsDto]),
+    __metadata("design:paramtypes", [bulk_delete_posts_dto_1.BulkDeletePostsDto, Object]),
     __metadata("design:returntype", void 0)
 ], PostsController.prototype, "bulkRemove", null);
 __decorate([
     (0, common_1.Get)(':id'),
-    openapi.ApiResponse({ status: 200 }),
+    openapi.ApiResponse({ status: 200, type: Object }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], PostsController.prototype, "findOne", null);
 __decorate([
@@ -88,8 +93,9 @@ __decorate([
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, update_post_dto_1.UpdatePostDto]),
+    __metadata("design:paramtypes", [String, update_post_dto_1.UpdatePostDto, Object]),
     __metadata("design:returntype", void 0)
 ], PostsController.prototype, "update", null);
 __decorate([
@@ -97,9 +103,10 @@ __decorate([
     (0, swagger_1.ApiQuery)({ name: 'force', required: false, type: Boolean }),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('id')),
-    __param(1, (0, common_1.Query)('force')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __param(2, (0, common_1.Query)('force')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [String, Object, String]),
     __metadata("design:returntype", void 0)
 ], PostsController.prototype, "remove", null);
 exports.PostsController = PostsController = __decorate([

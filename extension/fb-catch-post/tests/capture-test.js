@@ -152,6 +152,31 @@ check('page non bloquée', listed.blocked === false, listed.blocked);
     Array.isArray(emoji.listed.seen.biggest) && emoji.listed.seen.biggest.length > 0,
     emoji.listed.seen);
 
+  /** Le cas vécu : le panneau de notifications était dans la page, et
+   * « John McCormick a signalé un contenu… » s'est retrouvé proposé comme
+   * légende — puis publié. L'interface de Facebook n'est pas du contenu. */
+  const AVEC_NOTIFS = `<!doctype html><html><body>
+    <div role="banner">
+      <div role="navigation" aria-label="Notifications">
+        <div dir="auto">Unread</div>
+        <div dir="auto">John McCormick, Ashley Fernandez and Audrey Dunsing McKinnon reported some content in The Storytellers</div>
+      </div>
+      <div role="menu"><div dir="auto">Paramètres et confidentialité, plus toutes les options du compte</div></div>
+    </div>
+    <div class="viewer"><img alt="grande-photo" src="https://scontent.test/mudra.jpg"></div>
+    <div class="side">
+      <div dir="auto">${POOL} — la légende véritable de la publication affichée.</div>
+    </div>
+  </body></html>`;
+  const notifs = load(AVEC_NOTIFS, 'https://web.facebook.com/photo/?fbid=99&set=gm.1');
+  const previews = notifs.listed.posts.map((p) => p.preview);
+  check('le panneau de notifications n’est pas proposé',
+    !previews.some((p) => p.includes('McCormick')), previews);
+  check('les menus de l’interface ne sont pas proposés',
+    !previews.some((p) => p.includes('Paramètres et confidentialité')), previews);
+  check('la vraie légende, elle, est proposée',
+    previews.some((p) => p.includes('HAS A POOL')), previews);
+
   const wall = load('<!doctype html><html><body><div>Connectez-vous pour continuer</div></body></html>');
   check('mur de connexion signalé', wall.listed.blocked === true, wall.listed);
 

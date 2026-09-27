@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
+import { ActingUser } from '../auth/current-user';
+import type { CurrentUser } from '../auth/current-user';
 import { CaptureIngestDto } from './dto/capture-ingest.dto';
 import { FailScrapeDto } from './dto/fail-scrape.dto';
 import { ScrapeResultDto } from './dto/scrape-result.dto';
@@ -32,8 +34,12 @@ export class ScrapeController {
       'de la source, la réécriture et le dépôt WordPress suivent côté ' +
       'serveur. Suivre l’avancement sur /admin/ingest/:id.',
   })
-  async capture(@Body() dto: CaptureIngestDto) {
-    const ingest = await this.ingest.capture(dto);
+  async capture(
+    @Body() dto: CaptureIngestDto,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    // `null` avec la clé globale : la reprise reste sans propriétaire.
+    const ingest = await this.ingest.capture(dto, acting);
     void this.ingest.advance(ingest.id).catch(() => undefined);
     return {
       accepted: true,
@@ -52,8 +58,11 @@ export class ScrapeController {
       'dans la file.',
   })
   @ApiQuery({ name: 'profileExternalId', required: false })
-  claim(@Query('profileExternalId') profileExternalId?: string) {
-    return this.ingest.claimScrape(profileExternalId);
+  claim(
+    @ActingUser() acting: CurrentUser | null,
+    @Query('profileExternalId') profileExternalId?: string,
+  ) {
+    return this.ingest.claimScrape(profileExternalId, acting);
   }
 
   @Post(':id/result')
@@ -64,8 +73,12 @@ export class ScrapeController {
       'réécriture et le dépôt WordPress prennent une minute, et l’extension ' +
       'a d’autres lots à traiter. Suivre l’avancement sur /admin/ingest/:id.',
   })
-  async result(@Param('id') id: string, @Body() dto: ScrapeResultDto) {
-    const ingest = await this.ingest.submitScrape(id, dto);
+  async result(
+    @Param('id') id: string,
+    @Body() dto: ScrapeResultDto,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    const ingest = await this.ingest.submitScrape(id, dto, acting);
     // Volontairement sans `await`. La suite se poursuit côté serveur, et
     // chaque étape est enregistrée : rien ne se perd si l'extension s'en va.
     void this.ingest.advance(id).catch(() => undefined);
@@ -74,7 +87,11 @@ export class ScrapeController {
 
   @Post(':id/failed')
   @ApiOperation({ summary: 'Signaler une publication impossible à relever' })
-  failed(@Param('id') id: string, @Body() dto: FailScrapeDto) {
-    return this.ingest.failScrape(id, dto.error);
+  failed(
+    @Param('id') id: string,
+    @Body() dto: FailScrapeDto,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.ingest.failScrape(id, dto.error, acting);
   }
 }

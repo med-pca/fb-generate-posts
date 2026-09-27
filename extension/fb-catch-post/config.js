@@ -10,4 +10,7 @@ self.FCP_CONFIG = {
   // Vide = tous les profils actifs reçoivent un post. Renseigner pour
   // restreindre la diffusion : ["cmxxxx", "cmyyyy"].
   profileIds: [],
+  // Les sites de destination ne sont PAS ici : ils se déclarent dans la
+  // plateforme, section Sites, et l'extension les y lit. Un site ajouté
+  // apparaît dans la liste sans toucher à l'extension.
 };

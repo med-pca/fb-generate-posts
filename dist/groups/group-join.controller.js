@@ -62,7 +62,9 @@ __decorate([
 ], GroupJoinController.prototype, "list", null);
 __decorate([
     (0, common_1.Post)(':groupId/join-status'),
-    (0, swagger_1.ApiOperation)({ summary: 'Enregistrer le résultat d’une tentative d’adhésion' }),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Enregistrer le résultat d’une tentative d’adhésion',
+    }),
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Param)('profileExternalId')),
     __param(1, (0, common_1.Param)('groupId')),

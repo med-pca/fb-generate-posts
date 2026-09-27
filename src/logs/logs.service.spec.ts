@@ -33,7 +33,9 @@ function makeHarness(scenario: {
       ]),
     },
     // Commentaires en attente d'URL : compté hors fenêtre d'observation.
-    publicationJobItem: { count: jest.fn(async () => scenario.pendingLinks ?? 0) },
+    publicationJobItem: {
+      count: jest.fn(async () => scenario.pendingLinks ?? 0),
+    },
     publicationJob: {
       findFirst: jest.fn(async () => scenario.oldestPending ?? null),
     },
@@ -53,7 +55,7 @@ describe('LogsService — synthèse décisionnelle', () => {
       ],
     });
 
-    const summary = await service.summary({ hours: 24 });
+    const summary = await service.summary({ hours: 24 }, null);
 
     expect(summary.levels).toEqual({ DEBUG: 0, INFO: 125, WARN: 0, ERROR: 5 });
     // CLAIM_LOST est le seul compteur qui impose une vérification manuelle.
@@ -82,12 +84,30 @@ describe('LogsService — synthèse décisionnelle', () => {
       ],
     });
 
-    const summary = await service.summary({ hours: 24 });
+    const summary = await service.summary({ hours: 24 }, null);
 
     expect(summary.profiles).toEqual([
-      { profileId: 'profile_2', name: 'Profil B', status: 'INACTIVE', total: 9, errors: 9 },
-      { profileId: 'profile_1', name: 'Profil A', status: 'ACTIVE', total: 41, errors: 1 },
-      { profileId: null, name: 'Hors profil', status: null, total: 5, errors: 0 },
+      {
+        profileId: 'profile_2',
+        name: 'Profil B',
+        status: 'INACTIVE',
+        total: 9,
+        errors: 9,
+      },
+      {
+        profileId: 'profile_1',
+        name: 'Profil A',
+        status: 'ACTIVE',
+        total: 41,
+        errors: 1,
+      },
+      {
+        profileId: null,
+        name: 'Hors profil',
+        status: null,
+        total: 5,
+        errors: 0,
+      },
     ]);
   });
 
@@ -99,7 +119,7 @@ describe('LogsService — synthèse décisionnelle', () => {
       oldestPending: { id: 'job_bloque', completedAt: pendingSince },
     });
 
-    const summary = await service.summary({ hours: 24 });
+    const summary = await service.summary({ hours: 24 }, null);
 
     expect(summary.pendingLinkUpdates).toEqual({
       total: 4,
@@ -118,10 +138,12 @@ describe('LogsService — synthèse décisionnelle', () => {
     const { service, prisma } = makeHarness({ byEvent: [] });
 
     const before = Date.now();
-    const summary = await service.summary({ hours: 6 });
+    const summary = await service.summary({ hours: 6 }, null);
 
     expect(summary.hours).toBe(6);
-    expect(before - summary.since.getTime()).toBeGreaterThanOrEqual(6 * 3600000);
+    expect(before - summary.since.getTime()).toBeGreaterThanOrEqual(
+      6 * 3600000,
+    );
     expect(prisma.activityLog.count).toHaveBeenCalledWith({
       where: { createdAt: { gte: summary.since } },
     });

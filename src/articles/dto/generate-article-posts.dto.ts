@@ -1,5 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { ArrayNotEmpty, IsArray, IsInt, IsString, Max, Min } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsInt,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class GenerateArticlePostsDto {
   @ApiProperty()

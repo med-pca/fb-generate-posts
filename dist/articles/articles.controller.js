@@ -17,6 +17,7 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
+const current_user_1 = require("../auth/current-user");
 const articles_service_1 = require("./articles.service");
 const generate_article_posts_dto_1 = require("./dto/generate-article-posts.dto");
 const import_article_dto_1 = require("./dto/import-article.dto");
@@ -27,23 +28,23 @@ let ArticlesController = class ArticlesController {
     constructor(articles) {
         this.articles = articles;
     }
-    findAll(pagination) {
-        return this.articles.findAll(pagination);
+    findAll(pagination, acting) {
+        return this.articles.findAll(pagination, acting);
     }
-    findOne(id) {
-        return this.articles.findOne(id);
+    findOne(id, acting) {
+        return this.articles.findOne(id, acting);
     }
-    import(dto) {
-        return this.articles.import(dto);
+    import(dto, acting) {
+        return this.articles.import(dto, acting);
     }
-    generatePosts(id, dto) {
-        return this.articles.generatePosts(id, dto);
+    generatePosts(id, dto, acting) {
+        return this.articles.generatePosts(id, dto, acting);
     }
-    update(id, dto) {
-        return this.articles.update(id, dto);
+    update(id, dto, acting) {
+        return this.articles.update(id, dto, acting);
     }
-    remove(id) {
-        return this.articles.remove(id);
+    remove(id, acting) {
+        return this.articles.remove(id, acting);
     }
 };
 exports.ArticlesController = ArticlesController;
@@ -51,25 +52,30 @@ __decorate([
     (0, common_1.Get)(),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Query)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [pagination_dto_1.PaginationDto]),
+    __metadata("design:paramtypes", [pagination_dto_1.PaginationDto, Object]),
     __metadata("design:returntype", void 0)
 ], ArticlesController.prototype, "findAll", null);
 __decorate([
     (0, common_1.Get)(':id'),
-    openapi.ApiResponse({ status: 200 }),
+    openapi.ApiResponse({ status: 200, type: Object }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], ArticlesController.prototype, "findOne", null);
 __decorate([
     (0, common_1.Post)('import'),
-    (0, swagger_1.ApiOperation)({ summary: 'Importer ou actualiser un article depuis son API JSON' }),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Importer ou actualiser un article depuis son API JSON',
+    }),
     openapi.ApiResponse({ status: 201, type: Object }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [import_article_dto_1.ImportArticleDto]),
+    __metadata("design:paramtypes", [import_article_dto_1.ImportArticleDto, Object]),
     __metadata("design:returntype", void 0)
 ], ArticlesController.prototype, "import", null);
 __decorate([
@@ -78,8 +84,9 @@ __decorate([
     openapi.ApiResponse({ status: 201, type: [Object] }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, generate_article_posts_dto_1.GenerateArticlePostsDto]),
+    __metadata("design:paramtypes", [String, generate_article_posts_dto_1.GenerateArticlePostsDto, Object]),
     __metadata("design:returntype", void 0)
 ], ArticlesController.prototype, "generatePosts", null);
 __decorate([
@@ -87,16 +94,18 @@ __decorate([
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, update_article_dto_1.UpdateArticleDto]),
+    __metadata("design:paramtypes", [String, update_article_dto_1.UpdateArticleDto, Object]),
     __metadata("design:returntype", void 0)
 ], ArticlesController.prototype, "update", null);
 __decorate([
     (0, common_1.Delete)(':id'),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], ArticlesController.prototype, "remove", null);
 exports.ArticlesController = ArticlesController = __decorate([

@@ -13,19 +13,22 @@ exports.ProfilesService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const paginated_1 = require("../common/paginated");
+const scope_1 = require("../auth/scope");
 let ProfilesService = class ProfilesService {
     prisma;
     constructor(prisma) {
         this.prisma = prisma;
     }
-    create(dto) {
+    create(dto, owner) {
         if (dto.minPostsPerJob > dto.maxPostsPerJob) {
             throw new common_1.BadRequestException('minPostsPerJob doit être inférieur ou égal à maxPostsPerJob');
         }
-        return this.prisma.profile.create({ data: dto });
+        return this.prisma.profile.create({
+            data: { ...dto, ownerId: owner?.id ?? null },
+        });
     }
-    async findAll({ page, limit }) {
-        const where = {};
+    async findAll({ page, limit }, acting) {
+        const where = (0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting));
         const [data, total] = await this.prisma.$transaction([
             this.prisma.profile.findMany({
                 where,
@@ -38,24 +41,38 @@ let ProfilesService = class ProfilesService {
         ]);
         return (0, paginated_1.paginated)(data, total, page, limit);
     }
-    findOne(id) {
-        return this.prisma.profile.findUniqueOrThrow({
-            where: { id },
+    async findOne(id, acting) {
+        const profile = await this.prisma.profile.findFirst({
+            where: { id, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
             include: {
                 profileGroups: { include: { group: true } },
                 _count: { select: { posts: true, publicationJobs: true } },
             },
         });
+        if (!profile)
+            throw new common_1.NotFoundException('Profil introuvable');
+        return profile;
     }
-    update(id, dto) {
+    async reachable(id, acting) {
+        const profile = await this.prisma.profile.findFirst({
+            where: { id, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true },
+        });
+        if (!profile)
+            throw new common_1.NotFoundException('Profil introuvable');
+        return profile;
+    }
+    async update(id, dto, acting) {
         if (dto.minPostsPerJob !== undefined &&
             dto.maxPostsPerJob !== undefined &&
             dto.minPostsPerJob > dto.maxPostsPerJob) {
             throw new common_1.BadRequestException('minPostsPerJob doit être inférieur ou égal à maxPostsPerJob');
         }
+        await this.reachable(id, acting);
         return this.prisma.profile.update({ where: { id }, data: dto });
     }
-    remove(id) {
+    async remove(id, acting) {
+        await this.reachable(id, acting);
         return this.prisma.profile.delete({ where: { id } });
     }
 };

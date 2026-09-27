@@ -11,25 +11,43 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AdminAuthGuard = void 0;
 const common_1 = require("@nestjs/common");
+const client_1 = require("@prisma/client");
+const prisma_service_1 = require("../prisma/prisma.service");
 const auth_service_1 = require("./auth.service");
 let AdminAuthGuard = class AdminAuthGuard {
     auth;
-    constructor(auth) {
+    prisma;
+    constructor(auth, prisma) {
         this.auth = auth;
+        this.prisma = prisma;
     }
-    canActivate(context) {
+    async canActivate(context) {
         const request = context.switchToHttp().getRequest();
         const header = request.headers.authorization;
         const token = header?.startsWith('Bearer ') ? header.slice(7) : '';
-        if (!token || !this.auth.verify(token)) {
+        const claims = token ? this.auth.read(token) : null;
+        if (!claims) {
             throw new common_1.UnauthorizedException('Session administrateur requise');
         }
+        const user = await this.prisma.user.findUnique({
+            where: { id: claims.id },
+        });
+        if (!user || user.status !== client_1.RecordStatus.ACTIVE) {
+            throw new common_1.UnauthorizedException('Ce compte n’a plus accès');
+        }
+        request.user = {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            status: user.status,
+        };
         return true;
     }
 };
 exports.AdminAuthGuard = AdminAuthGuard;
 exports.AdminAuthGuard = AdminAuthGuard = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [auth_service_1.AuthService])
+    __metadata("design:paramtypes", [auth_service_1.AuthService,
+        prisma_service_1.PrismaService])
 ], AdminAuthGuard);
 //# sourceMappingURL=admin-auth.guard.js.map

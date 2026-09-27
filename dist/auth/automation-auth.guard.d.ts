@@ -1,7 +1,10 @@
 import { CanActivate, ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 export declare class AutomationAuthGuard implements CanActivate {
     private readonly config;
-    constructor(config: ConfigService);
-    canActivate(context: ExecutionContext): boolean;
+    private readonly prisma;
+    constructor(config: ConfigService, prisma: PrismaService);
+    canActivate(context: ExecutionContext): Promise<boolean>;
+    private equal;
 }

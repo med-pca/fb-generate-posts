@@ -14,6 +14,7 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const paginated_1 = require("../common/paginated");
+const scope_1 = require("../auth/scope");
 const INCIDENT_EVENT_TYPES = ['CLAIM_LOST', 'COMMENT_MISSING'];
 const INCIDENT_SAMPLE = 20;
 const WITH_CONTEXT = {
@@ -31,15 +32,15 @@ let LogsService = class LogsService {
             data: { ...dto, metadata: dto.metadata },
         });
     }
-    findAll(profileId) {
+    findAll(profileId, acting) {
         return this.prisma.activityLog.findMany({
-            where: profileId ? { profileId } : undefined,
+            where: this.scoped(profileId ? { profileId } : {}, acting),
             orderBy: { createdAt: 'desc' },
             take: 200,
         });
     }
-    async search({ page, limit, ...filters }) {
-        const where = this.buildWhere(filters);
+    async search({ page, limit, ...filters }, acting) {
+        const where = this.scoped(this.buildWhere(filters), acting);
         const [data, total] = await this.prisma.$transaction([
             this.prisma.activityLog.findMany({
                 where,
@@ -52,17 +53,18 @@ let LogsService = class LogsService {
         ]);
         return (0, paginated_1.paginated)(data, total, page, limit);
     }
-    async summary({ hours, profileId }) {
+    async summary({ hours, profileId }, acting) {
         const since = new Date(Date.now() - hours * 3_600_000);
-        const where = {
-            createdAt: { gte: since },
-            ...(profileId ? { profileId } : {}),
-        };
+        const where = this.scoped({ createdAt: { gte: since }, ...(profileId ? { profileId } : {}) }, acting);
         const incidentWhere = {
-            ...where,
-            OR: [
-                { level: client_1.LogLevel.ERROR },
-                { eventType: { in: INCIDENT_EVENT_TYPES } },
+            AND: [
+                where,
+                {
+                    OR: [
+                        { level: client_1.LogLevel.ERROR },
+                        { eventType: { in: INCIDENT_EVENT_TYPES } },
+                    ],
+                },
             ],
         };
         const [byEvent, byProfile, incidents, total] = await Promise.all([
@@ -185,6 +187,10 @@ let LogsService = class LogsService {
     }
     emptyLevels() {
         return { DEBUG: 0, INFO: 0, WARN: 0, ERROR: 0 };
+    }
+    scoped(where, acting) {
+        const scope = (0, scope_1.scopeOf)(acting);
+        return (0, scope_1.seesEverything)(scope) ? where : { AND: [where, (0, scope_1.logWhere)(scope)] };
     }
     buildWhere(filters) {
         const where = {};

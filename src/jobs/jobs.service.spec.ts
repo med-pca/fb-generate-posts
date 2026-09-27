@@ -49,6 +49,8 @@ function makeHarness(item: MutableItem | null, jobItems: any[] = []) {
   const prisma: any = {
     publicationJobItem: { findUnique: jest.fn(async () => item) },
     publicationJob: {
+      // Le garde de portée interroge `findFirst` avant chaque étape.
+      findFirst: jest.fn(async () => ({ id: 'job_1' })),
       findUnique: jest.fn(async () => ({
         id: 'job_1',
         profileId: 'profile_1',
@@ -128,7 +130,10 @@ describe('JobsService — cycle de vie d’un post', () => {
     // Le post est peut-être en ligne : l’incident doit rester visible.
     expect(prisma.activityLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ eventType: 'CLAIM_LOST', level: 'ERROR' }),
+        data: expect.objectContaining({
+          eventType: 'CLAIM_LOST',
+          level: 'ERROR',
+        }),
       }),
     );
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -150,7 +155,9 @@ describe('JobsService — clôture du job', () => {
       { status: TargetStatus.PUBLISHED },
       { status: TargetStatus.CONSUMED },
     ]);
-    await expect(service.complete('job_1')).rejects.toThrow(BadRequestException);
+    await expect(service.complete('job_1')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('clôture en PARTIALLY_COMPLETED quand un post a échoué', async () => {
@@ -161,7 +168,9 @@ describe('JobsService — clôture du job', () => {
     await service.complete('job_1');
     expect(tx.publicationJob.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: JobStatus.PARTIALLY_COMPLETED }),
+        data: expect.objectContaining({
+          status: JobStatus.PARTIALLY_COMPLETED,
+        }),
       }),
     );
   });

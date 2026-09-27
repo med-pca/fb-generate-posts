@@ -4,6 +4,7 @@ import { GenerateArticlePostsDto } from './dto/generate-article-posts.dto';
 import { ImportArticleDto } from './dto/import-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import type { CurrentUser } from '../auth/current-user';
 type SocialCaption = {
     text: string;
     angle?: string;
@@ -19,28 +20,33 @@ type ArticleRecord = {
 export declare class ArticlesService {
     private readonly prisma;
     constructor(prisma: PrismaService);
-    findAll({ page, limit }: PaginationDto): Promise<{
+    findAll({ page, limit }: PaginationDto, acting: CurrentUser | null): Promise<{
         data: ({
-            source: {
-                id: string;
-                createdAt: Date;
-                updatedAt: Date;
-                name: string;
-                originUrl: string;
-            };
             _count: {
                 posts: number;
             };
+            source: {
+                name: string;
+                id: string;
+                status: import("@prisma/client").$Enums.RecordStatus;
+                createdAt: Date;
+                updatedAt: Date;
+                ownerId: string | null;
+                originUrl: string;
+                depositKey: string | null;
+            };
         } & {
+            id: string;
+            status: import("@prisma/client").$Enums.RecordStatus;
+            createdAt: Date;
+            updatedAt: Date;
             title: string;
             jsonUrl: string;
-            status: import("@prisma/client").$Enums.RecordStatus;
             excerpt: string | null;
             articleUrl: string;
             coverImageUrl: string | null;
-            id: string;
-            sourceId: string;
             externalId: string;
+            sourceId: string;
             slug: string;
             metaDescription: string | null;
             course: string | null;
@@ -56,8 +62,6 @@ export declare class ArticlesService {
             imagePrompt: string | null;
             rawData: Prisma.JsonValue;
             importedAt: Date;
-            createdAt: Date;
-            updatedAt: Date;
         })[];
         meta: {
             page: number;
@@ -66,21 +70,14 @@ export declare class ArticlesService {
             pages: number;
         };
     }>;
-    findOne(id: string): Prisma.Prisma__ArticleClient<{
-        source: {
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            name: string;
-            originUrl: string;
-        };
+    findOne(id: string, acting: CurrentUser | null): Promise<{
         posts: ({
             targets: {
-                status: import("@prisma/client").$Enums.TargetStatus;
                 id: string;
-                publishedAt: Date | null;
+                status: import("@prisma/client").$Enums.TargetStatus;
                 createdAt: Date;
                 updatedAt: Date;
+                publishedAt: Date | null;
                 claimedAt: Date | null;
                 claimExpiresAt: Date | null;
                 consumedAt: Date | null;
@@ -93,127 +90,143 @@ export declare class ArticlesService {
                 postId: string;
             }[];
         } & {
+            id: string;
+            status: import("@prisma/client").$Enums.PostStatus;
+            createdAt: Date;
+            updatedAt: Date;
             profileId: string;
             description: string;
             title: string;
-            status: import("@prisma/client").$Enums.PostStatus;
-            id: string;
             externalId: string | null;
-            rawData: Prisma.JsonValue | null;
-            createdAt: Date;
-            updatedAt: Date;
             url: string | null;
+            rawData: Prisma.JsonValue | null;
             imageUrl: string | null;
             delay: number;
             sourceType: import("@prisma/client").$Enums.SourceType;
             articleId: string | null;
             socialAngle: string | null;
         })[];
-    } & {
-        title: string;
-        jsonUrl: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
-        excerpt: string | null;
-        articleUrl: string;
-        coverImageUrl: string | null;
-        id: string;
-        sourceId: string;
-        externalId: string;
-        slug: string;
-        metaDescription: string | null;
-        course: string | null;
-        cuisine: string | null;
-        servings: string | null;
-        prepMinutes: number | null;
-        cookMinutes: number | null;
-        totalMinutes: number | null;
-        calories: number | null;
-        publishedAt: Date | null;
-        captions: Prisma.JsonValue;
-        hashtags: string[];
-        imagePrompt: string | null;
-        rawData: Prisma.JsonValue;
-        importedAt: Date;
-        createdAt: Date;
-        updatedAt: Date;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
-    update(id: string, dto: UpdateArticleDto): Prisma.Prisma__ArticleClient<{
-        title: string;
-        jsonUrl: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
-        excerpt: string | null;
-        articleUrl: string;
-        coverImageUrl: string | null;
-        id: string;
-        sourceId: string;
-        externalId: string;
-        slug: string;
-        metaDescription: string | null;
-        course: string | null;
-        cuisine: string | null;
-        servings: string | null;
-        prepMinutes: number | null;
-        cookMinutes: number | null;
-        totalMinutes: number | null;
-        calories: number | null;
-        publishedAt: Date | null;
-        captions: Prisma.JsonValue;
-        hashtags: string[];
-        imagePrompt: string | null;
-        rawData: Prisma.JsonValue;
-        importedAt: Date;
-        createdAt: Date;
-        updatedAt: Date;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
-    remove(id: string): Prisma.Prisma__ArticleClient<{
-        title: string;
-        jsonUrl: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
-        excerpt: string | null;
-        articleUrl: string;
-        coverImageUrl: string | null;
-        id: string;
-        sourceId: string;
-        externalId: string;
-        slug: string;
-        metaDescription: string | null;
-        course: string | null;
-        cuisine: string | null;
-        servings: string | null;
-        prepMinutes: number | null;
-        cookMinutes: number | null;
-        totalMinutes: number | null;
-        calories: number | null;
-        publishedAt: Date | null;
-        captions: Prisma.JsonValue;
-        hashtags: string[];
-        imagePrompt: string | null;
-        rawData: Prisma.JsonValue;
-        importedAt: Date;
-        createdAt: Date;
-        updatedAt: Date;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
-    import(dto: ImportArticleDto): Promise<{
         source: {
+            name: string;
             id: string;
+            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
+            ownerId: string | null;
             originUrl: string;
+            depositKey: string | null;
         };
+    } & {
+        id: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        title: string;
+        jsonUrl: string;
+        excerpt: string | null;
+        articleUrl: string;
+        coverImageUrl: string | null;
+        externalId: string;
+        sourceId: string;
+        slug: string;
+        metaDescription: string | null;
+        course: string | null;
+        cuisine: string | null;
+        servings: string | null;
+        prepMinutes: number | null;
+        cookMinutes: number | null;
+        totalMinutes: number | null;
+        calories: number | null;
+        publishedAt: Date | null;
+        captions: Prisma.JsonValue;
+        hashtags: string[];
+        imagePrompt: string | null;
+        rawData: Prisma.JsonValue;
+        importedAt: Date;
+    }>;
+    private reachable;
+    update(id: string, dto: UpdateArticleDto, acting: CurrentUser | null): Promise<{
+        id: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        title: string;
+        jsonUrl: string;
+        excerpt: string | null;
+        articleUrl: string;
+        coverImageUrl: string | null;
+        externalId: string;
+        sourceId: string;
+        slug: string;
+        metaDescription: string | null;
+        course: string | null;
+        cuisine: string | null;
+        servings: string | null;
+        prepMinutes: number | null;
+        cookMinutes: number | null;
+        totalMinutes: number | null;
+        calories: number | null;
+        publishedAt: Date | null;
+        captions: Prisma.JsonValue;
+        hashtags: string[];
+        imagePrompt: string | null;
+        rawData: Prisma.JsonValue;
+        importedAt: Date;
+    }>;
+    remove(id: string, acting: CurrentUser | null): Promise<{
+        id: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        title: string;
+        jsonUrl: string;
+        excerpt: string | null;
+        articleUrl: string;
+        coverImageUrl: string | null;
+        externalId: string;
+        sourceId: string;
+        slug: string;
+        metaDescription: string | null;
+        course: string | null;
+        cuisine: string | null;
+        servings: string | null;
+        prepMinutes: number | null;
+        cookMinutes: number | null;
+        totalMinutes: number | null;
+        calories: number | null;
+        publishedAt: Date | null;
+        captions: Prisma.JsonValue;
+        hashtags: string[];
+        imagePrompt: string | null;
+        rawData: Prisma.JsonValue;
+        importedAt: Date;
+    }>;
+    import(dto: ImportArticleDto, acting?: CurrentUser | null): Promise<{
         _count: {
             posts: number;
         };
+        source: {
+            name: string;
+            id: string;
+            status: import("@prisma/client").$Enums.RecordStatus;
+            createdAt: Date;
+            updatedAt: Date;
+            ownerId: string | null;
+            originUrl: string;
+            depositKey: string | null;
+        };
     } & {
+        id: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
+        createdAt: Date;
+        updatedAt: Date;
         title: string;
         jsonUrl: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
         excerpt: string | null;
         articleUrl: string;
         coverImageUrl: string | null;
-        id: string;
-        sourceId: string;
         externalId: string;
+        sourceId: string;
         slug: string;
         metaDescription: string | null;
         course: string | null;
@@ -229,16 +242,14 @@ export declare class ArticlesService {
         imagePrompt: string | null;
         rawData: Prisma.JsonValue;
         importedAt: Date;
-        createdAt: Date;
-        updatedAt: Date;
     }>;
-    generatePosts(id: string, dto: GenerateArticlePostsDto): Promise<({
+    generatePosts(id: string, dto: GenerateArticlePostsDto, acting?: CurrentUser | null): Promise<({
         targets: {
-            status: import("@prisma/client").$Enums.TargetStatus;
             id: string;
-            publishedAt: Date | null;
+            status: import("@prisma/client").$Enums.TargetStatus;
             createdAt: Date;
             updatedAt: Date;
+            publishedAt: Date | null;
             claimedAt: Date | null;
             claimExpiresAt: Date | null;
             consumedAt: Date | null;
@@ -251,16 +262,16 @@ export declare class ArticlesService {
             postId: string;
         }[];
     } & {
+        id: string;
+        status: import("@prisma/client").$Enums.PostStatus;
+        createdAt: Date;
+        updatedAt: Date;
         profileId: string;
         description: string;
         title: string;
-        status: import("@prisma/client").$Enums.PostStatus;
-        id: string;
         externalId: string | null;
-        rawData: Prisma.JsonValue | null;
-        createdAt: Date;
-        updatedAt: Date;
         url: string | null;
+        rawData: Prisma.JsonValue | null;
         imageUrl: string | null;
         delay: number;
         sourceType: import("@prisma/client").$Enums.SourceType;

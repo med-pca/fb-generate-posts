@@ -9,6 +9,7 @@
 const config = self.FCP_CONFIG;
 const els = {
   picker: document.getElementById('picker'),
+  site: document.getElementById('site'),
   posts: document.getElementById('posts'),
   capture: document.getElementById('capture'),
   preview: document.getElementById('preview'),
@@ -21,6 +22,8 @@ const els = {
 let tabId = null;
 let chosen = null;
 let lastSeen = {};
+/** Le dernier site choisi, retenu d'une fois sur l'autre. */
+const LAST_SITE = 'fcp.lastSite';
 
 const say = (message, kind = '') => {
   els.status.textContent = message;
@@ -32,6 +35,7 @@ const say = (message, kind = '') => {
 function refresh() {
   els.send.disabled = !(
     chosen &&
+    els.site.value &&
     els.caption.value.trim().length >= 15 &&
     /^https:\/\/\S+\.\S+/.test(els.source.value.trim())
   );
@@ -43,6 +47,34 @@ async function inject(options) {
     ...options,
   });
   return result;
+}
+
+/** Les destinations viennent de la plateforme, pas de la configuration de
+ * l'extension : un site ajouté là-bas apparaît ici sans rien réinstaller. */
+async function loadSites() {
+  let sites = [];
+  try {
+    const response = await fetch(`${config.apiBase}/api/jobs/sites`, {
+      headers: { 'X-API-Key': config.apiKey },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    ({ sites } = await response.json());
+  } catch (error) {
+    els.site.innerHTML = '';
+    els.site.append(new Option('— sites indisponibles —', ''));
+    say('Sites introuvables : ' + error.message, 'error');
+    return;
+  }
+  els.site.innerHTML = '';
+  if (!sites.length) {
+    els.site.append(new Option('— aucun site déclaré —', ''));
+    say('Déclarez un site dans la plateforme, section Sites.', 'error');
+    return;
+  }
+  for (const site of sites) els.site.append(new Option(site.name, site.siteUrl));
+  const { [LAST_SITE]: last } = await chrome.storage.local.get(LAST_SITE);
+  if (last && sites.some((site) => site.siteUrl === last)) els.site.value = last;
+  refresh();
 }
 
 async function start() {
@@ -154,8 +186,10 @@ async function choose(index) {
 async function send() {
   els.send.disabled = true;
   say('Envoi…');
+  await chrome.storage.local.set({ [LAST_SITE]: els.site.value });
   const body = {
     facebookUrl: chosen.facebookUrl,
+    siteUrl: els.site.value,
     sourceUrl: els.source.value.trim(),
     caption: els.caption.value.trim(),
     language: config.language || 'fr',
@@ -196,7 +230,9 @@ async function send() {
   els.done.querySelector('code').textContent = ingestId;
 }
 
+els.site.addEventListener('change', refresh);
 els.source.addEventListener('input', refresh);
 els.caption.addEventListener('input', refresh);
 els.send.addEventListener('click', () => void send());
+void loadSites();
 void start();

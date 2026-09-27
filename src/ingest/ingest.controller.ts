@@ -10,6 +10,8 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
+import { ActingUser } from '../auth/current-user';
+import type { CurrentUser } from '../auth/current-user';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { CreateIngestDto } from './dto/create-ingest.dto';
 import { ScrapeResultDto } from './dto/scrape-result.dto';
@@ -30,18 +32,21 @@ export class IngestController {
       'La reprise attend ensuite la collecte du post d’origine, déposée par ' +
       'l’extension ou, à la main, par `scrape-result`.',
   })
-  create(@Body() dto: CreateIngestDto) {
-    return this.ingest.create(dto);
+  create(@Body() dto: CreateIngestDto, @ActingUser() acting: CurrentUser) {
+    return this.ingest.create(dto, acting);
   }
 
   @Get()
-  findAll(@Query() pagination: PaginationDto) {
-    return this.ingest.findAll(pagination);
+  findAll(
+    @Query() pagination: PaginationDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.ingest.findAll(pagination, acting);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.ingest.findOne(id);
+  findOne(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.ingest.findOne(id, acting);
   }
 
   @Post(':id/scrape-result')
@@ -51,8 +56,12 @@ export class IngestController {
       'Tient lieu d’extension. La réponse attend que la lecture de la page ' +
       'source et la réécriture soient passées : compter une minute.',
   })
-  async scrapeResult(@Param('id') id: string, @Body() dto: ScrapeResultDto) {
-    await this.ingest.submitScrape(id, dto);
+  async scrapeResult(
+    @Param('id') id: string,
+    @Body() dto: ScrapeResultDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    await this.ingest.submitScrape(id, dto, acting);
     return this.ingest.advance(id);
   }
 
@@ -60,12 +69,12 @@ export class IngestController {
   @ApiOperation({
     summary: 'Reprendre une reprise en échec là où elle s’est arrêtée',
   })
-  retry(@Param('id') id: string) {
-    return this.ingest.retry(id);
+  retry(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.ingest.retry(id, acting);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.ingest.remove(id);
+  remove(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.ingest.remove(id, acting);
   }
 }

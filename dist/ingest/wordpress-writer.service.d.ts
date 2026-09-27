@@ -11,6 +11,7 @@ export type DepositInput = {
     article: GeneratedArticle;
     imageUrl: string | null;
     language?: string | null;
+    apiKey?: string | null;
 };
 export declare class WordpressWriterService {
     private readonly config;

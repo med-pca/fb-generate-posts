@@ -23,6 +23,11 @@ serveur : lit la source → réécrit → dépose sur WordPress
    **Charger l'extension non empaquetée** → choisir ce dossier.
 3. Épingler l'extension pour l'avoir sous la main.
 
+Le **site de destination** n’est pas dans `config.js` : les sites se
+déclarent dans la plateforme, section **Sites**, et l’extension y lit la
+liste. Le popup en fait un menu déroulant, et retient votre dernier choix.
+Un site ajouté là-bas apparaît ici sans rien réinstaller.
+
 `profileIds` dans `config.js` limite la diffusion. **Laissé vide, tous les
 profils actifs reçoivent un post**, et l'automate les publiera dans leurs
 groupes. Le renseigner pour n'en viser qu'un.
@@ -107,6 +112,8 @@ vraie publication reste nécessaire**.
 | « Facebook n'a pas montré la publication » | Ce compte ne voit pas ce contenu |
 | « Serveur injoignable » | `apiBase` dans `config.js`, ou l'API est arrêtée |
 | « Refusé (HTTP 401) » | `apiKey` ne correspond pas à `AUTOMATION_API_KEY` |
+| « aucun site déclaré » | Ajouter le site dans la plateforme, section Sites |
+| « Site inconnu » | Le site choisi n'est plus déclaré ou a été désactivé |
 
 Après l'envoi, le popup affiche l'identifiant de la reprise. L'avancement se
 lit sur `GET /api/admin/ingest/<id>` (session admin) : `lastError` dit ce qui

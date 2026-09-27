@@ -17,6 +17,7 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
+const current_user_1 = require("../auth/current-user");
 const create_group_dto_1 = require("./dto/create-group.dto");
 const groups_service_1 = require("./groups.service");
 const update_group_dto_1 = require("./dto/update-group.dto");
@@ -26,47 +27,50 @@ let GroupsController = class GroupsController {
     constructor(groups) {
         this.groups = groups;
     }
-    create(profileId, dto) {
-        return this.groups.create(profileId, dto);
+    create(profileId, dto, acting) {
+        return this.groups.create(profileId, dto, acting);
     }
-    findAll(profileId) {
-        return this.groups.findAll(profileId);
+    findAll(profileId, acting) {
+        return this.groups.findAll(profileId, acting);
     }
-    link(profileId, groupId) {
-        return this.groups.link(profileId, groupId);
+    link(profileId, groupId, acting) {
+        return this.groups.link(profileId, groupId, acting);
     }
-    unlink(profileId, groupId) {
-        return this.groups.unlink(profileId, groupId);
+    unlink(profileId, groupId, acting) {
+        return this.groups.unlink(profileId, groupId, acting);
     }
-    update(groupId, dto) {
-        return this.groups.update(groupId, dto);
+    update(groupId, dto, acting) {
+        return this.groups.update(groupId, dto, acting);
     }
 };
 exports.GroupsController = GroupsController;
 __decorate([
     (0, common_1.Post)(),
-    openapi.ApiResponse({ status: 201 }),
+    openapi.ApiResponse({ status: 201, type: Object }),
     __param(0, (0, common_1.Param)('profileId')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, create_group_dto_1.CreateGroupDto]),
+    __metadata("design:paramtypes", [String, create_group_dto_1.CreateGroupDto, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsController.prototype, "create", null);
 __decorate([
     (0, common_1.Get)(),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('profileId')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsController.prototype, "findAll", null);
 __decorate([
     (0, common_1.Post)(':groupId/link'),
-    openapi.ApiResponse({ status: 201 }),
+    openapi.ApiResponse({ status: 201, type: Object }),
     __param(0, (0, common_1.Param)('profileId')),
     __param(1, (0, common_1.Param)('groupId')),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [String, String, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsController.prototype, "link", null);
 __decorate([
@@ -74,8 +78,9 @@ __decorate([
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('profileId')),
     __param(1, (0, common_1.Param)('groupId')),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [String, String, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsController.prototype, "unlink", null);
 __decorate([
@@ -83,8 +88,9 @@ __decorate([
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('groupId')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, update_group_dto_1.UpdateGroupDto]),
+    __metadata("design:paramtypes", [String, update_group_dto_1.UpdateGroupDto, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsController.prototype, "update", null);
 exports.GroupsController = GroupsController = __decorate([
@@ -99,14 +105,14 @@ let GroupsCatalogController = class GroupsCatalogController {
     constructor(groups) {
         this.groups = groups;
     }
-    findAll(pagination) {
-        return this.groups.findCatalog(pagination);
+    findAll(pagination, acting) {
+        return this.groups.findCatalog(pagination, acting);
     }
-    remove(id) {
-        return this.groups.remove(id);
+    remove(id, acting) {
+        return this.groups.remove(id, acting);
     }
-    update(id, dto) {
-        return this.groups.update(id, dto);
+    update(id, dto, acting) {
+        return this.groups.update(id, dto, acting);
     }
 };
 exports.GroupsCatalogController = GroupsCatalogController;
@@ -114,16 +120,18 @@ __decorate([
     (0, common_1.Get)(),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Query)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [pagination_dto_1.PaginationDto]),
+    __metadata("design:paramtypes", [pagination_dto_1.PaginationDto, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsCatalogController.prototype, "findAll", null);
 __decorate([
     (0, common_1.Delete)(':id'),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsCatalogController.prototype, "remove", null);
 __decorate([
@@ -131,8 +139,9 @@ __decorate([
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, update_group_dto_1.UpdateGroupDto]),
+    __metadata("design:paramtypes", [String, update_group_dto_1.UpdateGroupDto, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsCatalogController.prototype, "update", null);
 exports.GroupsCatalogController = GroupsCatalogController = __decorate([

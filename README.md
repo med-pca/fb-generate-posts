@@ -522,6 +522,22 @@ compteurs, bandeau d'alerte sur les réservations perdues, répartition par
 événement et par profil, puis le tableau filtrable avec les métadonnées
 dépliables.
 
+### Dans l'interface
+
+La section **Comptes** n'apparaît qu'aux administrateurs : elle liste les
+comptes, permet d'en créer, de les désactiver et de régénérer leur clé. La
+clé s'affiche dans une fenêtre qui prévient qu'on ne la reverra pas — elle
+n'est rendue qu'à la création et à la régénération.
+
+Les lignes des **Sites** et des **Groupes** portent un bouton *Partager* :
+il ouvre la liste de qui y a accès, et permet d'ajouter ou de retirer un
+compte. Ne sont proposés que les gestionnaires actifs qui n'y ont pas déjà
+accès — un administrateur voit déjà tout, le proposer laisserait croire que
+son accès vient de là.
+
+L'en-tête rappelle qui est connecté et à quel titre : sans cela, un
+gestionnaire ne comprend pas pourquoi il voit si peu de choses.
+
 ## Scripts de vérification
 
 Deux scripts autonomes vérifient une API déployée. Ils créent leur propre
@@ -548,6 +564,14 @@ export ADMIN_USERNAME=... ADMIN_PASSWORD=... AUTOMATION_API_KEY=...
 ./scripts/smoke-ingest.sh https://exemple.com/article
 ```
 
+`public/admin/tests/ui-test.js` rend l'interface dans jsdom et joue le
+parcours des comptes, pour les deux rôles. Un double de l'API suffit : ce
+qu'on teste, c'est ce que l'interface montre et masque.
+
+```bash
+node public/admin/tests/ui-test.js
+```
+
 `read-source.ts` s'essaie à la lecture d'une page et, avec `--rewrite`, à sa
 réécriture. Rien n'est écrit : ni base, ni WordPress, ni Facebook. De quoi
 vérifier qu'un site se laisse extraire avant de lui confier une reprise.
@@ -561,6 +585,111 @@ npx ts-node scripts/read-source.ts https://exemple.com/article --rewrite --lang 
 que `link-updates` est refusé avant la clôture, que `complete` bascule en
 `AWAITING_LINK`, que l’URL est bien livrée ensuite, et qu’un profil déjà occupé
 est écarté d’une réservation par lot.
+
+## Comptes et propriété
+
+Un `ADMIN` gère tout. Un `MANAGER` possède ses propres profils, groupes et
+sites, et reçoit les accès qu'on lui partage.
+
+Les identifiants du `.env` restent acceptés **tant qu'aucun compte ne porte
+ce nom** : à la première connexion ils créent le premier `ADMIN`, et tout ce
+qui existait lui est attribué. Une installation en place n'a donc rien à
+faire.
+
+| Route | Qui |
+| --- | --- |
+| `POST /api/auth/login` | tous |
+| `GET /api/me` | tout compte connecté |
+| `GET/POST/PATCH/DELETE /api/users` | `ADMIN` seulement |
+| `POST /api/users/:id/rotate-key` | `ADMIN` seulement |
+
+Chaque compte a **sa propre clé d'automatisation**, rendue une seule fois à
+sa création ou à sa régénération : aucune lecture ultérieure ne la montre.
+La clé globale `AUTOMATION_API_KEY` reste valable et n'appartient à
+personne. Le compte est relu en base à chaque requête, donc **désactiver
+quelqu'un lui coupe l'accès immédiatement**, sans attendre l'expiration de
+son jeton.
+
+Trois refus évitent de s'enfermer dehors : un administrateur ne peut ni se
+rétrograder, ni se désactiver, ni se supprimer, et le dernier administrateur
+actif ne peut pas être retiré.
+
+### Qui possède quoi
+
+`Profile`, `Group`, `ContentSource` et `SourceIngest` portent un
+propriétaire. Le reste en hérite : un post appartient au propriétaire de son
+profil, un article à celui de son site.
+
+`NULL` veut dire **sans propriétaire**, donc réservé aux `ADMIN`. C'est ce
+que devient une ressource quand son compte est supprimé : la clé étrangère
+est en `SET NULL`, jamais en `CASCADE` — supprimer un compte ne doit pas
+emporter ses groupes et l'historique de publication qui en dépend. La
+réponse de la suppression dit combien de ressources ont été relâchées, et un
+`ADMIN` les réattribue avec `PATCH /api/sites/:id { "ownerId": "..." }`
+(chaîne vide pour retirer le propriétaire).
+
+### Ce que chacun voit
+
+Un `MANAGER` ne voit que ce qu'il possède : profils, groupes, sites, posts,
+articles, reprises, journaux et lots de publication. Un `ADMIN` et la clé
+globale d'automatisation voient tout.
+
+La règle est écrite **une seule fois**, dans
+[`src/auth/scope.ts`](src/auth/scope.ts) : la répartir dans les
+quatre-vingt-dix requêtes du projet reviendrait à garantir qu'on en oublie
+une, et une seule suffit à montrer les données d'un compte à un autre. Les
+racines filtrent sur `ownerId` ; ce qui en dépend hérite — un post par son
+profil, un article par son site, un lot par son profil.
+
+Deux conséquences voulues :
+
+- **Une ressource sans propriétaire ne correspond à aucune condition de
+  gestionnaire.** Un oubli la rend invisible, jamais partagée par accident.
+- **Hors de portée veut dire introuvable, pas interdit.** Toutes les routes
+  répondent `404`, y compris les écritures : un `403` confirmerait
+  l'existence de la ressource à qui devine son identifiant.
+
+La clé d'automatisation d'un compte ne voit que ses profils et ne réserve
+que ses lots. Chaque étape du parcours de publication — `consumed`,
+`published`, `commented`, `complete`, `link-updated` — vérifie que le lot
+lui appartient : ces routes ne prennent qu'un `jobId`, et sans ce contrôle
+il suffirait de le deviner.
+
+### Partager, sans donner la main
+
+Un groupe ou un site se partage avec un compte **en publication seule** :
+
+```bash
+POST   /api/groups/:id/access  { "userId": "..." }
+DELETE /api/groups/:id/access/:userId
+GET    /api/groups/:id/access
+```
+
+Les mêmes trois routes existent sous `/api/sites/:id/access`. Le
+propriétaire accorde, ou un `ADMIN`.
+
+| Le bénéficiaire peut | Le bénéficiaire ne peut pas |
+| --- | --- |
+| voir la ressource | la renommer, changer son URL |
+| publier dedans / y déposer | la désactiver, la supprimer |
+| la choisir dans son extension | la repartager, voir qui y a accès |
+| | lire la clé du plugin du site |
+
+C'est ce qui impose **deux conditions de portée** dans
+[`src/auth/scope.ts`](src/auth/scope.ts) : `groupWhere` / `siteWhere` pour
+ce qu'on voit et où l'on peut publier, `groupManageWhere` /
+`siteManageWhere` pour ce qu'on peut modifier. Les confondre laisserait un
+bénéficiaire renommer le groupe d'un autre.
+
+Sur une tentative de gestion, la réponse est un **403 explicite** — « Ce
+groupe vous est partagé pour publier : seul son propriétaire le modifie » —
+et non un 404 : la ressource, on la voit déjà, il n'y a rien à cacher.
+
+Trois refus à la création d'un partage : avec le propriétaire lui-même,
+avec un `ADMIN` (qui voit déjà tout, et croirait tenir l'accès de là), et
+avec un compte désactivé. Repartager ce qui l'est déjà ne fait rien plutôt
+que d'échouer. Supprimer un compte emporte ses partages — `CASCADE` ici,
+contrairement à la propriété qui est en `SET NULL`.
 
 ## Sécurité
 
@@ -655,6 +784,30 @@ globalement avec `LLM_TIMEOUT_MS` et `LLM_MAX_TOKENS`.
 
 Sans aucune clé, la reprise s’arrête en `REWRITING` et le dit dans
 `lastError`. `/admin/posts/generate` reste sur OpenAI seul, sans repli.
+
+### Les sites de destination
+
+Une reprise se dépose sur un site **déclaré dans la plateforme**, section
+**Sites** de l’interface d’administration (ou `GET/POST/PATCH/DELETE
+/api/sites`). Chaque site porte son nom, son adresse, et **la clé de son
+propre plugin** — deux sites n’ont aucune raison de partager la même.
+Laissée vide, la clé globale `WORDPRESS_API_KEY` sert.
+
+Un site inconnu est **refusé** : sans cette vérification, la clé
+d’automatisation suffirait à faire déposer nos articles sur n’importe quel
+domaine. Le site de `WORDPRESS_SITE_URL` fait exception : il se déclare tout
+seul la première fois, sans quoi une installation neuve refuserait sa propre
+destination.
+
+Un site désactivé n’est plus proposé comme destination ; ses articles et ses
+posts restent intacts. Un site qui porte des articles ne se supprime pas —
+la suppression les emporterait, et avec eux les posts qui en sont nés.
+
+L’extension lit cette liste sur `GET /api/jobs/sites` (clé d’automatisation)
+et en fait un menu déroulant. **Aucune clé de site n’en ressort**, ni par
+cette route, ni par la lecture admin : on sait seulement si un site en a une.
+Un site ajouté dans la plateforme apparaît dans l’extension sans rien y
+réinstaller.
 
 ### La collecte par l’extension
 

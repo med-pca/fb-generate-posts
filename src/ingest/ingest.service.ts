@@ -7,6 +7,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { IngestStatus, Prisma, SourceIngest } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import type { CurrentUser } from '../auth/current-user';
+import { normalizeSiteUrl } from '../sites/sites.service';
+import { ingestWhere, scopeOf } from '../auth/scope';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
 import { CaptureIngestDto } from './dto/capture-ingest.dto';
@@ -57,8 +60,8 @@ export class IngestService {
     private readonly wordpress: WordpressWriterService,
   ) {}
 
-  async create(dto: CreateIngestDto) {
-    const siteUrl = this.siteUrl(dto.siteUrl);
+  async create(dto: CreateIngestDto, owner: CurrentUser | null = null) {
+    const { siteUrl } = await this.resolveSite(dto.siteUrl);
     const profileIds = [...new Set(dto.profileIds ?? [])];
     const groupIds = [...new Set(dto.groupIds ?? [])];
     await this.assertScope(profileIds, groupIds);
@@ -70,6 +73,7 @@ export class IngestService {
         language: dto.language,
         profileIds,
         groupIds,
+        ownerId: owner?.id ?? null,
       },
     });
     await this.log(ingest.id, 'INGEST_CREATED', 'Reprise enregistrée', {
@@ -79,9 +83,11 @@ export class IngestService {
     return ingest;
   }
 
-  async findAll({ page, limit }: PaginationDto) {
+  async findAll({ page, limit }: PaginationDto, acting: CurrentUser | null) {
+    const where = ingestWhere(scopeOf(acting));
     const [data, total] = await this.prisma.$transaction([
       this.prisma.sourceIngest.findMany({
+        where,
         include: {
           article: { select: { id: true, title: true, articleUrl: true } },
         },
@@ -89,32 +95,32 @@ export class IngestService {
         skip: (page - 1) * limit,
         take: limit,
       }),
-      this.prisma.sourceIngest.count(),
+      this.prisma.sourceIngest.count({ where }),
     ]);
     return paginated(data, total, page, limit);
   }
 
   /** `findUniqueOrThrow` remonterait une erreur Prisma, donc un 500 : une
    * fiche absente est un 404, pas une panne. */
-  async findOne(id: string) {
-    const ingest = await this.prisma.sourceIngest.findUnique({
-      where: { id },
+  async findOne(id: string, acting: CurrentUser | null) {
+    const ingest = await this.prisma.sourceIngest.findFirst({
+      where: { id, ...ingestWhere(scopeOf(acting)) },
       include: { article: true },
     });
     if (!ingest) throw new NotFoundException('Reprise introuvable');
     return ingest;
   }
 
-  async remove(id: string) {
-    await this.load(id);
+  async remove(id: string, acting: CurrentUser | null) {
+    await this.load(id, acting);
     return this.prisma.sourceIngest.delete({ where: { id } });
   }
 
   /** Enregistre une reprise déjà collectée, en un seul appel. C'est le
    * chemin de l'extension : l'utilisateur est devant la publication, il a
    * décidé de la reprendre, et il n'y a rien à réserver ni à attendre. */
-  async capture(dto: CaptureIngestDto) {
-    const ingest = await this.create(dto);
+  async capture(dto: CaptureIngestDto, owner: CurrentUser | null = null) {
+    const ingest = await this.create(dto, owner);
     return this.submitScrape(ingest.id, {
       caption: dto.caption,
       imageUrl: dto.imageUrl,
@@ -127,14 +133,21 @@ export class IngestService {
    *
    * `SKIP LOCKED` fait le reste : deux extensions qui interrogent en même
    * temps repartent avec deux reprises différentes. */
-  async claimScrape(profileExternalId?: string) {
+  async claimScrape(
+    profileExternalId?: string,
+    acting: CurrentUser | null = null,
+  ) {
     const ttlMinutes = this.config.get<number>('CLAIM_TTL_MINUTES', 30);
     const claimExpiresAt = new Date(Date.now() + ttlMinutes * 60_000);
     const claimed = await this.prisma.$transaction(async (tx) => {
+      // Un compte ne réserve que ses propres collectes ; la clé globale les
+      // voit toutes.
+      const mine = scopeOf(acting);
       const [row] = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT id FROM source_ingests
-        WHERE status = 'PENDING_SCRAPE'::"IngestStatus"
-           OR (status = 'SCRAPING'::"IngestStatus" AND claim_expires_at < NOW())
+        WHERE (status = 'PENDING_SCRAPE'::"IngestStatus"
+               OR (status = 'SCRAPING'::"IngestStatus" AND claim_expires_at < NOW()))
+          AND (${mine === null} OR owner_id = ${mine?.ownerId ?? null})
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1
@@ -166,8 +179,12 @@ export class IngestService {
 
   /** L'extension n'a pas pu relever la publication. La reprise retourne dans
    * la file : le compte suivant, ou le même plus tard, réessaiera. */
-  async failScrape(id: string, error: string) {
-    const ingest = await this.load(id);
+  async failScrape(
+    id: string,
+    error: string,
+    acting: CurrentUser | null = null,
+  ) {
+    const ingest = await this.load(id, acting);
     const attempts = ingest.attempts + 1;
     const exhausted = attempts >= MAX_ATTEMPTS;
     await this.log(id, 'INGEST_FAILED', error, {
@@ -190,8 +207,12 @@ export class IngestService {
   /** Dépose ce que l'extension — ou un administrateur — a relevé sur la
    * publication d'origine. N'enchaîne pas : l'appelant décide s'il attend la
    * suite ou non. */
-  async submitScrape(id: string, dto: ScrapeResultDto) {
-    const ingest = await this.load(id);
+  async submitScrape(
+    id: string,
+    dto: ScrapeResultDto,
+    acting?: CurrentUser | null,
+  ) {
+    const ingest = await this.load(id, acting);
     if (
       ingest.status !== IngestStatus.PENDING_SCRAPE &&
       ingest.status !== IngestStatus.SCRAPING &&
@@ -220,8 +241,8 @@ export class IngestService {
 
   /** Remet une reprise abandonnée à l'étape que ses données permettent, puis
    * la relance. Le compteur repart de zéro : c'est une décision humaine. */
-  async retry(id: string) {
-    const ingest = await this.load(id);
+  async retry(id: string, acting: CurrentUser | null) {
+    const ingest = await this.load(id, acting);
     await this.prisma.sourceIngest.update({
       where: { id },
       data: {
@@ -374,8 +395,10 @@ export class IngestService {
   private async publishToWordpress(ingest: SourceIngest) {
     const generated = ingest.generated as GeneratedArticle | null;
     if (!generated) throw new Error('Aucune réécriture à déposer');
+    const { depositKey } = await this.resolveSite(ingest.siteUrl);
     const deposit = await this.wordpress.deposit({
       siteUrl: ingest.siteUrl,
+      apiKey: depositKey,
       ingestRef: ingest.id,
       article: generated,
       imageUrl: ingest.fbImageUrl,
@@ -396,23 +419,42 @@ export class IngestService {
     });
   }
 
-  /** Le site de destination, réduit à ce qui sert d'adresse : ni identifiants,
-   * ni requête, ni barre finale — la même normalisation que la réception
-   * WordPress, pour que les deux désignent bien le même site. */
-  private siteUrl(provided?: string) {
+  /** Le site de destination, qui doit être déclaré dans la plateforme.
+   *
+   * Sans cette vérification, la clé d'automatisation suffirait à faire
+   * déposer nos articles sur n'importe quel domaine. Le site par défaut,
+   * lui, se déclare tout seul la première fois : sans quoi une installation
+   * neuve refuserait sa propre destination.
+   */
+  private async resolveSite(provided?: string) {
     const raw = provided ?? this.config.get<string>('WORDPRESS_SITE_URL');
     if (!raw) {
       throw new BadRequestException(
         'Indiquer siteUrl, ou configurer WORDPRESS_SITE_URL',
       );
     }
-    const url = new URL(raw);
-    if (url.username || url.password || url.search || url.hash) {
+    const siteUrl = normalizeSiteUrl(raw);
+    const site = await this.prisma.contentSource.findUnique({
+      where: { originUrl: siteUrl },
+    });
+    if (!site) {
+      const fallback = this.config.get<string>('WORDPRESS_SITE_URL');
+      if (!fallback || normalizeSiteUrl(fallback) !== siteUrl) {
+        throw new BadRequestException(
+          `Site inconnu : ${siteUrl}. Le déclarer dans la plateforme, section Sites.`,
+        );
+      }
+      const created = await this.prisma.contentSource.create({
+        data: { originUrl: siteUrl, name: new URL(siteUrl).hostname },
+      });
+      return { siteUrl, depositKey: created.depositKey };
+    }
+    if (site.status !== 'ACTIVE') {
       throw new BadRequestException(
-        'siteUrl ne doit porter ni identifiants, ni paramètres',
+        `${site.name} est désactivé comme destination`,
       );
     }
-    return url.origin + url.pathname.replace(/\/+$/, '');
+    return { siteUrl, depositKey: site.depositKey };
   }
 
   /** Une portée qui ne désigne rien de publiable se voit tout de suite, pas
@@ -451,8 +493,16 @@ export class IngestService {
     }
   }
 
-  private async load(id: string) {
-    const ingest = await this.prisma.sourceIngest.findUnique({ where: { id } });
+  /** Une reprise hors de portée est introuvable, pas interdite : répondre
+   * 403 confirmerait son existence. `acting` non fourni = appel interne,
+   * déjà autorisé par l'étape qui l'a déclenché. */
+  private async load(id: string, acting?: CurrentUser | null) {
+    const ingest = await this.prisma.sourceIngest.findFirst({
+      where: {
+        id,
+        ...(acting === undefined ? {} : ingestWhere(scopeOf(acting))),
+      },
+    });
     if (!ingest) throw new NotFoundException('Reprise introuvable');
     return ingest;
   }

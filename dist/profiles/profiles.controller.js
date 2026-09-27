@@ -17,6 +17,7 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
+const current_user_1 = require("../auth/current-user");
 const create_profile_dto_1 = require("./dto/create-profile.dto");
 const profiles_service_1 = require("./profiles.service");
 const update_profile_dto_1 = require("./dto/update-profile.dto");
@@ -26,20 +27,20 @@ let ProfilesController = class ProfilesController {
     constructor(profiles) {
         this.profiles = profiles;
     }
-    create(dto) {
-        return this.profiles.create(dto);
+    create(dto, acting) {
+        return this.profiles.create(dto, acting);
     }
-    findAll(pagination) {
-        return this.profiles.findAll(pagination);
+    findAll(pagination, acting) {
+        return this.profiles.findAll(pagination, acting);
     }
-    findOne(id) {
-        return this.profiles.findOne(id);
+    findOne(id, acting) {
+        return this.profiles.findOne(id, acting);
     }
-    update(id, dto) {
-        return this.profiles.update(id, dto);
+    update(id, dto, acting) {
+        return this.profiles.update(id, dto, acting);
     }
-    remove(id) {
-        return this.profiles.remove(id);
+    remove(id, acting) {
+        return this.profiles.remove(id, acting);
     }
 };
 exports.ProfilesController = ProfilesController;
@@ -47,24 +48,27 @@ __decorate([
     (0, common_1.Post)(),
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [create_profile_dto_1.CreateProfileDto]),
+    __metadata("design:paramtypes", [create_profile_dto_1.CreateProfileDto, Object]),
     __metadata("design:returntype", void 0)
 ], ProfilesController.prototype, "create", null);
 __decorate([
     (0, common_1.Get)(),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Query)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [pagination_dto_1.PaginationDto]),
+    __metadata("design:paramtypes", [pagination_dto_1.PaginationDto, Object]),
     __metadata("design:returntype", void 0)
 ], ProfilesController.prototype, "findAll", null);
 __decorate([
     (0, common_1.Get)(':id'),
-    openapi.ApiResponse({ status: 200 }),
+    openapi.ApiResponse({ status: 200, type: Object }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], ProfilesController.prototype, "findOne", null);
 __decorate([
@@ -72,16 +76,18 @@ __decorate([
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, update_profile_dto_1.UpdateProfileDto]),
+    __metadata("design:paramtypes", [String, update_profile_dto_1.UpdateProfileDto, Object]),
     __metadata("design:returntype", void 0)
 ], ProfilesController.prototype, "update", null);
 __decorate([
     (0, common_1.Delete)(':id'),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], ProfilesController.prototype, "remove", null);
 exports.ProfilesController = ProfilesController = __decorate([

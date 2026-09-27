@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { IngestStatus, Prisma, SourceIngest } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import type { CurrentUser } from '../auth/current-user';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { CaptureIngestDto } from './dto/capture-ingest.dto';
 import { CreateIngestDto } from './dto/create-ingest.dto';
@@ -27,12 +28,13 @@ export declare class IngestService {
     private readonly logger;
     private readonly running;
     constructor(prisma: PrismaService, config: ConfigService, reader: SourceReaderService, rewriter: RewriterService, wordpress: WordpressWriterService);
-    create(dto: CreateIngestDto): Promise<{
-        groupIds: string[];
-        status: import("@prisma/client").$Enums.IngestStatus;
+    create(dto: CreateIngestDto, owner?: CurrentUser | null): Promise<{
         id: string;
+        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
         updatedAt: Date;
+        groupIds: string[];
+        ownerId: string | null;
         articleId: string | null;
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
@@ -51,19 +53,20 @@ export declare class IngestService {
         profileIds: string[];
         attempts: number;
     }>;
-    findAll({ page, limit }: PaginationDto): Promise<{
+    findAll({ page, limit }: PaginationDto, acting: CurrentUser | null): Promise<{
         data: ({
             article: {
+                id: string;
                 title: string;
                 articleUrl: string;
-                id: string;
             } | null;
         } & {
-            groupIds: string[];
-            status: import("@prisma/client").$Enums.IngestStatus;
             id: string;
+            status: import("@prisma/client").$Enums.IngestStatus;
             createdAt: Date;
             updatedAt: Date;
+            groupIds: string[];
+            ownerId: string | null;
             articleId: string | null;
             claimedAt: Date | null;
             claimExpiresAt: Date | null;
@@ -89,17 +92,19 @@ export declare class IngestService {
             pages: number;
         };
     }>;
-    findOne(id: string): Promise<{
+    findOne(id: string, acting: CurrentUser | null): Promise<{
         article: {
+            id: string;
+            status: import("@prisma/client").$Enums.RecordStatus;
+            createdAt: Date;
+            updatedAt: Date;
             title: string;
             jsonUrl: string;
-            status: import("@prisma/client").$Enums.RecordStatus;
             excerpt: string | null;
             articleUrl: string;
             coverImageUrl: string | null;
-            id: string;
-            sourceId: string;
             externalId: string;
+            sourceId: string;
             slug: string;
             metaDescription: string | null;
             course: string | null;
@@ -115,15 +120,14 @@ export declare class IngestService {
             imagePrompt: string | null;
             rawData: Prisma.JsonValue;
             importedAt: Date;
-            createdAt: Date;
-            updatedAt: Date;
         } | null;
     } & {
-        groupIds: string[];
-        status: import("@prisma/client").$Enums.IngestStatus;
         id: string;
+        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
         updatedAt: Date;
+        groupIds: string[];
+        ownerId: string | null;
         articleId: string | null;
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
@@ -142,12 +146,13 @@ export declare class IngestService {
         profileIds: string[];
         attempts: number;
     }>;
-    remove(id: string): Promise<{
-        groupIds: string[];
-        status: import("@prisma/client").$Enums.IngestStatus;
+    remove(id: string, acting: CurrentUser | null): Promise<{
         id: string;
+        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
         updatedAt: Date;
+        groupIds: string[];
+        ownerId: string | null;
         articleId: string | null;
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
@@ -166,12 +171,13 @@ export declare class IngestService {
         profileIds: string[];
         attempts: number;
     }>;
-    capture(dto: CaptureIngestDto): Promise<{
-        groupIds: string[];
-        status: import("@prisma/client").$Enums.IngestStatus;
+    capture(dto: CaptureIngestDto, owner?: CurrentUser | null): Promise<{
         id: string;
+        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
         updatedAt: Date;
+        groupIds: string[];
+        ownerId: string | null;
         articleId: string | null;
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
@@ -190,7 +196,7 @@ export declare class IngestService {
         profileIds: string[];
         attempts: number;
     }>;
-    claimScrape(profileExternalId?: string): Promise<{
+    claimScrape(profileExternalId?: string, acting?: CurrentUser | null): Promise<{
         scrape: null;
         message: string;
     } | {
@@ -201,12 +207,13 @@ export declare class IngestService {
         };
         message?: undefined;
     }>;
-    failScrape(id: string, error: string): Promise<{
-        groupIds: string[];
-        status: import("@prisma/client").$Enums.IngestStatus;
+    failScrape(id: string, error: string, acting?: CurrentUser | null): Promise<{
         id: string;
+        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
         updatedAt: Date;
+        groupIds: string[];
+        ownerId: string | null;
         articleId: string | null;
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
@@ -225,12 +232,13 @@ export declare class IngestService {
         profileIds: string[];
         attempts: number;
     }>;
-    submitScrape(id: string, dto: ScrapeResultDto): Promise<{
-        groupIds: string[];
-        status: import("@prisma/client").$Enums.IngestStatus;
+    submitScrape(id: string, dto: ScrapeResultDto, acting?: CurrentUser | null): Promise<{
         id: string;
+        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
         updatedAt: Date;
+        groupIds: string[];
+        ownerId: string | null;
         articleId: string | null;
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
@@ -249,12 +257,13 @@ export declare class IngestService {
         profileIds: string[];
         attempts: number;
     }>;
-    retry(id: string): Promise<{
-        groupIds: string[];
-        status: import("@prisma/client").$Enums.IngestStatus;
+    retry(id: string, acting: CurrentUser | null): Promise<{
         id: string;
+        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
         updatedAt: Date;
+        groupIds: string[];
+        ownerId: string | null;
         articleId: string | null;
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
@@ -280,7 +289,7 @@ export declare class IngestService {
     private resolvedLanguage;
     private rewrite;
     private publishToWordpress;
-    private siteUrl;
+    private resolveSite;
     private assertScope;
     private load;
     private log;

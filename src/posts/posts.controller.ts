@@ -17,6 +17,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
+import { ActingUser } from '../auth/current-user';
+import type { CurrentUser } from '../auth/current-user';
 import { CreatePostDto } from './dto/create-post.dto';
 import { PostsService } from './posts.service';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -31,13 +33,13 @@ export class PostsController {
   constructor(private readonly posts: PostsService) {}
 
   @Post()
-  create(@Body() dto: CreatePostDto) {
-    return this.posts.create(dto);
+  create(@Body() dto: CreatePostDto, @ActingUser() acting: CurrentUser) {
+    return this.posts.create(dto, acting);
   }
 
   @Get()
-  findAll(@Query() query: QueryPostsDto) {
-    return this.posts.findAll(query);
+  findAll(@Query() query: QueryPostsDto, @ActingUser() acting: CurrentUser) {
+    return this.posts.findAll(query, acting);
   }
 
   @Post('bulk-delete')
@@ -46,23 +48,34 @@ export class PostsController {
     summary:
       'Supprimer plusieurs posts par sélection ou par filtre (dryRun pour compter d’abord)',
   })
-  bulkRemove(@Body() dto: BulkDeletePostsDto) {
-    return this.posts.bulkRemove(dto);
+  bulkRemove(
+    @Body() dto: BulkDeletePostsDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.posts.bulkRemove(dto, acting);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.posts.findOne(id);
+  findOne(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.posts.findOne(id, acting);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdatePostDto) {
-    return this.posts.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdatePostDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.posts.update(id, dto, acting);
   }
 
   @Delete(':id')
   @ApiQuery({ name: 'force', required: false, type: Boolean })
-  remove(@Param('id') id: string, @Query('force') force?: string) {
-    return this.posts.remove(id, force === 'true');
+  remove(
+    @Param('id') id: string,
+    @ActingUser() acting: CurrentUser,
+    @Query('force') force?: string,
+  ) {
+    return this.posts.remove(id, force === 'true', acting);
   }
 }

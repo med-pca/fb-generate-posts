@@ -16,6 +16,8 @@ const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
+const sites_service_1 = require("../sites/sites.service");
+const scope_1 = require("../auth/scope");
 const paginated_1 = require("../common/paginated");
 const rewriter_service_1 = require("./rewriter.service");
 const source_reader_service_1 = require("./source-reader.service");
@@ -45,8 +47,8 @@ let IngestService = IngestService_1 = class IngestService {
         this.rewriter = rewriter;
         this.wordpress = wordpress;
     }
-    async create(dto) {
-        const siteUrl = this.siteUrl(dto.siteUrl);
+    async create(dto, owner = null) {
+        const { siteUrl } = await this.resolveSite(dto.siteUrl);
         const profileIds = [...new Set(dto.profileIds ?? [])];
         const groupIds = [...new Set(dto.groupIds ?? [])];
         await this.assertScope(profileIds, groupIds);
@@ -58,6 +60,7 @@ let IngestService = IngestService_1 = class IngestService {
                 language: dto.language,
                 profileIds,
                 groupIds,
+                ownerId: owner?.id ?? null,
             },
         });
         await this.log(ingest.id, 'INGEST_CREATED', 'Reprise enregistrée', {
@@ -66,9 +69,11 @@ let IngestService = IngestService_1 = class IngestService {
         });
         return ingest;
     }
-    async findAll({ page, limit }) {
+    async findAll({ page, limit }, acting) {
+        const where = (0, scope_1.ingestWhere)((0, scope_1.scopeOf)(acting));
         const [data, total] = await this.prisma.$transaction([
             this.prisma.sourceIngest.findMany({
+                where,
                 include: {
                     article: { select: { id: true, title: true, articleUrl: true } },
                 },
@@ -76,38 +81,40 @@ let IngestService = IngestService_1 = class IngestService {
                 skip: (page - 1) * limit,
                 take: limit,
             }),
-            this.prisma.sourceIngest.count(),
+            this.prisma.sourceIngest.count({ where }),
         ]);
         return (0, paginated_1.paginated)(data, total, page, limit);
     }
-    async findOne(id) {
-        const ingest = await this.prisma.sourceIngest.findUnique({
-            where: { id },
+    async findOne(id, acting) {
+        const ingest = await this.prisma.sourceIngest.findFirst({
+            where: { id, ...(0, scope_1.ingestWhere)((0, scope_1.scopeOf)(acting)) },
             include: { article: true },
         });
         if (!ingest)
             throw new common_1.NotFoundException('Reprise introuvable');
         return ingest;
     }
-    async remove(id) {
-        await this.load(id);
+    async remove(id, acting) {
+        await this.load(id, acting);
         return this.prisma.sourceIngest.delete({ where: { id } });
     }
-    async capture(dto) {
-        const ingest = await this.create(dto);
+    async capture(dto, owner = null) {
+        const ingest = await this.create(dto, owner);
         return this.submitScrape(ingest.id, {
             caption: dto.caption,
             imageUrl: dto.imageUrl,
         });
     }
-    async claimScrape(profileExternalId) {
+    async claimScrape(profileExternalId, acting = null) {
         const ttlMinutes = this.config.get('CLAIM_TTL_MINUTES', 30);
         const claimExpiresAt = new Date(Date.now() + ttlMinutes * 60_000);
         const claimed = await this.prisma.$transaction(async (tx) => {
+            const mine = (0, scope_1.scopeOf)(acting);
             const [row] = await tx.$queryRaw(client_1.Prisma.sql `
         SELECT id FROM source_ingests
-        WHERE status = 'PENDING_SCRAPE'::"IngestStatus"
-           OR (status = 'SCRAPING'::"IngestStatus" AND claim_expires_at < NOW())
+        WHERE (status = 'PENDING_SCRAPE'::"IngestStatus"
+               OR (status = 'SCRAPING'::"IngestStatus" AND claim_expires_at < NOW()))
+          AND (${mine === null} OR owner_id = ${mine?.ownerId ?? null})
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1
@@ -137,8 +144,8 @@ let IngestService = IngestService_1 = class IngestService {
             },
         };
     }
-    async failScrape(id, error) {
-        const ingest = await this.load(id);
+    async failScrape(id, error, acting = null) {
+        const ingest = await this.load(id, acting);
         const attempts = ingest.attempts + 1;
         const exhausted = attempts >= MAX_ATTEMPTS;
         await this.log(id, 'INGEST_FAILED', error, {
@@ -157,8 +164,8 @@ let IngestService = IngestService_1 = class IngestService {
             },
         });
     }
-    async submitScrape(id, dto) {
-        const ingest = await this.load(id);
+    async submitScrape(id, dto, acting) {
+        const ingest = await this.load(id, acting);
         if (ingest.status !== client_1.IngestStatus.PENDING_SCRAPE &&
             ingest.status !== client_1.IngestStatus.SCRAPING &&
             ingest.status !== client_1.IngestStatus.FAILED) {
@@ -180,8 +187,8 @@ let IngestService = IngestService_1 = class IngestService {
             },
         });
     }
-    async retry(id) {
-        const ingest = await this.load(id);
+    async retry(id, acting) {
+        const ingest = await this.load(id, acting);
         await this.prisma.sourceIngest.update({
             where: { id },
             data: {
@@ -295,8 +302,10 @@ let IngestService = IngestService_1 = class IngestService {
         const generated = ingest.generated;
         if (!generated)
             throw new Error('Aucune réécriture à déposer');
+        const { depositKey } = await this.resolveSite(ingest.siteUrl);
         const deposit = await this.wordpress.deposit({
             siteUrl: ingest.siteUrl,
+            apiKey: depositKey,
             ingestRef: ingest.id,
             article: generated,
             imageUrl: ingest.fbImageUrl,
@@ -315,16 +324,29 @@ let IngestService = IngestService_1 = class IngestService {
             },
         });
     }
-    siteUrl(provided) {
+    async resolveSite(provided) {
         const raw = provided ?? this.config.get('WORDPRESS_SITE_URL');
         if (!raw) {
             throw new common_1.BadRequestException('Indiquer siteUrl, ou configurer WORDPRESS_SITE_URL');
         }
-        const url = new URL(raw);
-        if (url.username || url.password || url.search || url.hash) {
-            throw new common_1.BadRequestException('siteUrl ne doit porter ni identifiants, ni paramètres');
+        const siteUrl = (0, sites_service_1.normalizeSiteUrl)(raw);
+        const site = await this.prisma.contentSource.findUnique({
+            where: { originUrl: siteUrl },
+        });
+        if (!site) {
+            const fallback = this.config.get('WORDPRESS_SITE_URL');
+            if (!fallback || (0, sites_service_1.normalizeSiteUrl)(fallback) !== siteUrl) {
+                throw new common_1.BadRequestException(`Site inconnu : ${siteUrl}. Le déclarer dans la plateforme, section Sites.`);
+            }
+            const created = await this.prisma.contentSource.create({
+                data: { originUrl: siteUrl, name: new URL(siteUrl).hostname },
+            });
+            return { siteUrl, depositKey: created.depositKey };
         }
-        return url.origin + url.pathname.replace(/\/+$/, '');
+        if (site.status !== 'ACTIVE') {
+            throw new common_1.BadRequestException(`${site.name} est désactivé comme destination`);
+        }
+        return { siteUrl, depositKey: site.depositKey };
     }
     async assertScope(profileIds, groupIds) {
         if (profileIds.length) {
@@ -355,8 +377,13 @@ let IngestService = IngestService_1 = class IngestService {
                 : 'Tous les groupes doivent être actifs et rattachés à un profil');
         }
     }
-    async load(id) {
-        const ingest = await this.prisma.sourceIngest.findUnique({ where: { id } });
+    async load(id, acting) {
+        const ingest = await this.prisma.sourceIngest.findFirst({
+            where: {
+                id,
+                ...(acting === undefined ? {} : (0, scope_1.ingestWhere)((0, scope_1.scopeOf)(acting))),
+            },
+        });
         if (!ingest)
             throw new common_1.NotFoundException('Reprise introuvable');
         return ingest;

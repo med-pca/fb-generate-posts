@@ -1,10 +1,13 @@
 import {
   BadRequestException,
+  NotFoundException,
   ConflictException,
   Injectable,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import type { CurrentUser } from '../auth/current-user';
+import { postWhere, profileWhere, scopeOf } from '../auth/scope';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { QueryPostsDto } from './dto/query-posts.dto';
@@ -17,8 +20,13 @@ type PostFilters = Omit<QueryPostsDto, 'page' | 'limit'> & { ids?: string[] };
 export class PostsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreatePostDto) {
+  async create(dto: CreatePostDto, acting: CurrentUser | null = null) {
     const { groupIds, ...postData } = dto;
+    const profile = await this.prisma.profile.findFirst({
+      where: { id: dto.profileId, ...profileWhere(scopeOf(acting)) },
+      select: { id: true },
+    });
+    if (!profile) throw new NotFoundException('Profil introuvable');
     const uniqueGroupIds = [...new Set(groupIds)];
     const validGroups = await this.prisma.group.count({
       where: {
@@ -45,8 +53,11 @@ export class PostsService {
     });
   }
 
-  async findAll({ page, limit, ...filters }: QueryPostsDto) {
-    const where = this.buildWhere(filters);
+  async findAll(
+    { page, limit, ...filters }: QueryPostsDto,
+    acting: CurrentUser | null,
+  ) {
+    const where = this.buildWhere(filters, acting);
     const [data, total] = await this.prisma.$transaction([
       this.prisma.post.findMany({
         where,
@@ -60,18 +71,33 @@ export class PostsService {
     return paginated(data, total, page, limit);
   }
 
-  findOne(id: string) {
-    return this.prisma.post.findUniqueOrThrow({
-      where: { id },
+  async findOne(id: string, acting: CurrentUser | null) {
+    const post = await this.prisma.post.findFirst({
+      where: { id, ...postWhere(scopeOf(acting)) },
       include: { profile: true, targets: { include: { group: true } } },
     });
+    if (!post) throw new NotFoundException('Post introuvable');
+    return post;
   }
 
-  update(id: string, dto: UpdatePostDto) {
+  async update(id: string, dto: UpdatePostDto, acting: CurrentUser | null) {
+    await this.reachable(id, acting);
     return this.prisma.post.update({ where: { id }, data: dto });
   }
 
-  async remove(id: string, force = false) {
+  /** Un post qu'on n'a pas le droit de voir est introuvable, pas interdit :
+   * répondre 403 confirmerait son existence. */
+  private async reachable(id: string, acting: CurrentUser | null) {
+    const post = await this.prisma.post.findFirst({
+      where: { id, ...postWhere(scopeOf(acting)) },
+      select: { id: true },
+    });
+    if (!post) throw new NotFoundException('Post introuvable');
+    return post;
+  }
+
+  async remove(id: string, force = false, acting: CurrentUser | null = null) {
+    await this.reachable(id, acting);
     const post = await this.prisma.post.findUniqueOrThrow({
       where: { id },
       select: { id: true, targets: this.activeClaimSelect() },
@@ -89,14 +115,14 @@ export class PostsService {
    * réservés par un job encore valide sont écartés par défaut : les effacer
    * ferait disparaître des publications qu'un automate est en train de
    * traiter, sans qu'il puisse le signaler. */
-  async bulkRemove(dto: BulkDeletePostsDto) {
+  async bulkRemove(dto: BulkDeletePostsDto, acting: CurrentUser | null = null) {
     const { dryRun, force, ...filters } = dto;
     if (!this.hasCriteria(filters)) {
       throw new BadRequestException(
         'Précisez au moins ids, profileId, groupId, articleId, status ou sourceType',
       );
     }
-    const where = this.buildWhere(filters);
+    const where = this.buildWhere(filters, acting);
 
     return this.prisma.$transaction(async (tx) => {
       const matched = await tx.post.count({ where });
@@ -149,8 +175,14 @@ export class PostsService {
     );
   }
 
-  private buildWhere(filters: PostFilters): Prisma.PostWhereInput {
-    const where: Prisma.PostWhereInput = {};
+  /** Point de passage unique des lectures de posts : la portée s'y pose une
+   * fois. Elle s'ajoute aux filtres, jamais à leur place — un `profileId`
+   * fourni par l'appelant ne doit pas élargir ce qu'il voit. */
+  private buildWhere(
+    filters: PostFilters,
+    acting: CurrentUser | null,
+  ): Prisma.PostWhereInput {
+    const where: Prisma.PostWhereInput = { ...postWhere(scopeOf(acting)) };
     if (filters.ids?.length) where.id = { in: [...new Set(filters.ids)] };
     if (filters.profileId) where.profileId = filters.profileId;
     if (filters.articleId) where.articleId = filters.articleId;

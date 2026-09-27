@@ -17,6 +17,7 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const automation_auth_guard_1 = require("../auth/automation-auth.guard");
+const current_user_1 = require("../auth/current-user");
 const capture_ingest_dto_1 = require("./dto/capture-ingest.dto");
 const fail_scrape_dto_1 = require("./dto/fail-scrape.dto");
 const scrape_result_dto_1 = require("./dto/scrape-result.dto");
@@ -26,8 +27,8 @@ let ScrapeController = class ScrapeController {
     constructor(ingest) {
         this.ingest = ingest;
     }
-    async capture(dto) {
-        const ingest = await this.ingest.capture(dto);
+    async capture(dto, acting) {
+        const ingest = await this.ingest.capture(dto, acting);
         void this.ingest.advance(ingest.id).catch(() => undefined);
         return {
             accepted: true,
@@ -36,16 +37,16 @@ let ScrapeController = class ScrapeController {
             followUrl: `/admin/ingest/${ingest.id}`,
         };
     }
-    claim(profileExternalId) {
-        return this.ingest.claimScrape(profileExternalId);
+    claim(acting, profileExternalId) {
+        return this.ingest.claimScrape(profileExternalId, acting);
     }
-    async result(id, dto) {
-        const ingest = await this.ingest.submitScrape(id, dto);
+    async result(id, dto, acting) {
+        const ingest = await this.ingest.submitScrape(id, dto, acting);
         void this.ingest.advance(id).catch(() => undefined);
         return { accepted: true, ingestId: ingest.id, status: ingest.status };
     }
-    failed(id, dto) {
-        return this.ingest.failScrape(id, dto.error);
+    failed(id, dto, acting) {
+        return this.ingest.failScrape(id, dto.error, acting);
     }
 };
 exports.ScrapeController = ScrapeController;
@@ -60,8 +61,9 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [capture_ingest_dto_1.CaptureIngestDto]),
+    __metadata("design:paramtypes", [capture_ingest_dto_1.CaptureIngestDto, Object]),
     __metadata("design:returntype", Promise)
 ], ScrapeController.prototype, "capture", null);
 __decorate([
@@ -74,9 +76,10 @@ __decorate([
     }),
     (0, swagger_1.ApiQuery)({ name: 'profileExternalId', required: false }),
     openapi.ApiResponse({ status: 201, type: Object }),
-    __param(0, (0, common_1.Query)('profileExternalId')),
+    __param(0, (0, current_user_1.ActingUser)()),
+    __param(1, (0, common_1.Query)('profileExternalId')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", void 0)
 ], ScrapeController.prototype, "claim", null);
 __decorate([
@@ -90,8 +93,9 @@ __decorate([
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, scrape_result_dto_1.ScrapeResultDto]),
+    __metadata("design:paramtypes", [String, scrape_result_dto_1.ScrapeResultDto, Object]),
     __metadata("design:returntype", Promise)
 ], ScrapeController.prototype, "result", null);
 __decorate([
@@ -100,8 +104,9 @@ __decorate([
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, fail_scrape_dto_1.FailScrapeDto]),
+    __metadata("design:paramtypes", [String, fail_scrape_dto_1.FailScrapeDto, Object]),
     __metadata("design:returntype", void 0)
 ], ScrapeController.prototype, "failed", null);
 exports.ScrapeController = ScrapeController = __decorate([

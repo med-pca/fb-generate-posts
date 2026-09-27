@@ -15,6 +15,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
+import { ActingUser } from '../auth/current-user';
+import type { CurrentUser } from '../auth/current-user';
 import { ClaimJobDto } from './dto/claim-job.dto';
 import { ClaimBatchDto } from './dto/claim-batch.dto';
 import { CommentJobItemDto } from './dto/comment-job-item.dto';
@@ -37,13 +39,13 @@ export class JobsController {
       'Permet à un worker de découvrir les profils sans avoir besoin des ' +
       'droits admin : seuls le nom et l’externalId sont exposés.',
   })
-  listProfiles() {
-    return this.jobs.listAutomationProfiles();
+  listProfiles(@ActingUser() acting: CurrentUser | null) {
+    return this.jobs.listAutomationProfiles(acting);
   }
 
   @Post('claim')
-  claim(@Body() dto: ClaimJobDto) {
-    return this.jobs.claim(dto);
+  claim(@Body() dto: ClaimJobDto, @ActingUser() acting: CurrentUser | null) {
+    return this.jobs.claim(dto, acting);
   }
 
   @Post('claim/batch')
@@ -55,8 +57,11 @@ export class JobsController {
       'tient déjà un job non expiré est écarté : deux threads ne doivent ' +
       'jamais piloter le même compte en même temps.',
   })
-  claimBatch(@Body() dto: ClaimBatchDto) {
-    return this.jobs.claimBatch(dto);
+  claimBatch(
+    @Body() dto: ClaimBatchDto,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.jobs.claimBatch(dto, acting);
   }
 
   @Get('link-updates')
@@ -66,6 +71,7 @@ export class JobsController {
   @ApiQuery({ name: 'profileExternalId', required: false })
   @ApiQuery({ name: 'limit', required: false, example: 50 })
   pendingLinkUpdates(
+    @ActingUser() acting: CurrentUser | null,
     @Query('profileExternalId') profileExternalId?: string,
     @Query('limit') limit?: string,
   ) {
@@ -73,6 +79,7 @@ export class JobsController {
     return this.jobs.pendingLinkUpdates(
       profileExternalId,
       Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 200) : 50,
+      acting,
     );
   }
 
@@ -89,17 +96,23 @@ export class JobsController {
   })
   claimByProfileExternalId(
     @Param('profileExternalId') profileExternalId: string,
+    @ActingUser() acting: CurrentUser | null,
     @Query('groupExternalId') groupExternalId?: string,
   ) {
     return this.jobs.claimByProfileExternalId(
       profileExternalId,
       groupExternalId,
+      acting,
     );
   }
 
   @Post(':jobId/posts/:postId/consumed')
-  consumed(@Param('jobId') jobId: string, @Param('postId') postId: string) {
-    return this.jobs.markConsumed(jobId, postId);
+  consumed(
+    @Param('jobId') jobId: string,
+    @Param('postId') postId: string,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.jobs.markConsumed(jobId, postId, acting);
   }
 
   @Post(':jobId/posts/:postId/published')
@@ -107,8 +120,9 @@ export class JobsController {
     @Param('jobId') jobId: string,
     @Param('postId') postId: string,
     @Body() dto: PublishJobItemDto,
+    @ActingUser() acting: CurrentUser | null,
   ) {
-    return this.jobs.markPublished(jobId, postId, dto);
+    return this.jobs.markPublished(jobId, postId, dto, acting);
   }
 
   @Post(':jobId/posts/:postId/failed')
@@ -116,8 +130,9 @@ export class JobsController {
     @Param('jobId') jobId: string,
     @Param('postId') postId: string,
     @Body() dto: FailJobItemDto,
+    @ActingUser() acting: CurrentUser | null,
   ) {
-    return this.jobs.markFailed(jobId, postId, dto.error);
+    return this.jobs.markFailed(jobId, postId, dto.error, acting);
   }
 
   @Post(':jobId/posts/:postId/commented')
@@ -131,24 +146,31 @@ export class JobsController {
     @Param('jobId') jobId: string,
     @Param('postId') postId: string,
     @Body() dto: CommentJobItemDto,
+    @ActingUser() acting: CurrentUser | null,
   ) {
-    return this.jobs.markCommented(jobId, postId, dto);
+    return this.jobs.markCommented(jobId, postId, dto, acting);
   }
 
   @Post(':jobId/complete')
   @ApiOperation({
     summary: 'Clôturer le lot et ouvrir la phase de bascule des commentaires',
   })
-  complete(@Param('jobId') jobId: string) {
-    return this.jobs.complete(jobId);
+  complete(
+    @Param('jobId') jobId: string,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.jobs.complete(jobId, acting);
   }
 
   @Get(':jobId/link-updates')
   @ApiOperation({
     summary: 'URL à placer dans les commentaires de ce job, une fois clôturé',
   })
-  linkUpdates(@Param('jobId') jobId: string) {
-    return this.jobs.linkUpdates(jobId);
+  linkUpdates(
+    @Param('jobId') jobId: string,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.jobs.linkUpdates(jobId, acting);
   }
 
   @Post(':jobId/posts/:postId/link-updated')
@@ -159,7 +181,8 @@ export class JobsController {
     @Param('jobId') jobId: string,
     @Param('postId') postId: string,
     @Body() dto: LinkUpdatedJobItemDto,
+    @ActingUser() acting: CurrentUser | null,
   ) {
-    return this.jobs.markLinkUpdated(jobId, postId, dto);
+    return this.jobs.markLinkUpdated(jobId, postId, dto, acting);
   }
 }

@@ -13,43 +13,61 @@ exports.ArticlesService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const paginated_1 = require("../common/paginated");
+const scope_1 = require("../auth/scope");
 const safe_fetch_1 = require("../common/safe-fetch");
 let ArticlesService = class ArticlesService {
     prisma;
     constructor(prisma) {
         this.prisma = prisma;
     }
-    async findAll({ page, limit }) {
+    async findAll({ page, limit }, acting) {
+        const where = (0, scope_1.articleWhere)((0, scope_1.scopeOf)(acting));
         const [data, total] = await this.prisma.$transaction([
             this.prisma.article.findMany({
+                where,
                 include: { source: true, _count: { select: { posts: true } } },
                 orderBy: { importedAt: 'desc' },
                 skip: (page - 1) * limit,
                 take: limit,
             }),
-            this.prisma.article.count(),
+            this.prisma.article.count({ where }),
         ]);
         return (0, paginated_1.paginated)(data, total, page, limit);
     }
-    findOne(id) {
-        return this.prisma.article.findUniqueOrThrow({
-            where: { id },
+    async findOne(id, acting) {
+        const article = await this.prisma.article.findFirst({
+            where: { id, ...(0, scope_1.articleWhere)((0, scope_1.scopeOf)(acting)) },
             include: { source: true, posts: { include: { targets: true } } },
         });
+        if (!article)
+            throw new common_1.NotFoundException('Article introuvable');
+        return article;
     }
-    update(id, dto) {
+    async reachable(id, acting) {
+        const article = await this.prisma.article.findFirst({
+            where: { id, ...(0, scope_1.articleWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true },
+        });
+        if (!article)
+            throw new common_1.NotFoundException('Article introuvable');
+        return article;
+    }
+    async update(id, dto, acting) {
+        await this.reachable(id, acting);
         return this.prisma.article.update({ where: { id }, data: dto });
     }
-    remove(id) {
+    async remove(id, acting) {
+        await this.reachable(id, acting);
         return this.prisma.article.delete({ where: { id } });
     }
-    async import(dto) {
+    async import(dto, acting = null) {
         const normalizedJsonUrl = this.toJsonUrl(dto.jsonUrl);
         const jsonUrl = await (0, safe_fetch_1.assertSafeRemoteUrl)(normalizedJsonUrl);
         const payload = await this.fetchPayload(jsonUrl);
         this.validatePayload(payload);
         const articleUrl = new URL(payload.articleUrl);
-        if (articleUrl.protocol !== 'https:' || articleUrl.origin !== jsonUrl.origin) {
+        if (articleUrl.protocol !== 'https:' ||
+            articleUrl.origin !== jsonUrl.origin) {
             throw new common_1.BadRequestException('articleUrl doit utiliser HTTPS et appartenir au même site que jsonUrl');
         }
         const coverImageUrl = payload.coverImage
@@ -60,6 +78,7 @@ let ArticlesService = class ArticlesService {
             create: {
                 originUrl: articleUrl.origin,
                 name: dto.sourceName?.trim() || articleUrl.hostname,
+                ownerId: acting?.id ?? null,
             },
             update: dto.sourceName?.trim() ? { name: dto.sourceName.trim() } : {},
         });
@@ -75,7 +94,8 @@ let ArticlesService = class ArticlesService {
             include: { source: true, _count: { select: { posts: true } } },
         });
     }
-    async generatePosts(id, dto) {
+    async generatePosts(id, dto, acting = null) {
+        await this.reachable(id, acting);
         if (dto.delayMin > dto.delayMax) {
             throw new common_1.BadRequestException('delayMin doit être inférieur ou égal à delayMax');
         }
@@ -83,6 +103,12 @@ let ArticlesService = class ArticlesService {
         if (!article)
             throw new common_1.NotFoundException('Article introuvable');
         const groupIds = [...new Set(dto.groupIds)];
+        const profile = await this.prisma.profile.findFirst({
+            where: { id: dto.profileId, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true },
+        });
+        if (!profile)
+            throw new common_1.NotFoundException('Profil introuvable');
         const validGroups = await this.prisma.group.count({
             where: {
                 id: { in: groupIds },
@@ -179,7 +205,9 @@ let ArticlesService = class ArticlesService {
             cookMinutes: payload.cookMinutes,
             totalMinutes: payload.totalMinutes,
             calories: payload.calories,
-            publishedAt: payload.publishedAt ? new Date(payload.publishedAt) : undefined,
+            publishedAt: payload.publishedAt
+                ? new Date(payload.publishedAt)
+                : undefined,
             captions: payload.socialPost.captions,
             hashtags: payload.socialPost.hashtags ?? [],
             imagePrompt: payload.socialPost.imagePrompt,

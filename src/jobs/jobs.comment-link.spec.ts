@@ -33,8 +33,18 @@ describe('JobsService — publication sans URL puis commentaire', () => {
         create: jest.fn(async () => ({
           id: 'job_1',
           claimExpiresAt: EXPIRES,
-          profile: { id: 'p1', externalId: 'demo', name: 'Profil', defaultImageUrl: 'https://img/default.jpg' },
-          group: { id: 'g1', externalId: 'grp', name: 'Groupe', url: 'https://facebook.com/groups/1' },
+          profile: {
+            id: 'p1',
+            externalId: 'demo',
+            name: 'Profil',
+            defaultImageUrl: 'https://img/default.jpg',
+          },
+          group: {
+            id: 'g1',
+            externalId: 'grp',
+            name: 'Groupe',
+            url: 'https://facebook.com/groups/1',
+          },
           items: [
             {
               post: {
@@ -53,12 +63,21 @@ describe('JobsService — publication sans URL puis commentaire', () => {
       $queryRaw: jest.fn(async () => [{ id: 'target_1', postId: 'post_1' }]),
     };
     const prisma: any = {
-      profile: { findFirst: jest.fn(async () => ({ id: 'p1', minPostsPerJob: 1, maxPostsPerJob: 1 })) },
+      profile: {
+        findFirst: jest.fn(async () => ({
+          id: 'p1',
+          minPostsPerJob: 1,
+          maxPostsPerJob: 1,
+        })),
+      },
       group: { findFirst: jest.fn(async () => ({ id: 'g1' })) },
       $transaction: jest.fn(async (cb: any) => cb(tx)),
     };
 
-    const result = await service(prisma).claim({ profileId: 'p1', groupId: 'g1' });
+    const result = await service(prisma).claim({
+      profileId: 'p1',
+      groupId: 'g1',
+    });
 
     if (!('jobId' in result)) throw new Error('réservation attendue');
     const [post] = result.posts;
@@ -73,11 +92,15 @@ describe('JobsService — publication sans URL puis commentaire', () => {
 
   it('bascule le job en AWAITING_LINK au lieu de le clore', async () => {
     const tx: any = {
-      publicationJob: { update: jest.fn(async ({ data }: any) => ({ id: 'job_1', ...data })) },
+      publicationJob: {
+        update: jest.fn(async ({ data }: any) => ({ id: 'job_1', ...data })),
+      },
       activityLog: { create: jest.fn(async () => ({})) },
     };
     const prisma: any = {
       publicationJob: {
+        // Le garde de portée interroge `findFirst` avant chaque étape.
+        findFirst: jest.fn(async () => ({ id: 'job_1' })),
         findUnique: jest.fn(async () => ({
           id: 'job_1',
           profileId: 'p1',
@@ -102,11 +125,15 @@ describe('JobsService — publication sans URL puis commentaire', () => {
 
   it('clôture normalement et signale un post publié sans commentaire', async () => {
     const tx: any = {
-      publicationJob: { update: jest.fn(async ({ data }: any) => ({ id: 'job_1', ...data })) },
+      publicationJob: {
+        update: jest.fn(async ({ data }: any) => ({ id: 'job_1', ...data })),
+      },
       activityLog: { create: jest.fn(async () => ({})) },
     };
     const prisma: any = {
       publicationJob: {
+        // Le garde de portée interroge `findFirst` avant chaque étape.
+        findFirst: jest.fn(async () => ({ id: 'job_1' })),
         findUnique: jest.fn(async () => ({
           id: 'job_1',
           profileId: 'p1',
@@ -135,6 +162,8 @@ describe('JobsService — publication sans URL puis commentaire', () => {
   it('refuse de livrer l’URL tant que le lot n’est pas validé', async () => {
     const prisma: any = {
       publicationJob: {
+        // Le garde de portée interroge `findFirst` avant chaque étape.
+        findFirst: jest.fn(async () => ({ id: 'job_1' })),
         findUnique: jest.fn(async () => ({
           id: 'job_1',
           status: JobStatus.CLAIMED,
@@ -151,13 +180,18 @@ describe('JobsService — publication sans URL puis commentaire', () => {
   it('livre l’URL une fois le lot clôturé', async () => {
     const prisma: any = {
       publicationJob: {
+        // Le garde de portée interroge `findFirst` avant chaque étape.
+        findFirst: jest.fn(async () => ({ id: 'job_1' })),
         findUnique: jest.fn(async () => ({
           id: 'job_1',
           status: JobStatus.AWAITING_LINK,
           completedAt: EXPIRES,
           profile: { id: 'p1', name: 'Profil', externalId: 'demo' },
           group: { id: 'g1', name: 'Groupe', externalId: 'grp' },
-          items: [item(), item({ postId: 'post_2', linkUpdatedAt: new Date() })],
+          items: [
+            item(),
+            item({ postId: 'post_2', linkUpdatedAt: new Date() }),
+          ],
         })),
       },
     };
@@ -189,6 +223,8 @@ describe('JobsService — publication sans URL puis commentaire', () => {
       activityLog: { create: jest.fn(async () => ({})) },
     };
     const prisma: any = {
+      // Le garde de portée interroge le lot avant l'étape.
+      publicationJob: { findFirst: jest.fn(async () => ({ id: 'job_1' })) },
       publicationJobItem: {
         findUnique: jest.fn(async () => ({
           ...item(),
@@ -245,7 +281,9 @@ describe('JobsService — réservation par lot', () => {
 
     expect(result.claimed).toBe(0);
     expect(result.skipped).toHaveLength(2);
-    expect(result.skipped.every((entry: any) => entry.status === 'busy')).toBe(true);
+    expect(result.skipped.every((entry: any) => entry.status === 'busy')).toBe(
+      true,
+    );
     expect(prisma.activityLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ eventType: 'JOBS_BATCH_CLAIMED' }),
@@ -256,7 +294,9 @@ describe('JobsService — réservation par lot', () => {
   it('rend un profil libre mais sans stock comme « empty »', async () => {
     const prisma: any = {
       profile: {
-        findMany: jest.fn(async () => [{ id: 'p1', name: 'Profil 1', externalId: 'demo-1' }]),
+        findMany: jest.fn(async () => [
+          { id: 'p1', name: 'Profil 1', externalId: 'demo-1' },
+        ]),
         findFirst: jest.fn(async () => ({ id: 'p1' })),
       },
       // Le balayage des réservations expirées tourne avant de regarder le

@@ -1,13 +1,30 @@
 const API = '/api',
   state = {
-    profiles: [], groups: [], articles: [], posts: [], settings: null,
-    profileOptions: [], articleOptions: [], groupOptions: [],
-    page: { profiles: 1, groups: 1, articles: 1, posts: 1, logs: 1 }, meta: {},
-    logs: [], logsSummary: null,
-    logFilters: { hours: 24, level: '', eventType: '', profileId: '', search: '', onlyIncidents: false },
+    profiles: [],
+    groups: [],
+    articles: [],
+    posts: [],
+    settings: null,
+    sites: [],
+    profileOptions: [],
+    articleOptions: [],
+    groupOptions: [],
+    page: { profiles: 1, groups: 1, articles: 1, posts: 1, logs: 1 },
+    meta: {},
+    logs: [],
+    logsSummary: null,
+    logFilters: {
+      hours: 24,
+      level: '',
+      eventType: '',
+      profileId: '',
+      search: '',
+      onlyIncidents: false,
+    },
     // Les filtres sont appliqués par l'API : la sélection « tout » doit porter
     // sur le même ensemble que celui que la suppression en masse vise.
-    postFilters: { profileId: '', articleId: '', groupId: '' }, selection: new Set(),
+    postFilters: { profileId: '', articleId: '', groupId: '' },
+    selection: new Set(),
   };
 let accessToken = localStorage.getItem('postflow_token') || '';
 const $ = (s, r = document) => r.querySelector(s),
@@ -30,7 +47,8 @@ const initials = (n) =>
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
-  if (accessToken && path !== '/auth/login') headers.Authorization = `Bearer ${accessToken}`;
+  if (accessToken && path !== '/auth/login')
+    headers.Authorization = `Bearer ${accessToken}`;
   const r = await fetch(API + path, {
     ...options,
     headers,
@@ -58,12 +76,29 @@ function notice(message, type = 'success') {
   notice.timer = setTimeout(() => (n.className = ''), 3500);
 }
 async function load() {
-  if (!accessToken) { showLogin(); return; }
+  if (!accessToken) {
+    showLogin();
+    return;
+  }
   try {
-    const postQuery = new URLSearchParams({ page: state.page.posts, limit: 12 });
+    const postQuery = new URLSearchParams({
+      page: state.page.posts,
+      limit: 12,
+    });
     for (const [key, value] of Object.entries(state.postFilters))
       if (value) postQuery.set(key, value);
-    const [profiles, groups, articles, posts, profileOptions, articleOptions, groupOptions, settings] = await Promise.all([
+    const [
+      profiles,
+      groups,
+      articles,
+      posts,
+      profileOptions,
+      articleOptions,
+      groupOptions,
+      settings,
+      sites,
+      me,
+    ] = await Promise.all([
       api(`/profiles?page=${state.page.profiles}&limit=12`),
       api(`/groups?page=${state.page.groups}&limit=12`),
       api(`/articles?page=${state.page.articles}&limit=12`),
@@ -72,16 +107,28 @@ async function load() {
       api('/articles?page=1&limit=100'),
       api('/groups?page=1&limit=100'),
       api('/settings'),
+      api('/sites'),
+      api('/me'),
     ]);
-    state.profiles = profiles.data; state.meta.profiles = profiles.meta;
-    state.groups = groups.data; state.meta.groups = groups.meta;
-    state.articles = articles.data; state.meta.articles = articles.meta;
-    state.posts = posts.data; state.meta.posts = posts.meta;
+    state.profiles = profiles.data;
+    state.meta.profiles = profiles.meta;
+    state.groups = groups.data;
+    state.meta.groups = groups.meta;
+    state.articles = articles.data;
+    state.meta.articles = articles.meta;
+    state.posts = posts.data;
+    state.meta.posts = posts.meta;
     state.selection.clear();
     state.profileOptions = profileOptions.data;
     state.articleOptions = articleOptions.data;
     state.groupOptions = groupOptions.data;
     state.settings = settings;
+    state.sites = sites;
+    state.me = me;
+    // Les comptes ne regardent que les administrateurs : les demander en
+    // gestionnaire rendrait un 403 et ferait échouer tout le chargement.
+    state.users = me.role === 'ADMIN' ? await api('/users') : [];
+    document.body.classList.toggle('is-admin', me.role === 'ADMIN');
     render();
   } catch (e) {
     notice(e.message, 'error');
@@ -95,6 +142,9 @@ const JOIN_LABELS = {
   FAILED: 'Échec',
 };
 function render() {
+  renderWhoami();
+  renderUsers();
+  renderSites();
   $('#n-profiles').textContent = state.meta.profiles.total;
   $('#n-groups').textContent = state.meta.groups.total;
   $('#n-posts').textContent = state.meta.posts.total;
@@ -121,7 +171,7 @@ function render() {
     state.groups
       .map(
         (g) =>
-          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip join-${(x.joinStatus || 'NOT_JOINED').toLowerCase()}" title="${esc(JOIN_LABELS[x.joinStatus] || '')}${x.joinError ? ' · ' + esc(x.joinError) : ''}">${esc(x.profile.name)} · ${esc(JOIN_LABELS[x.joinStatus] || 'Non rejoint')}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
+          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip join-${(x.joinStatus || 'NOT_JOINED').toLowerCase()}" title="${esc(JOIN_LABELS[x.joinStatus] || '')}${x.joinError ? ' · ' + esc(x.joinError) : ''}">${esc(x.profile.name)} · ${esc(JOIN_LABELS[x.joinStatus] || 'Non rejoint')}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
       )
       .join('') ||
     '<tr><td colspan="6"><div class="empty">Aucun groupe</div></td></tr>';
@@ -145,6 +195,59 @@ function showLogin() {
   const dialog = $('#login-modal');
   if (!dialog.open) dialog.showModal();
 }
+/** Les sites où une reprise peut être déposée. La clé n'est jamais relue :
+ * l'API ne la rend pas, on affiche seulement si le site en a une. */
+/** Qui est connecté, et à quel titre. Sans ça, un gestionnaire ne comprend
+ * pas pourquoi il voit si peu de choses. */
+function renderWhoami() {
+  if (!state.me) return;
+  $('#whoami').innerHTML =
+    `<b>${esc(state.me.username)}</b> · ` +
+    (state.me.role === 'ADMIN' ? 'administrateur' : 'gestionnaire');
+}
+
+/** Les comptes. La clé d'automatisation n'apparaît jamais ici : l'API ne la
+ * rend qu'à la création et à la régénération. */
+function renderUsers() {
+  $('#user-rows').innerHTML =
+    state.users
+      .map(
+        (u) =>
+          `<tr><td><strong>${esc(u.username)}</strong></td>` +
+          `<td>${u.role === 'ADMIN' ? 'Administrateur' : 'Gestionnaire'}</td>` +
+          `<td><span class="pill">${u.status === 'ACTIVE' ? 'Actif' : 'Inactif'}</span></td>` +
+          `<td>${new Date(u.createdAt).toLocaleDateString('fr-FR')}</td>` +
+          `<td class="right"><button class="ghost" data-edit-user="${u.id}">Modifier</button>` +
+          `<button class="ghost" data-rotate-user="${u.id}">Nouvelle clé</button>` +
+          (u.id === state.me?.id
+            ? ''
+            : `<button class="ghost" data-delete-user="${u.id}">Supprimer</button>`) +
+          `</td></tr>`,
+      )
+      .join('') || '<tr><td colspan="5" class="empty">Aucun compte</td></tr>';
+}
+
+function renderSites() {
+  $('#site-rows').innerHTML =
+    state.sites
+      .map(
+        (s) =>
+          `<tr><td><strong>${esc(s.name)}</strong></td>` +
+          `<td><a href="${esc(s.originUrl)}" target="_blank" rel="noreferrer">${esc(s.originUrl)}</a></td>` +
+          `<td>${s.hasOwnKey ? 'propre à ce site' : '<span class="muted">clé globale</span>'}</td>` +
+          `<td>${s.articles}</td>` +
+          `<td><span class="pill">${s.status === 'ACTIVE' ? 'Actif' : 'Inactif'}</span></td>` +
+          `<td class="right"><button class="ghost" data-share-site="${s.id}">Partager</button>` +
+          `<button class="ghost" data-edit-site="${s.id}">Modifier</button>` +
+          (s.articles
+            ? ''
+            : `<button class="ghost" data-delete-site="${s.id}">Supprimer</button>`) +
+          `</td></tr>`,
+      )
+      .join('') ||
+    '<tr><td colspan="6" class="empty">Aucun site déclaré. L’extension ne pourra rien déposer.</td></tr>';
+}
+
 function renderArticles() {
   $('#article-cards').innerHTML =
     state.articles
@@ -152,14 +255,18 @@ function renderArticles() {
         (a) =>
           `<article class="article-card ${a.status === 'INACTIVE' ? 'inactive' : ''}">${a.coverImageUrl ? `<img src="${esc(a.coverImageUrl)}" alt="" loading="lazy">` : '<div class="article-placeholder">Aucune image</div>'}<div class="article-body"><div class="post-meta"><span>${esc(a.source.name)}</span><span>${a.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.excerpt || a.metaDescription || '')}</p><div class="article-facts"><span>${esc(a.course || 'Article')}</span>${a.totalMinutes ? `<span>${a.totalMinutes} min</span>` : ''}<span>${a._count.posts} posts</span></div><div class="card-actions"><a class="edit" href="${esc(a.articleUrl)}" target="_blank">Voir ↗</a><button class="edit" data-toggle-article="${a.id}">${a.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-article="${a.id}">Modifier</button><button class="danger" data-delete-article="${a.id}">Supprimer</button><button class="danger" data-delete-article-posts="${a.id}" ${a._count.posts ? '' : 'disabled'}>Supprimer les posts</button><button class="primary compact" data-generate="${a.id}" ${a.status === 'INACTIVE' ? 'disabled' : ''}>Créer les posts</button></div></div></article>`,
       )
-      .join('') || '<div class="empty">Importez votre premier article JSON.</div>';
+      .join('') ||
+    '<div class="empty">Importez votre premier article JSON.</div>';
 }
 function renderSettings() {
   if (!state.settings) return;
   const form = $('#settings-form');
-  form.elements.autoReplenishEnabled.checked = state.settings.autoReplenishEnabled;
-  form.elements.minimumAvailablePerProfile.value = state.settings.minimumAvailablePerProfile;
-  form.elements.minimumAvailablePerGroup.value = state.settings.minimumAvailablePerGroup;
+  form.elements.autoReplenishEnabled.checked =
+    state.settings.autoReplenishEnabled;
+  form.elements.minimumAvailablePerProfile.value =
+    state.settings.minimumAvailablePerProfile;
+  form.elements.minimumAvailablePerGroup.value =
+    state.settings.minimumAvailablePerGroup;
   // La cadence vient de l'environnement du serveur : l'afficher évite de
   // croire que l'alimentation tourne alors que le minuteur est coupé.
   const minutes = state.settings.replenishIntervalMinutes;
@@ -189,8 +296,7 @@ function renderSelection() {
   button.textContent = count
     ? `Supprimer la sélection (${count})`
     : 'Supprimer la sélection';
-  $('#post-select-all').checked =
-    count > 0 && count === state.posts.length;
+  $('#post-select-all').checked = count > 0 && count === state.posts.length;
 }
 async function loadLogs() {
   const f = state.logFilters,
@@ -227,7 +333,8 @@ function renderLogs() {
   $('#log-errors').textContent = s.levels.ERROR;
   $('#log-warns').textContent = s.levels.WARN;
   $('#log-claimlost').textContent = s.claimLost;
-  $('#log-window').textContent = `depuis le ${new Date(s.since).toLocaleString('fr-FR')}`;
+  $('#log-window').textContent =
+    `depuis le ${new Date(s.since).toLocaleString('fr-FR')}`;
   // Le stock de liens en attente ignore la fenêtre : un commentaire sans URL
   // depuis trois jours doit rester visible même en regardant les 24 h.
   const pending = s.pendingLinkUpdates;
@@ -291,7 +398,8 @@ function renderLogs() {
   $('#logs-pagination').innerHTML = paginationBox('logs');
 }
 function fillProfiles() {
-  const options = state.profileOptions.filter((p) => p.status === 'ACTIVE')
+  const options = state.profileOptions
+    .filter((p) => p.status === 'ACTIVE')
     .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`)
     .join('');
   $('#post-profile').innerHTML =
@@ -378,6 +486,7 @@ function view(id) {
     dashboard: 'Vue d’ensemble',
     profiles: 'Profils',
     groups: 'Groupes',
+    users: 'Comptes',
     articles: 'Articles',
     posts: 'Posts',
     logs: 'Journaux',
@@ -426,7 +535,11 @@ function openModal(id) {
       ? 'Nouveau profil'
       : id === 'group-modal'
         ? 'Nouveau groupe'
-        : 'Nouveau post';
+        : id === 'site-modal'
+          ? 'Nouveau site'
+          : id === 'user-modal'
+            ? 'Nouveau compte'
+            : 'Nouveau post';
   if (id === 'group-modal') fillGroupProfiles([]);
   $('#post-profile-label').hidden = false;
   $('#target-field').hidden = false;
@@ -483,7 +596,10 @@ document.addEventListener('change', (e) => {
 $('#post-bulk-delete').onclick = async () => {
   const ids = [...state.selection];
   if (!ids.length) return;
-  if (!confirm(`Supprimer définitivement ${ids.length} post(s) et leurs cibles ?`)) return;
+  if (
+    !confirm(`Supprimer définitivement ${ids.length} post(s) et leurs cibles ?`)
+  )
+    return;
   try {
     const r = await api('/posts/bulk-delete', {
       method: 'POST',
@@ -496,7 +612,9 @@ $('#post-bulk-delete').onclick = async () => {
       r.blocked ? 'error' : 'success',
     );
     await load();
-  } catch (x) { notice(x.message, 'error'); }
+  } catch (x) {
+    notice(x.message, 'error');
+  }
 };
 $('#post-profile').onchange = (e) =>
   loadGroups(e.target.value).catch((x) => notice(x.message, 'error'));
@@ -508,14 +626,19 @@ $('#login-form').onsubmit = async (e) => {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target));
   try {
-    const session = await api('/auth/login', { method: 'POST', body: JSON.stringify(data) });
+    const session = await api('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
     accessToken = session.accessToken;
     localStorage.setItem('postflow_token', accessToken);
     e.target.reset();
     e.target.closest('dialog').close();
     await load();
     notice('Connexion réussie.');
-  } catch (x) { notice(x.message, 'error'); }
+  } catch (x) {
+    notice(x.message, 'error');
+  }
 };
 $('#logout').onclick = () => {
   accessToken = '';
@@ -530,31 +653,43 @@ $('#settings-form').onsubmit = async (e) => {
       method: 'PATCH',
       body: JSON.stringify({
         autoReplenishEnabled: e.target.elements.autoReplenishEnabled.checked,
-        minimumAvailablePerProfile: Number(form.get('minimumAvailablePerProfile')),
+        minimumAvailablePerProfile: Number(
+          form.get('minimumAvailablePerProfile'),
+        ),
         minimumAvailablePerGroup: Number(form.get('minimumAvailablePerGroup')),
       }),
     });
     notice('Paramètres d’automatisation enregistrés.');
     await load();
-  } catch (x) { notice(x.message, 'error'); }
+  } catch (x) {
+    notice(x.message, 'error');
+  }
 };
 $('#replenish-now').onclick = async () => {
   try {
     const results = await api('/settings/replenish-now', { method: 'POST' });
-    const generated = results.reduce((total, item) => total + item.generated, 0);
+    const generated = results.reduce(
+      (total, item) => total + item.generated,
+      0,
+    );
     const reused = results.reduce((total, item) => total + item.reused, 0);
     notice(
       `${generated} post(s) créé(s) et ${reused} post(s) existant(s) rattaché(s) aux groupes en manque.`,
     );
     await load();
-  } catch (x) { notice(x.message, 'error'); }
+  } catch (x) {
+    notice(x.message, 'error');
+  }
 };
 $('#article-form').onsubmit = async (e) => {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target));
   if (!data.sourceName) delete data.sourceName;
   try {
-    await api('/articles/import', { method: 'POST', body: JSON.stringify(data) });
+    await api('/articles/import', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
     e.target.closest('dialog').close();
     notice('Article importé avec ses légendes et son image.');
     await load();
@@ -570,11 +705,16 @@ $('#article-edit-form').onsubmit = async (e) => {
   if (!data.excerpt) delete data.excerpt;
   if (!data.coverImageUrl) delete data.coverImageUrl;
   try {
-    await api(`/articles/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+    await api(`/articles/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
     e.target.closest('dialog').close();
     notice('Article modifié.');
     await load();
-  } catch (x) { notice(x.message, 'error'); }
+  } catch (x) {
+    notice(x.message, 'error');
+  }
 };
 $('#generate-form').onsubmit = async (e) => {
   e.preventDefault();
@@ -626,6 +766,103 @@ $('#profile-form').onsubmit = async (e) => {
     notice(x.message, 'error');
   }
 };
+/** La clé ne se lit qu'une fois : l'API ne la rend qu'à la création et à
+ * la régénération, et aucune lecture ultérieure ne la montre. */
+function showKey(username, key) {
+  $('#key-title').textContent = `Clé de ${username}`;
+  $('#key-value').textContent = key;
+  $('#key-modal').showModal();
+}
+
+$('#user-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target)),
+    id = d.id;
+  delete d.id;
+  // Un mot de passe vide ne doit pas en imposer un : à la modification, il
+  // signifie « inchangé ».
+  if (!d.password) delete d.password;
+  if (!id) delete d.status;
+  try {
+    const saved = await api(id ? `/users/${id}` : '/users', {
+      method: id ? 'PATCH' : 'POST',
+      body: JSON.stringify(d),
+    });
+    e.target.closest('dialog').close();
+    await load();
+    if (saved.automationKey) showKey(saved.username, saved.automationKey);
+    else notice('Compte mis à jour.');
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+
+/* ── Partages ──────────────────────────────────────────────────────── */
+let sharing = null;
+
+async function openAccess(kind, resource) {
+  sharing = { kind, id: resource.id };
+  $('#access-title').textContent = `Accès à « ${resource.name} »`;
+  const rows = await api(`/${kind}/${resource.id}/access`);
+  $('#access-rows').innerHTML =
+    rows
+      .map(
+        (a) =>
+          `<div class="access-row"><span>${esc(a.username)}</span>` +
+          `<button class="ghost" data-revoke="${a.userId}">Retirer</button></div>`,
+      )
+      .join('') || '<div class="access-empty">Partagé avec personne.</div>';
+  // Ni le propriétaire, ni les administrateurs : les uns ont déjà tout, les
+  // autres voient déjà tout.
+  const already = new Set(rows.map((a) => a.userId));
+  const options = state.users.filter(
+    (u) => u.role !== 'ADMIN' && u.status === 'ACTIVE' && !already.has(u.id),
+  );
+  $('#access-user').innerHTML =
+    options.map((u) => `<option value="${u.id}">${esc(u.username)}</option>`).join('') ||
+    '<option value="">— aucun compte à qui partager —</option>';
+  $('#access-modal').showModal();
+}
+
+$('#access-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const userId = $('#access-user').value;
+  if (!userId || !sharing) return;
+  try {
+    await api(`/${sharing.kind}/${sharing.id}/access`, {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    });
+    const resource = (sharing.kind === 'sites' ? state.sites : state.groups).find(
+      (x) => x.id === sharing.id,
+    );
+    await openAccess(sharing.kind, resource);
+    notice('Partagé.');
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+
+$('#site-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target)),
+    id = d.id;
+  delete d.id;
+  // Une clé vide ne doit pas effacer celle en place : l'interface ne la relit
+  // jamais, donc elle ne peut pas la renvoyer.
+  if (!d.depositKey) delete d.depositKey;
+  try {
+    await api(id ? `/sites/${id}` : '/sites', {
+      method: id ? 'PATCH' : 'POST',
+      body: JSON.stringify(d),
+    });
+    e.target.closest('dialog').close();
+    await load();
+    notice(id ? 'Site mis à jour.' : 'Site ajouté.');
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 $('#group-form').onsubmit = async (e) => {
   e.preventDefault();
   const form = new FormData(e.target),
@@ -667,13 +904,11 @@ $('#group-form').onsubmit = async (e) => {
         body: JSON.stringify(d),
       });
       await Promise.all(
-        profileIds
-          .slice(1)
-          .map((profileId) =>
-            api(`/profiles/${profileId}/groups/${group.id}/link`, {
-              method: 'POST',
-            }),
-          ),
+        profileIds.slice(1).map((profileId) =>
+          api(`/profiles/${profileId}/groups/${group.id}/link`, {
+            method: 'POST',
+          }),
+        ),
       );
     }
     e.target.closest('dialog').close();
@@ -715,8 +950,11 @@ $('#post-form').onsubmit = async (e) => {
   }
 };
 async function deleteArticlePosts(article, button) {
-  const message = `Supprimer définitivement tous les posts liés à l’article « ${article.title} », pour tous les profils ? L’article sera conservé. Les posts réservés par un automate en cours seront conservés.` +
-    (article.status === 'ACTIVE' ? ` L’alimentation automatique pourra créer de nouveaux posts tant que l’article est actif.` : '');
+  const message =
+    `Supprimer définitivement tous les posts liés à l’article « ${article.title} », pour tous les profils ? L’article sera conservé. Les posts réservés par un automate en cours seront conservés.` +
+    (article.status === 'ACTIVE'
+      ? ` L’alimentation automatique pourra créer de nouveaux posts tant que l’article est actif.`
+      : '');
   if (!confirm(message)) return;
   button.disabled = true;
   try {
@@ -727,7 +965,9 @@ async function deleteArticlePosts(article, button) {
     await load();
     notice(
       `${result.deleted} post(s) supprimé(s) pour cet article.` +
-        (result.blocked ? ` ${result.blocked} post(s) réservé(s) ont été conservés. Réessayez après la fin des jobs.` : ''),
+        (result.blocked
+          ? ` ${result.blocked} post(s) réservé(s) ont été conservés. Réessayez après la fin des jobs.`
+          : ''),
       result.blocked ? 'error' : 'success',
     );
   } catch (error) {
@@ -745,46 +985,106 @@ document.addEventListener('click', (e) => {
     else load();
     return;
   }
-  const toggleProfile = state.profiles.find((x) => x.id === e.target.dataset.toggleProfile);
+  const toggleProfile = state.profiles.find(
+    (x) => x.id === e.target.dataset.toggleProfile,
+  );
   if (toggleProfile) {
-    api(`/profiles/${toggleProfile.id}`, { method: 'PATCH', body: JSON.stringify({ status: toggleProfile.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }) })
-      .then(load).then(() => notice('État du profil modifié.')).catch((x) => notice(x.message, 'error'));
+    api(`/profiles/${toggleProfile.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status: toggleProfile.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
+      }),
+    })
+      .then(load)
+      .then(() => notice('État du profil modifié.'))
+      .catch((x) => notice(x.message, 'error'));
     return;
   }
-  const toggleGroup = state.groups.find((x) => x.id === e.target.dataset.toggleGroup);
+  const toggleGroup = state.groups.find(
+    (x) => x.id === e.target.dataset.toggleGroup,
+  );
   if (toggleGroup) {
-    api(`/groups/${toggleGroup.id}`, { method: 'PATCH', body: JSON.stringify({ status: toggleGroup.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }) })
-      .then(load).then(() => notice('État du groupe modifié.')).catch((x) => notice(x.message, 'error'));
+    api(`/groups/${toggleGroup.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status: toggleGroup.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
+      }),
+    })
+      .then(load)
+      .then(() => notice('État du groupe modifié.'))
+      .catch((x) => notice(x.message, 'error'));
     return;
   }
-  const deleteProfile = state.profiles.find((x) => x.id === e.target.dataset.deleteProfile);
+  const deleteProfile = state.profiles.find(
+    (x) => x.id === e.target.dataset.deleteProfile,
+  );
   if (deleteProfile) {
-    if (!confirm(`Supprimer définitivement le profil « ${deleteProfile.name} » et ses données dépendantes ?`)) return;
-    api(`/profiles/${deleteProfile.id}`, { method: 'DELETE' }).then(load).then(() => notice('Profil supprimé.')).catch((x) => notice(x.message, 'error'));
+    if (
+      !confirm(
+        `Supprimer définitivement le profil « ${deleteProfile.name} » et ses données dépendantes ?`,
+      )
+    )
+      return;
+    api(`/profiles/${deleteProfile.id}`, { method: 'DELETE' })
+      .then(load)
+      .then(() => notice('Profil supprimé.'))
+      .catch((x) => notice(x.message, 'error'));
     return;
   }
-  const deleteGroup = state.groups.find((x) => x.id === e.target.dataset.deleteGroup);
+  const deleteGroup = state.groups.find(
+    (x) => x.id === e.target.dataset.deleteGroup,
+  );
   if (deleteGroup) {
-    if (!confirm(`Supprimer définitivement le groupe « ${deleteGroup.name} » et ses associations ?`)) return;
-    api(`/groups/${deleteGroup.id}`, { method: 'DELETE' }).then(load).then(() => notice('Groupe supprimé.')).catch((x) => notice(x.message, 'error'));
+    if (
+      !confirm(
+        `Supprimer définitivement le groupe « ${deleteGroup.name} » et ses associations ?`,
+      )
+    )
+      return;
+    api(`/groups/${deleteGroup.id}`, { method: 'DELETE' })
+      .then(load)
+      .then(() => notice('Groupe supprimé.'))
+      .catch((x) => notice(x.message, 'error'));
     return;
   }
-  const articlePosts = state.articles.find((x) => x.id === e.target.dataset.deleteArticlePosts);
+  const articlePosts = state.articles.find(
+    (x) => x.id === e.target.dataset.deleteArticlePosts,
+  );
   if (articlePosts) {
     if (!e.target.disabled) void deleteArticlePosts(articlePosts, e.target);
     return;
   }
-  const deleteArticle = state.articles.find((x) => x.id === e.target.dataset.deleteArticle);
+  const deleteArticle = state.articles.find(
+    (x) => x.id === e.target.dataset.deleteArticle,
+  );
   if (deleteArticle) {
-    if (!confirm(`Supprimer définitivement l’article « ${deleteArticle.title} » ? Les posts existants seront conservés.`)) return;
-    api(`/articles/${deleteArticle.id}`, { method: 'DELETE' }).then(load).then(() => notice('Article supprimé.')).catch((x) => notice(x.message, 'error'));
+    if (
+      !confirm(
+        `Supprimer définitivement l’article « ${deleteArticle.title} » ? Les posts existants seront conservés.`,
+      )
+    )
+      return;
+    api(`/articles/${deleteArticle.id}`, { method: 'DELETE' })
+      .then(load)
+      .then(() => notice('Article supprimé.'))
+      .catch((x) => notice(x.message, 'error'));
     return;
   }
-  const editArticle = state.articles.find((x) => x.id === e.target.dataset.editArticle);
+  const editArticle = state.articles.find(
+    (x) => x.id === e.target.dataset.editArticle,
+  );
   if (editArticle) {
     openModal('article-edit-modal');
     const form = $('#article-edit-form');
-    for (const key of ['id', 'title', 'excerpt', 'articleUrl', 'coverImageUrl', 'status']) form.elements[key].value = editArticle[key] ?? '';
+    for (const key of [
+      'id',
+      'title',
+      'excerpt',
+      'articleUrl',
+      'coverImageUrl',
+      'status',
+    ])
+      form.elements[key].value = editArticle[key] ?? '';
     $('h2', $('#article-edit-modal')).textContent = 'Modifier l’article';
     return;
   }
@@ -803,12 +1103,16 @@ document.addEventListener('click', (e) => {
       .catch((x) => notice(x.message, 'error'));
     return;
   }
-  const article = state.articles.find((x) => x.id === e.target.dataset.generate);
+  const article = state.articles.find(
+    (x) => x.id === e.target.dataset.generate,
+  );
   if (article) {
     openModal('generate-modal');
     $('#generate-form').elements.articleId.value = article.id;
-    $('#caption-info').textContent = `${article.captions.length} variantes seront créées à partir des légendes de l’article.`;
-    $('#article-groups').innerHTML = '<span>Choisissez d’abord un profil.</span>';
+    $('#caption-info').textContent =
+      `${article.captions.length} variantes seront créées à partir des légendes de l’article.`;
+    $('#article-groups').innerHTML =
+      '<span>Choisissez d’abord un profil.</span>';
     return;
   }
   let p = state.profiles.find((x) => x.id === e.target.dataset.editProfile);
@@ -830,6 +1134,81 @@ document.addEventListener('click', (e) => {
     $('h2', $('#profile-modal')).textContent = 'Modifier le profil';
     return;
   }
+  const user = state.users.find((x) => x.id === e.target.dataset.editUser);
+  if (user) {
+    openModal('user-modal');
+    const f = $('#user-form');
+    for (const k of ['id', 'username', 'role', 'status']) f.elements[k].value = user[k] ?? '';
+    f.elements.password.value = '';
+    $('h2', $('#user-modal')).textContent = 'Modifier le compte';
+    return;
+  }
+  const rotate = state.users.find((x) => x.id === e.target.dataset.rotateUser);
+  if (rotate) {
+    if (!confirm(`Régénérer la clé de « ${rotate.username} » ? L’ancienne cessera aussitôt de fonctionner.`)) return;
+    api(`/users/${rotate.id}/rotate-key`, { method: 'POST' })
+      .then((r) => showKey(r.username, r.automationKey))
+      .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  const dropUser = state.users.find((x) => x.id === e.target.dataset.deleteUser);
+  if (dropUser) {
+    if (!confirm(`Supprimer « ${dropUser.username} » ? Ses ressources ne sont pas détruites : elles deviennent sans propriétaire.`)) return;
+    api(`/users/${dropUser.id}`, { method: 'DELETE' })
+      .then((r) => {
+        const n = r.released;
+        notice(
+          `Compte supprimé. Relâché : ${n.profiles} profil(s), ${n.groups} groupe(s), ${n.sites} site(s).`,
+        );
+      })
+      .then(load)
+      .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  const shareSite = state.sites.find((x) => x.id === e.target.dataset.shareSite);
+  if (shareSite) {
+    void openAccess('sites', shareSite).catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  const shareGroup = state.groups.find((x) => x.id === e.target.dataset.shareGroup);
+  if (shareGroup) {
+    void openAccess('groups', shareGroup).catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  const revoke = e.target.dataset.revoke;
+  if (revoke && sharing) {
+    api(`/${sharing.kind}/${sharing.id}/access/${revoke}`, { method: 'DELETE' })
+      .then(() => {
+        const resource = (sharing.kind === 'sites' ? state.sites : state.groups).find(
+          (x) => x.id === sharing.id,
+        );
+        return openAccess(sharing.kind, resource);
+      })
+      .then(() => notice('Partage retiré.'))
+      .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  const site = state.sites.find((x) => x.id === e.target.dataset.editSite);
+  if (site) {
+    openModal('site-modal');
+    const f = $('#site-form');
+    for (const k of ['id', 'name', 'originUrl', 'status'])
+      f.elements[k].value = site[k] ?? '';
+    f.elements.depositKey.value = '';
+    $('h2', $('#site-modal')).textContent = 'Modifier le site';
+    return;
+  }
+  const dropSite = state.sites.find(
+    (x) => x.id === e.target.dataset.deleteSite,
+  );
+  if (dropSite) {
+    if (!confirm(`Supprimer le site « ${dropSite.name} » ?`)) return;
+    api(`/sites/${dropSite.id}`, { method: 'DELETE' })
+      .then(load)
+      .then(() => notice('Site supprimé.'))
+      .catch((x) => notice(x.message, 'error'));
+    return;
+  }
   let g = state.groups.find((x) => x.id === e.target.dataset.editGroup);
   if (g) {
     openModal('group-modal');
@@ -840,11 +1219,16 @@ document.addEventListener('click', (e) => {
     $('h2', $('#group-modal')).textContent = 'Modifier le groupe';
     return;
   }
-  const deletePost = state.posts.find((x) => x.id === e.target.dataset.deletePost);
+  const deletePost = state.posts.find(
+    (x) => x.id === e.target.dataset.deletePost,
+  );
   if (deletePost) {
-    if (!confirm(`Supprimer définitivement le post « ${deletePost.title} » ?`)) return;
+    if (!confirm(`Supprimer définitivement le post « ${deletePost.title} » ?`))
+      return;
     api(`/posts/${deletePost.id}`, { method: 'DELETE' })
-      .then(load).then(() => notice('Post supprimé.')).catch((x) => notice(x.message, 'error'));
+      .then(load)
+      .then(() => notice('Post supprimé.'))
+      .catch((x) => notice(x.message, 'error'));
     return;
   }
   let pId = e.target.dataset.editPost,
@@ -871,7 +1255,15 @@ document.addEventListener('click', (e) => {
 function registerAgentTools() {
   const context = document.modelContext;
   if (!context?.registerTool) return;
-  const sections = ['dashboard', 'profiles', 'groups', 'articles', 'posts', 'logs', 'settings'];
+  const sections = [
+    'dashboard',
+    'profiles',
+    'groups',
+    'articles',
+    'posts',
+    'logs',
+    'settings',
+  ];
   context.registerTool({
     name: 'get_admin_summary',
     title: 'Lire le résumé PostFlow',

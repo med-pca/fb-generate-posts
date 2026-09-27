@@ -12,29 +12,56 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AutomationAuthGuard = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
+const client_1 = require("@prisma/client");
 const node_crypto_1 = require("node:crypto");
+const prisma_service_1 = require("../prisma/prisma.service");
 let AutomationAuthGuard = class AutomationAuthGuard {
     config;
-    constructor(config) {
+    prisma;
+    constructor(config, prisma) {
         this.config = config;
+        this.prisma = prisma;
     }
-    canActivate(context) {
-        const expected = this.config.get('AUTOMATION_API_KEY');
-        if (!expected)
-            throw new common_1.ServiceUnavailableException('AUTOMATION_API_KEY doit être configuré');
+    async canActivate(context) {
         const request = context.switchToHttp().getRequest();
         const provided = String(request.headers['x-api-key'] || '');
-        const left = (0, node_crypto_1.createHmac)('sha256', 'automation').update(provided).digest();
-        const right = (0, node_crypto_1.createHmac)('sha256', 'automation').update(expected).digest();
-        if (!provided || !(0, node_crypto_1.timingSafeEqual)(left, right)) {
+        if (!provided)
+            throw new common_1.UnauthorizedException('Clé d’automatisation invalide');
+        const global = this.config.get('AUTOMATION_API_KEY');
+        if (global && this.equal(provided, global)) {
+            request.user = null;
+            return true;
+        }
+        const user = await this.prisma.user.findUnique({
+            where: { automationKey: provided },
+        });
+        if (!user) {
+            if (!global) {
+                throw new common_1.ServiceUnavailableException('AUTOMATION_API_KEY doit être configuré, ou une clé de compte présentée');
+            }
             throw new common_1.UnauthorizedException('Clé d’automatisation invalide');
         }
+        if (user.status !== client_1.RecordStatus.ACTIVE) {
+            throw new common_1.UnauthorizedException('Ce compte est désactivé');
+        }
+        request.user = {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            status: user.status,
+        };
         return true;
+    }
+    equal(left, right) {
+        const a = (0, node_crypto_1.createHmac)('sha256', 'automation').update(left).digest();
+        const b = (0, node_crypto_1.createHmac)('sha256', 'automation').update(right).digest();
+        return (0, node_crypto_1.timingSafeEqual)(a, b);
     }
 };
 exports.AutomationAuthGuard = AutomationAuthGuard;
 exports.AutomationAuthGuard = AutomationAuthGuard = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [config_1.ConfigService])
+    __metadata("design:paramtypes", [config_1.ConfigService,
+        prisma_service_1.PrismaService])
 ], AutomationAuthGuard);
 //# sourceMappingURL=automation-auth.guard.js.map

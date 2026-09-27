@@ -15,6 +15,7 @@ const config_1 = require("@nestjs/config");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const settings_service_1 = require("../settings/settings.service");
+const scope_1 = require("../auth/scope");
 let JobsService = class JobsService {
     prisma;
     config;
@@ -24,16 +25,33 @@ let JobsService = class JobsService {
         this.config = config;
         this.settings = settings;
     }
-    listAutomationProfiles() {
+    listAutomationProfiles(acting = null) {
         return this.prisma.profile.findMany({
-            where: { status: 'ACTIVE', externalId: { not: null } },
+            where: {
+                status: 'ACTIVE',
+                externalId: { not: null },
+                ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)),
+            },
             select: { id: true, name: true, externalId: true },
             orderBy: { createdAt: 'asc' },
         });
     }
-    async claim(dto) {
+    async reachableJob(jobId, acting) {
+        const job = await this.prisma.publicationJob.findFirst({
+            where: { id: jobId, ...(0, scope_1.jobWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true },
+        });
+        if (!job)
+            throw new common_1.NotFoundException('Job introuvable');
+        return job;
+    }
+    async claim(dto, acting = null) {
         const profile = await this.prisma.profile.findFirst({
-            where: { id: dto.profileId, status: 'ACTIVE' },
+            where: {
+                id: dto.profileId,
+                status: 'ACTIVE',
+                ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)),
+            },
         });
         if (!profile)
             throw new common_1.NotFoundException('Profil introuvable');
@@ -141,12 +159,13 @@ let JobsService = class JobsService {
             })),
         };
     }
-    async claimBatch({ profileExternalIds, limit }) {
+    async claimBatch({ profileExternalIds, limit }, acting = null) {
         const requested = [...new Set(profileExternalIds ?? [])];
         const profiles = await this.prisma.profile.findMany({
             where: {
                 status: 'ACTIVE',
                 externalId: requested.length ? { in: requested } : { not: null },
+                ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)),
             },
             select: { id: true, name: true, externalId: true },
             orderBy: { createdAt: 'asc' },
@@ -158,7 +177,7 @@ let JobsService = class JobsService {
         const results = await Promise.all(profiles.map(async (profile) => {
             const externalId = profile.externalId ?? '';
             try {
-                const claim = await this.claimByProfileExternalId(externalId);
+                const claim = await this.claimByProfileExternalId(externalId, undefined, acting);
                 if ('jobId' in claim)
                     return { status: 'claimed', ...claim };
                 return {
@@ -228,9 +247,13 @@ let JobsService = class JobsService {
         });
         return released.count;
     }
-    async claimByProfileExternalId(profileExternalId, groupExternalId) {
+    async claimByProfileExternalId(profileExternalId, groupExternalId, acting = null) {
         const profile = await this.prisma.profile.findFirst({
-            where: { externalId: profileExternalId, status: 'ACTIVE' },
+            where: {
+                externalId: profileExternalId,
+                status: 'ACTIVE',
+                ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)),
+            },
         });
         if (!profile) {
             throw new common_1.NotFoundException(`Profil introuvable pour externalId=${profileExternalId}`);
@@ -291,19 +314,18 @@ let JobsService = class JobsService {
         }
         const shuffled = groups.sort(() => Math.random() - 0.5);
         for (const group of shuffled) {
-            const result = await this.claim({
-                profileId: profile.id,
-                groupId: group.id,
-            });
+            const result = await this.claim({ profileId: profile.id, groupId: group.id }, acting);
             if ('jobId' in result)
                 return result;
         }
         return { job: null, posts: [], message: 'Aucun post disponible' };
     }
-    markConsumed(jobId, postId) {
+    async markConsumed(jobId, postId, acting = null) {
+        await this.reachableJob(jobId, acting);
         return this.updateItem(jobId, postId, client_1.TargetStatus.CONSUMED, {});
     }
-    markPublished(jobId, postId, dto) {
+    async markPublished(jobId, postId, dto, acting = null) {
+        await this.reachableJob(jobId, acting);
         const publishedAt = dto.publishedAt
             ? new Date(dto.publishedAt)
             : new Date();
@@ -312,10 +334,12 @@ let JobsService = class JobsService {
             externalPostUrl: dto.externalPostUrl,
         });
     }
-    markFailed(jobId, postId, error) {
+    async markFailed(jobId, postId, error, acting = null) {
+        await this.reachableJob(jobId, acting);
         return this.updateItem(jobId, postId, client_1.TargetStatus.FAILED, { error });
     }
-    async complete(jobId) {
+    async complete(jobId, acting = null) {
+        await this.reachableJob(jobId, acting);
         const job = await this.prisma.publicationJob.findUnique({
             where: { id: jobId },
             include: { items: { include: { post: { select: { url: true } } } } },
@@ -371,7 +395,8 @@ let JobsService = class JobsService {
             missingComments: missingComments.length,
         };
     }
-    async markCommented(jobId, postId, dto) {
+    async markCommented(jobId, postId, dto, acting = null) {
+        await this.reachableJob(jobId, acting);
         const item = await this.prisma.publicationJobItem.findUnique({
             where: { jobId_postId: { jobId, postId } },
             include: { job: true, postTarget: true },
@@ -425,7 +450,8 @@ let JobsService = class JobsService {
             return updated;
         });
     }
-    async linkUpdates(jobId) {
+    async linkUpdates(jobId, acting = null) {
+        await this.reachableJob(jobId, acting);
         const job = await this.prisma.publicationJob.findUnique({
             where: { id: jobId },
             include: {
@@ -456,10 +482,11 @@ let JobsService = class JobsService {
             })),
         };
     }
-    async pendingLinkUpdates(profileExternalId, limit) {
+    async pendingLinkUpdates(profileExternalId, limit, acting = null) {
         const jobs = await this.prisma.publicationJob.findMany({
             where: {
                 status: { not: client_1.JobStatus.CLAIMED },
+                ...(0, scope_1.jobWhere)((0, scope_1.scopeOf)(acting)),
                 ...(profileExternalId
                     ? { profile: { externalId: profileExternalId } }
                     : {}),
@@ -489,7 +516,8 @@ let JobsService = class JobsService {
         }))
             .filter((job) => job.updates.length > 0);
     }
-    async markLinkUpdated(jobId, postId, dto) {
+    async markLinkUpdated(jobId, postId, dto, acting = null) {
+        await this.reachableJob(jobId, acting);
         const item = await this.prisma.publicationJobItem.findUnique({
             where: { jobId_postId: { jobId, postId } },
             include: { job: true, post: { select: { url: true } } },

@@ -12,14 +12,21 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PostsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const scope_1 = require("../auth/scope");
 const paginated_1 = require("../common/paginated");
 let PostsService = class PostsService {
     prisma;
     constructor(prisma) {
         this.prisma = prisma;
     }
-    async create(dto) {
+    async create(dto, acting = null) {
         const { groupIds, ...postData } = dto;
+        const profile = await this.prisma.profile.findFirst({
+            where: { id: dto.profileId, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true },
+        });
+        if (!profile)
+            throw new common_1.NotFoundException('Profil introuvable');
         const uniqueGroupIds = [...new Set(groupIds)];
         const validGroups = await this.prisma.group.count({
             where: {
@@ -42,8 +49,8 @@ let PostsService = class PostsService {
             include: { targets: true },
         });
     }
-    async findAll({ page, limit, ...filters }) {
-        const where = this.buildWhere(filters);
+    async findAll({ page, limit, ...filters }, acting) {
+        const where = this.buildWhere(filters, acting);
         const [data, total] = await this.prisma.$transaction([
             this.prisma.post.findMany({
                 where,
@@ -56,16 +63,30 @@ let PostsService = class PostsService {
         ]);
         return (0, paginated_1.paginated)(data, total, page, limit);
     }
-    findOne(id) {
-        return this.prisma.post.findUniqueOrThrow({
-            where: { id },
+    async findOne(id, acting) {
+        const post = await this.prisma.post.findFirst({
+            where: { id, ...(0, scope_1.postWhere)((0, scope_1.scopeOf)(acting)) },
             include: { profile: true, targets: { include: { group: true } } },
         });
+        if (!post)
+            throw new common_1.NotFoundException('Post introuvable');
+        return post;
     }
-    update(id, dto) {
+    async update(id, dto, acting) {
+        await this.reachable(id, acting);
         return this.prisma.post.update({ where: { id }, data: dto });
     }
-    async remove(id, force = false) {
+    async reachable(id, acting) {
+        const post = await this.prisma.post.findFirst({
+            where: { id, ...(0, scope_1.postWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true },
+        });
+        if (!post)
+            throw new common_1.NotFoundException('Post introuvable');
+        return post;
+    }
+    async remove(id, force = false, acting = null) {
+        await this.reachable(id, acting);
         const post = await this.prisma.post.findUniqueOrThrow({
             where: { id },
             select: { id: true, targets: this.activeClaimSelect() },
@@ -76,12 +97,12 @@ let PostsService = class PostsService {
         }
         return this.prisma.post.delete({ where: { id } });
     }
-    async bulkRemove(dto) {
+    async bulkRemove(dto, acting = null) {
         const { dryRun, force, ...filters } = dto;
         if (!this.hasCriteria(filters)) {
             throw new common_1.BadRequestException('Précisez au moins ids, profileId, groupId, articleId, status ou sourceType');
         }
-        const where = this.buildWhere(filters);
+        const where = this.buildWhere(filters, acting);
         return this.prisma.$transaction(async (tx) => {
             const matched = await tx.post.count({ where });
             const claimed = await tx.post.findMany({
@@ -119,8 +140,8 @@ let PostsService = class PostsService {
             filters.status ||
             filters.sourceType);
     }
-    buildWhere(filters) {
-        const where = {};
+    buildWhere(filters, acting) {
+        const where = { ...(0, scope_1.postWhere)((0, scope_1.scopeOf)(acting)) };
         if (filters.ids?.length)
             where.id = { in: [...new Set(filters.ids)] };
         if (filters.profileId)

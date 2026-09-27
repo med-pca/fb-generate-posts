@@ -24,6 +24,9 @@ export type DepositInput = {
   imageUrl: string | null;
   /** Décide la langue de l'invitation « page suivante ». */
   language?: string | null;
+  /** La clé du plugin de CE site. Absente, la clé globale sert : deux sites
+   * n'ont aucune raison de partager la même. */
+  apiKey?: string | null;
 };
 
 const MAX_IMAGE_BYTES = 10_000_000;
@@ -43,10 +46,11 @@ export class WordpressWriterService {
   constructor(private readonly config: ConfigService) {}
 
   async deposit(input: DepositInput): Promise<WordpressDeposit> {
-    const key = this.config.get<string>('WORDPRESS_API_KEY');
+    const key = input.apiKey || this.config.get<string>('WORDPRESS_API_KEY');
     if (!key) {
       throw new ServiceUnavailableException(
-        'WORDPRESS_API_KEY doit être configuré pour déposer un article',
+        `Aucune clé pour ${input.siteUrl} : la renseigner sur le site, ` +
+          'ou configurer WORDPRESS_API_KEY',
       );
     }
     // Le découpage se fait ici, pas à la réécriture : le texte conservé sur

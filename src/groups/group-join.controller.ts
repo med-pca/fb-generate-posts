@@ -55,7 +55,9 @@ export class GroupJoinController {
   }
 
   @Post(':groupId/join-status')
-  @ApiOperation({ summary: 'Enregistrer le résultat d’une tentative d’adhésion' })
+  @ApiOperation({
+    summary: 'Enregistrer le résultat d’une tentative d’adhésion',
+  })
   updateStatus(
     @Param('profileExternalId') profileExternalId: string,
     @Param('groupId') groupId: string,

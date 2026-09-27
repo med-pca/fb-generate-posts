@@ -11,6 +11,8 @@ import { ImportArticleDto } from './dto/import-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
+import type { CurrentUser } from '../auth/current-user';
+import { articleWhere, profileWhere, scopeOf } from '../auth/scope';
 import { assertSafeRemoteUrl } from '../common/safe-fetch';
 
 type SocialCaption = { text: string; angle?: string };
@@ -49,42 +51,62 @@ type ArticlePayload = {
 export class ArticlesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll({ page, limit }: PaginationDto) {
+  async findAll({ page, limit }: PaginationDto, acting: CurrentUser | null) {
+    const where = articleWhere(scopeOf(acting));
     const [data, total] = await this.prisma.$transaction([
       this.prisma.article.findMany({
-      include: { source: true, _count: { select: { posts: true } } },
-      orderBy: { importedAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
+        where,
+        include: { source: true, _count: { select: { posts: true } } },
+        orderBy: { importedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
       }),
-      this.prisma.article.count(),
+      this.prisma.article.count({ where }),
     ]);
     return paginated(data, total, page, limit);
   }
 
-  findOne(id: string) {
-    return this.prisma.article.findUniqueOrThrow({
-      where: { id },
+  async findOne(id: string, acting: CurrentUser | null) {
+    const article = await this.prisma.article.findFirst({
+      where: { id, ...articleWhere(scopeOf(acting)) },
       include: { source: true, posts: { include: { targets: true } } },
     });
+    if (!article) throw new NotFoundException('Article introuvable');
+    return article;
   }
 
-  update(id: string, dto: UpdateArticleDto) {
+  /** Un article hors de portée est introuvable, pas interdit : répondre 403
+   * confirmerait son existence. */
+  private async reachable(id: string, acting: CurrentUser | null) {
+    const article = await this.prisma.article.findFirst({
+      where: { id, ...articleWhere(scopeOf(acting)) },
+      select: { id: true },
+    });
+    if (!article) throw new NotFoundException('Article introuvable');
+    return article;
+  }
+
+  async update(id: string, dto: UpdateArticleDto, acting: CurrentUser | null) {
+    await this.reachable(id, acting);
     return this.prisma.article.update({ where: { id }, data: dto });
   }
 
-  remove(id: string) {
+  async remove(id: string, acting: CurrentUser | null) {
+    await this.reachable(id, acting);
     return this.prisma.article.delete({ where: { id } });
   }
 
-  async import(dto: ImportArticleDto) {
+  async import(dto: ImportArticleDto, acting: CurrentUser | null = null) {
     const normalizedJsonUrl = this.toJsonUrl(dto.jsonUrl);
     const jsonUrl = await assertSafeRemoteUrl(normalizedJsonUrl);
     const payload = await this.fetchPayload(jsonUrl);
     this.validatePayload(payload);
 
     const articleUrl = new URL(payload.articleUrl);
-    if (articleUrl.protocol !== 'https:' || articleUrl.origin !== jsonUrl.origin) {
+    if (
+      articleUrl.protocol !== 'https:' ||
+      articleUrl.origin !== jsonUrl.origin
+    ) {
       throw new BadRequestException(
         'articleUrl doit utiliser HTTPS et appartenir au même site que jsonUrl',
       );
@@ -97,6 +119,7 @@ export class ArticlesService {
       create: {
         originUrl: articleUrl.origin,
         name: dto.sourceName?.trim() || articleUrl.hostname,
+        ownerId: acting?.id ?? null,
       },
       update: dto.sourceName?.trim() ? { name: dto.sourceName.trim() } : {},
     });
@@ -114,13 +137,27 @@ export class ArticlesService {
     });
   }
 
-  async generatePosts(id: string, dto: GenerateArticlePostsDto) {
+  async generatePosts(
+    id: string,
+    dto: GenerateArticlePostsDto,
+    acting: CurrentUser | null = null,
+  ) {
+    await this.reachable(id, acting);
     if (dto.delayMin > dto.delayMax) {
-      throw new BadRequestException('delayMin doit être inférieur ou égal à delayMax');
+      throw new BadRequestException(
+        'delayMin doit être inférieur ou égal à delayMax',
+      );
     }
     const article = await this.prisma.article.findUnique({ where: { id } });
     if (!article) throw new NotFoundException('Article introuvable');
     const groupIds = [...new Set(dto.groupIds)];
+    // Le profil visé doit lui aussi être à portée : sans ça, on créerait
+    // des posts sur le profil d'un autre compte.
+    const profile = await this.prisma.profile.findFirst({
+      where: { id: dto.profileId, ...profileWhere(scopeOf(acting)) },
+      select: { id: true },
+    });
+    if (!profile) throw new NotFoundException('Profil introuvable');
     const validGroups = await this.prisma.group.count({
       where: {
         id: { in: groupIds },
@@ -242,7 +279,11 @@ export class ArticlesService {
       : `${articleId}:${profileId}:${index}:v${variant}`;
   }
 
-  private articleData(payload: ArticlePayload, jsonUrl: string, coverImageUrl?: string) {
+  private articleData(
+    payload: ArticlePayload,
+    jsonUrl: string,
+    coverImageUrl?: string,
+  ) {
     return {
       externalId: payload.id,
       jsonUrl,
@@ -259,7 +300,9 @@ export class ArticlesService {
       cookMinutes: payload.cookMinutes,
       totalMinutes: payload.totalMinutes,
       calories: payload.calories,
-      publishedAt: payload.publishedAt ? new Date(payload.publishedAt) : undefined,
+      publishedAt: payload.publishedAt
+        ? new Date(payload.publishedAt)
+        : undefined,
       captions: payload.socialPost.captions as Prisma.InputJsonValue,
       hashtags: payload.socialPost.hashtags ?? [],
       imagePrompt: payload.socialPost.imagePrompt,
@@ -276,15 +319,21 @@ export class ArticlesService {
         headers: { accept: 'application/json' },
       });
     } catch {
-      throw new BadGatewayException('Impossible de contacter la source de l’article');
+      throw new BadGatewayException(
+        'Impossible de contacter la source de l’article',
+      );
     }
     if (!response.ok) {
-      throw new BadGatewayException(`La source a répondu avec le statut ${response.status}`);
+      throw new BadGatewayException(
+        `La source a répondu avec le statut ${response.status}`,
+      );
     }
     const length = Number(response.headers.get('content-length') || 0);
-    if (length > 1_000_000) throw new BadRequestException('Réponse JSON trop volumineuse');
+    if (length > 1_000_000)
+      throw new BadRequestException('Réponse JSON trop volumineuse');
     const text = await response.text();
-    if (text.length > 1_000_000) throw new BadRequestException('Réponse JSON trop volumineuse');
+    if (text.length > 1_000_000)
+      throw new BadRequestException('Réponse JSON trop volumineuse');
     try {
       return JSON.parse(text) as ArticlePayload;
     } catch {

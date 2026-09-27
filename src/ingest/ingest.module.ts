@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { LlmModule } from '../llm/llm.module';
+import { SitesModule } from '../sites/sites.module';
 import { IngestController } from './ingest.controller';
 import { IngestService } from './ingest.service';
 import { RewriterService } from './rewriter.service';
@@ -10,7 +11,7 @@ import { WordpressWriterService } from './wordpress-writer.service';
 /** La reprise d'une publication Facebook : collecte du post d'origine,
  * lecture de la page source, réécriture, puis dépôt WordPress. */
 @Module({
-  imports: [LlmModule],
+  imports: [LlmModule, SitesModule],
   controllers: [IngestController, ScrapeController],
   providers: [
     IngestService,
