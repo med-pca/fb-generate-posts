@@ -479,6 +479,25 @@ derrière un proxy), donc celle qui marche depuis ce navigateur.
 `PUBLIC_API_BASE_URL` la force quand l'adresse vue du serveur n'est pas celle que
 le navigateur doit appeler.
 
+### La clé NSTBrowser de chaque compte
+
+Chaque compte règle sa propre clé de l'API locale NSTBrowser dans l'admin
+(bouton **Clé NSTBrowser** en haut, ou **Comptes → Modifier** pour un
+administrateur). Plus besoin de toucher au `.env` de la machine :
+
+```http
+PUT /api/me/nstbrowser-key   { "nstApiKey": "..." }   # "" = la retirer
+```
+
+`GET /api/control/launcher` remet à chaque profil la clé de son propriétaire
+(`nstApiKey`), et l'agent local ouvre le profil avec. Par profil et non une
+fois pour tout le plan : la clé globale voit les profils de plusieurs comptes.
+Profil sans propriétaire, compte sans clé ou désactivé : `null`, et l'agent
+retombe sur son `NST_API_KEY`.
+
+La clé n'est jamais relue par l'admin : `/api/me` et `/api/users` ne disent
+que `hasNstApiKey` et ses quatre derniers caractères (`nstApiKeyHint`).
+
 ### Ce que l'admin règle, par profil
 
 | Mode | Effet |

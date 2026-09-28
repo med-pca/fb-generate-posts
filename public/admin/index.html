@@ -44,6 +44,7 @@
           <div class="who">
             <span class="online"><i></i> API connectée</span>
             <span id="whoami"></span>
+            <button class="ghost" id="nst-open" type="button">Clé NSTBrowser</button>
           </div>
         </header>
         <div id="notice" role="status"></div>
@@ -491,6 +492,10 @@
             <option value="MANAGER">Gestionnaire</option>
             <option value="ADMIN">Administrateur</option>
           </select></label
+        ><label
+          >Clé NSTBrowser
+          <input name="nstApiKey" type="password" autocomplete="off" />
+          <small>Remise à l'agent local pour ouvrir les profils de ce compte. Vide la laisse inchangée.</small></label
         ><label id="user-status-field"
           >État<select name="status">
             <option value="ACTIVE">Actif</option>
@@ -499,6 +504,29 @@
         >
         <div class="modal-foot">
           <button type="button" class="ghost" data-close>Annuler</button>
+          <button class="primary" type="submit">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="nst-modal">
+      <form id="nst-form">
+        <div class="modal-head">
+          <div><small>MON COMPTE</small><h2>Clé NSTBrowser</h2></div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <p class="hint">
+          La clé de l'API locale de NSTBrowser (application NSTBrowser →
+          API). L'agent local la reçoit avec ses ordres et ouvre vos profils
+          avec : plus besoin de toucher au <code>.env</code> de la machine.
+        </p>
+        <p id="nst-status" class="hint"></p>
+        <label
+          >Nouvelle clé
+          <input name="nstApiKey" type="password" autocomplete="off" required />
+        </label>
+        <div class="modal-foot">
+          <button type="button" class="ghost" id="nst-clear">Retirer la clé</button>
           <button class="primary" type="submit">Enregistrer</button>
         </div>
       </form>

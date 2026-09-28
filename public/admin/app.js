@@ -451,7 +451,11 @@ function renderUsers() {
         (u) =>
           `<tr><td><strong>${esc(u.username)}</strong></td>` +
           `<td>${u.role === 'ADMIN' ? 'Administrateur' : 'Gestionnaire'}</td>` +
-          `<td><span class="pill">${u.status === 'ACTIVE' ? 'Actif' : 'Inactif'}</span></td>` +
+          `<td><span class="pill">${u.status === 'ACTIVE' ? 'Actif' : 'Inactif'}</span>` +
+          (u.hasNstApiKey
+            ? ` <span class="pill" title="Clé NSTBrowser">NST ${esc(u.nstApiKeyHint)}</span>`
+            : ` <span class="muted">sans clé NST</span>`) +
+          `</td>` +
           `<td>${new Date(u.createdAt).toLocaleDateString('fr-FR')}</td>` +
           `<td class="right"><button class="ghost" data-edit-user="${u.id}">Modifier</button>` +
           `<button class="ghost" data-rotate-user="${u.id}">Nouvelle clé</button>` +
@@ -1026,6 +1030,9 @@ $('#user-form').onsubmit = async (e) => {
   // Un mot de passe vide ne doit pas en imposer un : à la modification, il
   // signifie « inchangé ».
   if (!d.password) delete d.password;
+  // Même règle pour la clé NSTBrowser : vide = inchangée. Le compte la
+  // retire lui-même depuis « Clé NSTBrowser ».
+  if (!d.nstApiKey) delete d.nstApiKey;
   if (!id) delete d.status;
   try {
     const saved = await api(id ? `/users/${id}` : '/users', {
@@ -1039,6 +1046,41 @@ $('#user-form').onsubmit = async (e) => {
   } catch (x) {
     notice(x.message, 'error');
   }
+};
+
+/* ── Sa propre clé NSTBrowser ──────────────────────────────────────── */
+/** La clé n'est jamais relue : seulement si elle existe, et sa fin. */
+function renderNstStatus() {
+  $('#nst-status').textContent = state.me?.hasNstApiKey
+    ? `Clé enregistrée (${state.me.nstApiKeyHint}). En saisir une nouvelle la remplace.`
+    : 'Aucune clé : l’agent local utilise celle de son .env (NST_API_KEY).';
+  $('#nst-clear').hidden = !state.me?.hasNstApiKey;
+}
+async function saveNstKey(value) {
+  try {
+    state.me = await api('/me/nstbrowser-key', {
+      method: 'PUT',
+      body: JSON.stringify({ nstApiKey: value }),
+    });
+    $('#nst-modal').close();
+    notice(value ? 'Clé NSTBrowser enregistrée.' : 'Clé NSTBrowser retirée.');
+    if (state.me.role === 'ADMIN') await load();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+}
+$('#nst-open').onclick = () => {
+  $('#nst-form').reset();
+  renderNstStatus();
+  $('#nst-modal').showModal();
+};
+$('#nst-form').onsubmit = (e) => {
+  e.preventDefault();
+  saveNstKey(e.target.elements.nstApiKey.value.trim());
+};
+$('#nst-clear').onclick = () => {
+  if (!confirm('Retirer la clé NSTBrowser ? L’agent reprendra celle de son .env.')) return;
+  saveNstKey('');
 };
 
 /* ── Partages ──────────────────────────────────────────────────────── */

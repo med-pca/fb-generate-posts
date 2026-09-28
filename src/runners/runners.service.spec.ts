@@ -12,6 +12,8 @@ function harness(options: {
     status?: 'ACTIVE' | 'INACTIVE';
     /** Le propriétaire décide de la clé remise à l'appairage. */
     ownerId?: string | null;
+    /** Ce que `launcherPlan` lit du propriétaire : sa clé NSTBrowser. */
+    owner?: { nstApiKey: string | null; status: string } | null;
     runner?: any;
   }>;
   publishingEnabled?: boolean;
@@ -241,6 +243,28 @@ describe('launcherPlan', () => {
     // renvoyer une ligne sans identifiant de profil NSTBrowser.
     const plan = await service.launcherPlan(null, now);
     expect(plan.profiles.every((p) => p.externalId !== null)).toBe(true);
+  });
+
+  it('remet à chaque profil la clé NSTBrowser de son propriétaire', async () => {
+    const { service } = harness({
+      profiles: [
+        { id: 'p1', name: 'A', externalId: 'ext-1', owner: { nstApiKey: 'nst-a', status: 'ACTIVE' } },
+        { id: 'p2', name: 'B', externalId: 'ext-2', owner: { nstApiKey: 'nst-b', status: 'ACTIVE' } },
+        // Pas de propriétaire, pas de clé, ou un compte désactivé : l'agent
+        // garde la clé de sa machine.
+        { id: 'p3', name: 'Orphelin', externalId: 'ext-3', owner: null },
+        { id: 'p4', name: 'Sans clé', externalId: 'ext-4', owner: { nstApiKey: null, status: 'ACTIVE' } },
+        { id: 'p5', name: 'Désactivé', externalId: 'ext-5', owner: { nstApiKey: 'nst-x', status: 'INACTIVE' } },
+      ],
+    });
+    const plan = await service.launcherPlan(null, now);
+    expect(plan.profiles.map((p) => [p.externalId, p.nstApiKey])).toEqual([
+      ['ext-1', 'nst-a'],
+      ['ext-2', 'nst-b'],
+      ['ext-3', null],
+      ['ext-4', null],
+      ['ext-5', null],
+    ]);
   });
 });
 

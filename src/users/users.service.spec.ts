@@ -12,6 +12,7 @@ const user = (over: Partial<User> = {}): User => ({
   role: Role.MANAGER,
   status: RecordStatus.ACTIVE,
   automationKey: 'cle',
+  nstApiKey: null,
   createdAt: new Date(),
   updatedAt: new Date(),
   ...over,
@@ -133,5 +134,31 @@ describe('UsersService.rotateKey', () => {
     const [[args]] = prisma.user.update.mock.calls;
     expect(args.data.automationKey).not.toBe('ancienne');
     expect(rotated.automationKey).toBe(args.data.automationKey);
+  });
+});
+
+describe('UsersService.setOwnNstKey', () => {
+  const sofia: CurrentUser = {
+    id: 'u1',
+    username: 'sofia',
+    role: Role.MANAGER,
+    status: RecordStatus.ACTIVE,
+  };
+
+  it('enregistre la clé sans jamais la relire', async () => {
+    const { service, prisma } = setup(user());
+    const saved = await service.setOwnNstKey(sofia, '  nst-secret-1234 ');
+    const [[args]] = prisma.user.update.mock.calls;
+    expect(args.data.nstApiKey).toBe('nst-secret-1234');
+    expect(saved).toMatchObject({ hasNstApiKey: true, nstApiKeyHint: '…1234' });
+    expect(JSON.stringify(saved)).not.toContain('nst-secret');
+  });
+
+  it('une chaîne vide retire la clé', async () => {
+    const { service, prisma } = setup(user({ nstApiKey: 'ancienne' }));
+    const saved = await service.setOwnNstKey(sofia, '');
+    const [[args]] = prisma.user.update.mock.calls;
+    expect(args.data.nstApiKey).toBeNull();
+    expect(saved.hasNstApiKey).toBe(false);
   });
 });

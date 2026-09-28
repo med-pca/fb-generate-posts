@@ -12,16 +12,24 @@ import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
 
 /** Ce qu'on montre d'un compte : ni mot de passe, ni clé. La clé ne se lit
  * qu'une fois, à sa création ou à sa régénération — ensuite elle n'existe
- * plus que chez celui qui l'a copiée. */
+ * plus que chez celui qui l'a copiée.
+ *
+ * La clé NSTBrowser non plus n'est jamais relue : seulement si elle existe,
+ * et ses quatre derniers caractères pour reconnaître laquelle. */
 export function publicUser(user: User) {
   return {
     id: user.id,
     username: user.username,
     role: user.role,
     status: user.status,
+    hasNstApiKey: Boolean(user.nstApiKey),
+    nstApiKeyHint: user.nstApiKey ? `…${user.nstApiKey.slice(-4)}` : null,
     createdAt: user.createdAt,
   };
 }
+
+/** Vide = retirer : l'agent retombera sur le `NST_API_KEY` de sa machine. */
+const nstKey = (raw: string) => raw.trim() || null;
 
 @Injectable()
 export class UsersService {
@@ -88,9 +96,27 @@ export class UsersService {
         ...(dto.password ? { passwordHash: hashPassword(dto.password) } : {}),
         ...(dto.role ? { role: dto.role } : {}),
         ...(dto.status ? { status: dto.status } : {}),
+        ...(dto.nstApiKey !== undefined
+          ? { nstApiKey: nstKey(dto.nstApiKey) }
+          : {}),
       },
     });
     return publicUser(updated);
+  }
+
+  /** Le compte tel qu'il se voit lui-même, par `/api/me`. */
+  async me(acting: CurrentUser) {
+    return publicUser(await this.load(acting.id));
+  }
+
+  /** Chaque compte règle sa propre clé NSTBrowser : c'est son abonnement,
+   * pas une affaire d'administrateur. */
+  async setOwnNstKey(acting: CurrentUser, raw: string) {
+    const user = await this.prisma.user.update({
+      where: { id: acting.id },
+      data: { nstApiKey: nstKey(raw) },
+    });
+    return publicUser(user);
   }
 
   /** Rend la nouvelle clé une seule fois. L'ancienne cesse aussitôt de

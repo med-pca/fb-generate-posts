@@ -344,6 +344,7 @@ export class RunnersService {
         externalId: true,
         status: true,
         runner: true,
+        owner: { select: { nstApiKey: true, status: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -372,6 +373,14 @@ export class RunnersService {
           workerRunning: profile.runner?.running ?? false,
           workerSeenAt: profile.runner?.lastSeenAt ?? null,
           browserState: profile.runner?.browserState ?? BrowserState.STOPPED,
+          // La clé NSTBrowser du propriétaire : chaque compte ouvre ses
+          // profils avec son propre abonnement. Par profil et non une fois
+          // pour tout le plan, parce que la clé globale voit les profils de
+          // plusieurs comptes. `null` = l'agent garde son `NST_API_KEY`.
+          nstApiKey:
+            profile.owner?.status === 'ACTIVE'
+              ? (profile.owner.nstApiKey ?? null)
+              : null,
         };
       });
     return {

@@ -36,4 +36,23 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   @IsOptional()
   @IsEnum(RecordStatus)
   status?: RecordStatus;
+
+  @ApiPropertyOptional({
+    description: 'Clé NSTBrowser du compte. Chaîne vide = la retirer.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  nstApiKey?: string;
+}
+
+/** Ce qu'un compte règle lui-même, sans passer par un administrateur. */
+export class UpdateNstKeyDto {
+  @ApiProperty({
+    description:
+      'Clé de l’API locale NSTBrowser (application → API). Chaîne vide = la retirer.',
+  })
+  @IsString()
+  @MaxLength(200)
+  nstApiKey!: string;
 }

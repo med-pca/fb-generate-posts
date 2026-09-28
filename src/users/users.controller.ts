@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -13,7 +14,7 @@ import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { AdminRoleGuard } from '../auth/admin-role.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
-import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
+import { CreateUserDto, UpdateNstKeyDto, UpdateUserDto } from './dto/user.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('users')
@@ -72,8 +73,21 @@ export class UsersController {
 @UseGuards(AdminAuthGuard)
 @Controller('me')
 export class MeController {
+  constructor(private readonly users: UsersService) {}
+
   @Get()
   me(@ActingUser() acting: CurrentUser) {
-    return acting;
+    return this.users.me(acting);
+  }
+
+  @Put('nstbrowser-key')
+  @ApiOperation({
+    summary: 'Régler sa propre clé NSTBrowser',
+    description:
+      'L’agent local la reçoit avec son plan pour chaque profil du compte : ' +
+      'plus rien à changer dans le `.env` de la machine. Chaîne vide = la retirer.',
+  })
+  setNstKey(@ActingUser() acting: CurrentUser, @Body() dto: UpdateNstKeyDto) {
+    return this.users.setOwnNstKey(acting, dto.nstApiKey);
   }
 }
