@@ -15,6 +15,7 @@ import type { CurrentUser } from '../auth/current-user';
 import { UpdateRunnerDto } from './dto/update-runner.dto';
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { BrowserReportDto } from './dto/browser-report.dto';
+import { NstProfileDto } from './dto/sync-profiles.dto';
 import { formatWindow, insideWindow, localClock } from './window';
 
 /** Au-delà de ce délai sans battement, le navigateur n'est plus considéré
@@ -384,11 +385,65 @@ export class RunnersService {
         };
       });
     return {
+      // La clé NSTBrowser du compte de la clé d'API : celle avec laquelle
+      // l'agent liste NSTBrowser pour synchroniser les profils de ce compte.
+      nstApiKey: acting ? await this.nstKeyOf(acting.id) : null,
       pollAfterSeconds: profilesOut.some((p) => p.shouldRun)
         ? POLL_RUNNING
         : POLL_IDLE,
       serverTime: now.toISOString(),
       profiles: profilesOut,
+    };
+  }
+
+  /** Les profils de NSTBrowser que la plateforme ne connaît pas encore.
+   *
+   * Seul l'agent local peut lister NSTBrowser, donc c'est lui qui envoie la
+   * liste. Un profil absent est créé au nom du compte de la clé : sa clé
+   * NSTBrowser est celle qui l'a listé. Avec la clé globale, il naît sans
+   * propriétaire -- visible des seuls ADMIN, qui le réattribuent.
+   *
+   * On ne fait qu'ajouter : un profil déjà présent n'est ni renommé ni
+   * déplacé, même s'il appartient à un autre compte (l'externalId est unique
+   * sur toute la plateforme), et rien n'est supprimé -- un profil absent de
+   * NSTBrowser peut simplement vivre sur une autre machine. */
+  async syncProfiles(
+    rows: NstProfileDto[],
+    acting: CurrentUser | null = null,
+  ) {
+    // Une même liste peut répéter un profil : le premier nom l'emporte.
+    const wanted = new Map<string, string>();
+    for (const row of rows) {
+      const externalId = row.externalId.trim();
+      if (externalId && !wanted.has(externalId)) {
+        wanted.set(externalId, row.name.trim() || externalId);
+      }
+    }
+    if (!wanted.size) return { created: [], existing: 0, received: 0 };
+
+    const known = await this.prisma.profile.findMany({
+      where: { externalId: { in: [...wanted.keys()] } },
+      select: { externalId: true },
+    });
+    const seen = new Set(known.map((p) => p.externalId));
+    const missing = [...wanted].filter(([externalId]) => !seen.has(externalId));
+
+    // `skipDuplicates` : deux agents qui synchronisent en même temps ne
+    // doivent pas faire échouer l'un des deux sur la contrainte d'unicité.
+    if (missing.length) {
+      await this.prisma.profile.createMany({
+        data: missing.map(([externalId, name]) => ({
+          externalId,
+          name,
+          ownerId: acting?.id ?? null,
+        })),
+        skipDuplicates: true,
+      });
+    }
+    return {
+      created: missing.map(([externalId, name]) => ({ externalId, name })),
+      existing: seen.size,
+      received: wanted.size,
     };
   }
 
@@ -536,6 +591,14 @@ export class RunnersService {
   }
 
   // ── internes ──────────────────────────────────────────────────────────
+
+  private async nstKeyOf(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { nstApiKey: true },
+    });
+    return user?.nstApiKey ?? null;
+  }
 
   /** Un worker au travail : il l'a dit, et il l'a dit récemment. */
   private atWork(runner: RunnerRow | null, now: Date) {

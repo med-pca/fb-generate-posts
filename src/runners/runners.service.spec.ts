@@ -406,3 +406,58 @@ describe('appairage', () => {
     expect(listed.pairedAt).toBeInstanceOf(Date);
   });
 });
+
+describe('syncProfiles', () => {
+  /** Un faux Prisma qui ne connaît que ces externalId, et garde ce qu'on crée. */
+  function syncing(known: string[]) {
+    const created: any[] = [];
+    const prisma = {
+      profile: {
+        findMany: async ({ where }: any) =>
+          known
+            .filter((id) => where.externalId.in.includes(id))
+            .map((externalId) => ({ externalId })),
+        createMany: async ({ data, skipDuplicates }: any) => {
+          expect(skipDuplicates).toBe(true);
+          created.push(...data);
+          return { count: data.length };
+        },
+      },
+    };
+    const service = new RunnersService(prisma as any, { get: () => '' } as any);
+    return { service, created };
+  }
+
+  const sofia = { id: 'u1', username: 'sofia', role: 'MANAGER', status: 'ACTIVE' } as any;
+
+  it('crée seulement les profils absents, au nom du compte de la clé', async () => {
+    const { service, created } = syncing(['ext-1']);
+    const result = await service.syncProfiles(
+      [
+        { externalId: 'ext-1', name: 'Déjà là' },
+        { externalId: 'ext-2', name: 'Nouveau' },
+        { externalId: ' ext-2 ', name: 'Doublon' },
+        { externalId: 'ext-3', name: '  ' },
+      ],
+      sofia,
+    );
+    expect(created).toEqual([
+      { externalId: 'ext-2', name: 'Nouveau', ownerId: 'u1' },
+      // Sans nom dans NSTBrowser : l'identifiant, plutôt qu'un nom vide.
+      { externalId: 'ext-3', name: 'ext-3', ownerId: 'u1' },
+    ]);
+    expect(result).toMatchObject({ existing: 1, received: 3 });
+  });
+
+  it('avec la clé globale, les profils naissent sans propriétaire', async () => {
+    const { service, created } = syncing([]);
+    await service.syncProfiles([{ externalId: 'ext-1', name: 'A' }], null);
+    expect(created[0].ownerId).toBeNull();
+  });
+
+  it('une liste vide ne crée rien', async () => {
+    const { service, created } = syncing([]);
+    expect(await service.syncProfiles([], sofia)).toEqual({ created: [], existing: 0, received: 0 });
+    expect(created).toEqual([]);
+  });
+});

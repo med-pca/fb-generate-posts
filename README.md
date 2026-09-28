@@ -498,6 +498,23 @@ retombe sur son `NST_API_KEY`.
 La clé n'est jamais relue par l'admin : `/api/me` et `/api/users` ne disent
 que `hasNstApiKey` et ses quatre derniers caractères (`nstApiKeyHint`).
 
+### Les profils créés dans NSTBrowser
+
+Inutile de les recréer dans la plateforme : l'agent local liste son
+NSTBrowser au démarrage puis toutes les 10 minutes, et l'API crée ceux
+qu'elle ne connaît pas (`externalId` = UUID NSTBrowser, nom repris).
+
+```http
+POST /api/control/profiles/sync   { "profiles": [{ "externalId": "...", "name": "..." }] }
+```
+
+- Le profil appartient au compte de la clé d'API de l'agent, et la liste est
+  lue avec la clé NSTBrowser de ce compte. Avec la clé globale, il naît sans
+  propriétaire (visible des ADMIN, à réattribuer).
+- Il arrive **à l'arrêt** : rien ne s'ouvre avant qu'on l'allume dans le Pilotage.
+- On ne fait qu'ajouter : rien n'est renommé, déplacé ni supprimé.
+- `python -m app.launcher --no-sync` la désactive, `--sync-every 300` change le rythme.
+
 ### Ce que l'admin règle, par profil
 
 | Mode | Effet |

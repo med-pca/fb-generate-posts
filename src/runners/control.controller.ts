@@ -5,6 +5,7 @@ import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
 import { BrowserReportDto } from './dto/browser-report.dto';
 import { HeartbeatDto } from './dto/heartbeat.dto';
+import { SyncProfilesDto } from './dto/sync-profiles.dto';
 import { RunnersService } from './runners.service';
 
 /** Côté terrain : ce que l'extension d'un navigateur et l'agent local viennent
@@ -61,6 +62,21 @@ export class ControlController {
   })
   launcher(@ActingUser() acting: CurrentUser | null) {
     return this.runners.launcherPlan(acting);
+  }
+
+  @Post('profiles/sync')
+  @ApiOperation({
+    summary: 'Créer les profils NSTBrowser que la plateforme ne connaît pas',
+    description:
+      'L’agent local envoie les profils de son NSTBrowser. Les absents sont ' +
+      'créés au nom du compte de la clé (sans propriétaire avec la clé ' +
+      'globale). Rien n’est renommé ni supprimé.',
+  })
+  syncProfiles(
+    @Body() dto: SyncProfilesDto,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.runners.syncProfiles(dto.profiles, acting);
   }
 
   @Post('launcher/:profileExternalId')
