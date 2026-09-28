@@ -254,6 +254,67 @@ describe('JobsService — publication sans URL puis commentaire', () => {
   });
 });
 
+describe('JobsService — l’URL post par post', () => {
+  it('renvoie l’URL du post dès que son commentaire est enregistré', async () => {
+    const tx: any = {
+      publicationJobItem: {
+        update: jest.fn(async ({ data }: any) => ({ id: 'item_1', ...data })),
+      },
+      postTarget: { update: jest.fn(async () => ({})) },
+      activityLog: { create: jest.fn(async () => ({})) },
+    };
+    const prisma: any = {
+      publicationJob: { findFirst: jest.fn(async () => ({ id: 'job_1' })) },
+      publicationJobItem: {
+        findUnique: jest.fn(async () => ({
+          ...item({ commentExternalId: null, commentedAt: null }),
+          job: { id: 'job_1', status: JobStatus.CLAIMED, claimExpiresAt: new Date(Date.now() + 3600_000) },
+          postTarget: { id: 'target_1', status: TargetStatus.PUBLISHED, claimedByJobId: 'job_1' },
+        })),
+      },
+      $transaction: jest.fn(async (cb: any) => cb(tx)),
+    };
+    const svc: any = service(prisma);
+    svc.stillOwnsTarget = () => true;
+
+    const result = await svc.markCommented('job_1', 'post_1', { commentExternalId: 'comment_1' });
+
+    expect(result.url).toBe('https://exemple.test/recette');
+    expect(result.commentExternalId).toBe('comment_1');
+  });
+
+  it('accepte link-updated avant la clôture du lot', async () => {
+    const tx: any = {
+      publicationJobItem: {
+        update: jest.fn(async ({ data }: any) => ({ id: 'item_1', ...data })),
+        findMany: jest.fn(async () => [
+          item({ linkUpdatedAt: new Date() }),
+          item({ postId: 'post_2', commentedAt: null, commentExternalId: null }),
+        ]),
+      },
+      postTarget: { update: jest.fn(async () => ({})) },
+      publicationJob: { update: jest.fn(async () => ({})) },
+      activityLog: { create: jest.fn(async () => ({})) },
+    };
+    const prisma: any = {
+      publicationJob: { findFirst: jest.fn(async () => ({ id: 'job_1' })) },
+      publicationJobItem: {
+        findUnique: jest.fn(async () => ({
+          ...item(),
+          job: { id: 'job_1', status: JobStatus.CLAIMED, profileId: 'p1', groupId: 'g1' },
+        })),
+      },
+      $transaction: jest.fn(async (cb: any) => cb(tx)),
+    };
+
+    const result: any = await service(prisma).markLinkUpdated('job_1', 'post_1', {});
+
+    expect(result.linkUpdatedAt).toBeInstanceOf(Date);
+    // Le lot est encore réservé : son statut n'est pas touché.
+    expect(tx.publicationJob.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('JobsService — réservation par lot', () => {
   it('écarte un profil qui tient déjà un job', async () => {
     const prisma: any = {

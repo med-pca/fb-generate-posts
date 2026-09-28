@@ -545,8 +545,9 @@ export class JobsService {
   }
 
   /** Étape 2 : le commentaire est posé sous le post, avec la description
-   * seule. Son identifiant est indispensable — c'est lui qu'on modifiera pour
-   * y placer l'URL une fois le lot validé. */
+   * seule. Son identifiant est indispensable — c'est lui qu'on modifie pour y
+   * placer l'URL, que la réponse transmet aussitôt. Le lot réservé, lui, ne
+   * porte jamais l'URL : le post sort sans lien. */
   async markCommented(
     jobId: string,
     postId: string,
@@ -556,7 +557,11 @@ export class JobsService {
     await this.reachableJob(jobId, acting);
     const item = await this.prisma.publicationJobItem.findUnique({
       where: { jobId_postId: { jobId, postId } },
-      include: { job: true, postTarget: true },
+      include: {
+        job: true,
+        postTarget: true,
+        post: { select: { url: true } },
+      },
     });
     if (!item) throw new NotFoundException('Post introuvable dans ce job');
     if (item.status !== TargetStatus.PUBLISHED) {
@@ -578,7 +583,7 @@ export class JobsService {
           },
         });
       }
-      return item;
+      return { ...item, url: item.post.url };
     }
     if (!this.stillOwnsTarget(item.job, item.postTarget)) {
       await this.logLostClaim(jobId, postId, item.postTargetId, item.status);
@@ -608,7 +613,9 @@ export class JobsService {
           metadata: { commentExternalId: dto.commentExternalId },
         },
       });
-      return updated;
+      // L'URL part avec la réponse : le post est en ligne et son commentaire
+      // existe, le worker peut l'y placer tout de suite, post par post.
+      return { ...updated, url: item.post.url };
     });
   }
 
@@ -692,9 +699,10 @@ export class JobsService {
       .filter((job) => job.updates.length > 0);
   }
 
-  /** Étape 4 : le commentaire porte désormais l'URL. Aucun contrôle de
-   * réservation ici — la cible est publiée, elle ne repart plus dans le pool,
-   * et le claim a légitimement expiré depuis la clôture du lot. */
+  /** Étape 4 : le commentaire porte désormais l'URL. Accepté avant comme
+   * après la clôture : le worker modifie chaque commentaire juste après son
+   * post. Aucun contrôle de réservation — la cible est publiée, elle ne repart
+   * plus dans le pool. */
   async markLinkUpdated(
     jobId: string,
     postId: string,
@@ -707,11 +715,6 @@ export class JobsService {
       include: { job: true, post: { select: { url: true } } },
     });
     if (!item) throw new NotFoundException('Post introuvable dans ce job');
-    if (item.job.status === JobStatus.CLAIMED) {
-      throw new BadRequestException(
-        'Clôturez le job (complete) avant de basculer les commentaires sur l’URL',
-      );
-    }
     if (!item.commentExternalId) {
       throw new BadRequestException(
         'Aucun commentaire enregistré pour ce post : rien à modifier',
