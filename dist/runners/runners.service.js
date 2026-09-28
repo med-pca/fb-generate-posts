@@ -11,6 +11,8 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RunnersService = void 0;
 const common_1 = require("@nestjs/common");
+const config_1 = require("@nestjs/config");
+const node_crypto_1 = require("node:crypto");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const scope_1 = require("../auth/scope");
@@ -19,10 +21,123 @@ const window_1 = require("./window");
 const STALE_SECONDS = 180;
 const POLL_RUNNING = 60;
 const POLL_IDLE = 120;
+const PAIR_CODE_LENGTH = 8;
+const PAIR_CODE_TTL_MINUTES = 15;
+const PAIR_MAX_ATTEMPTS = 10;
+const PAIR_WINDOW_MINUTES = 10;
 let RunnersService = class RunnersService {
     prisma;
-    constructor(prisma) {
+    config;
+    constructor(prisma, config) {
         this.prisma = prisma;
+        this.config = config;
+    }
+    newPairCode() {
+        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        return Array.from({ length: PAIR_CODE_LENGTH }, () => alphabet[(0, node_crypto_1.randomInt)(alphabet.length)]).join('');
+    }
+    async createPairCode(profileId, acting = null) {
+        const profile = await this.prisma.profile.findFirst({
+            where: { id: profileId, ...(0, scope_2.profileWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true, name: true, externalId: true },
+        });
+        if (!profile)
+            throw new common_1.NotFoundException('Profil introuvable');
+        if (!profile.externalId) {
+            throw new common_1.BadRequestException(`Le profil « ${profile.name} » n'a pas d'identifiant externe (externalId) : ` +
+                'renseigne-le avant de l’appairer.');
+        }
+        const code = this.newPairCode();
+        const expiresAt = new Date(Date.now() + PAIR_CODE_TTL_MINUTES * 60_000);
+        await this.prisma.profileRunner.upsert({
+            where: { profileId: profile.id },
+            create: { profileId: profile.id, pairCode: code, pairCodeExpiresAt: expiresAt },
+            update: { pairCode: code, pairCodeExpiresAt: expiresAt },
+        });
+        return {
+            code,
+            expiresAt: expiresAt.toISOString(),
+            expiresInMinutes: PAIR_CODE_TTL_MINUTES,
+            profileId: profile.id,
+            profileName: profile.name,
+        };
+    }
+    async pair(rawCode, apiBaseUrl, from = 'inconnu') {
+        const code = String(rawCode || '').trim().toUpperCase();
+        this.guardPairAttempts(from);
+        const runner = code
+            ? await this.prisma.profileRunner.findUnique({
+                where: { pairCode: code },
+                select: {
+                    profileId: true,
+                    pairCodeExpiresAt: true,
+                    profile: {
+                        select: { name: true, externalId: true, status: true, ownerId: true },
+                    },
+                },
+            })
+            : null;
+        if (!runner || !runner.profile.externalId) {
+            this.countPairFailure(from);
+            throw new common_1.NotFoundException('Code inconnu ou déjà utilisé');
+        }
+        if (!runner.pairCodeExpiresAt || runner.pairCodeExpiresAt.getTime() < Date.now()) {
+            await this.prisma.profileRunner.update({
+                where: { profileId: runner.profileId },
+                data: { pairCode: null, pairCodeExpiresAt: null },
+            });
+            this.countPairFailure(from);
+            throw new common_1.BadRequestException(`Code expiré (il vaut ${PAIR_CODE_TTL_MINUTES} minutes). Génère-en un nouveau.`);
+        }
+        const apiKey = await this.keyFor(runner.profile.ownerId);
+        if (!apiKey) {
+            throw new common_1.BadRequestException('Aucune clé d’automatisation disponible pour ce profil : ' +
+                'donne-lui un propriétaire, ou configure AUTOMATION_API_KEY.');
+        }
+        await this.prisma.profileRunner.update({
+            where: { profileId: runner.profileId },
+            data: { pairCode: null, pairCodeExpiresAt: null, pairedAt: new Date() },
+        });
+        this.pairAttempts.delete(from);
+        return {
+            apiBaseUrl,
+            apiKey,
+            profileExternalId: runner.profile.externalId,
+            profileName: runner.profile.name,
+            profileActive: runner.profile.status === 'ACTIVE',
+        };
+    }
+    async keyFor(ownerId) {
+        if (ownerId) {
+            const owner = await this.prisma.user.findFirst({
+                where: { id: ownerId, status: 'ACTIVE' },
+                select: { automationKey: true },
+            });
+            if (owner?.automationKey)
+                return owner.automationKey;
+        }
+        return this.config.get('AUTOMATION_API_KEY') || '';
+    }
+    pairAttempts = new Map();
+    guardPairAttempts(from) {
+        const seen = this.pairAttempts.get(from);
+        if (!seen)
+            return;
+        if (seen.until < Date.now()) {
+            this.pairAttempts.delete(from);
+            return;
+        }
+        if (seen.count >= PAIR_MAX_ATTEMPTS) {
+            throw new common_1.HttpException('Trop de codes refusés depuis cette adresse. Réessaie dans quelques minutes.', common_1.HttpStatus.TOO_MANY_REQUESTS);
+        }
+    }
+    countPairFailure(from) {
+        const seen = this.pairAttempts.get(from);
+        const until = Date.now() + PAIR_WINDOW_MINUTES * 60_000;
+        this.pairAttempts.set(from, {
+            count: (seen && seen.until > Date.now() ? seen.count : 0) + 1,
+            until,
+        });
     }
     decide(runner, profileActive, publishingEnabled, now = new Date()) {
         const mode = runner?.mode ?? client_1.RunnerMode.OFF;
@@ -181,6 +296,9 @@ let RunnersService = class RunnersService {
                     browserState: runner?.browserState ?? client_1.BrowserState.STOPPED,
                     browserSeenAt: runner?.browserSeenAt ?? null,
                     browserMessage: runner?.browserMessage ?? null,
+                    pairedAt: runner?.pairedAt ?? null,
+                    pairCodePending: Boolean(runner?.pairCode) &&
+                        (runner?.pairCodeExpiresAt?.getTime() ?? 0) > now.getTime(),
                 };
             }),
         };
@@ -255,6 +373,7 @@ let RunnersService = class RunnersService {
 exports.RunnersService = RunnersService;
 exports.RunnersService = RunnersService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        config_1.ConfigService])
 ], RunnersService);
 //# sourceMappingURL=runners.service.js.map

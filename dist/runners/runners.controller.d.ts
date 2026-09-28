@@ -33,10 +33,19 @@ export declare class RunnersController {
             browserState: import("@prisma/client").$Enums.BrowserState;
             browserSeenAt: Date | null;
             browserMessage: string | null;
+            pairedAt: Date | null;
+            pairCodePending: boolean;
         }[];
     }>;
     updateAll(dto: UpdateRunnerDto, acting: CurrentUser): Promise<{
         updated: number;
+    }>;
+    pairCode(profileId: string, acting: CurrentUser): Promise<{
+        code: string;
+        expiresAt: string;
+        expiresInMinutes: number;
+        profileId: string;
+        profileName: string;
     }>;
     update(profileId: string, dto: UpdateRunnerDto, acting: CurrentUser): Promise<{
         profileId: string;

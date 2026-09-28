@@ -313,6 +313,7 @@
               <thead>
                 <tr>
                   <th>Profil</th>
+                  <th>Appairage</th>
                   <th>Pilotage</th>
                   <th>Fenêtre</th>
                   <th>Navigateur</th>
@@ -341,6 +342,26 @@
         </section>
       </main>
     </div>
+    <dialog id="pair-modal">
+      <div class="modal-head">
+        <div>
+          <small>APPAIRAGE</small>
+          <h2 id="pair-title">Code d’appairage</h2>
+        </div>
+        <button class="close" type="button" data-close>×</button>
+      </div>
+      <p class="form-help">
+        Colle ce code dans l’extension du navigateur qui doit tenir ce profil
+        (icône de l’extension → Options → Appairage). Il lui apprend l’adresse
+        de l’API, sa clé, et lequel des profils il est — rien d’autre à saisir.
+      </p>
+      <div class="pair-code" id="pair-code">········</div>
+      <p class="form-help" id="pair-expiry"></p>
+      <div class="actions">
+        <button class="secondary" type="button" id="pair-copy">Copier</button
+        ><button class="primary" type="button" data-close>Fermé</button>
+      </div>
+    </dialog>
     <dialog id="runner-modal">
       <form id="runner-form">
         <input type="hidden" name="profileId" />

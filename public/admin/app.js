@@ -254,18 +254,26 @@ function renderRunners() {
               `<option value="${m}" ${r.mode === m ? 'selected' : ''}>${MODE_LABELS[m]}</option>`,
           )
           .join('');
+        // L'appairage d'abord : un navigateur jamais appairé ne parlera jamais,
+        // quel que soit son mode. C'est la première chose à regarder.
+        const paired = r.pairedAt
+          ? `<span class="chip join-joined">appairé</span><small>${esc(ago(r.pairedAt))}</small>`
+          : r.pairCodePending
+            ? `<span class="chip join-requested">code émis</span><small>en attente du navigateur</small>`
+            : `<span class="chip join-not_joined">jamais appairé</span>`;
         return `<tr class="${r.status === 'INACTIVE' ? 'inactive' : ''}">
         <td><strong>${esc(r.name)}</strong><small>${esc(r.externalId || 'sans identifiant NSTBrowser')}</small></td>
+        <td>${paired}</td>
         <td><select data-runner-mode="${r.profileId}">${modes}</select><small class="${r.shouldRun ? '' : 'muted'}">${r.shouldRun ? '▶ doit publier' : '■ ' + esc(r.reason)}</small></td>
         <td>${esc(r.window)}<small>${esc(r.timezone)}</small></td>
         <td>${browser}<small>${esc(ago(r.browserSeenAt))}${r.browserMessage ? ' · ' + esc(r.browserMessage) : ''}</small></td>
         <td>${worker}<small>${esc(ago(r.lastSeenAt))}</small></td>
         <td>${r.published} publiés · ${r.failed} échecs · ${r.links} liens${r.message ? `<small>${esc(r.message)}</small>` : ''}</td>
-        <td><div class="row-actions"><button class="edit" data-runner-edit="${r.profileId}">Réglages</button></div></td>
+        <td><div class="row-actions"><button class="edit" data-runner-pair="${r.profileId}">${r.pairedAt ? 'Ré-appairer' : 'Appairer'}</button><button class="edit" data-runner-edit="${r.profileId}">Réglages</button></div></td>
       </tr>`;
       })
       .join('') ||
-    '<tr><td colspan="7"><div class="empty">Aucun profil à piloter.</div></td></tr>';
+    '<tr><td colspan="8"><div class="empty">Aucun profil à piloter.</div></td></tr>';
   $$('[data-runner-mode]').forEach(
     (select) =>
       (select.onchange = () =>
@@ -273,6 +281,9 @@ function renderRunners() {
   );
   $$('[data-runner-edit]').forEach(
     (button) => (button.onclick = () => openRunnerModal(button.dataset.runnerEdit)),
+  );
+  $$('[data-runner-pair]').forEach(
+    (button) => (button.onclick = () => askPairCode(button.dataset.runnerPair)),
   );
 }
 async function patchRunner(profileId, patch) {
@@ -288,6 +299,28 @@ async function patchRunner(profileId, patch) {
     await loadRunners();
   }
 }
+/** Émettre un code et le montrer en grand : il va être recopié à la main. */
+async function askPairCode(profileId) {
+  try {
+    const issued = await api(`/runners/${profileId}/pair-code`, { method: 'POST' });
+    $('#pair-title').textContent = issued.profileName;
+    $('#pair-code').textContent = issued.code;
+    $('#pair-expiry').textContent = `Valable ${issued.expiresInMinutes} minutes, une seule fois. Un nouveau code annule celui-ci.`;
+    $('#pair-modal').showModal();
+    await loadRunners();
+  } catch (e) {
+    notice(e.message, 'error');
+  }
+}
+$('#pair-copy').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($('#pair-code').textContent.trim());
+    notice('Code copié');
+  } catch {
+    // Le presse-papiers peut être refusé : le code est déjà sélectionnable.
+    notice('Sélectionne le code pour le copier', 'error');
+  }
+};
 function openRunnerModal(profileId) {
   const runner = state.runners?.profiles.find((r) => r.profileId === profileId);
   if (!runner) return;

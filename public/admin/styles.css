@@ -926,3 +926,18 @@ body:not(.is-admin) .admin-only { display: none; }
   padding: 7px 0; border-bottom: 1px solid var(--edge, #d6d9de); font-size: 13px; }
 .access-row:last-child { border-bottom: 0; }
 .access-empty { padding: 7px 0; font-size: 13px; color: var(--muted, #65676b); }
+
+/* Le code d'appairage : il est recopié à la main, donc il doit être gros,
+   espacé, et dans une police où le zéro ne ressemble pas à un O. */
+.pair-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  text-align: center;
+  padding: 18px 12px;
+  margin: 4px 0 10px;
+  border-radius: 10px;
+  background: var(--card, #f5f6f7);
+  user-select: all;
+}

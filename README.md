@@ -439,6 +439,46 @@ machine où elle tourne, et un navigateur n'a pas d'adresse joignable. L'API ne
 peut donc rien lancer elle-même — elle publie une décision, que l'agent local et
 les extensions viennent chercher.
 
+### Appairer un navigateur
+
+Un navigateur doit savoir trois choses : l'adresse de l'API, une clé, et lequel
+des profils il tient. Les faire saisir à la main dans chaque navigateur, c'était
+deux valeurs recopiées à l'identique partout et un profil à choisir dans une
+liste — donc trois occasions de se tromper, et une clé de 64 caractères qui
+circule.
+
+Un code court les remplace :
+
+```http
+POST /api/runners/{profileId}/pair-code    (admin)  -> { code, expiresAt }
+POST /api/control/pair                     (public) -> { apiBaseUrl, apiKey, profileExternalId }
+```
+
+Dans l'admin : **Pilotage** → la ligne du profil → **Appairer**. Le code se colle
+dans les options de l'extension du navigateur visé. Comme il porte l'identité du
+profil, l'opérateur n'a rien à choisir : il prend le code de la ligne qu'il veut.
+
+`POST /api/control/pair` est la **seule** route du pilotage sans clé d'API — le
+navigateur n'en a pas encore, et le code est justement ce qui la lui donne. Elle
+vit dans son propre contrôleur ([`pair.controller.ts`](src/runners/pair.controller.ts))
+pour que cette absence de garde se voie, plutôt que d'ouvrir une exception dans
+la garde d'automatisation. Ce qui la protège :
+
+- le code vaut 15 minutes et ne sert qu'une fois ;
+- un nouveau code annule le précédent : jamais deux codes valides pour un profil ;
+- les tentatives sont comptées par adresse (10 échecs, puis 429) ;
+- le code est tiré d'un alphabet sans `0/O` ni `1/I` (32^8), pour être recopié
+  sans erreur autant que pour ne pas être devinable.
+
+La clé remise est celle du **propriétaire** du profil quand il en a un — elle ne
+voit que son périmètre et se révoque sans couper les autres comptes. À défaut,
+`AUTOMATION_API_KEY`.
+
+L'adresse renvoyée est celle par laquelle la requête est arrivée (`x-forwarded-*`
+derrière un proxy), donc celle qui marche depuis ce navigateur.
+`PUBLIC_API_BASE_URL` la force quand l'adresse vue du serveur n'est pas celle que
+le navigateur doit appeler.
+
 ### Ce que l'admin règle, par profil
 
 | Mode | Effet |
@@ -466,14 +506,16 @@ profil ne publie, quel que soit son mode.
 Côté admin (jeton) :
 
 ```http
-GET   /api/runners                 tous les profils, leur ordre et leur état
-PATCH /api/runners/{profileId}     { mode, windowStart, windowEnd, days, timezone, settings }
-PATCH /api/runners/all             { mode }   tout allumer / tout éteindre
+GET   /api/runners                      tous les profils, leur ordre et leur état
+PATCH /api/runners/{profileId}          { mode, windowStart, windowEnd, days, timezone, settings }
+PATCH /api/runners/all                  { mode }   tout allumer / tout éteindre
+POST  /api/runners/{profileId}/pair-code   émettre un code d'appairage
 ```
 
 Côté terrain (`X-API-Key`) :
 
 ```http
+POST  /api/control/pair                            SANS clé : échanger un code
 GET   /api/control/profile/{externalId}            l'ordre seul
 POST  /api/control/profile/{externalId}/heartbeat  rapporter ET recevoir l'ordre
 GET   /api/control/launcher                        quoi ouvrir, quoi fermer
@@ -493,6 +535,10 @@ au tour suivant, une fois le post terminé.
 
 Réciproquement, un worker mort reste `running: true` pour toujours — c'est
 pourquoi l'admin distingue « il dit travailler » de « vu il y a 20 s ».
+
+`mayClose: true` est une autorisation, pas un ordre : l'agent local ne ferme
+rien sans son option `--close`. Un navigateur ouvert peut être celui dans lequel
+l'opérateur travaille, alors qu'en ouvrir un ne détruit rien.
 
 ## Journaux et décision
 

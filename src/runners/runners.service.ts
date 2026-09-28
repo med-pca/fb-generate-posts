@@ -1,4 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { randomInt } from 'node:crypto';
 import { BrowserState, Prisma, RunnerMode } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { scopeOf } from '../auth/scope';
@@ -18,6 +26,13 @@ const STALE_SECONDS = 180;
  * ils travaillent (un ordre d'arrêt doit arriver vite), plus long au repos. */
 const POLL_RUNNING = 60;
 const POLL_IDLE = 120;
+
+/** Le code d'appairage : assez court pour être recopié sans erreur, assez long
+ * pour ne pas être devinable une fois les tentatives comptées (32^8). */
+const PAIR_CODE_LENGTH = 8;
+const PAIR_CODE_TTL_MINUTES = 15;
+const PAIR_MAX_ATTEMPTS = 10;
+const PAIR_WINDOW_MINUTES = 10;
 
 export type Decision = {
   run: boolean;
@@ -49,7 +64,169 @@ type RunnerRow = {
  */
 @Injectable()
 export class RunnersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
+
+  /* ── L'appairage d'un navigateur ──────────────────────────────────────
+   *
+   * Ce qu'un navigateur doit savoir pour travailler : l'adresse de l'API, une
+   * clé, et lequel des profils il est. Les trois étaient saisis à la main dans
+   * chaque navigateur -- deux recopiés à l'identique partout, le troisième
+   * choisi dans une liste, donc trois occasions de se tromper, et une clé de
+   * 64 caractères qui traînait dans le presse-papiers.
+   *
+   * Un code court les remplace : il porte l'identité du profil, donc
+   * l'opérateur n'a même plus à le choisir -- il prend le code de la ligne
+   * qu'il veut.
+   */
+
+  /** Un code lisible : pas de 0/O ni de 1/I, qu'on recopie de travers. */
+  private newPairCode() {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    return Array.from({ length: PAIR_CODE_LENGTH }, () =>
+      alphabet[randomInt(alphabet.length)],
+    ).join('');
+  }
+
+  /** Émettre un code pour ce profil. Le précédent est remplacé : deux codes
+   * valides pour un même profil, c'est un de trop à révoquer. */
+  async createPairCode(profileId: string, acting: CurrentUser | null = null) {
+    const profile = await this.prisma.profile.findFirst({
+      where: { id: profileId, ...profileWhere(scopeOf(acting)) },
+      select: { id: true, name: true, externalId: true },
+    });
+    if (!profile) throw new NotFoundException('Profil introuvable');
+    if (!profile.externalId) {
+      // Sans externalId, le navigateur n'aurait pas de quoi se nommer auprès
+      // de l'API : l'appairage marcherait et rien ne fonctionnerait ensuite.
+      throw new BadRequestException(
+        `Le profil « ${profile.name} » n'a pas d'identifiant externe (externalId) : ` +
+          'renseigne-le avant de l’appairer.',
+      );
+    }
+    const code = this.newPairCode();
+    const expiresAt = new Date(Date.now() + PAIR_CODE_TTL_MINUTES * 60_000);
+    await this.prisma.profileRunner.upsert({
+      where: { profileId: profile.id },
+      create: { profileId: profile.id, pairCode: code, pairCodeExpiresAt: expiresAt },
+      update: { pairCode: code, pairCodeExpiresAt: expiresAt },
+    });
+    return {
+      code,
+      expiresAt: expiresAt.toISOString(),
+      expiresInMinutes: PAIR_CODE_TTL_MINUTES,
+      profileId: profile.id,
+      profileName: profile.name,
+    };
+  }
+
+  /** Échanger le code contre ce qu'il faut pour travailler.
+   *
+   * Sans clé d'API : le code EST le laissez-passer, ce qui est tout l'intérêt.
+   * Il est donc court de vie, à usage unique, et les tentatives sont comptées
+   * par adresse -- sinon on le devinerait en le forçant.
+   */
+  async pair(rawCode: string, apiBaseUrl: string, from = 'inconnu') {
+    const code = String(rawCode || '').trim().toUpperCase();
+    this.guardPairAttempts(from);
+
+    const runner = code
+      ? await this.prisma.profileRunner.findUnique({
+          where: { pairCode: code },
+          select: {
+            profileId: true,
+            pairCodeExpiresAt: true,
+            profile: {
+              select: { name: true, externalId: true, status: true, ownerId: true },
+            },
+          },
+        })
+      : null;
+
+    if (!runner || !runner.profile.externalId) {
+      this.countPairFailure(from);
+      throw new NotFoundException('Code inconnu ou déjà utilisé');
+    }
+    if (!runner.pairCodeExpiresAt || runner.pairCodeExpiresAt.getTime() < Date.now()) {
+      // Périmé : on le retire, pour qu'un code mort ne reste pas à essayer.
+      await this.prisma.profileRunner.update({
+        where: { profileId: runner.profileId },
+        data: { pairCode: null, pairCodeExpiresAt: null },
+      });
+      this.countPairFailure(from);
+      throw new BadRequestException(
+        `Code expiré (il vaut ${PAIR_CODE_TTL_MINUTES} minutes). Génère-en un nouveau.`,
+      );
+    }
+
+    const apiKey = await this.keyFor(runner.profile.ownerId);
+    if (!apiKey) {
+      throw new BadRequestException(
+        'Aucune clé d’automatisation disponible pour ce profil : ' +
+          'donne-lui un propriétaire, ou configure AUTOMATION_API_KEY.',
+      );
+    }
+
+    // À usage unique : le code disparaît avec l'échange.
+    await this.prisma.profileRunner.update({
+      where: { profileId: runner.profileId },
+      data: { pairCode: null, pairCodeExpiresAt: null, pairedAt: new Date() },
+    });
+    this.pairAttempts.delete(from);
+
+    return {
+      apiBaseUrl,
+      apiKey,
+      profileExternalId: runner.profile.externalId,
+      profileName: runner.profile.name,
+      profileActive: runner.profile.status === 'ACTIVE',
+    };
+  }
+
+  /** La clé que ce navigateur utilisera : celle du propriétaire du profil, à
+   * défaut la clé globale. Celle du propriétaire est préférable -- elle ne voit
+   * que son périmètre, et se révoque sans couper les autres. */
+  private async keyFor(ownerId: string | null) {
+    if (ownerId) {
+      const owner = await this.prisma.user.findFirst({
+        where: { id: ownerId, status: 'ACTIVE' },
+        select: { automationKey: true },
+      });
+      if (owner?.automationKey) return owner.automationKey;
+    }
+    return this.config.get<string>('AUTOMATION_API_KEY') || '';
+  }
+
+  /* Le comptage des tentatives. En mémoire : un redémarrage remet les
+   * compteurs à zéro, ce qui est acceptable pour un code qui ne vit que
+   * quelques minutes, et évite une table pour ça. */
+  private readonly pairAttempts = new Map<string, { count: number; until: number }>();
+
+  private guardPairAttempts(from: string) {
+    const seen = this.pairAttempts.get(from);
+    if (!seen) return;
+    if (seen.until < Date.now()) {
+      this.pairAttempts.delete(from);
+      return;
+    }
+    if (seen.count >= PAIR_MAX_ATTEMPTS) {
+      throw new HttpException(
+        'Trop de codes refusés depuis cette adresse. Réessaie dans quelques minutes.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  private countPairFailure(from: string) {
+    const seen = this.pairAttempts.get(from);
+    const until = Date.now() + PAIR_WINDOW_MINUTES * 60_000;
+    this.pairAttempts.set(from, {
+      count: (seen && seen.until > Date.now() ? seen.count : 0) + 1,
+      until,
+    });
+  }
 
   /** Décider, pour un profil, s'il doit publier maintenant.
    *
@@ -286,6 +463,12 @@ export class RunnersService {
           browserState: runner?.browserState ?? BrowserState.STOPPED,
           browserSeenAt: runner?.browserSeenAt ?? null,
           browserMessage: runner?.browserMessage ?? null,
+          // L'appairage : un navigateur jamais appairé ne parlera jamais, quel
+          // que soit son mode -- c'est la première chose à voir sur la ligne.
+          pairedAt: runner?.pairedAt ?? null,
+          pairCodePending:
+            Boolean(runner?.pairCode) &&
+            (runner?.pairCodeExpiresAt?.getTime() ?? 0) > now.getTime(),
         };
       }),
     };

@@ -1,3 +1,4 @@
+import { ConfigService } from '@nestjs/config';
 import { Prisma, RunnerMode } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
@@ -25,7 +26,27 @@ type RunnerRow = {
 };
 export declare class RunnersService {
     private readonly prisma;
-    constructor(prisma: PrismaService);
+    private readonly config;
+    constructor(prisma: PrismaService, config: ConfigService);
+    private newPairCode;
+    createPairCode(profileId: string, acting?: CurrentUser | null): Promise<{
+        code: string;
+        expiresAt: string;
+        expiresInMinutes: number;
+        profileId: string;
+        profileName: string;
+    }>;
+    pair(rawCode: string, apiBaseUrl: string, from?: string): Promise<{
+        apiBaseUrl: string;
+        apiKey: string;
+        profileExternalId: string;
+        profileName: string;
+        profileActive: boolean;
+    }>;
+    private keyFor;
+    private readonly pairAttempts;
+    private guardPairAttempts;
+    private countPairFailure;
     decide(runner: RunnerRow | null, profileActive: boolean, publishingEnabled: boolean, now?: Date): Omit<Decision, 'serverTime'>;
     control(profileExternalId: string, acting?: CurrentUser | null): Promise<Decision>;
     heartbeat(profileExternalId: string, dto: HeartbeatDto, acting?: CurrentUser | null): Promise<Decision>;
@@ -73,6 +94,8 @@ export declare class RunnersService {
             browserState: import("@prisma/client").$Enums.BrowserState;
             browserSeenAt: Date | null;
             browserMessage: string | null;
+            pairedAt: Date | null;
+            pairCodePending: boolean;
         }[];
     }>;
     update(profileId: string, dto: UpdateRunnerDto, acting?: CurrentUser | null): Promise<{

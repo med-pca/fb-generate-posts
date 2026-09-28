@@ -481,6 +481,16 @@ model ProfileRunner {
   /// defaut : l'operateur n'a plus rien a regler profil par profil.
   settings Json?
 
+  /// Le code d'appairage : ce que l'operateur colle UNE fois dans l'extension
+  /// du navigateur, et qui lui apprend qui il est et comment parler a l'API.
+  /// Court, a usage unique et perissable -- il vaut la cle d'automatisation le
+  /// temps de l'echange, donc il ne doit pas trainer.
+  pairCode          String?   @unique @map("pair_code")
+  pairCodeExpiresAt DateTime? @map("pair_code_expires_at")
+  /// Quand ce profil a ete appaire, et depuis quelle adresse : de quoi
+  /// reconnaitre un navigateur qu'on a perdu de vue.
+  pairedAt          DateTime? @map("paired_at")
+
   /// Ce que l'extension rapporte a chaque battement.
   lastSeenAt DateTime? @map("last_seen_at")
   running    Boolean   @default(false)

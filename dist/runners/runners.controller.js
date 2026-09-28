@@ -31,6 +31,9 @@ let RunnersController = class RunnersController {
     updateAll(dto, acting) {
         return this.runners.updateAll(dto, acting);
     }
+    pairCode(profileId, acting) {
+        return this.runners.createPairCode(profileId, acting);
+    }
     update(profileId, dto, acting) {
         return this.runners.update(profileId, dto, acting);
     }
@@ -64,6 +67,21 @@ __decorate([
     __metadata("design:paramtypes", [update_runner_dto_1.UpdateRunnerDto, Object]),
     __metadata("design:returntype", void 0)
 ], RunnersController.prototype, "updateAll", null);
+__decorate([
+    (0, common_1.Post)(':profileId/pair-code'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Émettre un code d’appairage pour ce profil',
+        description: 'Le code se colle dans l’extension du navigateur qui doit tenir ce ' +
+            'profil : il lui apprend l’adresse de l’API, sa clé et lequel des ' +
+            'profils il est. Valable 15 minutes, à usage unique.',
+    }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Param)('profileId')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], RunnersController.prototype, "pairCode", null);
 __decorate([
     (0, common_1.Patch)(':profileId'),
     (0, swagger_1.ApiOperation)({ summary: 'Régler le pilotage d’un profil' }),
