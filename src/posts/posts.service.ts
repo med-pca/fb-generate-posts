@@ -7,7 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
-import { postWhere, profileWhere, scopeOf } from '../auth/scope';
+import { groupWhere, postWhere, profileWhere, scopeOf } from '../auth/scope';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { QueryPostsDto } from './dto/query-posts.dto';
@@ -20,31 +20,54 @@ type PostFilters = Omit<QueryPostsDto, 'page' | 'limit'> & { ids?: string[] };
 export class PostsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Sans profil, le post est ouvert : tout profil du compte qui a rejoint
+   * l'un de ses groupes peut le publier, et chaque groupe ne le reçoit
+   * qu'une fois. Ses groupes doivent partager une même catégorie — c'est ce
+   * qui fait d'eux le public d'un même contenu. */
   async create(dto: CreatePostDto, acting: CurrentUser | null = null) {
-    const { groupIds, ...postData } = dto;
-    const profile = await this.prisma.profile.findFirst({
-      where: { id: dto.profileId, ...profileWhere(scopeOf(acting)) },
-      select: { id: true },
-    });
-    if (!profile) throw new NotFoundException('Profil introuvable');
+    const { groupIds, profileId, ...postData } = dto;
     const uniqueGroupIds = [...new Set(groupIds)];
-    const validGroups = await this.prisma.group.count({
-      where: {
-        id: { in: uniqueGroupIds },
-        profiles: {
-          some: { profileId: dto.profileId, status: 'ACTIVE' },
+    if (profileId) {
+      const profile = await this.prisma.profile.findFirst({
+        where: { id: profileId, ...profileWhere(scopeOf(acting)) },
+        select: { id: true },
+      });
+      if (!profile) throw new NotFoundException('Profil introuvable');
+      const validGroups = await this.prisma.group.count({
+        where: {
+          id: { in: uniqueGroupIds },
+          profiles: { some: { profileId, status: 'ACTIVE' } },
         },
-      },
-    });
-    if (validGroups !== uniqueGroupIds.length) {
-      throw new BadRequestException(
-        'Tous les groupes doivent appartenir au profil du post',
-      );
+      });
+      if (validGroups !== uniqueGroupIds.length) {
+        throw new BadRequestException(
+          'Tous les groupes doivent appartenir au profil du post',
+        );
+      }
+    } else {
+      const groups = await this.prisma.group.findMany({
+        where: {
+          id: { in: uniqueGroupIds },
+          status: 'ACTIVE',
+          ...groupWhere(scopeOf(acting)),
+        },
+        select: { categoryId: true },
+      });
+      if (groups.length !== uniqueGroupIds.length) {
+        throw new BadRequestException('Groupe introuvable ou inactif');
+      }
+      if (new Set(groups.map((group) => group.categoryId)).size > 1) {
+        throw new BadRequestException(
+          'Les groupes d’un post doivent appartenir à la même catégorie',
+        );
+      }
     }
 
     return this.prisma.post.create({
       data: {
         ...postData,
+        profileId: profileId || null,
+        ownerId: acting?.id ?? null,
         targets: {
           create: uniqueGroupIds.map((groupId) => ({ groupId })),
         },
@@ -182,7 +205,13 @@ export class PostsService {
     filters: PostFilters,
     acting: CurrentUser | null,
   ): Prisma.PostWhereInput {
-    const where: Prisma.PostWhereInput = { ...postWhere(scopeOf(acting)) };
+    // La portée et la recherche sont deux `OR` : réunis dans un `AND`, aucun
+    // n'écrase l'autre.
+    const scope = postWhere(scopeOf(acting));
+    const and: Prisma.PostWhereInput[] = Object.keys(scope).length
+      ? [scope]
+      : [];
+    const where: Prisma.PostWhereInput = {};
     if (filters.ids?.length) where.id = { in: [...new Set(filters.ids)] };
     if (filters.profileId) where.profileId = filters.profileId;
     if (filters.articleId) where.articleId = filters.articleId;
@@ -191,11 +220,14 @@ export class PostsService {
     if (filters.groupId) where.targets = { some: { groupId: filters.groupId } };
     if (filters.search?.trim()) {
       const contains = filters.search.trim();
-      where.OR = [
-        { title: { contains, mode: 'insensitive' } },
-        { description: { contains, mode: 'insensitive' } },
-      ];
+      and.push({
+        OR: [
+          { title: { contains, mode: 'insensitive' } },
+          { description: { contains, mode: 'insensitive' } },
+        ],
+      });
     }
+    if (and.length) where.AND = and;
     return where;
   }
 

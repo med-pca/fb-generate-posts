@@ -28,6 +28,7 @@ const stored = () => ({
 });
 
 type PostData = ReturnType<ArticlesService['postDataForSlot']> & {
+  ownerId?: string | null;
   targets: { create: { groupId: string }[] };
 };
 type PostContent = ReturnType<ArticlesService['postContent']>;
@@ -59,10 +60,29 @@ function setup(stored_ingest: StoredIngest | null = null) {
   const tx = {
     $executeRaw: jest.fn(() => Promise.resolve(1)),
     contentSource: {
-      upsert: jest.fn((_args: { where: { originUrl: string } }) => {
+      findUnique: jest.fn<Promise<{ pluginState: string } | null>, unknown[]>(
+        () => Promise.resolve(null),
+      ),
+      upsert: jest.fn(
+        (_args: { where: { originUrl: string }; update?: any }) => {
+          void _args;
+          return Promise.resolve({
+            id: 'site',
+            name: 'Mon site',
+            categoryId: 'cat_recettes' as string | null,
+            ownerId: null as string | null,
+          });
+        },
+      ),
+    },
+    group: {
+      findMany: jest.fn((_args: { where: Record<string, any> }) => {
         void _args;
-        return Promise.resolve({ id: 'site' });
+        return Promise.resolve([{ id: 'g1' }, { id: 'g2' }]);
       }),
+    },
+    user: {
+      findUnique: jest.fn(() => Promise.resolve({ id: 'u1', role: 'MANAGER' })),
     },
     article: {
       findUnique: jest.fn<Promise<ReturnType<typeof stored> | null>, unknown[]>(
@@ -74,14 +94,6 @@ function setup(stored_ingest: StoredIngest | null = null) {
       update: jest.fn(
         ({ where, data }: { where: { id: string }; data: ArticleData }) =>
           Promise.resolve({ ...stored(), id: where.id, ...data }),
-      ),
-    },
-    profile: {
-      findMany: jest.fn(() =>
-        Promise.resolve([
-          { id: 'p1', profileGroups: [{ groupId: 'g1' }] },
-          { id: 'p2', profileGroups: [] },
-        ]),
       ),
     },
     post: {
@@ -116,37 +128,85 @@ function setup(stored_ingest: StoredIngest | null = null) {
 }
 
 describe('WordPress publication', () => {
-  it('creates one compatible post per active profile and targets only active memberships/groups', async () => {
+  it('creates ONE open post aimed at every active group of the site category', async () => {
     const { service, tx } = setup();
     expect(await service.publish(payload)).toEqual({
       articleId: 'article',
       duplicate: false,
       updated: false,
-      generated: 2,
+      generated: 1,
+      groups: 2,
       synchronized: 0,
       skipped: 0,
     });
-    expect(tx.profile.findMany).toHaveBeenCalledWith({
-      where: { status: 'ACTIVE' },
-      include: {
-        profileGroups: {
-          where: { status: 'ACTIVE', group: { status: 'ACTIVE' } },
-        },
-      },
+    expect(tx.group.findMany).toHaveBeenCalledWith({
+      where: { categoryId: 'cat_recettes', status: 'ACTIVE' },
+      select: { id: true },
     });
+    expect(tx.post.create).toHaveBeenCalledTimes(1);
     const data = tx.post.create.mock.calls[0][0].data;
     expect(data).toMatchObject({
       articleId: 'article',
-      profileId: 'p1',
-      externalId: 'article:p1:0',
+      profileId: null,
+      ownerId: null,
+      externalId: 'article:open:0',
       url: payload.articleUrl,
       imageUrl: payload.imageUrl,
-      targets: { create: [{ groupId: 'g1' }] },
+      targets: { create: [{ groupId: 'g1' }, { groupId: 'g2' }] },
     });
     expect(data.description).toContain('Link in the comments');
     expect(data.description).not.toContain(payload.articleUrl);
-    expect(tx.post.create.mock.calls[1][0].data.targets.create).toEqual([]);
     expect(tx.$executeRaw).toHaveBeenCalled();
+  });
+
+  it('keeps to the groups the site owner can reach', async () => {
+    const { service, tx } = setup();
+    tx.contentSource.upsert.mockResolvedValue({
+      id: 'site',
+      name: 'Mon site',
+      categoryId: 'cat_recettes',
+      ownerId: 'u1',
+    });
+    await service.publish(payload);
+    const { where } = tx.group.findMany.mock.calls[0][0];
+    expect(where).toMatchObject({
+      categoryId: 'cat_recettes',
+      status: 'ACTIVE',
+    });
+    expect(where.OR).toEqual([
+      { ownerId: 'u1' },
+      { access: { some: { userId: 'u1' } } },
+    ]);
+    expect(tx.post.create.mock.calls[0][0].data.ownerId).toBe('u1');
+  });
+
+  it('creates no post for a site without category', async () => {
+    const { service, tx } = setup();
+    tx.contentSource.upsert.mockResolvedValue({
+      id: 'site',
+      name: 'Mon site',
+      categoryId: null,
+      ownerId: null,
+    });
+    expect(await service.publish(payload)).toMatchObject({ generated: 0 });
+    expect(tx.article.create).toHaveBeenCalled();
+    expect(tx.group.findMany).not.toHaveBeenCalled();
+    expect(tx.post.create).not.toHaveBeenCalled();
+  });
+
+  it('marks the site plugin as connected when it delivers', async () => {
+    const { service, tx } = setup();
+    await service.publish(payload);
+    const { update } = tx.contentSource.upsert.mock.calls[0][0];
+    expect(update).toMatchObject({ pluginState: 'CONNECTED' });
+    expect(update.lastDeliveryAt).toBeInstanceOf(Date);
+
+    // Une clé refusée dans l'autre sens reste affichée.
+    tx.contentSource.findUnique.mockResolvedValue({ pluginState: 'BAD_KEY' });
+    await service.publish(payload);
+    expect(
+      tx.contentSource.upsert.mock.calls[1][0].update.pluginState,
+    ).toBeUndefined();
   });
 
   it('ignores a delivery that repeats what is already stored', async () => {
@@ -163,7 +223,7 @@ describe('WordPress publication', () => {
     expect(tx.article.create).not.toHaveBeenCalled();
     expect(tx.article.update).not.toHaveBeenCalled();
     expect(tx.post.updateMany).not.toHaveBeenCalled();
-    expect(tx.profile.findMany).not.toHaveBeenCalled();
+    expect(tx.post.create).not.toHaveBeenCalled();
   });
 
   it('synchronizes title, text and image onto the posts that can still change', async () => {
@@ -263,9 +323,9 @@ describe('WordPress publication', () => {
     );
   });
 
-  it('still imports when there are no active profiles', async () => {
+  it('still imports when the category has no active group', async () => {
     const { service, tx } = setup();
-    tx.profile.findMany.mockResolvedValue([]);
+    tx.group.findMany.mockResolvedValue([]);
     expect(await service.publish(payload)).toMatchObject({ generated: 0 });
     expect(tx.article.create).toHaveBeenCalled();
   });
@@ -369,19 +429,16 @@ describe('Réception d’un article issu d’une reprise', () => {
     const { service, tx } = setup(
       ingest({ profileIds: ['p1'], groupIds: ['g1'] }),
     );
+    tx.group.findMany.mockResolvedValue([{ id: 'g1' }]);
     await service.publish(withRef);
-    expect(tx.profile.findMany).toHaveBeenCalledWith({
-      where: { status: 'ACTIVE', id: { in: ['p1'] } },
-      include: {
-        profileGroups: {
-          where: {
-            status: 'ACTIVE',
-            group: { status: 'ACTIVE' },
-            groupId: { in: ['g1'] },
-          },
-        },
-      },
+    // Les groupes choisis pour la reprise l'emportent sur la catégorie.
+    expect(tx.group.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['g1'] }, status: 'ACTIVE' },
+      select: { id: true },
     });
+    expect(tx.post.create.mock.calls[0][0].data.targets.create).toEqual([
+      { groupId: 'g1' },
+    ]);
   });
 
   // Un renvoi identique ne modifie rien, mais doit refermer la reprise :

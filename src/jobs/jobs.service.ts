@@ -12,7 +12,6 @@ import { ClaimBatchDto } from './dto/claim-batch.dto';
 import { CommentJobItemDto } from './dto/comment-job-item.dto';
 import { LinkUpdatedJobItemDto } from './dto/link-updated-job-item.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
-import { SettingsService } from '../settings/settings.service';
 import type { CurrentUser } from '../auth/current-user';
 import { jobWhere, profileWhere, scopeOf } from '../auth/scope';
 
@@ -70,12 +69,32 @@ type LinkPhaseItem = {
   post: { url: string | null };
 };
 
+/** Les posts qu'un profil peut publier : les siens, et les posts ouverts de
+ * son compte (ceux sans propriétaire servent tout le monde). Même règle que
+ * la requête SQL de `claim`. */
+export function claimablePostWhere(profile: {
+  id: string;
+  ownerId: string | null;
+}): Prisma.PostWhereInput {
+  return {
+    OR: [
+      { profileId: profile.id },
+      {
+        profileId: null,
+        OR: [
+          { ownerId: null },
+          ...(profile.ownerId ? [{ ownerId: profile.ownerId }] : []),
+        ],
+      },
+    ],
+  };
+}
+
 @Injectable()
 export class JobsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-    private readonly settings: SettingsService,
   ) {}
 
   /** Les profils qu'un automate peut traiter, sans droits admin. */
@@ -151,12 +170,21 @@ export class JobsService {
         SELECT pt.id, pt.post_id AS "postId"
         FROM post_targets pt
         INNER JOIN posts p ON p.id = pt.post_id
-        INNER JOIN profiles pr ON pr.id = p.profile_id
+        INNER JOIN profiles pr ON pr.id = ${dto.profileId}
         INNER JOIN groups g ON g.id = pt.group_id
         LEFT JOIN articles a ON a.id = p.article_id
         WHERE pt.group_id = ${dto.groupId}
           AND pt.status = 'AVAILABLE'::"TargetStatus"
-          AND p.profile_id = ${dto.profileId}
+          -- Ses propres posts, ou un post ouvert de son compte (sans
+          -- propriétaire : de tous). Chaque cible ne part qu'une fois : le
+          -- premier profil qui la réserve publie dans ce groupe.
+          AND (
+            p.profile_id = ${dto.profileId}
+            OR (
+              p.profile_id IS NULL
+              AND (p.owner_id IS NULL OR p.owner_id = pr.owner_id)
+            )
+          )
           AND p.status = 'AVAILABLE'::"PostStatus"
           AND pr.status = 'ACTIVE'::"RecordStatus"
           AND g.status = 'ACTIVE'::"RecordStatus"
@@ -394,7 +422,6 @@ export class JobsService {
     // Avant de regarder ce qui est disponible : une réservation expirée tient
     // encore ses posts tant qu'elle n'a pas été balayée.
     await this.releaseExpiredClaims();
-    await this.settings.replenishProfile(profile.id);
 
     const groups = await this.prisma.group.findMany({
       where: {
@@ -410,7 +437,7 @@ export class JobsService {
         targets: {
           some: {
             status: TargetStatus.AVAILABLE,
-            post: { profileId: profile.id, status: 'AVAILABLE' },
+            post: { status: 'AVAILABLE', ...claimablePostWhere(profile) },
           },
         },
       },

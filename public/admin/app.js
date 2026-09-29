@@ -6,6 +6,7 @@ const API = '/api',
     posts: [],
     settings: null,
     sites: [],
+    categories: [],
     profileOptions: [],
     articleOptions: [],
     groupOptions: [],
@@ -99,6 +100,7 @@ async function load() {
       settings,
       sites,
       me,
+      categories,
     ] = await Promise.all([
       api(`/profiles?page=${state.page.profiles}&limit=12`),
       api(`/groups?page=${state.page.groups}&limit=12`),
@@ -110,6 +112,7 @@ async function load() {
       api('/settings'),
       api('/sites'),
       api('/me'),
+      api('/categories'),
     ]);
     state.profiles = profiles.data;
     state.meta.profiles = profiles.meta;
@@ -125,6 +128,7 @@ async function load() {
     state.groupOptions = groupOptions.data;
     state.settings = settings;
     state.sites = sites;
+    state.categories = categories;
     state.me = me;
     // Les comptes ne regardent que les administrateurs : les demander en
     // gestionnaire rendrait un 403 et ferait échouer tout le chargement.
@@ -146,6 +150,7 @@ function render() {
   renderWhoami();
   renderUsers();
   renderSites();
+  renderCategories();
   $('#n-profiles').textContent = state.meta.profiles.total;
   $('#n-groups').textContent = state.meta.groups.total;
   $('#n-posts').textContent = state.meta.posts.total;
@@ -172,7 +177,7 @@ function render() {
     state.groups
       .map(
         (g) =>
-          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip join-${(x.joinStatus || 'NOT_JOINED').toLowerCase()}" title="${esc(JOIN_LABELS[x.joinStatus] || '')}${x.joinError ? ' · ' + esc(x.joinError) : ''}">${esc(x.profile.name)} · ${esc(JOIN_LABELS[x.joinStatus] || 'Non rejoint')}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
+          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td>${g.category ? `<span class="chip">${esc(g.category.name)}</span>` : '<span class="muted">—</span>'}</td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip join-${(x.joinStatus || 'NOT_JOINED').toLowerCase()}" title="${esc(JOIN_LABELS[x.joinStatus] || '')}${x.joinError ? ' · ' + esc(x.joinError) : ''}">${esc(x.profile.name)} · ${esc(JOIN_LABELS[x.joinStatus] || 'Non rejoint')}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
       )
       .join('') ||
     '<tr><td colspan="6"><div class="empty">Aucun groupe</div></td></tr>';
@@ -398,18 +403,12 @@ async function patchAllRunners(mode) {
     notice(e.message, 'error');
   }
 }
-/** Le coupe-circuit vit dans les réglages globaux : les seuils de stock sont
- * renvoyés avec lui, sinon la validation de l'API les refuserait. */
+/** Le coupe-circuit vit dans les réglages globaux. */
 $('#publishing-enabled').onchange = async (e) => {
   try {
     state.settings = await api('/settings', {
       method: 'PATCH',
-      body: JSON.stringify({
-        autoReplenishEnabled: state.settings.autoReplenishEnabled,
-        minimumAvailablePerProfile: state.settings.minimumAvailablePerProfile,
-        minimumAvailablePerGroup: state.settings.minimumAvailablePerGroup,
-        publishingEnabled: e.target.checked,
-      }),
+      body: JSON.stringify({ publishingEnabled: e.target.checked }),
     });
     notice(e.target.checked ? 'Publication autorisée' : 'Publication coupée');
     await loadRunners();
@@ -467,6 +466,31 @@ function renderUsers() {
       .join('') || '<tr><td colspan="5" class="empty">Aucun compte</td></tr>';
 }
 
+const PLUGIN_LABELS = {
+  CONNECTED: 'Connectée',
+  BAD_KEY: 'Clé refusée',
+  MISSING: 'Absente',
+  UNREACHABLE: 'Site injoignable',
+  UNKNOWN: 'Non vérifiée',
+};
+const when = (date) =>
+  date ? new Date(date).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+/** L'extension WordPress du site : son état, et de quoi le croire — la date
+ * de la vérification et celle du dernier article reçu. */
+function pluginCell(s) {
+  const p = s.plugin || { state: 'UNKNOWN' };
+  const facts = [
+    p.version ? `v${p.version}` : '',
+    p.lastDeliveryAt ? `dernier article ${when(p.lastDeliveryAt)}` : '',
+    p.checkedAt ? `vérifiée ${when(p.checkedAt)}` : '',
+  ].filter(Boolean);
+  return (
+    `<td><span class="pill plugin-${p.state.toLowerCase()}" title="${esc(p.message || '')}">` +
+    `${PLUGIN_LABELS[p.state] || p.state}</span>` +
+    (facts.length ? `<small>${esc(facts.join(' · '))}</small>` : '') +
+    `</td>`
+  );
+}
 function renderSites() {
   $('#site-rows').innerHTML =
     state.sites
@@ -474,10 +498,13 @@ function renderSites() {
         (s) =>
           `<tr><td><strong>${esc(s.name)}</strong></td>` +
           `<td><a href="${esc(s.originUrl)}" target="_blank" rel="noreferrer">${esc(s.originUrl)}</a></td>` +
+          `<td>${s.category ? `<span class="chip">${esc(s.category)}</span>` : '<span class="muted">aucune — pas de post</span>'}</td>` +
+          pluginCell(s) +
           `<td>${s.hasOwnKey ? 'propre à ce site' : '<span class="muted">clé globale</span>'}</td>` +
           `<td>${s.articles}</td>` +
           `<td><span class="pill">${s.status === 'ACTIVE' ? 'Actif' : 'Inactif'}</span></td>` +
-          `<td class="right"><button class="ghost" data-share-site="${s.id}">Partager</button>` +
+          `<td class="right"><button class="ghost" data-check-site="${s.id}">Vérifier</button>` +
+          `<button class="ghost" data-share-site="${s.id}">Partager</button>` +
           `<button class="ghost" data-edit-site="${s.id}">Modifier</button>` +
           (s.articles
             ? ''
@@ -485,7 +512,42 @@ function renderSites() {
           `</td></tr>`,
       )
       .join('') ||
-    '<tr><td colspan="6" class="empty">Aucun site déclaré. L’extension ne pourra rien déposer.</td></tr>';
+    '<tr><td colspan="8" class="empty">Aucun site déclaré. L’extension ne pourra rien déposer.</td></tr>';
+}
+
+/** La liste gérée des catégories. Renommer et supprimer touchent les
+ * ressources de tous les comptes : réservé aux administrateurs. */
+function renderCategories() {
+  const admin = state.me?.role === 'ADMIN';
+  $('#category-rows').innerHTML =
+    state.categories
+      .map(
+        (c) =>
+          `<tr><td><strong>${esc(c.name)}</strong></td><td>${c.groups}</td><td>${c.sites}</td>` +
+          `<td class="right">` +
+          (admin
+            ? `<button class="ghost" data-rename-category="${c.id}">Renommer</button>` +
+              `<button class="ghost" data-delete-category="${c.id}">Supprimer</button>`
+            : '') +
+          `</td></tr>`,
+      )
+      .join('') ||
+    '<tr><td colspan="4" class="empty">Aucune catégorie. Créez-en une, puis rangez-y vos groupes et vos sites.</td></tr>';
+  const options =
+    '<option value="">Aucune catégorie</option>' +
+    state.categories
+      .map((c) => `<option value="${c.id}">${esc(c.name)}</option>`)
+      .join('');
+  $$('.category-select').forEach((select) => {
+    const current = select.value;
+    select.innerHTML = options;
+    select.value = current;
+  });
+  $('#post-category').innerHTML =
+    '<option value="">Choisir une catégorie</option>' +
+    state.categories
+      .map((c) => `<option value="${c.id}">${esc(c.name)}</option>`)
+      .join('');
 }
 
 function renderArticles() {
@@ -498,28 +560,15 @@ function renderArticles() {
       .join('') ||
     '<div class="empty">Importez votre premier article JSON.</div>';
 }
-function renderSettings() {
-  if (!state.settings) return;
-  const form = $('#settings-form');
-  form.elements.autoReplenishEnabled.checked =
-    state.settings.autoReplenishEnabled;
-  form.elements.minimumAvailablePerProfile.value =
-    state.settings.minimumAvailablePerProfile;
-  form.elements.minimumAvailablePerGroup.value =
-    state.settings.minimumAvailablePerGroup;
-  // La cadence vient de l'environnement du serveur : l'afficher évite de
-  // croire que l'alimentation tourne alors que le minuteur est coupé.
-  const minutes = state.settings.replenishIntervalMinutes;
-  $('#replenish-cadence').textContent = minutes
-    ? `Un passage automatique a lieu toutes les ${minutes} minutes, en plus de celui déclenché avant chaque réservation d’un automate.`
-    : 'Passage automatique désactivé (REPLENISH_INTERVAL_MINUTES=0) : le stock ne se refait qu’avant une réservation ou avec le bouton ci-dessous.';
-}
+/** Plus rien à régler ici : les posts ne naissent que des articles
+ * WordPress. Le coupe-circuit vit dans le Pilotage. */
+function renderSettings() {}
 function renderPosts() {
   $('#post-cards').innerHTML =
     state.posts
       .map(
         (p) =>
-          `<article class="post-card ${state.selection.has(p.id) ? 'selected' : ''}"><div class="post-meta"><label class="inline-check"><input type="checkbox" data-select-post="${p.id}" ${state.selection.has(p.id) ? 'checked' : ''}>${esc(state.profileOptions.find((x) => x.id === p.profileId)?.name || 'Profil')}</label><span>${p.delay} min</span></div><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="chips">${p.targets
+          `<article class="post-card ${state.selection.has(p.id) ? 'selected' : ''}"><div class="post-meta"><label class="inline-check"><input type="checkbox" data-select-post="${p.id}" ${state.selection.has(p.id) ? 'checked' : ''}>${p.profileId ? esc(state.profileOptions.find((x) => x.id === p.profileId)?.name || 'Profil') : '<span class="chip">Ouvert</span>'}</label><span>${p.delay} min</span></div><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="chips">${p.targets
             .slice(0, 3)
             .map((x) => `<span class="chip">${esc(x.group.name)}</span>`)
             .join(
@@ -643,7 +692,7 @@ function fillProfiles() {
     .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`)
     .join('');
   $('#post-profile').innerHTML =
-    '<option value="">Choisir un profil</option>' + options;
+    '<option value="">Aucun — post ouvert</option>' + options;
   $('#article-profile').innerHTML =
     '<option value="">Choisir un profil</option>' + options;
   const f = $('#post-filter');
@@ -702,8 +751,32 @@ function fillGroupProfiles(selected = []) {
       )
       .join('') || '<span>Créez d’abord un profil.</span>';
 }
+/** Un post ouvert vise les groupes d'une même catégorie : les choisir par
+ * catégorie, tous cochés d'office — c'est le cas courant. */
+function loadCategoryGroups(categoryId) {
+  const box = $('#post-groups');
+  if (!categoryId) {
+    box.innerHTML = '<span>Choisissez une catégorie.</span>';
+    return;
+  }
+  const groups = state.groupOptions.filter(
+    (g) => g.status === 'ACTIVE' && g.categoryId === categoryId,
+  );
+  box.innerHTML =
+    groups
+      .map(
+        (g) =>
+          `<label><input type="checkbox" name="groupIds" value="${g.id}" checked>${esc(g.name)}</label>`,
+      )
+      .join('') || '<span>Aucun groupe actif dans cette catégorie.</span>';
+}
 async function loadGroups(profileId, boxSelector = '#post-groups') {
   const box = $(boxSelector);
+  if (boxSelector === '#post-groups') {
+    // Sans profil, la catégorie choisit les groupes ; avec, le profil.
+    $('#post-category-label').hidden = Boolean(profileId);
+    if (!profileId) return loadCategoryGroups($('#post-category').value);
+  }
   if (!profileId) {
     box.innerHTML = '<span>Choisissez d’abord un profil.</span>';
     return;
@@ -726,6 +799,8 @@ function view(id) {
     dashboard: 'Vue d’ensemble',
     profiles: 'Profils',
     groups: 'Groupes',
+    categories: 'Catégories',
+    sites: 'Sites',
     users: 'Comptes',
     articles: 'Articles',
     posts: 'Posts',
@@ -790,7 +865,9 @@ function openModal(id) {
             : 'Nouveau post';
   if (id === 'group-modal') fillGroupProfiles([]);
   $('#post-profile-label').hidden = false;
+  $('#post-category-label').hidden = false;
   $('#target-field').hidden = false;
+  if (id === 'post-modal') loadCategoryGroups('');
   d.showModal();
 }
 $$('[data-view]').forEach((b) => (b.onclick = () => view(b.dataset.view)));
@@ -866,6 +943,7 @@ $('#post-bulk-delete').onclick = async () => {
 };
 $('#post-profile').onchange = (e) =>
   loadGroups(e.target.value).catch((x) => notice(x.message, 'error'));
+$('#post-category').onchange = (e) => loadCategoryGroups(e.target.value);
 $('#article-profile').onchange = (e) =>
   loadGroups(e.target.value, '#article-groups').catch((x) =>
     notice(x.message, 'error'),
@@ -892,42 +970,6 @@ $('#logout').onclick = () => {
   accessToken = '';
   localStorage.removeItem('postflow_token');
   showLogin();
-};
-$('#settings-form').onsubmit = async (e) => {
-  e.preventDefault();
-  const form = new FormData(e.target);
-  try {
-    await api('/settings', {
-      method: 'PATCH',
-      body: JSON.stringify({
-        autoReplenishEnabled: e.target.elements.autoReplenishEnabled.checked,
-        minimumAvailablePerProfile: Number(
-          form.get('minimumAvailablePerProfile'),
-        ),
-        minimumAvailablePerGroup: Number(form.get('minimumAvailablePerGroup')),
-      }),
-    });
-    notice('Paramètres d’automatisation enregistrés.');
-    await load();
-  } catch (x) {
-    notice(x.message, 'error');
-  }
-};
-$('#replenish-now').onclick = async () => {
-  try {
-    const results = await api('/settings/replenish-now', { method: 'POST' });
-    const generated = results.reduce(
-      (total, item) => total + item.generated,
-      0,
-    );
-    const reused = results.reduce((total, item) => total + item.reused, 0);
-    notice(
-      `${generated} post(s) créé(s) et ${reused} post(s) existant(s) rattaché(s) aux groupes en manque.`,
-    );
-    await load();
-  } catch (x) {
-    notice(x.message, 'error');
-  }
 };
 $('#article-form').onsubmit = async (e) => {
   e.preventDefault();
@@ -1129,6 +1171,33 @@ $('#access-form').onsubmit = async (e) => {
   }
 };
 
+$('#category-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('/categories', {
+      method: 'POST',
+      body: JSON.stringify({ name: e.target.elements.name.value }),
+    });
+    e.target.reset();
+    await load();
+    notice('Catégorie ajoutée.');
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+$('#sites-check').onclick = async (e) => {
+  e.target.disabled = true;
+  try {
+    state.sites = await api('/sites/check', { method: 'POST' });
+    renderSites();
+    const ok = state.sites.filter((s) => s.plugin.state === 'CONNECTED').length;
+    notice(`${ok} site(s) sur ${state.sites.length} avec l’extension connectée.`);
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    e.target.disabled = false;
+  }
+};
 $('#site-form').onsubmit = async (e) => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(e.target)),
@@ -1219,6 +1288,7 @@ $('#post-form').onsubmit = async (e) => {
     delete d.profileId;
     delete d.groupIds;
   } else {
+    if (!d.profileId) delete d.profileId;
     d.groupIds = f.getAll('groupIds');
     if (!d.groupIds.length)
       return notice('Sélectionnez au moins un groupe.', 'error');
@@ -1237,10 +1307,7 @@ $('#post-form').onsubmit = async (e) => {
 };
 async function deleteArticlePosts(article, button) {
   const message =
-    `Supprimer définitivement tous les posts liés à l’article « ${article.title} », pour tous les profils ? L’article sera conservé. Les posts réservés par un automate en cours seront conservés.` +
-    (article.status === 'ACTIVE'
-      ? ` L’alimentation automatique pourra créer de nouveaux posts tant que l’article est actif.`
-      : '');
+    `Supprimer définitivement tous les posts liés à l’article « ${article.title} » ? L’article sera conservé. Les posts réservés par un automate en cours seront conservés.`;
   if (!confirm(message)) return;
   button.disabled = true;
   try {
@@ -1474,11 +1541,54 @@ document.addEventListener('click', (e) => {
       .catch((x) => notice(x.message, 'error'));
     return;
   }
+  const checkSite = e.target.dataset.checkSite;
+  if (checkSite) {
+    e.target.disabled = true;
+    api(`/sites/${checkSite}/check`, { method: 'POST' })
+      .then((r) => {
+        notice(`${r.name} : ${PLUGIN_LABELS[r.plugin.state]} — ${r.plugin.message || ''}`,
+          r.plugin.state === 'CONNECTED' ? 'success' : 'error');
+        return load();
+      })
+      .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  const renameCat = state.categories.find(
+    (x) => x.id === e.target.dataset.renameCategory,
+  );
+  if (renameCat) {
+    const name = prompt('Nouveau nom de la catégorie', renameCat.name);
+    if (!name || name === renameCat.name) return;
+    api(`/categories/${renameCat.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    })
+      .then(load)
+      .then(() => notice('Catégorie renommée.'))
+      .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  const dropCat = state.categories.find(
+    (x) => x.id === e.target.dataset.deleteCategory,
+  );
+  if (dropCat) {
+    if (
+      !confirm(
+        `Supprimer « ${dropCat.name} » ? ${dropCat.groups} groupe(s) et ${dropCat.sites} site(s) deviendront sans catégorie : les articles de ces sites ne produiront plus de post.`,
+      )
+    )
+      return;
+    api(`/categories/${dropCat.id}`, { method: 'DELETE' })
+      .then(load)
+      .then(() => notice('Catégorie supprimée.'))
+      .catch((x) => notice(x.message, 'error'));
+    return;
+  }
   const site = state.sites.find((x) => x.id === e.target.dataset.editSite);
   if (site) {
     openModal('site-modal');
     const f = $('#site-form');
-    for (const k of ['id', 'name', 'originUrl', 'status'])
+    for (const k of ['id', 'name', 'originUrl', 'status', 'categoryId'])
       f.elements[k].value = site[k] ?? '';
     f.elements.depositKey.value = '';
     $('h2', $('#site-modal')).textContent = 'Modifier le site';
@@ -1499,7 +1609,7 @@ document.addEventListener('click', (e) => {
   if (g) {
     openModal('group-modal');
     const f = $('#group-form');
-    for (const k of ['id', 'name', 'externalId', 'url', 'status'])
+    for (const k of ['id', 'name', 'externalId', 'url', 'status', 'categoryId'])
       f.elements[k].value = g[k] ?? '';
     fillGroupProfiles(g.profiles.map((x) => x.profileId));
     $('h2', $('#group-modal')).textContent = 'Modifier le groupe';
@@ -1533,6 +1643,7 @@ document.addEventListener('click', (e) => {
     ])
       f.elements[k].value = post[k] ?? '';
     $('#post-profile-label').hidden = true;
+    $('#post-category-label').hidden = true;
     $('#target-field').hidden = true;
     $('h2', $('#post-modal')).textContent = 'Modifier le post';
   }

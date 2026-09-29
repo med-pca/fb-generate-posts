@@ -19,6 +19,7 @@ import { SitesModule } from './sites/sites.module';
 import { UsersModule } from './users/users.module';
 import { AccessModule } from './access/access.module';
 import { RunnersModule } from './runners/runners.module';
+import { CategoriesModule } from './categories/categories.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { RunnersModule } from './runners/runners.module';
     UsersModule,
     AccessModule,
     RunnersModule,
+    CategoriesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

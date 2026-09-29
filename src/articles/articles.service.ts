@@ -224,7 +224,7 @@ export class ArticlesService {
   postDataForSlot(
     article: ArticleRecord,
     slot: number,
-    dto: { profileId: string; delayMin: number; delayMax: number },
+    dto: { profileId: string | null; delayMin: number; delayMax: number },
   ) {
     const captions = this.captionsOf(article);
     const caption = captions[slot % captions.length];
@@ -268,15 +268,18 @@ export class ArticlesService {
    * restent reconnus par leur `externalId` et sont mis à jour, pas dupliqués. */
   slotExternalId(
     articleId: string,
-    profileId: string,
+    profileId: string | null,
     slot: number,
     captionCount: number,
   ) {
     const index = slot % captionCount;
     const variant = Math.floor(slot / captionCount);
+    // Un post ouvert n'a pas de profil : `open` tient sa place, et l'unicité
+    // garantit un seul post ouvert par légende d'article.
+    const owner = profileId ?? 'open';
     return variant === 0
-      ? `${articleId}:${profileId}:${index}`
-      : `${articleId}:${profileId}:${index}:v${variant}`;
+      ? `${articleId}:${owner}:${index}`
+      : `${articleId}:${owner}:${index}:v${variant}`;
   }
 
   private articleData(

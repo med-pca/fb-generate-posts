@@ -129,3 +129,49 @@ describe('PostsService — suppression', () => {
     });
   });
 });
+
+describe('PostsService — post ouvert', () => {
+  function setup(groups: Array<{ categoryId: string | null }>) {
+    const prisma: any = {
+      group: { findMany: jest.fn(async () => groups) },
+      post: { create: jest.fn(async ({ data }: any) => data) },
+      profile: { findFirst: jest.fn() },
+    };
+    return { service: new PostsService(prisma), prisma };
+  }
+  const sofia: any = {
+    id: 'u1',
+    role: 'MANAGER',
+    username: 's',
+    status: 'ACTIVE',
+  };
+  const base = { title: 'T', description: 'D', delay: 10 };
+
+  it('se crée sans profil, sur plusieurs groupes d’une même catégorie', async () => {
+    const { service, prisma } = setup([
+      { categoryId: 'cat' },
+      { categoryId: 'cat' },
+    ]);
+    const post: any = await service.create(
+      { ...base, groupIds: ['g1', 'g2', 'g1'] },
+      sofia,
+    );
+    expect(prisma.profile.findFirst).not.toHaveBeenCalled();
+    expect(post).toMatchObject({ profileId: null, ownerId: 'u1' });
+    expect(post.targets.create).toEqual([{ groupId: 'g1' }, { groupId: 'g2' }]);
+  });
+
+  it('refuse des groupes de catégories différentes', async () => {
+    const { service } = setup([{ categoryId: 'a' }, { categoryId: 'b' }]);
+    await expect(
+      service.create({ ...base, groupIds: ['g1', 'g2'] }, sofia),
+    ).rejects.toThrow('même catégorie');
+  });
+
+  it('refuse un groupe hors de portée ou inactif', async () => {
+    const { service } = setup([{ categoryId: 'a' }]);
+    await expect(
+      service.create({ ...base, groupIds: ['g1', 'g2'] }, sofia),
+    ).rejects.toThrow('introuvable');
+  });
+});

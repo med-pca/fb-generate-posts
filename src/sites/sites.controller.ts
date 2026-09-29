@@ -20,13 +20,38 @@ import type { CurrentUser } from '../auth/current-user';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { CreateSiteDto, UpdateSiteDto } from './dto/site.dto';
 import { SitesService } from './sites.service';
+import { PluginCheckService } from './plugin-check.service';
 
 @ApiTags('sites')
 @ApiBearerAuth()
 @UseGuards(AdminAuthGuard)
 @Controller('sites')
 export class SitesController {
-  constructor(private readonly sites: SitesService) {}
+  constructor(
+    private readonly sites: SitesService,
+    private readonly plugins: PluginCheckService,
+  ) {}
+
+  @Post('check')
+  @ApiOperation({
+    summary: 'Vérifier l’extension WordPress de tous ses sites',
+    description:
+      'Interroge la route `dfb/v1/status` de chaque site : connecté, clé ' +
+      'refusée, extension absente ou site injoignable.',
+  })
+  async checkAll(@ActingUser() acting: CurrentUser) {
+    const sites = await this.sites.findAll(acting);
+    await this.plugins.checkAll(sites.map(({ id }) => id));
+    return this.sites.findAll(acting);
+  }
+
+  @Post(':id/check')
+  @ApiOperation({ summary: 'Vérifier l’extension WordPress d’un site' })
+  async check(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    await this.sites.findOne(id, acting);
+    await this.plugins.check(id);
+    return this.sites.findOne(id, acting);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Les sites WordPress déclarés' })

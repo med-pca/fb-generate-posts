@@ -21,6 +21,7 @@
           ><button class="nav" data-view="profiles">
             ◎ <span>Profils</span></button
           ><button class="nav" data-view="groups">◇ <span>Groupes</span></button
+          ><button class="nav" data-view="categories">◈ <span>Catégories</span></button
           ><button class="nav" data-view="sites">▣ <span>Sites</span></button
           ><button class="nav" data-view="articles">
             ◫ <span>Articles</span></button
@@ -115,6 +116,7 @@
               <thead>
                 <tr>
                   <th>Groupe</th>
+                  <th>Catégorie</th>
                   <th>Adresse</th>
                   <th>Profils liés</th>
                   <th>Posts</th>
@@ -123,6 +125,32 @@
                 </tr>
               </thead>
               <tbody id="group-rows"></tbody>
+            </table>
+          </div>
+        </section>
+        <section id="categories" class="view">
+          <div class="toolbar">
+            <p>
+              Une catégorie relie un site à des groupes : chaque article reçu
+              du site devient UN post qui vise tous les groupes actifs de sa
+              catégorie.
+            </p>
+            <form id="category-form" class="toolbar-group">
+              <input name="name" placeholder="Nouvelle catégorie" required maxlength="80" />
+              <button class="primary" type="submit">+ Ajouter</button>
+            </form>
+          </div>
+          <div class="panel table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Catégorie</th>
+                  <th>Groupes</th>
+                  <th>Sites</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="category-rows"></tbody>
             </table>
           </div>
         </section>
@@ -152,10 +180,14 @@
         <section id="sites" class="view">
           <div class="toolbar">
             <p>
-              Les sites WordPress où déposer une reprise. L'extension y lit
-              cette liste : un site ajouté ici lui apparaît aussitôt.
+              Les sites WordPress où déposer une reprise. La colonne
+              « Extension » dit si le plugin Data FB Posting y est installé et
+              accepte la clé.
             </p>
-            <button class="primary" data-open="site-modal">+ Nouveau site</button>
+            <div class="toolbar-group">
+              <button class="secondary" id="sites-check" type="button">Vérifier les extensions</button>
+              <button class="primary" data-open="site-modal">+ Nouveau site</button>
+            </div>
           </div>
           <div class="panel table-wrap">
             <table>
@@ -163,6 +195,8 @@
                 <tr>
                   <th>Site</th>
                   <th>Adresse</th>
+                  <th>Catégorie</th>
+                  <th>Extension</th>
                   <th>Clé du plugin</th>
                   <th>Articles</th>
                   <th>État</th>
@@ -330,15 +364,16 @@
         </section>
         <section id="settings" class="view">
           <div class="panel settings-panel">
-            <div class="panel-head"><div><small>AUTOMATISATION</small><h2>Stock minimum par profil</h2></div></div>
-            <form id="settings-form" class="settings-form">
-              <label class="switch-row"><input name="autoReplenishEnabled" type="checkbox" /> Activer l’auto-alimentation avant chaque récupération</label>
-              <label>Nombre minimum de posts disponibles par profil<input name="minimumAvailablePerProfile" type="number" min="1" max="1000" value="10" required /></label>
-              <label>Nombre minimum de posts disponibles par groupe<input name="minimumAvailablePerGroup" type="number" min="1" max="1000" value="8" required /></label>
-              <p class="form-help">Le stock est compté groupe par groupe : un groupe descendu à trois ou quatre posts est réalimenté même si le profil paraît fourni. Les posts déjà disponibles qui ne visent pas encore ce groupe lui sont rattachés en premier ; ensuite, les légendes des articles actifs deviennent de nouveaux posts, en rejouant les mêmes articles en variantes lorsque le catalogue est épuisé.</p>
-              <p class="form-help" id="replenish-cadence"></p>
-              <div class="actions"><button type="button" class="secondary" id="replenish-now">Lancer maintenant</button><button class="primary">Enregistrer</button></div>
-            </form>
+            <div class="panel-head"><div><small>AUTOMATISATION</small><h2>D’où viennent les posts</h2></div></div>
+            <p class="form-help">
+              Il n’y a plus d’alimentation automatique. Chaque article reçu d’un
+              site WordPress (import automatique puis mise en ligne) devient
+              <b>un seul post ouvert</b>, qui vise tous les groupes actifs de la
+              catégorie du site. Un site sans catégorie ne produit aucun post.
+            </p>
+            <p class="form-help">
+              Le coupe-circuit de la publication se trouve dans la page Pilotage.
+            </p>
           </div>
         </section>
       </main>
@@ -422,6 +457,7 @@
           <button class="close" type="button" data-close>×</button>
         </div>
         <label>Nom<input name="name" required /></label
+        ><label>Catégorie<select name="categoryId" class="category-select"></select></label
         ><label>État<select name="status"><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select></label
         ><label>Identifiant externe<input name="externalId" /></label
         ><label
@@ -585,6 +621,9 @@
             placeholder="https://exemple.com"
         /></label
         ><label
+          >Catégorie<select name="categoryId" class="category-select"></select>
+          <small>Ses articles deviendront des posts pour les groupes de cette catégorie. Sans catégorie : aucun post.</small></label
+        ><label
           >Clé du plugin
           <input name="depositKey" type="password" autocomplete="new-password" />
           <small
@@ -647,12 +686,16 @@
           <button class="close" type="button" data-close>×</button>
         </div>
         <label id="post-profile-label"
-          >Profil<select name="profileId" id="post-profile" required></select
-        ></label>
+          >Profil<select name="profileId" id="post-profile"></select>
+          <small>Sans profil, le post est ouvert : le premier profil qui a rejoint un de ses groupes l'y publie.</small></label
+        ><label id="post-category-label"
+          >Catégorie<select id="post-category"></select>
+          <small>Les groupes d'un post ouvert sont ceux d'une même catégorie.</small></label
+        >
         <fieldset id="target-field">
           <legend>Groupes cibles</legend>
           <div id="post-groups" class="checks">
-            <span>Choisissez d’abord un profil.</span>
+            <span>Choisissez une catégorie.</span>
           </div>
         </fieldset>
         <label>Titre<input name="title" required /></label

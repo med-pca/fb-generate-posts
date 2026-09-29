@@ -14,4 +14,9 @@ export class CreateGroupDto {
 
   @IsUrl({ require_tld: false })
   url!: string;
+
+  /** Chaîne vide = sans catégorie. */
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
 }

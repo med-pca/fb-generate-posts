@@ -20,9 +20,9 @@ function item(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function service(prisma: any, settings: any = { replenishProfile: jest.fn() }) {
+function service(prisma: any) {
   const config = { get: (_: string, fallback: number) => fallback };
-  return new JobsService(prisma, config as any, settings as any);
+  return new JobsService(prisma, config as any);
 }
 
 describe('JobsService — publication sans URL puis commentaire', () => {
@@ -268,8 +268,16 @@ describe('JobsService — l’URL post par post', () => {
       publicationJobItem: {
         findUnique: jest.fn(async () => ({
           ...item({ commentExternalId: null, commentedAt: null }),
-          job: { id: 'job_1', status: JobStatus.CLAIMED, claimExpiresAt: new Date(Date.now() + 3600_000) },
-          postTarget: { id: 'target_1', status: TargetStatus.PUBLISHED, claimedByJobId: 'job_1' },
+          job: {
+            id: 'job_1',
+            status: JobStatus.CLAIMED,
+            claimExpiresAt: new Date(Date.now() + 3600_000),
+          },
+          postTarget: {
+            id: 'target_1',
+            status: TargetStatus.PUBLISHED,
+            claimedByJobId: 'job_1',
+          },
         })),
       },
       $transaction: jest.fn(async (cb: any) => cb(tx)),
@@ -277,7 +285,9 @@ describe('JobsService — l’URL post par post', () => {
     const svc: any = service(prisma);
     svc.stillOwnsTarget = () => true;
 
-    const result = await svc.markCommented('job_1', 'post_1', { commentExternalId: 'comment_1' });
+    const result = await svc.markCommented('job_1', 'post_1', {
+      commentExternalId: 'comment_1',
+    });
 
     expect(result.url).toBe('https://exemple.test/recette');
     expect(result.commentExternalId).toBe('comment_1');
@@ -289,7 +299,11 @@ describe('JobsService — l’URL post par post', () => {
         update: jest.fn(async ({ data }: any) => ({ id: 'item_1', ...data })),
         findMany: jest.fn(async () => [
           item({ linkUpdatedAt: new Date() }),
-          item({ postId: 'post_2', commentedAt: null, commentExternalId: null }),
+          item({
+            postId: 'post_2',
+            commentedAt: null,
+            commentExternalId: null,
+          }),
         ]),
       },
       postTarget: { update: jest.fn(async () => ({})) },
@@ -301,13 +315,22 @@ describe('JobsService — l’URL post par post', () => {
       publicationJobItem: {
         findUnique: jest.fn(async () => ({
           ...item(),
-          job: { id: 'job_1', status: JobStatus.CLAIMED, profileId: 'p1', groupId: 'g1' },
+          job: {
+            id: 'job_1',
+            status: JobStatus.CLAIMED,
+            profileId: 'p1',
+            groupId: 'g1',
+          },
         })),
       },
       $transaction: jest.fn(async (cb: any) => cb(tx)),
     };
 
-    const result: any = await service(prisma).markLinkUpdated('job_1', 'post_1', {});
+    const result: any = await service(prisma).markLinkUpdated(
+      'job_1',
+      'post_1',
+      {},
+    );
 
     expect(result.linkUpdatedAt).toBeInstanceOf(Date);
     // Le lot est encore réservé : son statut n'est pas touché.

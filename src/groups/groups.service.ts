@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { JoinStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../auth/current-user';
 import {
   groupManageWhere,
@@ -20,7 +21,10 @@ import { UpdateJoinStatusDto } from './dto/update-join-status.dto';
 
 @Injectable()
 export class GroupsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly categories: CategoriesService,
+  ) {}
 
   /** `owner` est celui qui crée : voir `ProfilesService.create`. */
   async create(
@@ -29,9 +33,11 @@ export class GroupsService {
     owner: CurrentUser | null,
   ) {
     await this.reachableProfile(profileId, owner);
+    const { categoryId, ...fields } = dto;
     return this.prisma.group.create({
       data: {
-        ...dto,
+        ...fields,
+        categoryId: (await this.categories.resolve(categoryId)) ?? null,
         ownerId: owner?.id ?? null,
         profiles: { create: { profileId } },
       },
@@ -77,6 +83,7 @@ export class GroupsService {
         where: scoped,
         include: {
           profiles: { include: { profile: true } },
+          category: { select: { id: true, name: true } },
           _count: { select: { targets: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -151,7 +158,15 @@ export class GroupsService {
 
   async update(id: string, dto: UpdateGroupDto, acting: CurrentUser | null) {
     await this.ownedGroup(id, acting);
-    return this.prisma.group.update({ where: { id }, data: dto });
+    const { categoryId, ...fields } = dto;
+    const category = await this.categories.resolve(categoryId);
+    return this.prisma.group.update({
+      where: { id },
+      data: {
+        ...fields,
+        ...(category !== undefined ? { categoryId: category } : {}),
+      },
+    });
   }
 
   async remove(id: string, acting: CurrentUser | null) {

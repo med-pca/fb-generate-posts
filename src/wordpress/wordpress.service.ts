@@ -1,7 +1,15 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { IngestStatus, PostStatus, Prisma, TargetStatus } from '@prisma/client';
+import {
+  IngestStatus,
+  PluginState,
+  PostStatus,
+  Prisma,
+  Role,
+  TargetStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ArticlesService } from '../articles/articles.service';
+import { groupWhere } from '../auth/scope';
 import { WordpressArticleDto } from './wordpress.dto';
 
 export function wordpressCaption(dto: WordpressArticleDto) {
@@ -129,10 +137,30 @@ export class WordpressService {
       async (tx) => {
         // Lock per site, including source creation, so simultaneous deliveries are atomic.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${siteUrl}))`;
+        // Recevoir un article prouve que l'extension du site est installée
+        // et qu'elle nous parle : l'état est mis à jour sans attendre la
+        // prochaine vérification. Un refus de clé déjà constaté reste
+        // affiché — il concerne l'autre sens (nos dépôts vers le site).
+        const received = {
+          lastDeliveryAt: new Date(),
+          pluginMessage: 'Article reçu de l’extension',
+        };
+        const known = await tx.contentSource.findUnique({
+          where: { originUrl: siteUrl },
+          select: { pluginState: true },
+        });
         const source = await tx.contentSource.upsert({
           where: { originUrl: siteUrl },
-          create: { originUrl: siteUrl, name: dto.siteName },
-          update: {},
+          create: {
+            originUrl: siteUrl,
+            name: dto.siteName,
+            pluginState: PluginState.CONNECTED,
+            ...received,
+          },
+          update:
+            known?.pluginState === PluginState.BAD_KEY
+              ? { lastDeliveryAt: received.lastDeliveryAt }
+              : { pluginState: PluginState.CONNECTED, ...received },
         });
         const existing = await tx.article.findUnique({
           where: { sourceId_externalId: { sourceId: source.id, externalId } },
@@ -153,53 +181,81 @@ export class WordpressService {
             ...fields,
           },
         });
-        const profiles = await tx.profile.findMany({
-          where: {
-            status: 'ACTIVE',
-            ...(ingest?.profileIds.length
-              ? { id: { in: ingest.profileIds } }
-              : {}),
-          },
-          include: {
-            profileGroups: {
-              where: {
-                status: 'ACTIVE',
-                group: { status: 'ACTIVE' },
-                ...(ingest?.groupIds.length
-                  ? { groupId: { in: ingest.groupIds } }
-                  : {}),
-              },
-            },
-          },
-        });
-        for (const profile of profiles) {
+        // UN post ouvert par article : il vise tous les groupes de la
+        // catégorie du site, et le premier profil qui a rejoint un groupe l'y
+        // publie. Plus de copie par profil, donc plus de doublons.
+        const groupIds = await this.audience(tx, source, ingest?.groupIds);
+        if (groupIds.length) {
           await tx.post.create({
             data: {
               ...this.articles.postDataForSlot(article, 0, {
-                profileId: profile.id,
+                profileId: null,
                 delayMin: 10,
                 delayMax: 60,
               }),
-              targets: {
-                create: profile.profileGroups.map(({ groupId }) => ({
-                  groupId,
-                })),
-              },
+              ownerId: source.ownerId,
+              targets: { create: groupIds.map((groupId) => ({ groupId })) },
             },
           });
+        } else {
+          this.logger.warn(
+            `${source.name} : aucun groupe actif dans sa catégorie — ` +
+              `article « ${article.title} » reçu sans post`,
+          );
         }
         if (ingest) await this.closeIngest(tx, ingest.id, article.id);
         return {
           articleId: article.id,
           duplicate: false,
           updated: false,
-          generated: profiles.length,
+          generated: groupIds.length ? 1 : 0,
+          groups: groupIds.length,
           synchronized: 0,
           skipped: 0,
         };
       },
       { timeout: 30000 },
     );
+  }
+
+  /** Les groupes qui recevront le post d'un article.
+   *
+   * Une reprise qui a choisi ses groupes les garde. Sinon, ce sont les
+   * groupes actifs de la catégorie du site, que son propriétaire peut
+   * atteindre (les siens et ceux qu'on lui a partagés ; tous pour un site
+   * sans propriétaire ou tenu par un ADMIN). Un site sans catégorie ne
+   * diffuse nulle part : mieux vaut aucun post qu'un post dans le mauvais
+   * public. */
+  private async audience(
+    tx: Prisma.TransactionClient,
+    source: { categoryId: string | null; ownerId: string | null },
+    chosen: string[] | undefined,
+  ) {
+    if (chosen?.length) {
+      const groups = await tx.group.findMany({
+        where: { id: { in: chosen }, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      return groups.map(({ id }) => id);
+    }
+    if (!source.categoryId) return [];
+    const owner = source.ownerId
+      ? await tx.user.findUnique({
+          where: { id: source.ownerId },
+          select: { id: true, role: true },
+        })
+      : null;
+    const groups = await tx.group.findMany({
+      where: {
+        categoryId: source.categoryId,
+        status: 'ACTIVE',
+        ...(owner && owner.role !== Role.ADMIN
+          ? groupWhere({ ownerId: owner.id })
+          : {}),
+      },
+      select: { id: true },
+    });
+    return groups.map(({ id }) => id);
   }
 
   /** La reprise que le plugin annonce, si elle attend bien ce dépôt. Une

@@ -31,8 +31,14 @@ const routes = {
     { id: 'boss', username: 'admin', role: 'ADMIN', status: 'ACTIVE', createdAt: '2026-09-01' },
     { id: 'u2', username: 'sofia', role: 'MANAGER', status: 'ACTIVE', createdAt: '2026-09-20' },
   ],
-  '/sites': [{ id: 's1', name: 'Tera', originUrl: 'https://tera.test', status: 'ACTIVE', hasOwnKey: true, articles: 0, owner: 'admin' }],
-  '/settings': { autoReplenishEnabled: true, minimumAvailablePerProfile: 10, minimumAvailablePerGroup: 8 },
+  '/sites': [
+    { id: 's1', name: 'Tera', originUrl: 'https://tera.test', status: 'ACTIVE', hasOwnKey: true, articles: 0, owner: 'admin',
+      categoryId: 'c1', category: 'Recettes', plugin: { state: 'CONNECTED', version: '1.3.0', lastDeliveryAt: '2026-09-28T10:00:00Z' } },
+    { id: 's2', name: 'Nord', originUrl: 'https://nord.test', status: 'ACTIVE', hasOwnKey: false, articles: 0, owner: 'admin',
+      categoryId: null, category: null, plugin: { state: 'MISSING', message: 'Extension absente' } },
+  ],
+  '/categories': [{ id: 'c1', name: 'Recettes', groups: 2, sites: 1 }],
+  '/settings': { publishingEnabled: true },
 };
 const empty = { data: [], meta: { page: 1, limit: 12, total: 0, pages: 1 } };
 window.fetch = async (url, options = {}) => {
@@ -56,6 +62,13 @@ setTimeout(() => {
   check('le corps est marqué administrateur', window.document.body.classList.contains('is-admin'), [...window.document.body.classList]);
   check('la vue Comptes existe dans la navigation', !!$('.nav[data-view="users"]'), null);
   check('elle est réservée aux administrateurs', $('.nav[data-view="users"]').classList.contains('admin-only'), null);
+
+  const sites = $('#site-rows').textContent;
+  check('la page Sites dit quel site a l’extension', /Connectée/.test(sites) && /Absente/.test(sites), sites);
+  check('et la catégorie de chaque site', /Recettes/.test(sites) && /aucune — pas de post/.test(sites), sites);
+  check('les catégories sont listées', /Recettes/.test($('#category-rows').textContent), $('#category-rows').textContent);
+  check('le formulaire de site propose les catégories', $('#site-form select[name=categoryId]').options.length === 2, null);
+  check('un post peut être créé sans profil', $('#post-profile').options[0].textContent.includes('post ouvert') && !$('#post-profile').required, null);
 
   const rows = $('#user-rows').textContent;
   check('les comptes sont listés', rows.includes('admin') && rows.includes('sofia'), rows.slice(0, 80));

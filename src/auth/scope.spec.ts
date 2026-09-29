@@ -64,7 +64,10 @@ describe('les conditions de lecture', () => {
   /** Ce qui hérite n'a pas de colonne à lui : un post appartient au
    * propriétaire de son profil, un article à celui de son site. */
   it('font hériter les posts et les articles', () => {
-    expect(postWhere(manager)).toEqual({ profile: { ownerId: 'u1' } });
+    // Un post ouvert porte son propriétaire ; un ancien post, son profil.
+    expect(postWhere(manager)).toEqual({
+      OR: [{ ownerId: 'u1' }, { profile: { ownerId: 'u1' } }],
+    });
     expect(articleWhere(manager)).toEqual({ source: { ownerId: 'u1' } });
   });
 

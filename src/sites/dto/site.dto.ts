@@ -36,6 +36,15 @@ export class CreateSiteDto {
   @IsOptional()
   @IsEnum(RecordStatus)
   status?: RecordStatus;
+
+  @ApiPropertyOptional({
+    description:
+      'Ses articles partent vers les groupes de cette catégorie. Chaîne vide = aucune.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  categoryId?: string;
 }
 
 export class UpdateSiteDto extends PartialType(CreateSiteDto) {

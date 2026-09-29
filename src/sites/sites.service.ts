@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ContentSource, RecordStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../auth/current-user';
 import { CreateSiteDto, UpdateSiteDto } from './dto/site.dto';
 import {
@@ -38,6 +39,7 @@ export function publicSite(
   site: ContentSource & {
     _count?: { articles: number };
     owner?: { username: string } | null;
+    category?: { id: string; name: string } | null;
   },
 ) {
   return {
@@ -48,22 +50,38 @@ export function publicSite(
     ownerId: site.ownerId,
     owner: site.owner?.username ?? null,
     hasOwnKey: Boolean(site.depositKey),
+    categoryId: site.categoryId,
+    category: site.category?.name ?? null,
+    // L'extension WordPress : branchée ou non, et depuis quand on le sait.
+    plugin: {
+      state: site.pluginState,
+      version: site.pluginVersion,
+      message: site.pluginMessage,
+      checkedAt: site.pluginCheckedAt,
+      lastDeliveryAt: site.lastDeliveryAt,
+    },
     articles: site._count?.articles ?? 0,
     createdAt: site.createdAt,
   };
 }
 
+const SITE_INCLUDE = {
+  _count: { select: { articles: true } },
+  owner: { select: { username: true } },
+  category: { select: { id: true, name: true } },
+} as const;
+
 @Injectable()
 export class SitesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly categories: CategoriesService,
+  ) {}
 
   async findAll(acting: CurrentUser | null) {
     const sites = await this.prisma.contentSource.findMany({
       where: siteWhere(scopeOf(acting)),
-      include: {
-        _count: { select: { articles: true } },
-        owner: { select: { username: true } },
-      },
+      include: SITE_INCLUDE,
       orderBy: [{ status: 'asc' }, { name: 'asc' }],
     });
     return sites.map(publicSite);
@@ -88,6 +106,15 @@ export class SitesService {
     };
   }
 
+  async findOne(id: string, acting: CurrentUser | null) {
+    const site = await this.prisma.contentSource.findFirst({
+      where: { id, ...siteWhere(scopeOf(acting)) },
+      include: SITE_INCLUDE,
+    });
+    if (!site) throw new NotFoundException('Site introuvable');
+    return publicSite(site);
+  }
+
   async create(dto: CreateSiteDto, owner: CurrentUser | null) {
     const originUrl = normalizeSiteUrl(dto.originUrl);
     const existing = await this.prisma.contentSource.findUnique({
@@ -103,19 +130,18 @@ export class SitesService {
         name: dto.name.trim(),
         originUrl,
         depositKey: dto.depositKey?.trim() || null,
+        categoryId: (await this.categories.resolve(dto.categoryId)) ?? null,
         ownerId: owner?.id ?? null,
         status: dto.status ?? RecordStatus.ACTIVE,
       },
-      include: {
-        _count: { select: { articles: true } },
-        owner: { select: { username: true } },
-      },
+      include: SITE_INCLUDE,
     });
     return publicSite(site);
   }
 
   async update(id: string, dto: UpdateSiteDto, acting: CurrentUser | null) {
     await this.owned(id, acting);
+    const category = await this.categories.resolve(dto.categoryId);
     const site = await this.prisma.contentSource.update({
       where: { id },
       data: {
@@ -127,6 +153,7 @@ export class SitesService {
         // relit jamais, donc elle ne peut pas la renvoyer.
         ...(dto.depositKey ? { depositKey: dto.depositKey.trim() } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(category !== undefined ? { categoryId: category } : {}),
         // Chaîne vide : on retire le propriétaire. Absent : on n'y touche pas.
         ...(dto.ownerId !== undefined && seesEverything(scopeOf(acting))
           ? { ownerId: dto.ownerId || null }
@@ -134,10 +161,7 @@ export class SitesService {
       },
       // Sans cela la réponse annonce « sans propriétaire » juste après une
       // réattribution réussie : la relation n'est pas rechargée toute seule.
-      include: {
-        _count: { select: { articles: true } },
-        owner: { select: { username: true } },
-      },
+      include: SITE_INCLUDE,
     });
     return publicSite(site);
   }

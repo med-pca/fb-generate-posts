@@ -62,7 +62,7 @@ function makeHarness(item: MutableItem | null, jobItems: any[] = []) {
     activityLog: { create: jest.fn(async () => ({})) },
     $transaction: jest.fn(async (cb: any) => cb(tx)),
   };
-  const service = new JobsService(prisma, {} as any, {} as any);
+  const service = new JobsService(prisma, {} as any);
   return { service, prisma, tx };
 }
 
@@ -193,7 +193,11 @@ describe('JobsService — groupes rejoints uniquement', () => {
   function makeClaimHarness() {
     const prisma: any = {
       profile: {
-        findFirst: jest.fn(async () => ({ id: 'profile_1', status: 'ACTIVE' })),
+        findFirst: jest.fn(async () => ({
+          id: 'profile_1',
+          status: 'ACTIVE',
+          ownerId: 'u1',
+        })),
       },
       publicationJob: { findFirst: jest.fn(async () => null) },
       publicationJobItem: {},
@@ -205,8 +209,7 @@ describe('JobsService — groupes rejoints uniquement', () => {
       activityLog: { create: jest.fn(async () => ({})) },
     };
     prisma.publicationJob.updateMany = jest.fn(async () => ({ count: 0 }));
-    const settings: any = { replenishProfile: jest.fn(async () => ({})) };
-    const service = new JobsService(prisma, {} as any, settings);
+    const service = new JobsService(prisma, {} as any);
     return { service, prisma };
   }
 
@@ -233,5 +236,18 @@ describe('JobsService — groupes rejoints uniquement', () => {
     expect(prisma.group.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining(joinedLink) }),
     );
+  });
+
+  it('cherche ses posts ET les posts ouverts de son compte', async () => {
+    const { service, prisma } = makeClaimHarness();
+    await service.claimByProfileExternalId('demo-profile');
+    const [[{ where }]] = prisma.group.findMany.mock.calls;
+    expect(where.targets.some.post).toEqual({
+      status: 'AVAILABLE',
+      OR: [
+        { profileId: 'profile_1' },
+        { profileId: null, OR: [{ ownerId: null }, { ownerId: 'u1' }] },
+      ],
+    });
   });
 });

@@ -101,87 +101,116 @@ enum BrowserState {
 /// Un compte de la plateforme. Le premier ADMIN naît des identifiants du
 /// `.env` à la première connexion : une installation existante n'a rien à
 /// faire pour continuer à fonctionner.
+/// L'état de l'extension WordPress d'un site, vu depuis la plateforme.
+enum PluginState {
+  UNKNOWN // jamais vérifié
+  CONNECTED // la route répond et accepte la clé
+  BAD_KEY // l'extension répond, mais refuse la clé
+  MISSING // pas d'extension (ou désactivée)
+  UNREACHABLE // le site ne répond pas
+}
+
+/// Le thème commun à des groupes et des sites : c'est lui qui relie un
+/// article à ses groupes de diffusion. Une liste gérée, pour qu'un « Recettes »
+/// et un « recette » ne fassent pas deux thèmes.
+model Category {
+  id        String          @id @default(cuid())
+  name      String          @unique
+  groups    Group[]
+  sites     ContentSource[]
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  @@map("categories")
+}
+
 model User {
-  id           String       @id @default(cuid())
-  username     String       @unique
+  id            String          @id @default(cuid())
+  username      String          @unique
   /// `sel:empreinte`, scrypt. Le mot de passe n'est jamais stocké.
-  passwordHash String       @map("password_hash")
-  role         Role         @default(MANAGER)
-  status       RecordStatus @default(ACTIVE)
+  passwordHash  String          @map("password_hash")
+  role          Role            @default(MANAGER)
+  status        RecordStatus    @default(ACTIVE)
   /// Sa clé d'automatisation : son extension et son automate ne verront que
   /// son périmètre. Une clé par compte, sans quoi chacun atteindrait la file
   /// de tous les autres.
-  automationKey String      @unique @map("automation_key")
+  automationKey String          @unique @map("automation_key")
   /// La clé de l'API locale de NSTBrowser de ce compte. L'agent local la
   /// reçoit avec son plan, profil par profil : chaque compte ouvre ses
   /// navigateurs avec son propre abonnement, sans toucher au `.env` de la
   /// machine. NULL = l'agent retombe sur son `NST_API_KEY`.
-  nstApiKey    String?      @map("nst_api_key")
+  nstApiKey     String?         @map("nst_api_key")
   /// Ce que ce compte possède. Supprimer un compte ne détruit rien : ses
   /// ressources deviennent sans propriétaire, donc réservées aux ADMIN, qui
   /// peuvent les réattribuer.
-  profiles     Profile[]
-  groups       Group[]
-  sites        ContentSource[]
-  ingests      SourceIngest[]
+  profiles      Profile[]
+  groups        Group[]
+  posts         Post[]
+  sites         ContentSource[]
+  ingests       SourceIngest[]
   /// Ce qu'on lui a partagé. Publier seulement : ni renommer, ni
   /// désactiver, ni supprimer, ni repartager.
-  groupAccess  GroupAccess[]
-  siteAccess   SiteAccess[]
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
+  groupAccess   GroupAccess[]
+  siteAccess    SiteAccess[]
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
 
   @@index([status])
   @@map("users")
 }
 
 model Profile {
-  id               String       @id @default(cuid())
-  name             String
-  externalId       String?      @unique @map("external_id")
-  defaultImageUrl  String?      @map("default_image_url")
-  minPostsPerJob   Int          @default(2) @map("min_posts_per_job")
-  maxPostsPerJob   Int          @default(6) @map("max_posts_per_job")
+  id                       String           @id @default(cuid())
+  name                     String
+  externalId               String?          @unique @map("external_id")
+  defaultImageUrl          String?          @map("default_image_url")
+  minPostsPerJob           Int              @default(2) @map("min_posts_per_job")
+  maxPostsPerJob           Int              @default(6) @map("max_posts_per_job")
   /// Seuils d'alimentation propres au profil. NULL = suivre le réglage global.
-  minimumAvailable Int?         @map("minimum_available")
-  minimumAvailablePerGroup Int? @map("minimum_available_per_group")
+  minimumAvailable         Int?             @map("minimum_available")
+  minimumAvailablePerGroup Int?             @map("minimum_available_per_group")
   /// Qui possède cette ressource. NULL = sans propriétaire : seuls les
   /// ADMIN la voient, en attendant qu'on la réattribue.
-  ownerId          String?      @map("owner_id")
-  owner            User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  status           RecordStatus @default(ACTIVE)
+  ownerId                  String?          @map("owner_id")
+  owner                    User?            @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  status                   RecordStatus     @default(ACTIVE)
   /// Son pilotage : marche/arret, fenetre horaire, et ce que son navigateur
   /// rapporte. Absent = jamais pilote (donc a l'arret).
-  runner           ProfileRunner?
-  profileGroups    ProfileGroup[]
-  posts            Post[]
-  publicationJobs  PublicationJob[]
-  logs             ActivityLog[]
-  createdAt        DateTime     @default(now()) @map("created_at")
-  updatedAt        DateTime     @updatedAt @map("updated_at")
+  runner                   ProfileRunner?
+  profileGroups            ProfileGroup[]
+  posts                    Post[]
+  publicationJobs          PublicationJob[]
+  logs                     ActivityLog[]
+  createdAt                DateTime         @default(now()) @map("created_at")
+  updatedAt                DateTime         @updatedAt @map("updated_at")
 
   @@index([ownerId])
   @@map("profiles")
 }
 
 model Group {
-  id              String         @id @default(cuid())
+  id              String           @id @default(cuid())
   name            String
-  externalId      String?        @unique @map("external_id")
+  externalId      String?          @unique @map("external_id")
   url             String
-  ownerId         String?        @map("owner_id")
-  owner           User?          @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  status          RecordStatus   @default(ACTIVE)
+  ownerId         String?          @map("owner_id")
+  owner           User?            @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  /// Le thème du groupe. Un article reçu d'un site de la même catégorie
+  /// devient un post qui vise tous ces groupes à la fois.
+  categoryId      String?          @map("category_id")
+  category        Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  status          RecordStatus     @default(ACTIVE)
   profiles        ProfileGroup[]
   targets         PostTarget[]
   publicationJobs PublicationJob[]
   logs            ActivityLog[]
   access          GroupAccess[]
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([ownerId])
+  @@index([categoryId])
   @@map("groups")
 }
 
@@ -204,17 +233,17 @@ model GroupAccess {
 }
 
 model ProfileGroup {
-  id        String       @id @default(cuid())
-  profileId String       @map("profile_id")
-  profile   Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  groupId   String       @map("group_id")
-  group     Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  status    RecordStatus @default(ACTIVE)
-  joinStatus    JoinStatus @default(NOT_JOINED) @map("join_status")
-  joinCheckedAt DateTime?  @map("join_checked_at")
-  joinError     String?    @db.Text @map("join_error")
-  createdAt DateTime     @default(now()) @map("created_at")
-  updatedAt DateTime     @updatedAt @map("updated_at")
+  id            String       @id @default(cuid())
+  profileId     String       @map("profile_id")
+  profile       Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  groupId       String       @map("group_id")
+  group         Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status        RecordStatus @default(ACTIVE)
+  joinStatus    JoinStatus   @default(NOT_JOINED) @map("join_status")
+  joinCheckedAt DateTime?    @map("join_checked_at")
+  joinError     String?      @map("join_error") @db.Text
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
 
   @@unique([profileId, groupId])
   @@index([groupId, status])
@@ -223,29 +252,36 @@ model ProfileGroup {
 }
 
 model Post {
-  id          String     @id @default(cuid())
-  profileId   String     @map("profile_id")
-  profile     Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  id          String               @id @default(cuid())
+  /// NULL = post ouvert : n'importe quel profil qui a rejoint l'un de ses
+  /// groupes peut le publier, et chaque groupe ne le reçoit qu'une fois.
+  profileId   String?              @map("profile_id")
+  profile     Profile?             @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  /// À qui appartient un post ouvert (il n'a pas de profil pour le dire).
+  /// Seuls les profils de ce compte le publient. NULL = tous.
+  ownerId     String?              @map("owner_id")
+  owner       User?                @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   title       String
-  description String     @db.Text
+  description String               @db.Text
   url         String?
-  imageUrl    String?    @map("image_url")
+  imageUrl    String?              @map("image_url")
   delay       Int
-  sourceType  SourceType @default(MANUAL) @map("source_type")
-  externalId  String?    @map("external_id")
-  status      PostStatus @default(AVAILABLE)
-  rawData     Json?      @map("raw_data")
-  articleId   String?    @map("article_id")
-  article     Article?   @relation(fields: [articleId], references: [id], onDelete: SetNull)
-  socialAngle String?    @map("social_angle")
+  sourceType  SourceType           @default(MANUAL) @map("source_type")
+  externalId  String?              @map("external_id")
+  status      PostStatus           @default(AVAILABLE)
+  rawData     Json?                @map("raw_data")
+  articleId   String?              @map("article_id")
+  article     Article?             @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  socialAngle String?              @map("social_angle")
   targets     PostTarget[]
   jobItems    PublicationJobItem[]
   logs        ActivityLog[]
-  createdAt   DateTime   @default(now()) @map("created_at")
-  updatedAt   DateTime   @updatedAt @map("updated_at")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
 
   @@unique([sourceType, externalId])
   @@index([profileId, status])
+  @@index([ownerId])
   @@index([articleId])
   @@map("posts")
 }
@@ -254,24 +290,35 @@ model Post {
 /// et on peut y déposer des reprises. Déclaré dans la plateforme pour qu'une
 /// extension puisse choisir où publier.
 model ContentSource {
-  id         String       @id @default(cuid())
-  name       String
-  originUrl  String       @unique @map("origin_url")
+  id              String       @id @default(cuid())
+  name            String
+  originUrl       String       @unique @map("origin_url")
   /// Clé du plugin de CE site. Vide : la clé globale WORDPRESS_API_KEY sert.
   /// Deux sites n'ont aucune raison de partager la même.
-  depositKey String?      @map("deposit_key")
+  depositKey      String?      @map("deposit_key")
   /// Un site inactif n'est plus proposé comme destination ; ses articles et
   /// ses posts restent intacts.
-  ownerId    String?      @map("owner_id")
-  owner      User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  status     RecordStatus @default(ACTIVE)
-  articles   Article[]
-  access     SiteAccess[]
-  createdAt  DateTime     @default(now()) @map("created_at")
-  updatedAt  DateTime     @updatedAt @map("updated_at")
+  ownerId         String?      @map("owner_id")
+  owner           User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  /// Ses articles partent vers les groupes de cette catégorie.
+  categoryId      String?      @map("category_id")
+  category        Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  status          RecordStatus @default(ACTIVE)
+  /// L'extension WordPress de ce site : la dernière vérification de sa
+  /// route `dfb/v1/status`, et le dernier article qu'elle nous a envoyé.
+  pluginState     PluginState  @default(UNKNOWN) @map("plugin_state")
+  pluginVersion   String?      @map("plugin_version")
+  pluginMessage   String?      @map("plugin_message") @db.Text
+  pluginCheckedAt DateTime?    @map("plugin_checked_at")
+  lastDeliveryAt  DateTime?    @map("last_delivery_at")
+  articles        Article[]
+  access          SiteAccess[]
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([ownerId])
+  @@index([categoryId])
   @@map("content_sources")
 }
 
@@ -300,7 +347,7 @@ model Article {
   title           String
   slug            String
   excerpt         String?       @db.Text
-  metaDescription String?       @db.Text @map("meta_description")
+  metaDescription String?       @map("meta_description") @db.Text
   articleUrl      String        @map("article_url")
   coverImageUrl   String?       @map("cover_image_url")
   course          String?
@@ -313,7 +360,7 @@ model Article {
   publishedAt     DateTime?     @map("published_at")
   captions        Json
   hashtags        String[]
-  imagePrompt     String?       @db.Text @map("image_prompt")
+  imagePrompt     String?       @map("image_prompt") @db.Text
   rawData         Json          @map("raw_data")
   status          RecordStatus  @default(ACTIVE)
   posts           Post[]
@@ -332,36 +379,36 @@ model Article {
 /// l'image et le texte, la page source fournit le fond, et l'ensemble
 /// ressort en article réécrit puis en nouveau post.
 model SourceIngest {
-  id             String       @id @default(cuid())
-  facebookUrl    String       @map("facebook_url")
-  sourceUrl      String       @map("source_url")
+  id          String @id @default(cuid())
+  facebookUrl String @map("facebook_url")
+  sourceUrl   String @map("source_url")
   /// Site WordPress de destination, origine seule, sans barre finale.
-  siteUrl        String       @map("site_url")
-  language       String       @default("en")
+  siteUrl     String @map("site_url")
+  language    String @default("en")
 
   /// Ce que l'extension rapporte du post d'origine.
-  fbCaption      String?      @db.Text @map("fb_caption")
-  fbImageUrl     String?      @map("fb_image_url")
+  fbCaption   String? @map("fb_caption") @db.Text
+  fbImageUrl  String? @map("fb_image_url")
   /// Ce que la page source fournit, gardé pour rejouer la réécriture sans
   /// retourner la chercher.
-  sourceTitle    String?      @map("source_title")
-  sourceText     String?      @db.Text @map("source_text")
+  sourceTitle String? @map("source_title")
+  sourceText  String? @map("source_text") @db.Text
 
   /// Sortie du modèle, telle quelle.
-  generated      Json?
-  wpPostId       String?      @map("wp_post_id")
-  wpPermalink    String?      @map("wp_permalink")
+  generated   Json?
+  wpPostId    String?  @map("wp_post_id")
+  wpPermalink String?  @map("wp_permalink")
   /// Rempli au retour du plugin : la boucle est fermée.
-  articleId      String?      @unique @map("article_id")
-  article        Article?     @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  articleId   String?  @unique @map("article_id")
+  article     Article? @relation(fields: [articleId], references: [id], onDelete: SetNull)
 
   /// Qui a lancé la reprise. NULL pour celles nées de la clé globale.
-  ownerId        String?      @map("owner_id")
-  owner          User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  ownerId String? @map("owner_id")
+  owner   User?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
 
   /// Portée de la diffusion. Vide = tous les profils actifs et leurs groupes.
-  profileIds     String[]     @map("profile_ids")
-  groupIds       String[]     @map("group_ids")
+  profileIds String[] @map("profile_ids")
+  groupIds   String[] @map("group_ids")
 
   status         IngestStatus @default(PENDING_SCRAPE)
   /// Réservation de l'étape de collecte par une extension, même mécanique
@@ -369,7 +416,7 @@ model SourceIngest {
   claimedAt      DateTime?    @map("claimed_at")
   claimExpiresAt DateTime?    @map("claim_expires_at")
   attempts       Int          @default(0)
-  lastError      String?      @db.Text @map("last_error")
+  lastError      String?      @map("last_error") @db.Text
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
@@ -379,39 +426,39 @@ model SourceIngest {
 }
 
 model AutomationSetting {
-  id                       String   @id @default("global")
-  autoReplenishEnabled     Boolean  @default(true) @map("auto_replenish_enabled")
+  id                         String   @id @default("global")
+  autoReplenishEnabled       Boolean  @default(true) @map("auto_replenish_enabled")
   /// Coupe-circuit : a false, aucun profil ne publie, quel que soit son mode.
   /// Un seul interrupteur a couper quand quelque chose tourne mal.
-  publishingEnabled        Boolean  @default(true) @map("publishing_enabled")
-  minimumAvailablePerProfile Int    @default(10) @map("minimum_available_per_profile")
-  minimumAvailablePerGroup   Int    @default(8) @map("minimum_available_per_group")
-  createdAt                DateTime @default(now()) @map("created_at")
-  updatedAt                DateTime @updatedAt @map("updated_at")
+  publishingEnabled          Boolean  @default(true) @map("publishing_enabled")
+  minimumAvailablePerProfile Int      @default(10) @map("minimum_available_per_profile")
+  minimumAvailablePerGroup   Int      @default(8) @map("minimum_available_per_group")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
 
   @@map("automation_settings")
 }
 
 model PostTarget {
-  id             String       @id @default(cuid())
-  postId         String       @map("post_id")
-  post           Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
-  groupId        String       @map("group_id")
-  group          Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  status         TargetStatus @default(AVAILABLE)
-  claimedAt      DateTime?    @map("claimed_at")
-  claimExpiresAt DateTime?    @map("claim_expires_at")
-  consumedAt     DateTime?    @map("consumed_at")
-  publishedAt    DateTime?    @map("published_at")
-  commentExternalId String?   @map("comment_external_id")
-  commentedAt    DateTime?    @map("commented_at")
-  linkUpdatedAt  DateTime?    @map("link_updated_at")
-  attemptsCount  Int          @default(0) @map("attempts_count")
-  lastError      String?      @db.Text @map("last_error")
-  jobItems       PublicationJobItem[]
-  logs           ActivityLog[]
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  id                String               @id @default(cuid())
+  postId            String               @map("post_id")
+  post              Post                 @relation(fields: [postId], references: [id], onDelete: Cascade)
+  groupId           String               @map("group_id")
+  group             Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status            TargetStatus         @default(AVAILABLE)
+  claimedAt         DateTime?            @map("claimed_at")
+  claimExpiresAt    DateTime?            @map("claim_expires_at")
+  consumedAt        DateTime?            @map("consumed_at")
+  publishedAt       DateTime?            @map("published_at")
+  commentExternalId String?              @map("comment_external_id")
+  commentedAt       DateTime?            @map("commented_at")
+  linkUpdatedAt     DateTime?            @map("link_updated_at")
+  attemptsCount     Int                  @default(0) @map("attempts_count")
+  lastError         String?              @map("last_error") @db.Text
+  jobItems          PublicationJobItem[]
+  logs              ActivityLog[]
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
 
   @@unique([postId, groupId])
   @@index([groupId, status])
@@ -438,22 +485,22 @@ model PublicationJob {
 }
 
 model PublicationJobItem {
-  id              String         @id @default(cuid())
-  jobId           String         @map("job_id")
-  job             PublicationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  postId          String         @map("post_id")
-  post             Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
-  postTargetId    String         @map("post_target_id")
-  postTarget      PostTarget     @relation(fields: [postTargetId], references: [id], onDelete: Cascade)
-  status          TargetStatus   @default(CLAIMED)
-  externalPostUrl String?        @map("external_post_url")
-  publishedAt     DateTime?      @map("published_at")
-  commentExternalId String?      @map("comment_external_id")
-  commentedAt     DateTime?      @map("commented_at")
-  linkUpdatedAt   DateTime?      @map("link_updated_at")
-  error           String?        @db.Text
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
+  id                String         @id @default(cuid())
+  jobId             String         @map("job_id")
+  job               PublicationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  postId            String         @map("post_id")
+  post              Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postTargetId      String         @map("post_target_id")
+  postTarget        PostTarget     @relation(fields: [postTargetId], references: [id], onDelete: Cascade)
+  status            TargetStatus   @default(CLAIMED)
+  externalPostUrl   String?        @map("external_post_url")
+  publishedAt       DateTime?      @map("published_at")
+  commentExternalId String?        @map("comment_external_id")
+  commentedAt       DateTime?      @map("commented_at")
+  linkUpdatedAt     DateTime?      @map("link_updated_at")
+  error             String?        @db.Text
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
 
   @@unique([jobId, postId])
   @@map("publication_job_items")
@@ -476,11 +523,11 @@ model ProfileRunner {
 
   /// Fenetre de publication, en minutes depuis minuit dans `timezone`.
   /// NULL = pas de limite. Un debut superieur a la fin traverse la nuit.
-  windowStart Int?   @map("window_start")
-  windowEnd   Int?   @map("window_end")
+  windowStart Int?    @map("window_start")
+  windowEnd   Int?    @map("window_end")
   /// Jours ISO autorises, "1,2,3,4,5" pour lundi-vendredi. Vide = tous.
   days        String? @map("days")
-  timezone    String @default("Europe/Paris")
+  timezone    String  @default("Europe/Paris")
 
   /// Reglages pousses au navigateur, fusionnes par-dessus ses valeurs par
   /// defaut : l'operateur n'a plus rien a regler profil par profil.
@@ -509,7 +556,7 @@ model ProfileRunner {
   /// Ce que l'agent local rapporte sur le navigateur lui-meme.
   browserState   BrowserState @default(STOPPED) @map("browser_state")
   browserSeenAt  DateTime?    @map("browser_seen_at")
-  browserMessage String?      @db.Text @map("browser_message")
+  browserMessage String?      @map("browser_message") @db.Text
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

@@ -70,11 +70,19 @@ export const groupManageWhere = (scope: Scope): Prisma.GroupWhereInput =>
 export const siteManageWhere = (scope: Scope): Prisma.ContentSourceWhereInput =>
   ownedWhere(scope);
 
-/** Ce qui hérite : un post appartient au propriétaire de son profil, un
- * article à celui de son site. Rien à stocker de plus, et rien à
- * resynchroniser quand une ressource change de mains. */
+/** Un post porte son propriétaire (`ownerId`) : un post ouvert n'a pas de
+ * profil pour le dire. Les anciens posts, liés à un profil, restent aussi
+ * reconnus par le propriétaire de ce profil. Un article, lui, hérite de son
+ * site. */
 export const postWhere = (scope: Scope): Prisma.PostWhereInput =>
-  scope ? { profile: { ownerId: scope.ownerId } } : {};
+  scope
+    ? {
+        OR: [
+          { ownerId: scope.ownerId },
+          { profile: { ownerId: scope.ownerId } },
+        ],
+      }
+    : {};
 
 export const articleWhere = (scope: Scope): Prisma.ArticleWhereInput =>
   scope ? { source: { ownerId: scope.ownerId } } : {};

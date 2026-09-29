@@ -324,102 +324,59 @@ publication. Les liens créés avant cette fonctionnalité ont été passés à
 
 Pour activer OpenAI, renseigner `OPENAI_API_KEY` et `OPENAI_MODEL` dans `.env`.
 
-### Alimentation automatique par groupe
+### Catégories et posts ouverts
 
-Le stock se compte **groupe par groupe**, pas seulement par profil : un groupe
-descendu à trois ou quatre posts est réalimenté même quand le profil, tous
-groupes confondus, paraît fourni. Deux seuils pilotent l'opération :
+Il n'y a plus d'alimentation automatique : elle recréait des variantes pour
+remplir un stock par profil, d'où les doublons. Les posts naissent désormais
+des articles WordPress (import automatique → dépôt → mise en ligne → renvoi du
+plugin).
 
-| Réglage | Portée | Rôle |
-| --- | --- | --- |
-| `minimumAvailablePerGroup` | Global | Cibles disponibles attendues dans chaque groupe actif |
-| `minimumAvailablePerProfile` | Global | Plancher du profil, tous groupes confondus |
-| `Profile.minimumAvailablePerGroup` | Un profil | Remplace le seuil global par groupe |
-| `Profile.minimumAvailable` | Un profil | Remplace le plancher global du profil |
+```
+site (catégorie « Recettes »)
+   └─ article reçu ─> UN post ouvert ─> tous les groupes actifs « Recettes »
+                                        (chaque groupe le reçoit une fois,
+                                         par le premier profil qui l'a rejoint)
+```
 
-Les deux champs du profil sont facultatifs : à `null`, le profil suit les
-réglages globaux. Une valeur l'emporte pour ce profil seul.
+- **Catégories** : une liste gérée (page **Catégories**, `GET/POST
+  /api/categories`). Tout compte en crée ; seuls les ADMIN renomment ou
+  suppriment (`PATCH/DELETE /api/categories/{id}`). Un groupe et un site
+  portent chacun une catégorie (`categoryId`, chaîne vide = aucune).
+- **Un post ouvert** n'a pas de profil (`profileId: null`). Un profil le
+  réserve s'il a rejoint l'un de ses groupes, et s'il appartient au même compte
+  que le post (`ownerId`, celui du site ; un post sans propriétaire sert tous
+  les profils). La cible post × groupe ne part qu'une fois.
+- **Qui reçoit l'article** : les groupes actifs de la catégorie du site que son
+  propriétaire atteint (les siens et ceux qu'on lui partage ; tous pour un site
+  sans propriétaire ou tenu par un ADMIN). Une reprise qui a choisi ses
+  groupes (`groupIds`) les garde. **Un site sans catégorie ne produit aucun
+  post** : l'article est reçu, et un avertissement est journalisé.
+- **Créer un post à la main** : `profileId` est facultatif. Sans profil, ses
+  groupes doivent partager une même catégorie.
+
+Les anciens posts, liés à un profil, continuent de fonctionner comme avant.
+
+### L'extension WordPress de chaque site
+
+La page **Sites** dit, site par site, si le plugin Data FB Posting est
+installé et accepte la clé :
+
+| État | Signification |
+| --- | --- |
+| Connectée | La route `dfb/v1/status` répond et accepte la clé |
+| Clé refusée | Le plugin est là, mais la clé ne correspond pas |
+| Absente | Pas de route `dfb/v1` : plugin absent ou désactivé |
+| Site injoignable | Le site ne répond pas |
+| Non vérifiée | Jamais vérifié |
 
 ```http
-PATCH /api/profiles/{profileId}
-Content-Type: application/json
-
-{ "minimumAvailable": 30, "minimumAvailablePerGroup": 12 }
+POST /api/sites/check        # tous ses sites
+POST /api/sites/{id}/check   # un seul
 ```
 
-Remettre `null` efface la surcharge et fait retomber le profil sur le global.
-La réponse de `replenish-now` indique dans `thresholds` quels seuils ont
-réellement servi — sans ça, impossible de savoir si un profil a suivi son
-propre réglage ou le réglage général.
-
-#### Quand l'alimentation se déclenche
-
-| Déclencheur | Quand | Couvre |
-| --- | --- | --- |
-| Avant chaque réservation | `POST /jobs/claim/profile/{externalId}` et `claim/batch` | La période d'activité |
-| **Minuteur interne** | Toutes les `REPLENISH_INTERVAL_MINUTES` (15 par défaut) | **La période creuse** |
-| À la demande | `POST /api/settings/replenish-now` | Après un import d'articles |
-
-Le minuteur est le filet : sans lui, un profil au repos descend sous son seuil
-et y reste, puisque plus rien ne réserve. Mettre
-`REPLENISH_INTERVAL_MINUTES=0` le désactive ; `autoReplenishEnabled` en base
-coupe l'alimentation dans tous les cas. `GET /api/settings` renvoie la cadence
-effective, et l'écran Paramètres l'affiche.
-
-Un passage ne chevauche jamais le précédent : sur beaucoup de profils
-l'alimentation peut durer plus longtemps que l'intervalle, le tour est alors
-sauté. Une erreur est avalée et tracée en `REPLENISH_FAILED` — si elle
-remontait, le minuteur mourrait et les profils se videraient en silence. Un
-passage qui n'a rien produit n'écrit rien en base : 96 lignes par jour
-noieraient les journaux utiles.
-
-Sur plusieurs instances, chacune fera tourner son minuteur. Les collisions sont
-absorbées (`P2002`), mais réglez `REPLENISH_INTERVAL_MINUTES=0` sur toutes sauf
-une pour éviter le travail en double.
-
-```http
-PATCH /api/settings
-POST  /api/settings/replenish-now             # tous les profils actifs
-POST  /api/settings/replenish-now/{profileId} # un seul profil
-POST  /api/settings/replenish-now/all         # un passage du minuteur
-```
-
-Depuis cron ou à la main, `scripts/replenish.sh` fait la même chose en ligne de
-commande :
-
-```bash
-export API_BASE=https://post.pulserecipe.com/api
-export ADMIN_USERNAME=... ADMIN_PASSWORD=...
-./scripts/replenish.sh                # tous les profils
-./scripts/replenish.sh <profileId>    # un seul
-```
-
-Pour chaque groupe en manque, dans cet ordre :
-
-1. **Rattachement** : les posts déjà disponibles du profil qui ne visent pas
-   encore ce groupe lui sont ajoutés comme cibles. Aucun contenu n'est dupliqué.
-2. **Création** : les légendes des articles actifs deviennent de nouveaux posts.
-   Les articles les moins exploités passent en premier, et un même post sert
-   d'un coup tous les groupes encore en manque.
-3. **Variantes** : quand le catalogue est épuisé, les légendes déjà employées
-   resservent sous un `externalId` suffixé (`article:profil:0:v1`, `:v2`…). Le
-   même article réalimente donc un groupe indéfiniment, plutôt que de le
-   laisser vide.
-
-La réponse détaille l'état de chaque groupe et les seuils appliqués :
-
-```json
-{
-  "profileId": "profile_id",
-  "generated": 5,
-  "reused": 2,
-  "thresholds": { "perProfile": 10, "perGroup": 8 },
-  "groups": [{ "groupId": "g1", "name": "Groupe 1", "available": 8, "missing": 0 }]
-}
-```
-
-Chaque exécution est plafonnée à 200 posts et tracée en `POSTS_REPLENISHED`
-dans les journaux.
+Le serveur vérifie aussi tous les sites actifs toutes les
+`SITE_CHECK_INTERVAL_MINUTES` (360 par défaut, 0 = jamais), et un site qui nous
+envoie un article est marqué connecté à la réception (`lastDeliveryAt`).
 
 ## Pilotage des profils
 
@@ -660,9 +617,6 @@ Ce que chaque bloc sert à trancher :
 | `COMMENT_LINK_UPDATED` | INFO | Le commentaire porte désormais l’URL |
 | `JOB_FINALIZED` | INFO | Toutes les URL sont en place |
 | `CLAIM_LOST` | ERROR | Réservation reprise — vérification manuelle |
-| `POSTS_REPLENISHED` | INFO | Réapprovisionnement, détail par groupe dans `metadata` |
-| `REPLENISH_SCHEDULED` | INFO | Passage du minuteur ayant produit des posts |
-| `REPLENISH_FAILED` | ERROR | Passage du minuteur en échec |
 | `INGEST_CREATED` | INFO | Une reprise a été enregistrée |
 | `INGEST_SCRAPE_CLAIMED` | INFO | Une extension a réservé une collecte |
 | `INGEST_SCRAPED` | INFO | Le texte et l’image du post d’origine sont arrivés |
@@ -704,7 +658,6 @@ export ADMIN_USERNAME=... ADMIN_PASSWORD=... AUTOMATION_API_KEY=...
 
 ./scripts/smoke-job-lifecycle.sh   # claim -> consumed -> published -> complete
 ./scripts/smoke-comment-link.sh    # le parcours post -> commentaire -> URL
-./scripts/replenish.sh             # forcer une alimentation depuis les articles
 ```
 
 `smoke-ingest.sh` déroule une reprise complète sur une API qui tourne, étage

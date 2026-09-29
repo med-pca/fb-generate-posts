@@ -10,8 +10,11 @@ import {
 } from 'class-validator';
 
 export class CreatePostDto {
+  /** Absent : post ouvert, publié par n'importe quel profil du compte qui a
+   * rejoint l'un de ses groupes. */
+  @IsOptional()
   @IsString()
-  profileId!: string;
+  profileId?: string;
 
   @IsString()
   title!: string;
