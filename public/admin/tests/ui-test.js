@@ -104,16 +104,19 @@ setTimeout(async () => {
     queueCalls.push(`${options.method || 'GET'} ${path}`);
     if (path.startsWith('/posts/queue')) {
       return { ok: true, status: 200, json: async () => ({
-        counts: { running: 1, upcoming: 12, published: 1 },
+        counts: { running: 1, upcoming: 12, published: 1, failed: 1 },
+        failed: [{ targetId: 't-f', error: 'Le groupe n’accepte plus les publications', attempts: 2, failedAt: '2026-09-30T07:00:00Z', post: post('f'), group, profile: salim, candidates: [salim] }],
         running: [{ state: 'publishing', since: '2026-09-30T09:00:00Z', post: post('r'), group, profile: salim }],
         upcoming: [
-          { rank: 1, post: post('a', 3), group, candidates: [salim] },
-          { rank: 2, post: post('b'), group, candidates: [] },
+          { rank: 1, targetId: 't-a', post: post('a', 3), group, candidates: [salim], forcedProfile: salim, forcedAt: '2026-09-30T09:00:00Z' },
+          { rank: 2, targetId: 't-b', post: post('b'), group, candidates: [] },
         ],
         published: [{ publishedAt: '2026-09-30T08:00:00Z', post: post('p'), group, profile: salim, facebookUrl: 'https://facebook.com/groups/g1/posts/9', link: 'placed' }],
       }) };
     }
     if (path.includes('/priority')) return { ok: true, status: 200, json: async () => ({ id: 'b', priority: 4 }) };
+    if (path.startsWith('/posts/targets/')) return { ok: true, status: 200, json: async () => ({ warning: path.endsWith('/force') && options.body.includes('p1') ? 'Salim est à l’arrêt dans le Pilotage.' : null }) };
+    if (path === '/posts/f') return { ok: true, status: 200, json: async () => ({ id: 'f', title: 'Post f', description: 'Texte long', url: 'https://site.test/f', imageUrl: 'https://img.test/f.jpg', delay: 20 }) };
     return beforeQueue(url, options);
   };
   window.eval(`showPostsTab('queue')`);
@@ -132,6 +135,35 @@ setTimeout(async () => {
   $('[data-prio="b"][data-move="top"]').click();
   await new Promise((resolve) => setTimeout(resolve, 50));
   check('« En tête » envoie la priorité', queueCalls.includes('PATCH /posts/b/priority'), queueCalls);
+
+  // ─── Échecs, envoi forcé, retrait, modification ──────────────────
+  check('les échecs sont listés avec leur raison', /n’accepte plus les publications/.test($('#queue-failed').textContent) && $('#q-failed').textContent === '1', $('#queue-failed').textContent);
+  check('un échec dit quel profil a essayé', /par Salim/.test($('#queue-failed').textContent), null);
+  $('[data-retry="t-f"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Relancer » relance l’échec', queueCalls.includes('POST /posts/targets/t-f/retry'), queueCalls);
+
+  check('un envoi forcé est visible dans la file', /→ Salim au prochain passage/.test($('#queue-upcoming').textContent), null);
+  const forceSelect = $('select[data-force="t-f"]');
+  forceSelect.value = 'p1';
+  forceSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Envoyer par… » force le profil choisi', queueCalls.includes('PUT /posts/targets/t-f/force'), queueCalls);
+  check('et prévient si ce profil est à l’arrêt', /à l’arrêt/.test($('#notice').textContent), $('#notice').textContent);
+  check('un groupe sans profil ne propose pas d’envoi', $('#queue-upcoming tr:nth-child(2) select').disabled, null);
+  $('[data-unforce="t-a"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« annuler » rend la publication à la file', queueCalls.filter((c) => c === 'PUT /posts/targets/t-a/force').length === 1, queueCalls);
+
+  $('[data-remove-target="t-b"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Retirer » ne retire que ce groupe', queueCalls.includes('DELETE /posts/targets/t-b'), queueCalls);
+
+  $('[data-edit-queued="f"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Modifier » ouvre le post complet', $('#post-modal').open && $('#post-form').elements.description.value === 'Texte long', $('#post-form').elements.description.value);
+  check('avec l’aperçu de son image', !$('#post-image-preview').hidden && $('#post-image-preview').src === 'https://img.test/f.jpg', null);
+  $('#post-modal').close();
   window.fetch = beforeQueue;
 
   check('la fenêtre d’appairage a les marges des autres', !!$('#pair-modal > .modal-body'), null);

@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -24,7 +25,11 @@ import { PostsService } from './posts.service';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { QueryPostsDto } from './dto/query-posts.dto';
 import { BulkDeletePostsDto } from './dto/bulk-delete-posts.dto';
-import { PriorityDto, QueueQueryDto } from './dto/queue.dto';
+import {
+  ForceTargetDto,
+  PriorityDto,
+  QueueQueryDto,
+} from './dto/queue.dto';
 import { QueueService } from './queue.service';
 
 @ApiTags('posts')
@@ -48,6 +53,47 @@ export class PostsController {
   })
   queue(@Query() query: QueueQueryDto, @ActingUser() acting: CurrentUser) {
     return this.queueService.queue(query, acting);
+  }
+
+  @Post('targets/:targetId/retry')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Relancer une publication en échec dans son groupe',
+  })
+  retry(
+    @Param('targetId') targetId: string,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.queueService.retry(targetId, acting);
+  }
+
+  @Delete('targets/:targetId')
+  @ApiOperation({
+    summary: 'Retirer un post d’un seul groupe',
+    description:
+      'Le post reste dans ses autres groupes ; s’il ne visait que celui-ci, il ' +
+      'est supprimé. Une publication faite ou en cours ne se retire pas.',
+  })
+  removeTarget(
+    @Param('targetId') targetId: string,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.queueService.removeTarget(targetId, acting);
+  }
+
+  @Put('targets/:targetId/force')
+  @ApiOperation({
+    summary: 'Faire publier par un profil précis, au plus tôt',
+    description:
+      'Le profil la prend en premier à son prochain passage ; aucun autre ne ' +
+      'la prend entre-temps. `profileId: null` la rend à la file.',
+  })
+  force(
+    @Param('targetId') targetId: string,
+    @Body() dto: ForceTargetDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.queueService.force(targetId, dto.profileId ?? null, acting);
   }
 
   @Patch(':id/priority')

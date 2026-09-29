@@ -874,7 +874,10 @@ function openModal(id) {
   if (id === 'group-modal') fillGroupProfiles([]);
   $('#post-category-label').hidden = false;
   $('#target-field').hidden = false;
-  if (id === 'post-modal') loadCategoryGroups('');
+  if (id === 'post-modal') {
+    loadCategoryGroups('');
+    $('#post-image-preview').hidden = true;
+  }
   d.showModal();
 }
 $$('[data-view]').forEach((b) => (b.onclick = () => view(b.dataset.view)));
@@ -1304,6 +1307,7 @@ $('#post-form').onsubmit = async (e) => {
     e.target.closest('dialog').close();
     notice(id ? 'Post modifié.' : 'Post créé.');
     await load();
+    if (state.queue.tab === 'queue') await loadQueue();
   } catch (x) {
     notice(x.message, 'error');
   }
@@ -1360,6 +1364,18 @@ function renderQueue() {
   $('#q-running').textContent = d.counts.running;
   $('#q-upcoming').textContent = d.counts.upcoming;
   $('#q-published').textContent = d.counts.published;
+  $('#q-failed').textContent = d.counts.failed;
+
+  $('#queue-failed-panel').hidden = !d.failed.length;
+  $('#queue-failed').innerHTML = d.failed
+    .map(
+      (f) =>
+        `<tr><td>${queuePost(f.post)}</td><td>${queueGroup(f.group)}</td>` +
+        `<td><div class="queue-error">${esc(f.error)}</div>` +
+        `<small>${f.profile ? `par ${esc(f.profile.name)} · ` : ''}${esc(when(f.failedAt))} · ${f.attempts} tentative(s)</small></td>` +
+        `<td>${targetActions(f, { retry: true })}</td></tr>`,
+    )
+    .join('');
 
   $('#queue-running').innerHTML =
     d.running
@@ -1380,17 +1396,22 @@ function renderQueue() {
           : '<span class="chip join-questions" title="Aucun profil n’a rejoint ce groupe : ce post n’en partira pas">aucun profil</span>';
         return (
           `<tr><td><span class="rank ${u.rank === 1 ? 'next' : ''}">${u.rank}</span></td>` +
-          `<td>${queuePost(u.post)}</td><td>${queueGroup(u.group)}</td><td><div class="chips">${candidates}</div></td>` +
+          `<td>${queuePost(u.post)}</td><td>${queueGroup(u.group)}</td><td>` +
+          (u.forcedProfile
+            ? `<div class="forced" title="Forcé le ${esc(when(u.forcedAt))}">→ ${esc(u.forcedProfile.name)} au prochain passage` +
+              `<button data-unforce="${u.targetId}" title="Rendre à la file normale">annuler</button></div>`
+            : '') +
+          `<div class="chips">${candidates}</div></td>` +
           `<td>${prio ? `<span class="prio ${prio < 0 ? 'low' : ''}">${prio > 0 ? '+' : ''}${prio}</span>` : ''}` +
           `<div class="row-actions">` +
           `<button class="edit" data-prio="${u.post.id}" data-move="top" title="Passer devant tous les autres">⤒ En tête</button>` +
           `<button class="edit" data-prio="${u.post.id}" data-move="up" title="Avancer d’un cran">↑</button>` +
           `<button class="edit" data-prio="${u.post.id}" data-move="down" title="Reculer d’un cran">↓</button>` +
           (prio ? `<button class="edit" data-prio="${u.post.id}" data-move="reset" title="Priorité normale">Réinit.</button>` : '') +
-          `</div></td></tr>`
+          `</div></td><td>${targetActions(u)}</td></tr>`
         );
       })
-      .join('') || '<tr><td colspan="5" class="empty">Aucun post en attente pour ce filtre.</td></tr>';
+      .join('') || '<tr><td colspan="6" class="empty">Aucun post en attente pour ce filtre.</td></tr>';
   $('#queue-more').hidden = d.upcoming.length >= d.counts.upcoming;
 
   $('#queue-published').innerHTML =
@@ -1405,6 +1426,73 @@ function renderQueue() {
       .join('') || '<tr><td colspan="5" class="empty">Aucune publication pour ce filtre.</td></tr>';
   $('#queue-more-published').hidden = d.published.length >= d.counts.published;
 }
+
+/** Les gestes sur une publication (un post dans un groupe) : l'envoyer
+ * par un profil précis, modifier le post, le retirer de ce groupe — et,
+ * pour un échec, le relancer. */
+function targetActions(row, { retry = false } = {}) {
+  const who = row.candidates.length
+    ? `<select data-force="${row.targetId}" title="Ce profil la publiera en premier à son prochain passage">` +
+      '<option value="">Envoyer par…</option>' +
+      row.candidates.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('') +
+      '</select>'
+    : '<select disabled title="Aucun profil n’a rejoint ce groupe"><option>Aucun profil dans ce groupe</option></select>';
+  return (
+    `<div class="queue-actions">${who}<div class="row-actions">` +
+    (retry ? `<button class="edit" data-retry="${row.targetId}">↻ Relancer</button>` : '') +
+    `<button class="edit" data-edit-queued="${row.post.id}">Modifier</button>` +
+    `<button class="danger" data-remove-target="${row.targetId}" data-title="${esc(row.post.title)}" data-group="${esc(row.group.name)}">Retirer</button>` +
+    `</div></div>`
+  );
+}
+
+async function queueAction(request, success, button) {
+  if (button) button.disabled = true;
+  try {
+    const result = await request();
+    notice(result?.warning ? `${success} ${result.warning}` : success, result?.warning ? 'error' : 'success');
+    await loadQueue();
+  } catch (x) {
+    notice(x.message, 'error');
+    if (button) button.disabled = false;
+  }
+}
+
+/** Modifier texte et image depuis la file : on relit le post entier (la
+ * file n'en porte qu'un aperçu), puis la fenêtre de modification habituelle. */
+async function openPostEditor(postId) {
+  try {
+    const post = await api(`/posts/${postId}`);
+    openModal('post-modal');
+    const f = $('#post-form');
+    for (const k of ['id', 'title', 'description', 'url', 'imageUrl', 'delay'])
+      f.elements[k].value = post[k] ?? '';
+    $('#post-category-label').hidden = true;
+    $('#target-field').hidden = true;
+    $('h2', $('#post-modal')).textContent = 'Modifier le post';
+    previewPostImage();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+}
+function previewPostImage() {
+  const url = $('#post-form').elements.imageUrl.value.trim();
+  const img = $('#post-image-preview');
+  img.hidden = !/^https?:\/\//.test(url);
+  if (!img.hidden) img.src = url;
+}
+$('#post-form').elements.imageUrl.addEventListener('input', previewPostImage);
+
+document.addEventListener('change', (e) => {
+  const targetId = e.target.dataset?.force;
+  if (!targetId || !e.target.value) return;
+  const name = e.target.selectedOptions[0].textContent;
+  void queueAction(
+    () => api(`/posts/targets/${targetId}/force`, { method: 'PUT', body: JSON.stringify({ profileId: e.target.value }) }),
+    `${name} publiera ce post en premier à son prochain passage.`,
+    e.target,
+  );
+});
 
 function showPostsTab(tab) {
   state.queue.tab = tab;
@@ -1525,6 +1613,35 @@ document.addEventListener('click', (e) => {
       .then(load)
       .then(() => notice('État du profil modifié.'))
       .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  if (e.target.dataset.retry) {
+    void queueAction(
+      () => api(`/posts/targets/${e.target.dataset.retry}/retry`, { method: 'POST' }),
+      'Relancé : la publication repart dans la file.',
+      e.target,
+    );
+    return;
+  }
+  if (e.target.dataset.unforce) {
+    void queueAction(
+      () => api(`/posts/targets/${e.target.dataset.unforce}/force`, { method: 'PUT', body: JSON.stringify({ profileId: null }) }),
+      'Rendu à la file normale.',
+      e.target,
+    );
+    return;
+  }
+  if (e.target.dataset.editQueued) {
+    void openPostEditor(e.target.dataset.editQueued);
+    return;
+  }
+  if (e.target.dataset.removeTarget) {
+    const { removeTarget, title, group } = e.target.dataset;
+    if (!confirm(`Retirer « ${title} » du groupe « ${group} » ?\nIl reste dans ses autres groupes ; s’il ne visait que celui-ci, il est supprimé.`)) return;
+    void queueAction(async () => {
+      const r = await api(`/posts/targets/${removeTarget}`, { method: 'DELETE' });
+      return r;
+    }, `« ${title} » retiré de « ${group} ».`, e.target);
     return;
   }
   if (e.target.dataset.prio) {
@@ -1828,6 +1945,7 @@ document.addEventListener('click', (e) => {
     $('#post-category-label').hidden = true;
     $('#target-field').hidden = true;
     $('h2', $('#post-modal')).textContent = 'Modifier le post';
+    previewPostImage();
   }
 });
 

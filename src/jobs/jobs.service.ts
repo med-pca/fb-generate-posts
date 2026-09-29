@@ -90,6 +90,14 @@ export function claimablePostWhere(profile: {
   };
 }
 
+/** Les cibles qu'un profil peut prendre : celles qui ne sont pas forcées
+ * vers un AUTRE profil. */
+export function notForcedElsewhere(
+  profileId: string,
+): Prisma.PostTargetWhereInput {
+  return { OR: [{ forcedProfileId: null }, { forcedProfileId: profileId }] };
+}
+
 @Injectable()
 export class JobsService {
   constructor(
@@ -175,6 +183,8 @@ export class JobsService {
         LEFT JOIN articles a ON a.id = p.article_id
         WHERE pt.group_id = ${dto.groupId}
           AND pt.status = 'AVAILABLE'::"TargetStatus"
+          -- Une cible forcée vers un autre profil lui est réservée.
+          AND (pt.forced_profile_id IS NULL OR pt.forced_profile_id = ${dto.profileId})
           -- Ses propres posts, ou un post ouvert de son compte (sans
           -- propriétaire : de tous). Chaque cible ne part qu'une fois : le
           -- premier profil qui la réserve publie dans ce groupe.
@@ -192,7 +202,8 @@ export class JobsService {
         -- La file : priorité d'abord, puis le plus ancien. C'est l'ordre que
         -- la page « File d'attente » affiche ; le hasard le rendait
         -- impossible à prévoir comme à piloter.
-        ORDER BY p.priority DESC, p.created_at ASC, pt.created_at ASC
+        ORDER BY (pt.forced_profile_id IS NOT NULL) DESC,
+          p.priority DESC, p.created_at ASC, pt.created_at ASC
         FOR UPDATE OF pt SKIP LOCKED
         LIMIT ${count}
       `);
@@ -441,6 +452,7 @@ export class JobsService {
           some: {
             status: TargetStatus.AVAILABLE,
             post: { status: 'AVAILABLE', ...claimablePostWhere(profile) },
+            ...notForcedElsewhere(profile.id),
           },
         },
       },
@@ -482,18 +494,32 @@ export class JobsService {
             groupId: group.id,
             status: TargetStatus.AVAILABLE,
             post: { status: 'AVAILABLE', ...claimablePostWhere(profile) },
+            ...notForcedElsewhere(profile.id),
           },
           orderBy: [
+            { forcedProfileId: { sort: 'asc', nulls: 'last' } },
             { post: { priority: 'desc' } },
             { post: { createdAt: 'asc' } },
           ],
-          select: { post: { select: { priority: true } } },
+          select: {
+            forcedProfileId: true,
+            post: { select: { priority: true } },
+          },
         });
-        return { group, priority: top?.post.priority ?? 0, tie: Math.random() };
+        return {
+          group,
+          // Un envoi forcé passe avant toute priorité.
+          forced: top?.forcedProfileId === profile.id ? 1 : 0,
+          priority: top?.post.priority ?? 0,
+          tie: Math.random(),
+        };
       }),
     );
     return tops
-      .sort((a, b) => b.priority - a.priority || a.tie - b.tie)
+      .sort(
+        (a, b) =>
+          b.forced - a.forced || b.priority - a.priority || a.tie - b.tie,
+      )
       .map(({ group }) => group);
   }
 

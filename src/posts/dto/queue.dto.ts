@@ -1,6 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 /** Ce que la file montre : filtrée par catégorie ou par groupe. */
 export class QueueQueryDto {
@@ -49,4 +57,12 @@ export class PriorityDto {
   @Min(-1000)
   @Max(1000)
   priority?: number;
+}
+
+/** Envoyer une cible par un profil précis. `null` rend la cible à la file. */
+export class ForceTargetDto {
+  @ApiPropertyOptional({ nullable: true })
+  @ValidateIf((dto: ForceTargetDto) => dto.profileId !== null)
+  @IsString()
+  profileId!: string | null;
 }

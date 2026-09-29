@@ -180,6 +180,7 @@ model Profile {
   runner                   ProfileRunner?
   profileGroups            ProfileGroup[]
   posts                    Post[]
+  forcedTargets            PostTarget[]     @relation("ForcedTargets")
   publicationJobs          PublicationJob[]
   logs                     ActivityLog[]
   createdAt                DateTime         @default(now()) @map("created_at")
@@ -464,6 +465,11 @@ model PostTarget {
   linkUpdatedAt     DateTime?            @map("link_updated_at")
   attemptsCount     Int                  @default(0) @map("attempts_count")
   lastError         String?              @map("last_error") @db.Text
+  /// Envoi forcé : ce profil prend cette cible en premier à son prochain
+  /// passage, et aucun autre ne la prend entre-temps. NULL = file normale.
+  forcedProfileId   String?              @map("forced_profile_id")
+  forcedProfile     Profile?             @relation("ForcedTargets", fields: [forcedProfileId], references: [id], onDelete: SetNull)
+  forcedAt          DateTime?            @map("forced_at")
   jobItems          PublicationJobItem[]
   logs              ActivityLog[]
   createdAt         DateTime             @default(now()) @map("created_at")
@@ -471,6 +477,7 @@ model PostTarget {
 
   @@unique([postId, groupId])
   @@index([groupId, status])
+  @@index([forcedProfileId])
   @@map("post_targets")
 }
 

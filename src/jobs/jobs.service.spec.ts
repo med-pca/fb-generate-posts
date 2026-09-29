@@ -280,6 +280,33 @@ describe('JobsService — groupes rejoints uniquement', () => {
     expect(tried).toEqual(['urgent', 'moyen', 'calme']);
   });
 
+  it('un envoi forcé vers ce profil passe avant toute priorité', async () => {
+    const { service, prisma } = makeClaimHarness();
+    prisma.group.findMany.mockResolvedValue([{ id: 'prioritaire' }, { id: 'force' }]);
+    prisma.postTarget.findFirst = jest.fn(async ({ where }: any) =>
+      where.groupId === 'force'
+        ? { forcedProfileId: 'profile_1', post: { priority: 0 } }
+        : { forcedProfileId: null, post: { priority: 50 } },
+    );
+    const tried: string[] = [];
+    jest.spyOn(service, 'claim').mockImplementation(async (dto: any) => {
+      tried.push(dto.groupId);
+      return { job: null, posts: [] };
+    });
+    await service.claimByProfileExternalId('demo-profile');
+    expect(tried[0]).toBe('force');
+  });
+
+  it('ne propose pas une cible forcée vers un autre profil', async () => {
+    const { service, prisma } = makeClaimHarness();
+    await service.claimByProfileExternalId('demo-profile');
+    const [[{ where }]] = prisma.group.findMany.mock.calls;
+    expect(where.targets.some.OR).toEqual([
+      { forcedProfileId: null },
+      { forcedProfileId: 'profile_1' },
+    ]);
+  });
+
   it('cherche ses posts ET les posts ouverts de son compte', async () => {
     const { service, prisma } = makeClaimHarness();
     await service.claimByProfileExternalId('demo-profile');

@@ -397,6 +397,18 @@ tête dans **tous** ses groupes.
 GET /api/posts/queue?categoryId=&groupId=&limit=10&publishedLimit=20
 ```
 
+**Agir sur une publication** (un post dans un groupe), depuis la file :
+
+| Geste | Effet | Route |
+| --- | --- | --- |
+| ↻ Relancer | Un échec repart en attente, raison effacée (le compteur de tentatives reste) | `POST /api/posts/targets/{id}/retry` |
+| Envoyer par… | Le profil choisi la prend **en premier à son prochain passage** ; aucun autre ne la prend entre-temps. Un échec est relancé au passage. Refusé si le profil n'a pas rejoint le groupe ; averti s'il est à l'arrêt dans le Pilotage | `PUT /api/posts/targets/{id}/force` `{"profileId": "…"}` (`null` = annuler) |
+| Retirer | Retire le post de **ce groupe seulement** ; s'il ne visait que lui, il est supprimé. Refusé pour une publication faite ou en cours | `DELETE /api/posts/targets/{id}` |
+| Modifier | Texte, lien, image (avec aperçu) du post, dans tous ses groupes | `PATCH /api/posts/{id}` |
+
+Le tableau **En échec** montre la raison, le profil qui a essayé et le nombre
+de tentatives. Journaux : `TARGET_RETRIED`, `TARGET_FORCED`, `TARGET_REMOVED`.
+
 ### L'extension WordPress de chaque site
 
 La page **Sites** dit, site par site, si le plugin Data FB Posting est
