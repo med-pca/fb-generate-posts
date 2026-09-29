@@ -7,6 +7,8 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { GeneratePostsDto } from './dto/generate-posts.dto';
+import type { CurrentUser } from '../auth/current-user';
+import { postGroupIds } from '../posts/post-groups';
 
 type GeneratedPayload = {
   posts: Array<{ title: string; description: string }>;
@@ -19,7 +21,7 @@ export class GenerationService {
     private readonly config: ConfigService,
   ) {}
 
-  async generate(dto: GeneratePostsDto) {
+  async generate(dto: GeneratePostsDto, acting: CurrentUser | null = null) {
     if (dto.delayMin > dto.delayMax) {
       throw new BadRequestException(
         'delayMin doit être inférieur ou égal à delayMax',
@@ -33,20 +35,12 @@ export class GenerationService {
       );
     }
 
-    const uniqueGroupIds = [...new Set(dto.groupIds)];
-    const groupCount = await this.prisma.group.count({
-      where: {
-        id: { in: uniqueGroupIds },
-        profiles: {
-          some: { profileId: dto.profileId, status: 'ACTIVE' },
-        },
-      },
-    });
-    if (groupCount !== uniqueGroupIds.length) {
-      throw new BadRequestException(
-        'Tous les groupes doivent appartenir au profil demandé',
-      );
-    }
+    // Des groupes seulement, jamais un profil : voir `postGroupIds`.
+    const uniqueGroupIds = await postGroupIds(
+      this.prisma,
+      dto.groupIds,
+      acting,
+    );
 
     const openai = new OpenAI({ apiKey });
     const response = await openai.responses.create({
@@ -97,7 +91,7 @@ export class GenerationService {
       payload.posts.map((generated) =>
         this.prisma.post.create({
           data: {
-            profileId: dto.profileId,
+            ownerId: acting?.id ?? null,
             title: generated.title,
             description: generated.description,
             url: dto.url,

@@ -37,9 +37,6 @@ class JsonPostDto {
 }
 
 export class ImportJsonDto {
-  @IsString()
-  profileId!: string;
-
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })

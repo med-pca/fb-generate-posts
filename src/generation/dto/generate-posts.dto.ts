@@ -10,9 +10,6 @@ import {
 } from 'class-validator';
 
 export class GeneratePostsDto {
-  @IsString()
-  profileId!: string;
-
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -37,7 +38,7 @@ export class GroupsService {
     return this.prisma.group.create({
       data: {
         ...fields,
-        categoryId: (await this.categories.resolve(categoryId)) ?? null,
+        categoryId: await this.requiredCategory(categoryId),
         ownerId: owner?.id ?? null,
         profiles: { create: { profileId } },
       },
@@ -147,6 +148,14 @@ export class GroupsService {
     return group;
   }
 
+  private async requiredCategory(categoryId: string | undefined) {
+    const category = await this.categories.resolve(categoryId ?? '');
+    if (!category) {
+      throw new BadRequestException('Choisissez la catégorie du groupe');
+    }
+    return category;
+  }
+
   private async reachableProfile(id: string, acting: CurrentUser | null) {
     const profile = await this.prisma.profile.findFirst({
       where: { id, ...profileWhere(scopeOf(acting)) },
@@ -156,10 +165,26 @@ export class GroupsService {
     return profile;
   }
 
+  /** Une modification laisse toujours le groupe dans une catégorie. Seul un
+   * changement d'état (activer, désactiver) passe sans elle : on doit pouvoir
+   * couper un ancien groupe pas encore rangé. */
   async update(id: string, dto: UpdateGroupDto, acting: CurrentUser | null) {
     await this.ownedGroup(id, acting);
     const { categoryId, ...fields } = dto;
-    const category = await this.categories.resolve(categoryId);
+    const statusOnly = Object.keys(fields).every((key) => key === 'status');
+    if (categoryId === undefined && !statusOnly) {
+      const current = await this.prisma.group.findUnique({
+        where: { id },
+        select: { categoryId: true },
+      });
+      if (!current?.categoryId) {
+        throw new BadRequestException('Choisissez la catégorie du groupe');
+      }
+    }
+    const category =
+      categoryId === undefined
+        ? undefined
+        : await this.requiredCategory(categoryId);
     return this.prisma.group.update({
       where: { id },
       data: {

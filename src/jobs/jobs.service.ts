@@ -485,10 +485,32 @@ export class JobsService {
     const publishedAt = dto.publishedAt
       ? new Date(dto.publishedAt)
       : new Date();
-    return this.updateItem(jobId, postId, TargetStatus.PUBLISHED, {
-      publishedAt,
-      externalPostUrl: dto.externalPostUrl,
+    const result = await this.updateItem(
+      jobId,
+      postId,
+      TargetStatus.PUBLISHED,
+      { publishedAt, externalPostUrl: dto.externalPostUrl },
+    );
+    await this.archiveArticleOf(postId, publishedAt);
+    return result;
+  }
+
+  /** Le premier post publié d'un article l'archive : il a servi, on n'en
+   * tirera plus d'autre post. Son post continue sa tournée des groupes
+   * (chacun ne le reçoit qu'une fois). Sans effet sur un article déjà
+   * archivé, ni sur un post qui ne vient d'aucun article. */
+  private async archiveArticleOf(postId: string, publishedAt: Date) {
+    const { count } = await this.prisma.article.updateMany({
+      where: { archivedAt: null, posts: { some: { id: postId } } },
+      data: { archivedAt: publishedAt },
     });
+    if (count) {
+      await this.log({
+        postId,
+        eventType: 'ARTICLE_ARCHIVED',
+        message: 'Article archivé : un de ses posts vient d’être publié',
+      });
+    }
   }
 
   async markFailed(

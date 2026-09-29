@@ -363,6 +363,10 @@ model Article {
   imagePrompt     String?       @map("image_prompt") @db.Text
   rawData         Json          @map("raw_data")
   status          RecordStatus  @default(ACTIVE)
+  /// Posé à la première publication d'un de ses posts : l'article a servi,
+  /// on n'en tire plus de nouveau post. Son post déjà créé finit sa tournée
+  /// des groupes (chacun le reçoit une fois).
+  archivedAt      DateTime?     @map("archived_at")
   posts           Post[]
   ingest          SourceIngest?
   importedAt      DateTime      @default(now()) @map("imported_at")

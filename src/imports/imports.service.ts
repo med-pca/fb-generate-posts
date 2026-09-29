@@ -1,27 +1,18 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ImportJsonDto } from './dto/import-json.dto';
+import type { CurrentUser } from '../auth/current-user';
+import { postGroupIds } from '../posts/post-groups';
 
 @Injectable()
 export class ImportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async importJson(dto: ImportJsonDto) {
-    const groupIds = [...new Set(dto.groupIds)];
-    const groupCount = await this.prisma.group.count({
-      where: {
-        id: { in: groupIds },
-        profiles: {
-          some: { profileId: dto.profileId, status: 'ACTIVE' },
-        },
-      },
-    });
-    if (groupCount !== groupIds.length) {
-      throw new BadRequestException(
-        'Tous les groupes doivent appartenir au profil demandé',
-      );
-    }
+  /** Les posts importés ne visent que des groupes : le profil qui publie
+   * dans l'un d'eux viendra les y chercher. */
+  async importJson(dto: ImportJsonDto, acting: CurrentUser | null = null) {
+    const groupIds = await postGroupIds(this.prisma, dto.groupIds, acting);
 
     let imported = 0;
     let duplicates = 0;
@@ -29,7 +20,7 @@ export class ImportsService {
       try {
         await this.prisma.post.create({
           data: {
-            profileId: dto.profileId,
+            ownerId: acting?.id ?? null,
             title: sourcePost.title,
             description: sourcePost.description,
             url: sourcePost.url,

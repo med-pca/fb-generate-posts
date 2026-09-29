@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -12,7 +13,8 @@ import { UpdateArticleDto } from './dto/update-article.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
 import type { CurrentUser } from '../auth/current-user';
-import { articleWhere, profileWhere, scopeOf } from '../auth/scope';
+import { articleWhere, scopeOf } from '../auth/scope';
+import { postGroupIds } from '../posts/post-groups';
 import { assertSafeRemoteUrl } from '../common/safe-fetch';
 
 type SocialCaption = { text: string; angle?: string };
@@ -150,25 +152,14 @@ export class ArticlesService {
     }
     const article = await this.prisma.article.findUnique({ where: { id } });
     if (!article) throw new NotFoundException('Article introuvable');
-    const groupIds = [...new Set(dto.groupIds)];
-    // Le profil visé doit lui aussi être à portée : sans ça, on créerait
-    // des posts sur le profil d'un autre compte.
-    const profile = await this.prisma.profile.findFirst({
-      where: { id: dto.profileId, ...profileWhere(scopeOf(acting)) },
-      select: { id: true },
-    });
-    if (!profile) throw new NotFoundException('Profil introuvable');
-    const validGroups = await this.prisma.group.count({
-      where: {
-        id: { in: groupIds },
-        profiles: { some: { profileId: dto.profileId, status: 'ACTIVE' } },
-      },
-    });
-    if (validGroups !== groupIds.length) {
-      throw new BadRequestException(
-        'Tous les groupes doivent être associés au profil sélectionné',
+    // Un article qui a déjà été publié a servi : en tirer d'autres posts
+    // referait circuler le même contenu dans les mêmes groupes.
+    if (article.archivedAt) {
+      throw new ConflictException(
+        'Cet article est archivé : ses posts ont commencé à être publiés, il ne sert plus',
       );
     }
+    const groupIds = await postGroupIds(this.prisma, dto.groupIds, acting);
 
     const captions = this.captionsOf(article);
     if (!captions.length) {
@@ -179,12 +170,13 @@ export class ArticlesService {
     return this.prisma.$transaction(
       captions.map((_, slot) => {
         const { profileId, sourceType, externalId, ...content } =
-          this.postDataForSlot(article, slot, dto);
+          this.postDataForSlot(article, slot, { ...dto, profileId: null });
         return this.prisma.post.upsert({
           where: { sourceType_externalId: { sourceType, externalId } },
           create: {
             ...content,
             profileId,
+            ownerId: acting?.id ?? null,
             sourceType,
             externalId,
             targets: { create: groupIds.map((groupId) => ({ groupId })) },

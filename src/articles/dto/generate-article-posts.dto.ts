@@ -9,10 +9,6 @@ import {
 } from 'class-validator';
 
 export class GenerateArticlePostsDto {
-  @ApiProperty()
-  @IsString()
-  profileId!: string;
-
   @ApiProperty({ type: [String] })
   @IsArray()
   @ArrayNotEmpty()

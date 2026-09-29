@@ -351,8 +351,14 @@ site (catégorie « Recettes »)
   sans propriétaire ou tenu par un ADMIN). Une reprise qui a choisi ses
   groupes (`groupIds`) les garde. **Un site sans catégorie ne produit aucun
   post** : l'article est reçu, et un avertissement est journalisé.
-- **Créer un post à la main** : `profileId` est facultatif. Sans profil, ses
-  groupes doivent partager une même catégorie.
+- **Un post n'est jamais lié à un profil**, seulement à des groupes d'une
+  même catégorie : à la main (`POST /api/posts`), depuis un article
+  (« Créer les posts »), par import JSON ou par génération. Le profil vient
+  chercher le post dans le groupe où il publie.
+- **Un article sert une fois** : à la première publication d'un de ses posts,
+  il est archivé (`archivedAt`, événement `ARTICLE_ARCHIVED`). On n'en tire plus
+  de nouveau post (« Créer les posts » est refusé, 409). Son post déjà créé
+  finit sa tournée des groupes, chacun le recevant une fois.
 
 Les anciens posts, liés à un profil, continuent de fonctionner comme avant.
 
@@ -617,6 +623,7 @@ Ce que chaque bloc sert à trancher :
 | `COMMENT_LINK_UPDATED` | INFO | Le commentaire porte désormais l’URL |
 | `JOB_FINALIZED` | INFO | Toutes les URL sont en place |
 | `CLAIM_LOST` | ERROR | Réservation reprise — vérification manuelle |
+| `ARTICLE_ARCHIVED` | INFO | Premier post publié : l’article ne sert plus |
 | `INGEST_CREATED` | INFO | Une reprise a été enregistrée |
 | `INGEST_SCRAPE_CLAIMED` | INFO | Une extension a réservé une collecte |
 | `INGEST_SCRAPED` | INFO | Le texte et l’image du post d’origine sont arrivés |

@@ -379,23 +379,25 @@
       </main>
     </div>
     <dialog id="pair-modal">
-      <div class="modal-head">
-        <div>
-          <small>APPAIRAGE</small>
-          <h2 id="pair-title">Code d’appairage</h2>
+      <div class="modal-body">
+        <div class="modal-head">
+          <div>
+            <small>APPAIRAGE</small>
+            <h2 id="pair-title">Code d’appairage</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
         </div>
-        <button class="close" type="button" data-close>×</button>
-      </div>
-      <p class="form-help">
-        Colle ce code dans l’extension du navigateur qui doit tenir ce profil
-        (icône de l’extension → Options → Appairage). Il lui apprend l’adresse
-        de l’API, sa clé, et lequel des profils il est — rien d’autre à saisir.
-      </p>
-      <div class="pair-code" id="pair-code">········</div>
-      <p class="form-help" id="pair-expiry"></p>
-      <div class="actions">
-        <button class="secondary" type="button" id="pair-copy">Copier</button
-        ><button class="primary" type="button" data-close>Fermé</button>
+        <div class="pair-code" id="pair-code">········</div>
+        <p class="pair-expiry" id="pair-expiry"></p>
+        <ol class="pair-steps">
+          <li>Ouvrez le navigateur qui doit tenir ce profil.</li>
+          <li>Icône de l’extension → <b>Options</b> → <b>Appairage</b>.</li>
+          <li>Collez le code : l’adresse de l’API, la clé et le profil sont réglés d’un coup.</li>
+        </ol>
+        <div class="actions">
+          <button class="secondary" type="button" id="pair-copy">Copier le code</button
+          ><button class="primary" type="button" data-close>Fermer</button>
+        </div>
       </div>
     </dialog>
     <dialog id="runner-modal">
@@ -457,7 +459,6 @@
           <button class="close" type="button" data-close>×</button>
         </div>
         <label>Nom<input name="name" required /></label
-        ><label>Catégorie<select name="categoryId" class="category-select"></select></label
         ><label>État<select name="status"><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select></label
         ><label>Identifiant externe<input name="externalId" /></label
         ><label
@@ -569,6 +570,7 @@
     </dialog>
 
     <dialog id="key-modal">
+      <div class="modal-body">
       <div class="modal-head">
         <div><small>CLÉ D'AUTOMATISATION</small><h2 id="key-title">Clé du compte</h2></div>
         <button class="close" type="button" data-close>×</button>
@@ -580,6 +582,7 @@
       <pre id="key-value" class="key"></pre>
       <div class="actions">
         <button type="button" class="primary" data-close>J'ai copié</button>
+      </div>
       </div>
     </dialog>
 
@@ -660,6 +663,9 @@
           </div>
         </fieldset>
         <label>Nom<input name="name" required /></label
+        ><label
+          >Catégorie<select name="categoryId" class="category-select" data-required required></select>
+          <small id="group-category-help">Obligatoire : le groupe reçoit les articles des sites de cette catégorie.</small></label
         ><label>État<select name="status"><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select></label
         ><label>Identifiant externe<input name="externalId" /></label
         ><label
@@ -685,12 +691,9 @@
           </div>
           <button class="close" type="button" data-close>×</button>
         </div>
-        <label id="post-profile-label"
-          >Profil<select name="profileId" id="post-profile"></select>
-          <small>Sans profil, le post est ouvert : le premier profil qui a rejoint un de ses groupes l'y publie.</small></label
-        ><label id="post-category-label"
-          >Catégorie<select id="post-category"></select>
-          <small>Les groupes d'un post ouvert sont ceux d'une même catégorie.</small></label
+        <label id="post-category-label"
+          >Catégorie<select id="post-category" class="groups-by-category" data-groups="#post-groups"></select>
+          <small>Un post n'est lié qu'à des groupes d'une même catégorie : le profil qui publie dans l'un d'eux vient l'y chercher.</small></label
         >
         <fieldset id="target-field">
           <legend>Groupes cibles</legend>
@@ -767,12 +770,13 @@
           <button class="close" type="button" data-close>×</button>
         </div>
         <label
-          >Profil<select name="profileId" id="article-profile" required></select
-        ></label>
+          >Catégorie<select id="article-category" class="groups-by-category" data-groups="#article-groups"></select>
+          <small>Les posts ne sont liés qu'aux groupes : le profil qui publie dans l'un d'eux vient les y chercher.</small></label
+        >
         <fieldset>
           <legend>Groupes cibles</legend>
           <div id="article-groups" class="checks">
-            <span>Choisissez d’abord un profil.</span>
+            <span>Choisissez une catégorie.</span>
           </div>
         </fieldset>
         <div class="two">

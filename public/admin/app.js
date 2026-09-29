@@ -177,7 +177,7 @@ function render() {
     state.groups
       .map(
         (g) =>
-          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td>${g.category ? `<span class="chip">${esc(g.category.name)}</span>` : '<span class="muted">—</span>'}</td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip join-${(x.joinStatus || 'NOT_JOINED').toLowerCase()}" title="${esc(JOIN_LABELS[x.joinStatus] || '')}${x.joinError ? ' · ' + esc(x.joinError) : ''}">${esc(x.profile.name)} · ${esc(JOIN_LABELS[x.joinStatus] || 'Non rejoint')}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
+          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td>${g.category ? `<span class="chip">${esc(g.category.name)}</span>` : '<span class="chip join-questions" title="Modifiez le groupe pour lui choisir une catégorie : sans elle, il ne reçoit aucun article">À ranger</span>'}</td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip join-${(x.joinStatus || 'NOT_JOINED').toLowerCase()}" title="${esc(JOIN_LABELS[x.joinStatus] || '')}${x.joinError ? ' · ' + esc(x.joinError) : ''}">${esc(x.profile.name)} · ${esc(JOIN_LABELS[x.joinStatus] || 'Non rejoint')}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
       )
       .join('') ||
     '<tr><td colspan="6"><div class="empty">Aucun groupe</div></td></tr>';
@@ -533,21 +533,28 @@ function renderCategories() {
       )
       .join('') ||
     '<tr><td colspan="4" class="empty">Aucune catégorie. Créez-en une, puis rangez-y vos groupes et vos sites.</td></tr>';
-  const options =
-    '<option value="">Aucune catégorie</option>' +
-    state.categories
-      .map((c) => `<option value="${c.id}">${esc(c.name)}</option>`)
-      .join('');
+  const list = state.categories
+    .map((c) => `<option value="${c.id}">${esc(c.name)}</option>`)
+    .join('');
+  // Un groupe doit avoir sa catégorie : son choix vide n'est qu'une invite,
+  // que `required` refuse. Un site, lui, peut rester sans catégorie.
   $$('.category-select').forEach((select) => {
     const current = select.value;
-    select.innerHTML = options;
+    select.innerHTML =
+      (select.hasAttribute('data-required')
+        ? '<option value="" disabled selected>Choisir une catégorie</option>'
+        : '<option value="">Aucune catégorie</option>') + list;
     select.value = current;
   });
-  $('#post-category').innerHTML =
+  $('#group-category-help').textContent = state.categories.length
+    ? 'Obligatoire : le groupe reçoit les articles des sites de cette catégorie.'
+    : 'Aucune catégorie : créez-en une dans la page Catégories avant d’ajouter un groupe.';
+  const choose =
     '<option value="">Choisir une catégorie</option>' +
     state.categories
       .map((c) => `<option value="${c.id}">${esc(c.name)}</option>`)
       .join('');
+  $$('.groups-by-category').forEach((select) => (select.innerHTML = choose));
 }
 
 function renderArticles() {
@@ -555,7 +562,7 @@ function renderArticles() {
     state.articles
       .map(
         (a) =>
-          `<article class="article-card ${a.status === 'INACTIVE' ? 'inactive' : ''}">${a.coverImageUrl ? `<img src="${esc(a.coverImageUrl)}" alt="" loading="lazy">` : '<div class="article-placeholder">Aucune image</div>'}<div class="article-body"><div class="post-meta"><span>${esc(a.source.name)}</span><span>${a.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.excerpt || a.metaDescription || '')}</p><div class="article-facts"><span>${esc(a.course || 'Article')}</span>${a.totalMinutes ? `<span>${a.totalMinutes} min</span>` : ''}<span>${a._count.posts} posts</span></div><div class="card-actions"><a class="edit" href="${esc(a.articleUrl)}" target="_blank">Voir ↗</a><button class="edit" data-toggle-article="${a.id}">${a.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-article="${a.id}">Modifier</button><button class="danger" data-delete-article="${a.id}">Supprimer</button><button class="danger" data-delete-article-posts="${a.id}" ${a._count.posts ? '' : 'disabled'}>Supprimer les posts</button><button class="primary compact" data-generate="${a.id}" ${a.status === 'INACTIVE' ? 'disabled' : ''}>Créer les posts</button></div></div></article>`,
+          `<article class="article-card ${a.status === 'INACTIVE' ? 'inactive' : ''}">${a.coverImageUrl ? `<img src="${esc(a.coverImageUrl)}" alt="" loading="lazy">` : '<div class="article-placeholder">Aucune image</div>'}<div class="article-body"><div class="post-meta"><span>${esc(a.source.name)}</span><span>${a.archivedAt ? `<span class="pill archived" title="Un de ses posts a été publié le ${esc(when(a.archivedAt))} : on n'en tire plus de nouveau post">ARCHIVÉ</span>` : a.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.excerpt || a.metaDescription || '')}</p><div class="article-facts"><span>${esc(a.course || 'Article')}</span>${a.totalMinutes ? `<span>${a.totalMinutes} min</span>` : ''}<span>${a._count.posts} posts</span></div><div class="card-actions"><a class="edit" href="${esc(a.articleUrl)}" target="_blank">Voir ↗</a><button class="edit" data-toggle-article="${a.id}">${a.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-article="${a.id}">Modifier</button><button class="danger" data-delete-article="${a.id}">Supprimer</button><button class="danger" data-delete-article-posts="${a.id}" ${a._count.posts ? '' : 'disabled'}>Supprimer les posts</button><button class="primary compact" data-generate="${a.id}" ${a.status === 'INACTIVE' || a.archivedAt ? 'disabled' : ''} ${a.archivedAt ? 'title="Article archivé : ses posts ont commencé à être publiés"' : ''}>Créer les posts</button></div></div></article>`,
       )
       .join('') ||
     '<div class="empty">Importez votre premier article JSON.</div>';
@@ -568,7 +575,7 @@ function renderPosts() {
     state.posts
       .map(
         (p) =>
-          `<article class="post-card ${state.selection.has(p.id) ? 'selected' : ''}"><div class="post-meta"><label class="inline-check"><input type="checkbox" data-select-post="${p.id}" ${state.selection.has(p.id) ? 'checked' : ''}>${p.profileId ? esc(state.profileOptions.find((x) => x.id === p.profileId)?.name || 'Profil') : '<span class="chip">Ouvert</span>'}</label><span>${p.delay} min</span></div><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="chips">${p.targets
+          `<article class="post-card ${state.selection.has(p.id) ? 'selected' : ''}"><div class="post-meta"><label class="inline-check"><input type="checkbox" data-select-post="${p.id}" ${state.selection.has(p.id) ? 'checked' : ''}>${p.targets.length} groupe(s)</label><span>${p.delay} min</span></div><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="chips">${p.targets
             .slice(0, 3)
             .map((x) => `<span class="chip">${esc(x.group.name)}</span>`)
             .join(
@@ -691,10 +698,6 @@ function fillProfiles() {
     .filter((p) => p.status === 'ACTIVE')
     .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`)
     .join('');
-  $('#post-profile').innerHTML =
-    '<option value="">Aucun — post ouvert</option>' + options;
-  $('#article-profile').innerHTML =
-    '<option value="">Choisir un profil</option>' + options;
   const f = $('#post-filter');
   f.innerHTML = '<option value="">Tous les profils</option>' + options;
   f.value = state.postFilters.profileId;
@@ -753,8 +756,8 @@ function fillGroupProfiles(selected = []) {
 }
 /** Un post ouvert vise les groupes d'une même catégorie : les choisir par
  * catégorie, tous cochés d'office — c'est le cas courant. */
-function loadCategoryGroups(categoryId) {
-  const box = $('#post-groups');
+function loadCategoryGroups(categoryId, boxSelector = '#post-groups') {
+  const box = $(boxSelector);
   if (!categoryId) {
     box.innerHTML = '<span>Choisissez une catégorie.</span>';
     return;
@@ -772,11 +775,6 @@ function loadCategoryGroups(categoryId) {
 }
 async function loadGroups(profileId, boxSelector = '#post-groups') {
   const box = $(boxSelector);
-  if (boxSelector === '#post-groups') {
-    // Sans profil, la catégorie choisit les groupes ; avec, le profil.
-    $('#post-category-label').hidden = Boolean(profileId);
-    if (!profileId) return loadCategoryGroups($('#post-category').value);
-  }
   if (!profileId) {
     box.innerHTML = '<span>Choisissez d’abord un profil.</span>';
     return;
@@ -864,7 +862,6 @@ function openModal(id) {
             ? 'Nouveau compte'
             : 'Nouveau post';
   if (id === 'group-modal') fillGroupProfiles([]);
-  $('#post-profile-label').hidden = false;
   $('#post-category-label').hidden = false;
   $('#target-field').hidden = false;
   if (id === 'post-modal') loadCategoryGroups('');
@@ -941,13 +938,11 @@ $('#post-bulk-delete').onclick = async () => {
     notice(x.message, 'error');
   }
 };
-$('#post-profile').onchange = (e) =>
-  loadGroups(e.target.value).catch((x) => notice(x.message, 'error'));
-$('#post-category').onchange = (e) => loadCategoryGroups(e.target.value);
-$('#article-profile').onchange = (e) =>
-  loadGroups(e.target.value, '#article-groups').catch((x) =>
-    notice(x.message, 'error'),
-  );
+$$('.groups-by-category').forEach(
+  (select) =>
+    (select.onchange = (e) =>
+      loadCategoryGroups(e.target.value, e.target.dataset.groups)),
+);
 $('#login-form').onsubmit = async (e) => {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target));
@@ -1011,7 +1006,6 @@ $('#generate-form').onsubmit = async (e) => {
   const form = new FormData(e.target);
   const articleId = form.get('articleId');
   const data = {
-    profileId: form.get('profileId'),
     groupIds: form.getAll('groupIds'),
     delayMin: Number(form.get('delayMin')),
     delayMax: Number(form.get('delayMax')),
@@ -1288,7 +1282,6 @@ $('#post-form').onsubmit = async (e) => {
     delete d.profileId;
     delete d.groupIds;
   } else {
-    if (!d.profileId) delete d.profileId;
     d.groupIds = f.getAll('groupIds');
     if (!d.groupIds.length)
       return notice('Sélectionnez au moins un groupe.', 'error');
@@ -1464,8 +1457,7 @@ document.addEventListener('click', (e) => {
     $('#generate-form').elements.articleId.value = article.id;
     $('#caption-info').textContent =
       `${article.captions.length} variantes seront créées à partir des légendes de l’article.`;
-    $('#article-groups').innerHTML =
-      '<span>Choisissez d’abord un profil.</span>';
+    loadCategoryGroups('', '#article-groups');
     return;
   }
   let p = state.profiles.find((x) => x.id === e.target.dataset.editProfile);
@@ -1634,7 +1626,6 @@ document.addEventListener('click', (e) => {
     const f = $('#post-form');
     for (const k of [
       'id',
-      'profileId',
       'title',
       'description',
       'url',
@@ -1642,7 +1633,6 @@ document.addEventListener('click', (e) => {
       'delay',
     ])
       f.elements[k].value = post[k] ?? '';
-    $('#post-profile-label').hidden = true;
     $('#post-category-label').hidden = true;
     $('#target-field').hidden = true;
     $('h2', $('#post-modal')).textContent = 'Modifier le post';

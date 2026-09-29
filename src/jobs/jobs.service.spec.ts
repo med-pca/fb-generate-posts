@@ -60,11 +60,37 @@ function makeHarness(item: MutableItem | null, jobItems: any[] = []) {
       update: jest.fn(async ({ data }: any) => data),
     },
     activityLog: { create: jest.fn(async () => ({})) },
+    // L'article d'un post publié est archivé (0 : déjà archivé, ou aucun).
+    article: { updateMany: jest.fn(async () => ({ count: 0 })) },
     $transaction: jest.fn(async (cb: any) => cb(tx)),
   };
   const service = new JobsService(prisma, {} as any);
   return { service, prisma, tx };
 }
+
+describe('JobsService — archivage de l’article', () => {
+  it('archive l’article à la première publication de l’un de ses posts', async () => {
+    const { service, prisma } = makeHarness(makeItem());
+    prisma.article.updateMany.mockResolvedValue({ count: 1 });
+    const publishedAt = '2026-09-14T11:00:00.000Z';
+    await service.markPublished('job_1', 'post_1', { publishedAt } as any);
+    expect(prisma.article.updateMany).toHaveBeenCalledWith({
+      where: { archivedAt: null, posts: { some: { id: 'post_1' } } },
+      data: { archivedAt: new Date(publishedAt) },
+    });
+    expect(prisma.activityLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ eventType: 'ARTICLE_ARCHIVED', postId: 'post_1' }),
+    });
+  });
+
+  it('ne journalise rien quand l’article l’était déjà', async () => {
+    const { service, prisma } = makeHarness(makeItem());
+    await service.markPublished('job_1', 'post_1', {} as any);
+    expect(prisma.activityLog.create).not.toHaveBeenCalledWith({
+      data: expect.objectContaining({ eventType: 'ARTICLE_ARCHIVED' }),
+    });
+  });
+});
 
 describe('JobsService — cycle de vie d’un post', () => {
   it('enchaîne consumed puis published', async () => {

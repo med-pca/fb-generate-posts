@@ -1,5 +1,11 @@
 import { RecordStatus } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, IsUrl } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUrl,
+} from 'class-validator';
 
 export class CreateGroupDto {
   @IsOptional()
@@ -15,8 +21,9 @@ export class CreateGroupDto {
   @IsUrl({ require_tld: false })
   url!: string;
 
-  /** Chaîne vide = sans catégorie. */
-  @IsOptional()
+  /** Obligatoire : c'est la catégorie qui décide quels articles arrivent
+   * dans ce groupe. Un groupe sans catégorie ne recevrait rien. */
   @IsString()
-  categoryId?: string;
+  @IsNotEmpty({ message: 'Choisissez la catégorie du groupe' })
+  categoryId!: string;
 }

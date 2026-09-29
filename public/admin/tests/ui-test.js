@@ -68,7 +68,12 @@ setTimeout(() => {
   check('et la catégorie de chaque site', /Recettes/.test(sites) && /aucune — pas de post/.test(sites), sites);
   check('les catégories sont listées', /Recettes/.test($('#category-rows').textContent), $('#category-rows').textContent);
   check('le formulaire de site propose les catégories', $('#site-form select[name=categoryId]').options.length === 2, null);
-  check('un post peut être créé sans profil', $('#post-profile').options[0].textContent.includes('post ouvert') && !$('#post-profile').required, null);
+  check('un post ne se lie plus à un profil', !$('#post-form [name=profileId]') && !$('#generate-form [name=profileId]'), null);
+  check('ses groupes se choisissent par catégorie', $('#post-category').options.length === 2 && $('#article-category').options.length === 2, null);
+  const groupCategory = $('#group-form select[name=categoryId]');
+  check('la catégorie d’un groupe est obligatoire', groupCategory.required && groupCategory.value === '' && !groupCategory.checkValidity(), groupCategory.value);
+  check('le groupe ne propose pas « Aucune catégorie »', ![...groupCategory.options].some((o) => /Aucune/.test(o.textContent)), null);
+  check('la fenêtre d’appairage a les marges des autres', !!$('#pair-modal > .modal-body'), null);
 
   const rows = $('#user-rows').textContent;
   check('les comptes sont listés', rows.includes('admin') && rows.includes('sofia'), rows.slice(0, 80));

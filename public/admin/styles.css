@@ -296,6 +296,10 @@ h2 {
   color: #b42318;
   background: #fde8e7;
 }
+.pill.archived {
+  color: #667085;
+  background: #eef1f6;
+}
 .pill.plugin-unknown {
   color: #667085;
   background: #eef1f6;
@@ -947,17 +951,43 @@ body:not(.is-admin) .admin-only { display: none; }
 .access-row:last-child { border-bottom: 0; }
 .access-empty { padding: 7px 0; font-size: 13px; color: var(--muted, #65676b); }
 
+/* Les fenêtres sans formulaire (appairage, clé) : mêmes marges que
+   `dialog form`, sinon leur contenu colle aux bords. */
+.modal-body {
+  display: grid;
+  gap: 15px;
+  padding: 25px;
+}
+
 /* Le code d'appairage : il est recopié à la main, donc il doit être gros,
    espacé, et dans une police où le zéro ne ressemble pas à un O. */
 .pair-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 34px;
-  font-weight: 700;
-  letter-spacing: 6px;
+  font-size: 2.3rem;
+  font-weight: 750;
+  letter-spacing: 0.35em;
   text-align: center;
-  padding: 18px 12px;
-  margin: 4px 0 10px;
-  border-radius: 10px;
-  background: var(--card, #f5f6f7);
+  color: var(--ink);
+  padding: 22px 12px 22px calc(12px + 0.35em);
+  border: 1px dashed #b9c6e4;
+  border-radius: 12px;
+  background: #f3f6fd;
   user-select: all;
+}
+.pair-expiry {
+  margin: -6px 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.pair-steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 12px 14px 12px 32px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: #344054;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }

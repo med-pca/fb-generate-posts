@@ -147,7 +147,7 @@ describe('PostsService — post ouvert', () => {
   };
   const base = { title: 'T', description: 'D', delay: 10 };
 
-  it('se crée sans profil, sur plusieurs groupes d’une même catégorie', async () => {
+  it('ne se lie qu’à des groupes d’une même catégorie, jamais à un profil', async () => {
     const { service, prisma } = setup([
       { categoryId: 'cat' },
       { categoryId: 'cat' },
@@ -157,7 +157,8 @@ describe('PostsService — post ouvert', () => {
       sofia,
     );
     expect(prisma.profile.findFirst).not.toHaveBeenCalled();
-    expect(post).toMatchObject({ profileId: null, ownerId: 'u1' });
+    expect(post).toMatchObject({ ownerId: 'u1' });
+    expect(post.profileId).toBeUndefined();
     expect(post.targets.create).toEqual([{ groupId: 'g1' }, { groupId: 'g2' }]);
   });
 

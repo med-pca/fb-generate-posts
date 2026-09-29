@@ -7,7 +7,8 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
-import { groupWhere, postWhere, profileWhere, scopeOf } from '../auth/scope';
+import { postWhere, scopeOf } from '../auth/scope';
+import { postGroupIds } from './post-groups';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { QueryPostsDto } from './dto/query-posts.dto';
@@ -20,53 +21,15 @@ type PostFilters = Omit<QueryPostsDto, 'page' | 'limit'> & { ids?: string[] };
 export class PostsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Sans profil, le post est ouvert : tout profil du compte qui a rejoint
-   * l'un de ses groupes peut le publier, et chaque groupe ne le reçoit
-   * qu'une fois. Ses groupes doivent partager une même catégorie — c'est ce
-   * qui fait d'eux le public d'un même contenu. */
+  /** Un post n'est lié qu'à ses groupes : le profil qui publie dans l'un
+   * d'eux vient l'y chercher, et chaque groupe ne le reçoit qu'une fois. */
   async create(dto: CreatePostDto, acting: CurrentUser | null = null) {
-    const { groupIds, profileId, ...postData } = dto;
-    const uniqueGroupIds = [...new Set(groupIds)];
-    if (profileId) {
-      const profile = await this.prisma.profile.findFirst({
-        where: { id: profileId, ...profileWhere(scopeOf(acting)) },
-        select: { id: true },
-      });
-      if (!profile) throw new NotFoundException('Profil introuvable');
-      const validGroups = await this.prisma.group.count({
-        where: {
-          id: { in: uniqueGroupIds },
-          profiles: { some: { profileId, status: 'ACTIVE' } },
-        },
-      });
-      if (validGroups !== uniqueGroupIds.length) {
-        throw new BadRequestException(
-          'Tous les groupes doivent appartenir au profil du post',
-        );
-      }
-    } else {
-      const groups = await this.prisma.group.findMany({
-        where: {
-          id: { in: uniqueGroupIds },
-          status: 'ACTIVE',
-          ...groupWhere(scopeOf(acting)),
-        },
-        select: { categoryId: true },
-      });
-      if (groups.length !== uniqueGroupIds.length) {
-        throw new BadRequestException('Groupe introuvable ou inactif');
-      }
-      if (new Set(groups.map((group) => group.categoryId)).size > 1) {
-        throw new BadRequestException(
-          'Les groupes d’un post doivent appartenir à la même catégorie',
-        );
-      }
-    }
+    const { groupIds, ...postData } = dto;
+    const uniqueGroupIds = await postGroupIds(this.prisma, groupIds, acting);
 
     return this.prisma.post.create({
       data: {
         ...postData,
-        profileId: profileId || null,
         ownerId: acting?.id ?? null,
         targets: {
           create: uniqueGroupIds.map((groupId) => ({ groupId })),
