@@ -107,6 +107,7 @@ enum PluginState {
   CONNECTED // la route répond et accepte la clé
   BAD_KEY // l'extension répond, mais refuse la clé
   MISSING // pas d'extension (ou désactivée)
+  OUTDATED // ancienne extension (< 1.2.2) : envoie ses articles, sans route de statut ni réception des reprises
   UNREACHABLE // le site ne répond pas
 }
 

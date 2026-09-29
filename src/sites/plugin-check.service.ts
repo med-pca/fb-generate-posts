@@ -19,16 +19,22 @@ export type PluginCheck = {
   message: string;
 };
 
+const OUTDATED_MESSAGE =
+  'Ancienne extension : elle envoie ses articles, mais ne se laisse pas ' +
+  'vérifier et ne reçoit pas les reprises. Installer la version 1.3.0.';
+
 /** Ce que la route `dfb/v1/status` du plugin répond, traduit en un état.
  *
  * Le plugin distingue lui-même ses refus (`dfb_no_key`, `dfb_bad_key`…) et
  * y joint sa version : un 401 qui porte un code `dfb_` prouve donc que
  * l'extension est là, et que seule la clé coince. Un 404 `rest_no_route`
  * dit au contraire que la route n'existe pas — extension absente ou
- * désactivée. */
+ * désactivée — sauf si le site nous envoie ses articles : c'est alors une
+ * extension antérieure à 1.2.2, qui n'avait pas encore ses routes. */
 export function classifyPluginResponse(
   status: number,
   body: unknown,
+  delivers = false,
 ): PluginCheck {
   const json = (body && typeof body === 'object' ? body : {}) as {
     plugin?: string;
@@ -53,6 +59,13 @@ export function classifyPluginResponse(
       state: PluginState.BAD_KEY,
       version: json.data?.version ?? null,
       message: json.message || 'L’extension refuse la clé',
+    };
+  }
+  if (delivers && status === 404) {
+    return {
+      state: PluginState.OUTDATED,
+      version: null,
+      message: OUTDATED_MESSAGE,
     };
   }
   return {
@@ -127,15 +140,31 @@ export class PluginCheckService implements OnModuleInit, OnModuleDestroy {
   async check(siteId: string) {
     const site = await this.prisma.contentSource.findUniqueOrThrow({
       where: { id: siteId },
-      select: { id: true, originUrl: true, depositKey: true },
+      select: {
+        id: true,
+        originUrl: true,
+        depositKey: true,
+        lastDeliveryAt: true,
+        articles: {
+          select: { importedAt: true },
+          orderBy: { importedAt: 'desc' },
+          take: 1,
+        },
+      },
     });
+    // Un site qui nous a déjà envoyé un article a forcément l'extension, même
+    // si sa route de statut ne répond pas.
+    const lastDeliveryAt =
+      site.lastDeliveryAt ?? site.articles[0]?.importedAt ?? null;
     const result = await this.probe(
       site.originUrl,
       site.depositKey || this.config.get<string>('WORDPRESS_API_KEY') || '',
+      Boolean(lastDeliveryAt),
     );
     await this.prisma.contentSource.update({
       where: { id: site.id },
       data: {
+        lastDeliveryAt,
         pluginState: result.state,
         pluginVersion: result.version,
         pluginMessage: result.message,
@@ -145,7 +174,11 @@ export class PluginCheckService implements OnModuleInit, OnModuleDestroy {
     return { siteId: site.id, ...result };
   }
 
-  private async probe(originUrl: string, key: string): Promise<PluginCheck> {
+  private async probe(
+    originUrl: string,
+    key: string,
+    delivers: boolean,
+  ): Promise<PluginCheck> {
     const endpoint = `${originUrl}/wp-json/dfb/v1/status`;
     let response: Response;
     try {
@@ -168,6 +201,6 @@ export class PluginCheckService implements OnModuleInit, OnModuleDestroy {
     } catch {
       body = null;
     }
-    return classifyPluginResponse(response.status, body);
+    return classifyPluginResponse(response.status, body, delivers);
   }
 }

@@ -209,6 +209,15 @@ describe('WordPress publication', () => {
     ).toBeUndefined();
   });
 
+  it('recognises an old plugin: no route found, yet it delivers', async () => {
+    const { service, tx } = setup();
+    tx.contentSource.findUnique.mockResolvedValue({ pluginState: 'MISSING' });
+    await service.publish(payload);
+    expect(tx.contentSource.upsert.mock.calls[0][0].update).toMatchObject({
+      pluginState: 'OUTDATED',
+    });
+  });
+
   it('ignores a delivery that repeats what is already stored', async () => {
     const { service, tx } = setup();
     tx.article.findUnique.mockResolvedValue(stored());

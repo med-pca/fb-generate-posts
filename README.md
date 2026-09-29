@@ -371,7 +371,8 @@ installé et accepte la clé :
 | --- | --- |
 | Connectée | La route `dfb/v1/status` répond et accepte la clé |
 | Clé refusée | Le plugin est là, mais la clé ne correspond pas |
-| Absente | Pas de route `dfb/v1` : plugin absent ou désactivé |
+| À mettre à jour | Pas de route `dfb/v1`, mais le site nous envoie ses articles : plugin antérieur à 1.2.2. Il publie chez nous, mais ne reçoit pas les reprises. Installer la 1.3.0 |
+| Absente | Pas de route `dfb/v1` et aucun article reçu : plugin absent ou désactivé |
 | Site injoignable | Le site ne répond pas |
 | Non vérifiée | Jamais vérifié |
 

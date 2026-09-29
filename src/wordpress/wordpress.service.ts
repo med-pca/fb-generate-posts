@@ -157,10 +157,7 @@ export class WordpressService {
             pluginState: PluginState.CONNECTED,
             ...received,
           },
-          update:
-            known?.pluginState === PluginState.BAD_KEY
-              ? { lastDeliveryAt: received.lastDeliveryAt }
-              : { pluginState: PluginState.CONNECTED, ...received },
+          update: this.deliveryState(known?.pluginState, received),
         });
         const existing = await tx.article.findUnique({
           where: { sourceId_externalId: { sourceId: source.id, externalId } },
@@ -216,6 +213,32 @@ export class WordpressService {
       },
       { timeout: 30000 },
     );
+  }
+
+  /** Ce qu'une réception apprend de l'extension du site.
+   *
+   * Elle prouve que l'extension est installée et nous parle. Si la dernière
+   * vérification n'a trouvé aucune route (`MISSING`), c'est donc une
+   * ancienne version, qui envoie sans exposer de routes : `OUTDATED`. Un
+   * refus de clé ou une ancienne version déjà constatés restent affichés —
+   * une réception ne les corrige pas. */
+  private deliveryState(
+    known: PluginState | undefined,
+    received: { lastDeliveryAt: Date; pluginMessage: string },
+  ): Prisma.ContentSourceUpdateInput {
+    if (known === PluginState.BAD_KEY || known === PluginState.OUTDATED) {
+      return { lastDeliveryAt: received.lastDeliveryAt };
+    }
+    if (known === PluginState.MISSING) {
+      return {
+        pluginState: PluginState.OUTDATED,
+        lastDeliveryAt: received.lastDeliveryAt,
+        pluginMessage:
+          'Ancienne extension : elle envoie ses articles, mais ne se laisse pas ' +
+          'vérifier et ne reçoit pas les reprises. Installer la version 1.3.0.',
+      };
+    }
+    return { pluginState: PluginState.CONNECTED, ...received };
   }
 
   /** Les groupes qui recevront le post d'un article.

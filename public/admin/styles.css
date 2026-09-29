@@ -287,7 +287,8 @@ h2 {
   color: #17803d;
   background: #e3f7ea;
 }
-.pill.plugin-bad_key {
+.pill.plugin-bad_key,
+.pill.plugin-outdated {
   color: #9a5b00;
   background: #fff1d6;
 }

@@ -470,6 +470,7 @@ const PLUGIN_LABELS = {
   CONNECTED: 'Connectée',
   BAD_KEY: 'Clé refusée',
   MISSING: 'Absente',
+  OUTDATED: 'À mettre à jour',
   UNREACHABLE: 'Site injoignable',
   UNKNOWN: 'Non vérifiée',
 };

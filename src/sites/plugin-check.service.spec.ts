@@ -35,4 +35,12 @@ describe('classifyPluginResponse', () => {
     // Un site qui renvoie sa page d'accueil HTML au lieu de l'API.
     expect(classifyPluginResponse(200, null).state).toBe('MISSING');
   });
+
+  it('reconnaît une ancienne extension qui nous envoie pourtant ses articles', () => {
+    // Avant 1.2.2 le plugin n'exposait aucune route dfb/v1 : 404, mais il
+    // publie bien chez nous.
+    const check = classifyPluginResponse(404, { code: 'rest_no_route' }, true);
+    expect(check.state).toBe('OUTDATED');
+    expect(check.message).toMatch(/1\.3\.0/);
+  });
 });
