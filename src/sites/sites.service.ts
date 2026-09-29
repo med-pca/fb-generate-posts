@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ContentSource, RecordStatus } from '@prisma/client';
+import { ContentSource, PluginState, RecordStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../auth/current-user';
@@ -65,6 +65,38 @@ export function publicSite(
   };
 }
 
+/** Ce qui empêche une reprise d'aboutir sur ce site, du point de vue de
+ * son extension WordPress. `null` = rien. Une extension absente, trop
+ * ancienne ou qui refuse la clé fait échouer le dépôt : autant le dire avant
+ * d'avoir payé la réécriture. Un site jamais vérifié ou momentanément
+ * injoignable n'est pas bloqué. */
+export function pluginBlocker(state: PluginState): string | null {
+  switch (state) {
+    case PluginState.MISSING:
+      return 'extension WordPress absente';
+    case PluginState.OUTDATED:
+      return 'extension WordPress à mettre à jour (1.3.0)';
+    case PluginState.BAD_KEY:
+      return 'l’extension WordPress refuse la clé';
+    default:
+      return null;
+  }
+}
+
+/** Ce qui empêche un site d'être choisi dans l'extension de capture : son
+ * extension WordPress, puis sa catégorie — sans elle, l'article arrive mais
+ * aucun post n'en sort. */
+export function siteBlocker(site: {
+  pluginState: PluginState;
+  categoryId: string | null;
+}): string | null {
+  if (site.pluginState !== PluginState.CONNECTED) {
+    return pluginBlocker(site.pluginState) ?? 'extension WordPress non vérifiée';
+  }
+  if (!site.categoryId) return 'sans catégorie : aucun post';
+  return null;
+}
+
 const SITE_INCLUDE = {
   _count: { select: { articles: true } },
   owner: { select: { username: true } },
@@ -94,15 +126,32 @@ export class SitesService {
   async targets(acting: CurrentUser | null) {
     const sites = await this.prisma.contentSource.findMany({
       where: { status: RecordStatus.ACTIVE, ...siteWhere(scopeOf(acting)) },
-      select: { id: true, name: true, originUrl: true },
+      select: {
+        id: true,
+        name: true,
+        originUrl: true,
+        pluginState: true,
+        categoryId: true,
+        category: { select: { name: true } },
+      },
       orderBy: { name: 'asc' },
     });
+    // L'extension n'active que les sites prêts, et dit pourquoi les autres
+    // ne le sont pas : c'est ce qui évite de choisir un site qui ne peut
+    // rien recevoir.
     return {
-      sites: sites.map(({ id, name, originUrl }) => ({
-        id,
-        name,
-        siteUrl: originUrl,
-      })),
+      sites: sites.map((site) => {
+        const blocker = siteBlocker(site);
+        return {
+          id: site.id,
+          name: site.name,
+          siteUrl: site.originUrl,
+          category: site.category?.name ?? null,
+          plugin: site.pluginState,
+          ready: !blocker,
+          reason: blocker,
+        };
+      }),
     };
   }
 

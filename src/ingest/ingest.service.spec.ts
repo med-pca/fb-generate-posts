@@ -92,6 +92,7 @@ function setup(initial: SourceIngest) {
           originUrl: string;
           depositKey: string | null;
           status: string;
+          pluginState?: string;
         } | null> =>
           Promise.resolve({
             id: 'site_1',
@@ -583,6 +584,26 @@ describe('IngestService : le site de destination', () => {
         language: 'auto',
       }),
     ).rejects.toThrow(/désactivé/);
+  });
+
+  it('refuse un site dont l’extension WordPress est trop ancienne', async () => {
+    const { service, prisma } = setup(ingest());
+    prisma.contentSource.findUnique.mockResolvedValueOnce({
+      id: 'site_1',
+      name: 'Food Time',
+      originUrl: 'https://site.test',
+      depositKey: null,
+      status: 'ACTIVE',
+      pluginState: 'OUTDATED',
+    });
+    await expect(
+      service.create({
+        facebookUrl: 'https://www.facebook.com/x/posts/1',
+        sourceUrl: SOURCE.url,
+        siteUrl: 'https://site.test',
+        language: 'auto',
+      }),
+    ).rejects.toThrow(/Food Time : extension WordPress à mettre à jour/);
   });
 
   // Sans cela, une installation neuve refuserait sa propre destination.

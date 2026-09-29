@@ -66,6 +66,11 @@
   const SEE_MORE = /^(see more|voir plus|afficher la suite|ver más|mehr anzeigen|عرض المزيد)$/i;
   // Au-delà, on remonterait dans la charpente de la page, plus dans le post.
   const MAX_CLIMB = 14;
+  // L'élargissement jusqu'au bloc complet du post (texte + photo) : plus
+  // profond que la première remontée, mais borné par les posts voisins.
+  const MAX_EXPAND = 25;
+  // Ce que Facebook pose sur une publication entière du fil.
+  const POST_UNIT = '[aria-posinset], [data-pagelet^="FeedUnit"]';
   const MIN_IMAGE_SIDE = 180;
   // Plancher du repli : en deçà, c'est une icône.
   const FALLBACK_IMAGE_SIDE = 90;
@@ -120,13 +125,13 @@
       const src = img.currentSrc || img.src || '';
       if (!src.startsWith('https:')) continue;
       const box = img.getBoundingClientRect();
-      found.push({ src, side: Math.min(box.width, box.height), area: box.width * box.height });
+      found.push({ src, box, side: Math.min(box.width, box.height), area: box.width * box.height });
     }
     for (const node of el.querySelectorAll('[style*="background-image"]')) {
       const match = /url\(["']?(https:[^"')]+)/.exec(getComputedStyle(node).backgroundImage || '');
       if (!match) continue;
       const box = node.getBoundingClientRect();
-      found.push({ src: match[1], side: Math.min(box.width, box.height), area: box.width * box.height });
+      found.push({ src: match[1], box, side: Math.min(box.width, box.height), area: box.width * box.height });
     }
     return found.sort((a, b) => b.area - a.area);
   };
@@ -143,8 +148,10 @@
     return (big || images.find((image) => image.side >= FALLBACK_IMAGE_SIDE) || {}).src || '';
   };
 
-  /** Le conteneur d'un post de fil, à partir de son texte : on remonte
-   * jusqu'à l'ancêtre qui porte son lien ou sa grande image. */
+  /** Le premier ancêtre du texte qui porte un lien ou une image : de quoi
+   * reconnaître le post, et fondre un commentaire marqué dans son post. Ce
+   * n'est pas encore le post entier — chez Facebook, l'en-tête et le texte
+   * sont d'un côté, la photo d'un autre. */
   const containerOf = (message) => {
     let root = message;
     let parent = message.parentElement;
@@ -153,6 +160,25 @@
       root = parent;
       if (permalinkIn(root) || imageIn(root)) break;
       parent = parent.parentElement;
+      climbed += 1;
+    }
+    return root;
+  };
+
+  const isPostArticle = (el) =>
+    el.getAttribute('role') === 'article' && !IS_COMMENT.test(el.getAttribute('aria-label') || '');
+
+  /** Le post entier, à partir de son premier conteneur : on élargit tant que
+   * l'on n'englobe pas le conteneur d'un AUTRE post. S'arrêter plus tôt
+   * laissait la photo dehors — c'était « texte relevé, aucune image ». */
+  const expand = (root, others) => {
+    let climbed = 0;
+    while (climbed < MAX_EXPAND) {
+      if (root.matches(POST_UNIT) || isPostArticle(root)) break;
+      const parent = root.parentElement;
+      if (!parent || isBoundary(parent)) break;
+      if (others.some((other) => other !== root && !root.contains(other) && parent.contains(other))) break;
+      root = parent;
       climbed += 1;
     }
     return root;
@@ -171,7 +197,7 @@
       }
       roots.push(root);
     }
-    return roots;
+    return roots.map((root) => expand(root, roots));
   };
 
   /** Les textes d'une page dont on ne reconnaît pas la structure — une page
@@ -219,7 +245,23 @@
   /** Le texte d'un post : le PREMIER message du conteneur. Les commentaires
    * viennent après dans l'ordre du document, et un commentaire bavard ne
    * doit pas l'emporter sur un post bref. */
-  const messageOf = (post) => text(post.querySelector(MESSAGES)) || text(post).slice(0, 400);
+  const inComment = (el) => {
+    const article = el.closest('div[role="article"]');
+    return Boolean(article && IS_COMMENT.test(article.getAttribute('aria-label') || ''));
+  };
+
+  /** Sans texte marqué (post photo, partage), le premier bloc de texte
+   * saisi par l'auteur : ni l'interface, ni un commentaire, ni un nom. Le
+   * texte brut du conteneur ramenait « J'aime · Commenter · Partager ». */
+  const authorTextIn = (post) => {
+    const blocks = Array.from(post.querySelectorAll(USER_TEXT))
+      .filter((el) => !el.closest(CHROME) && !inComment(el))
+      .filter((el) => text(el).length >= MIN_TEXT);
+    const innermost = blocks.filter((el) => !blocks.some((other) => other !== el && el.contains(other)));
+    return innermost.length ? text(innermost[0]) : '';
+  };
+
+  const messageOf = (post) => text(post.querySelector(MESSAGES)) || authorTextIn(post);
 
   const captionOf = (kind, el) => (kind === 'post' ? messageOf(el) : text(el));
 
@@ -259,30 +301,90 @@
       };
     },
 
+    /** Ce que désigne un élément de la page — celui qu'on survole ou sur
+     * lequel on clique : le post qui le contient, ou, sur une page photo, le
+     * bloc de texte visé. `null` si rien d'exploitable. */
+    pickAt(target) {
+      if (!target || target.nodeType !== 1 || target.closest(CHROME + ', [data-fcp-ui]')) {
+        // Un clic sur un bouton du post (J'aime…) désigne quand même le post.
+        const post = target?.nodeType === 1 && feedPosts().find((el) => el.contains(target));
+        return post ? { kind: 'post', el: post } : null;
+      }
+      const post = feedPosts().find((el) => el.contains(target));
+      if (post) return { kind: 'post', el: post };
+      let article = target.closest('div[role="article"]');
+      while (article && !isPostArticle(article)) {
+        article = article.parentElement?.closest('div[role="article"]') || null;
+      }
+      if (article && article.getBoundingClientRect().height >= 120) {
+        return { kind: 'post', el: article };
+      }
+      // Page photo : le bloc de texte cliqué, sinon le premier de la page —
+      // on a cliqué sur la photo, la légende reste à vérifier dans le popup.
+      const block = target.closest(USER_TEXT);
+      if (block && text(block).length >= 15) return { kind: 'text', el: block };
+      const [first] = textBlocks();
+      return first ? { kind: 'text', el: first } : null;
+    },
+
+    /** La publication désignée par un clic, lue en entier. Le point du clic
+     * choisit l'image : cliquer sur une photo d'un post à plusieurs photos
+     * prend celle-là. */
+    async readAt(target, point) {
+      const picked = api.pickAt(target);
+      if (!picked) return { error: 'Rien de lisible à cet endroit : cliquez sur le texte ou la photo du post' };
+      return readElement(picked.kind, picked.el, point);
+    },
+
     /** La proposition choisie, lue en entier. */
     async read(index) {
       const { kind, elements } = candidates();
       const el = elements[index];
       if (!el) return { error: "cette publication n'est plus sur la page" };
-      // « Voir plus » cache la fin d'un texte long : tant qu'on n'a pas
-      // cliqué, la suite n'est pas dans le DOM. Sur un post, uniquement
-      // dans celui-là ; sur une page photo, le bloc choisi et son voisinage.
-      const scope = kind === 'post' ? el : el.parentElement || el;
-      for (const button of scope.querySelectorAll('[role="button"], div[tabindex="0"], span')) {
-        const label = text(button);
-        if (label && label.length < 30 && SEE_MORE.test(label)) button.click();
-      }
-      // Le dépliage passe par un rendu : lire dans la foulée rendrait le
-      // texte encore tronqué.
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      const fresh = candidates().elements[index] || el;
-      return {
-        kind,
-        caption: captionOf(kind, fresh),
-        imageUrl: kind === 'post' ? imageIn(fresh) : imageIn(document),
-        facebookUrl: (kind === 'post' ? permalinkIn(fresh) : '') || cleanUrl(location.href),
-      };
+      return readElement(kind, el, null, index);
     },
+  };
+
+  /** L'image sous le point cliqué, si elle est assez grande pour être une
+   * photo et pas une icône. */
+  const imageAtPoint = (scope, point) => {
+    if (!point) return '';
+    const hit = imagesIn(scope).find(
+      (image) =>
+        image.side >= FALLBACK_IMAGE_SIDE &&
+        point.x >= image.box.left && point.x <= image.box.right &&
+        point.y >= image.box.top && point.y <= image.box.bottom,
+    );
+    return hit ? hit.src : '';
+  };
+
+  /** Lit une proposition : texte déplié, image, lien. `point` (un clic)
+   * désigne l'image voulue ; `index` (la liste du popup) permet de
+   * retrouver la proposition si Facebook a remplacé ses nœuds. */
+  const readElement = async (kind, el, point, index) => {
+    // « Voir plus » cache la fin d'un texte long : tant qu'on n'a pas
+    // cliqué, la suite n'est pas dans le DOM. Sur un post, uniquement dans
+    // celui-là ; sur une page photo, le bloc choisi et son voisinage.
+    const unfold = kind === 'post' ? el : el.parentElement || el;
+    for (const button of unfold.querySelectorAll('[role="button"], div[tabindex="0"], span')) {
+      const label = text(button);
+      if (label && label.length < 30 && SEE_MORE.test(label)) button.click();
+    }
+    // Le dépliage passe par un rendu : lire dans la foulée rendrait le
+    // texte encore tronqué.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    let fresh = el;
+    if (index !== undefined) fresh = candidates().elements[index] || el;
+    else if (!el.isConnected && point) {
+      fresh = api.pickAt(document.elementFromPoint(point.x, point.y))?.el || el;
+    }
+    const scope = kind === 'post' ? fresh : document;
+    return {
+      kind,
+      caption: captionOf(kind, fresh),
+      imageUrl: imageAtPoint(scope, point) || imageIn(scope),
+      facebookUrl: (kind === 'post' ? permalinkIn(fresh) : '') || cleanUrl(location.href),
+    };
   };
 
   // Exposé pour la seconde injection, qui lit la proposition choisie.

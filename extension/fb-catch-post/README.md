@@ -6,12 +6,14 @@ réécrit l'article, le publie sur WordPress, et prépare le même post — mêm
 image, même texte — avec la nouvelle adresse.
 
 ```
-[publication Facebook ouverte]  →  clic sur l'extension
-        ↓ elle lit l'image et le texte de la page
-[popup] vous vérifiez le texte, vous collez l'URL de l'article source
-        ↓ POST /api/jobs/scrape/capture
+[onglet Facebook]  →  extension → « Cliquer sur la publication »
+        ↓ la page passe en mode sélection : le post survolé s'encadre
+[clic sur le post]  →  texte déplié + image + lien capturés
+        ↓ extension rouverte : vous vérifiez, choisissez un site PRÊT,
+          collez l'URL de l'article source
+POST /api/jobs/scrape/capture
 serveur : lit la source → réécrit → dépose sur WordPress
-        → renvoi du plugin → nouveau post prêt à publier
+        → renvoi du plugin → UN post pour les groupes de la catégorie du site
 ```
 
 ## Installation
@@ -28,37 +30,42 @@ déclarent dans la plateforme, section **Sites**, et l’extension y lit la
 liste. Le popup en fait un menu déroulant, et retient votre dernier choix.
 Un site ajouté là-bas apparaît ici sans rien réinstaller.
 
-`profileIds` dans `config.js` limite la diffusion. **Laissé vide, tous les
-profils actifs reçoivent un post**, et l'automate les publiera dans leurs
-groupes. Le renseigner pour n'en viser qu'un.
+Après une mise à jour de l'extension : `chrome://extensions` → bouton ↻ de
+FB Catch Post.
 
 ## Utilisation
 
-Cliquer sur l'extension depuis l'onglet Facebook. **Elle ne devine pas** la
-publication que vous visez : elle liste ce qu'elle trouve, avec un aperçu de
-chacune, et vous choisissez.
+1. Sur l'onglet Facebook, ouvrir l'extension → **🎯 Cliquer sur la
+   publication**. Le popup se ferme, la page passe en mode sélection.
+2. Survoler : le post sous la souris s'encadre en bleu. **Cliquer** dessus.
+   - sur sa **photo** : c'est cette photo qui est prise (post à plusieurs
+     photos) ;
+   - ailleurs dans le post : la plus grande photo du post.
+   - `Échap` annule. Le clic n'ouvre rien côté Facebook.
+3. La bannière confirme (« ✓ Texte et image capturés »). Rouvrir
+   l'extension (elle s'ouvre seule quand Chrome le permet ; sinon l'icône
+   porte une pastille **1**) : la capture est là, texte corrigible.
+4. Choisir le **site** : seuls les sites **prêts** sont sélectionnables —
+   extension WordPress connectée **et** catégorie choisie (✓ Nom · Catégorie).
+   Les autres restent visibles, grisés, avec leur raison (« extension
+   WordPress à mettre à jour », « sans catégorie : aucun post »…) : c'est à
+   corriger dans la plateforme, page **Sites**, puis **Vérifier**.
+5. Coller l'URL de l'article à réécrire → **Envoyer**.
 
-Deux structures très différentes, toutes deux prises en charge :
+Le serveur refuse aussi une reprise vers un site dont l'extension est
+absente, trop ancienne ou refuse la clé : le dépôt échouerait après la
+réécriture.
 
-| Vous êtes sur… | Ce que le popup propose |
-| --- | --- |
-| un fil ou une permalink de post | les publications de la page ; une seule → prise directement |
-| une **page photo** (`/photo/?fbid=…`) | les textes de la page — choisissez la légende |
+**En secours**, « ou choisir dans la liste » liste les publications de la
+page (ou les textes, sur une page photo) comme avant.
 
-La page photo est celle qu'on obtient en cliquant sur l'image d'un post.
-Facebook n'y marque pas la légende : impossible de la reconnaître à coup
-sûr, donc le popup liste les textes et vous désignez le bon. L'image, elle,
-est la grande photo de la visionneuse.
+### Pourquoi l'image manquait
 
-Le texte relevé s'affiche ensuite, corrigible avant l'envoi. Le bouton ne
-s'active qu'avec un texte d'au moins 15 caractères et une URL source valide.
-
-Une version précédente s'appuyait sur `role="article"` et prenait la
-publication la plus proche du centre de l'écran. Beaucoup de pages Facebook
-ne posent pas cet attribut : elle retombait alors sur la page entière et
-rendait le **premier** texte trouvé, donc le mauvais post. L'ancrage se fait
-désormais sur le texte de la publication, d'où on remonte jusqu'au
-conteneur qui porte son lien ou sa grande image.
+Chez Facebook, l'en-tête (avec le lien de la date) et le texte sont dans un
+bloc, la photo dans un bloc voisin. L'ancienne lecture remontait du texte
+jusqu'au premier ancêtre portant un lien — l'en-tête — et s'arrêtait avant la
+photo : « texte relevé, aucune image ». Le post est maintenant élargi jusqu'à
+son bloc complet, sans jamais englober le post voisin.
 
 ## Ce qui part, et ce qui change
 

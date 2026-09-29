@@ -58,7 +58,9 @@ function load(html, url = 'https://www.facebook.com/groups/immo/?ref=feed') {
   // jsdom ne fait pas de mise en page : on donne leurs tailles aux éléments.
   window.Element.prototype.getBoundingClientRect = function () {
     const size = SIZES[this.getAttribute('alt')] || SIZES._default;
-    return { width: size.w, height: size.h, top: 0, bottom: size.h, left: 0, right: size.w };
+    const left = size.left || 0;
+    const top = size.top || 0;
+    return { width: size.w, height: size.h, top, bottom: top + size.h, left, right: left + size.w };
   };
   window.innerHeight = 800;
   // Le clic sur « See more » révèle la suite, comme Facebook le fait.
@@ -215,6 +217,71 @@ check('page non bloquée', listed.blocked === false, listed.blocked);
   check('page photo : fbid et set conservés, pistage retiré',
     read.facebookUrl === 'https://web.facebook.com/photo/?fbid=986814304446230&set=gm.288624353434',
     read.facebookUrl);
+
+  // ─── Le vrai fil : l'en-tête et le texte sont dans un bloc, la photo dans
+  // un bloc VOISIN. L'ancienne remontée s'arrêtait au lien de l'en-tête et
+  // ne voyait jamais la photo : « texte relevé, aucune image ».
+  const unit = (id, message, photos) => `
+    <div class="unit-${id}">
+      <div class="top">
+        <div class="head"><a href="https://www.facebook.com/groups/g/posts/${id}/?__cft__=x">il y a 2 h</a></div>
+        <div data-ad-preview="message">${message}</div>
+      </div>
+      <div class="media">
+        ${photos.map((p) => `<a href="/photo/?fbid=${p}"><img alt="${p}" src="https://scontent.test/${p}.jpg"></a>`).join('')}
+      </div>
+      <div role="button"><span dir="auto">J’aime · Commenter · Partager</span></div>
+    </div>`;
+  SIZES['p1-a'] = { w: 480, h: 400, left: 0, top: 100 };
+  SIZES['p1-b'] = { w: 480, h: 400, left: 500, top: 100 };
+  SIZES['p2-a'] = { w: 480, h: 400, left: 0, top: 900 };
+  const REAL = `<!doctype html><html><body><div role="feed">
+    ${unit('p1', 'Le gratin dauphinois de ma grand-mère, le vrai 😋', ['p1-a', 'p1-b'])}
+    ${unit('p2', 'Tarte au citron meringuée, la recette inratable', ['p2-a'])}
+  </div></body></html>`;
+  const real = load(REAL);
+  const doc = real.window.document;
+  check('fil réel : deux posts', real.listed.posts.length === 2, real.listed.posts.length);
+  const listedFirst = await real.window.__fcpCatch.read(0);
+  check('fil réel : la photo voisine du texte est retrouvée',
+    listedFirst.imageUrl.startsWith('https://scontent.test/p1-'), listedFirst.imageUrl);
+
+  // Cliquer sur le texte du 2e post.
+  const onText = await real.window.__fcpCatch.readAt(
+    doc.querySelector('.unit-p2 [data-ad-preview]'), null);
+  check('clic sur le texte : son propre post', onText.caption.startsWith('Tarte au citron'), onText.caption);
+  check('clic sur le texte : sa photo, pas celle du voisin',
+    onText.imageUrl === 'https://scontent.test/p2-a.jpg', onText.imageUrl);
+  check('clic sur le texte : son lien, sans pistage',
+    onText.facebookUrl === 'https://www.facebook.com/groups/g/posts/p2/', onText.facebookUrl);
+
+  // Cliquer sur la 2e photo d'un post à plusieurs photos : c'est celle-là.
+  const onPhoto = await real.window.__fcpCatch.readAt(
+    doc.querySelector('img[alt="p1-b"]'), { x: 700, y: 300 });
+  check('clic sur une photo : c’est cette photo qui est prise',
+    onPhoto.imageUrl === 'https://scontent.test/p1-b.jpg', onPhoto.imageUrl);
+  check('clic sur une photo : avec le texte de son post',
+    onPhoto.caption.startsWith('Le gratin'), onPhoto.caption);
+
+  // Cliquer sur « J'aime » du post désigne encore le post.
+  const onButton = real.window.__fcpCatch.pickAt(doc.querySelector('.unit-p1 [role="button"] span'));
+  check('clic sur un bouton du post : le post est désigné',
+    onButton && onButton.el.classList.contains('unit-p1'), onButton && onButton.el.className);
+
+  // Un post photo sans texte marqué : le texte de l'auteur, pas les boutons.
+  const noMarker = load(`<!doctype html><html><body><div role="feed">
+    <div role="article" aria-label="Publication">
+      <a href="https://www.facebook.com/groups/g/posts/9/">hier</a>
+      <div dir="auto">Poulet rôti au citron et au thym, prêt en 45 minutes</div>
+      <img alt="grande-photo" src="https://scontent.test/poulet.jpg">
+      <div role="button"><span dir="auto">J’aime · Commenter · Partager tout de suite</span></div>
+    </div></div></body></html>`);
+  const plain = await noMarker.window.__fcpCatch.readAt(
+    noMarker.window.document.querySelector('img'), { x: 10, y: 10 });
+  check('post sans texte marqué : le texte de l’auteur',
+    plain.caption.startsWith('Poulet rôti'), plain.caption);
+  check('post sans texte marqué : pas les libellés des boutons',
+    !plain.caption.includes('Commenter'), plain.caption);
 
   process.exit(ko ? 1 : 0);
 })();

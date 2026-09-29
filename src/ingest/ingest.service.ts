@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { IngestStatus, Prisma, SourceIngest } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
-import { normalizeSiteUrl } from '../sites/sites.service';
+import { normalizeSiteUrl, pluginBlocker } from '../sites/sites.service';
 import { ingestWhere, scopeOf } from '../auth/scope';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
@@ -452,6 +452,14 @@ export class IngestService {
     if (site.status !== 'ACTIVE') {
       throw new BadRequestException(
         `${site.name} est désactivé comme destination`,
+      );
+    }
+    // Refuser maintenant plutôt qu'après la lecture et la réécriture, que le
+    // dépôt ferait échouer de toute façon.
+    const blocker = pluginBlocker(site.pluginState);
+    if (blocker) {
+      throw new BadRequestException(
+        `${site.name} : ${blocker}. Corriger puis cliquer « Vérifier » dans la page Sites.`,
       );
     }
     return { siteUrl, depositKey: site.depositKey };

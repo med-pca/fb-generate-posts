@@ -1,41 +1,58 @@
 /**
- * Le popup : liste les publications de l'onglet, vous en choisissez une,
- * vous collez l'article à réécrire, et le tout part en un appel.
+ * Le popup, en deux temps :
  *
- * Rien n'est deviné et rien n'est envoyé sans que le texte exact ait été
- * affiché : une version précédente choisissait la publication la plus
- * proche du centre de l'écran, et se trompait de post.
+ *   1. « Cliquer sur la publication » met la page en mode sélection et se
+ *      ferme (cliquer dans la page le fermerait de toute façon). Le clic sur
+ *      un post le capture — texte déplié, image, lien — dans le stockage.
+ *   2. Rouvert, le popup montre la capture : on vérifie le texte, on choisit
+ *      un site PRÊT (extension WordPress connectée, catégorie choisie), on
+ *      colle l'article à réécrire, et le tout part en un appel.
+ *
+ * La liste des posts de la page reste disponible en secours.
  */
 const config = self.FCP_CONFIG;
+const $ = (id) => document.getElementById(id);
 const els = {
-  picker: document.getElementById('picker'),
-  site: document.getElementById('site'),
-  posts: document.getElementById('posts'),
-  capture: document.getElementById('capture'),
-  preview: document.getElementById('preview'),
-  caption: document.getElementById('caption'),
-  source: document.getElementById('source'),
-  send: document.getElementById('send'),
-  status: document.getElementById('status'),
-  done: document.getElementById('done'),
+  empty: $('empty'),
+  pick: $('pick'),
+  list: $('list'),
+  picker: $('picker'),
+  posts: $('posts'),
+  capture: $('capture'),
+  preview: $('preview'),
+  noImage: $('no-image'),
+  capturedAt: $('captured-at'),
+  fbLink: $('fb-link'),
+  caption: $('caption'),
+  repick: $('repick'),
+  site: $('site'),
+  siteNote: $('site-note'),
+  source: $('source'),
+  send: $('send'),
+  status: $('status'),
+  done: $('done'),
 };
-let tabId = null;
-let chosen = null;
-let lastSeen = {};
+/** La capture faite dans la page, relue à chaque ouverture. */
+const CAPTURE_KEY = 'fcp.capture';
 /** Le dernier site choisi, retenu d'une fois sur l'autre. */
 const LAST_SITE = 'fcp.lastSite';
+let tabId = null;
+let chosen = null;
+let sites = [];
+let lastSeen = {};
 
 const say = (message, kind = '') => {
   els.status.textContent = message;
   els.status.className = kind;
 };
 
-/** Le bouton n'est actif qu'avec les deux moitiés : la publication lue, et
- * l'article à réécrire. */
+/** Le bouton n'est actif qu'avec tout ce qu'il faut : la publication lue,
+ * un site prêt, et l'article à réécrire. */
 function refresh() {
+  const site = sites.find((item) => item.siteUrl === els.site.value);
   els.send.disabled = !(
     chosen &&
-    els.site.value &&
+    site?.ready &&
     els.caption.value.trim().length >= 15 &&
     /^https:\/\/\S+\.\S+/.test(els.source.value.trim())
   );
@@ -49,42 +66,69 @@ async function inject(options) {
   return result;
 }
 
-/** Les destinations viennent de la plateforme, pas de la configuration de
- * l'extension : un site ajouté là-bas apparaît ici sans rien réinstaller. */
-async function loadSites() {
-  let sites = [];
-  try {
-    const response = await fetch(`${config.apiBase}/api/jobs/sites`, {
-      headers: { 'X-API-Key': config.apiKey },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    ({ sites } = await response.json());
-  } catch (error) {
-    els.site.innerHTML = '';
-    els.site.append(new Option('— sites indisponibles —', ''));
-    say('Sites introuvables : ' + error.message, 'error');
-    return;
+const ago = (time) => {
+  const minutes = Math.round((Date.now() - time) / 60000);
+  if (minutes < 1) return 'capturée à l’instant';
+  if (minutes < 60) return `capturée il y a ${minutes} min`;
+  return `capturée il y a ${Math.round(minutes / 60)} h`;
+};
+
+/* ── 1. La publication ─────────────────────────────────────────────── */
+
+/** Affiche une publication lue — capturée au clic ou choisie dans la liste. */
+function showCapture(post) {
+  chosen = post;
+  els.empty.classList.add('hidden');
+  els.picker.classList.add('hidden');
+  els.capture.classList.remove('hidden');
+  els.caption.value = post.caption;
+  if (post.imageUrl) {
+    els.preview.src = post.imageUrl;
+    els.noImage.classList.add('hidden');
+  } else {
+    els.preview.removeAttribute('src');
+    els.noImage.classList.remove('hidden');
   }
-  els.site.innerHTML = '';
-  if (!sites.length) {
-    els.site.append(new Option('— aucun site déclaré —', ''));
-    say('Déclarez un site dans la plateforme, section Sites.', 'error');
-    return;
-  }
-  for (const site of sites) els.site.append(new Option(site.name, site.siteUrl));
-  const { [LAST_SITE]: last } = await chrome.storage.local.get(LAST_SITE);
-  if (last && sites.some((site) => site.siteUrl === last)) els.site.value = last;
+  els.capturedAt.textContent = post.capturedAt ? ago(post.capturedAt) : 'lue à l’instant';
+  els.fbLink.href = post.facebookUrl || post.pageUrl || '#';
+  say(
+    post.imageUrl
+      ? 'Texte et image relevés — vérifiez, puis choisissez le site.'
+      : 'Texte relevé, sans image. Recommencez en cliquant sur la photo du post.',
+    post.imageUrl ? '' : 'error',
+  );
   refresh();
 }
 
-async function start() {
+async function activeFacebookTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !/^https:\/\/([a-z0-9-]+\.)*facebook\.com\//i.test(tab.url || '')) {
     say("Ouvrez d'abord l'onglet Facebook contenant la publication.", 'error');
-    return;
+    return null;
   }
   tabId = tab.id;
+  return tab;
+}
 
+/** Met la page en mode sélection, puis ferme le popup : la capture se
+ * retrouvera ici à la réouverture. */
+async function startPicking() {
+  if (!(await activeFacebookTab())) return;
+  try {
+    await inject({ files: ['capture.js'] });
+    await inject({ files: ['picker.js'] });
+  } catch (error) {
+    say('Sélection impossible : ' + error.message, 'error');
+    return;
+  }
+  await chrome.storage.local.remove(CAPTURE_KEY);
+  window.close();
+}
+
+/* ── Secours : la liste des publications de la page ────────────────── */
+
+async function startList() {
+  if (!(await activeFacebookTab())) return;
   let found;
   try {
     found = await inject({ files: ['capture.js'] });
@@ -98,29 +142,20 @@ async function start() {
   }
   lastSeen = found.seen || {};
   const usable = (found.posts || []).filter((post) => post.preview.length >= 15);
-  // Sur une page photo, toujours montrer la liste : un seul bloc retenu ne
-  // veut pas dire que c'est la légende.
-  const autoPick = found.kind === 'post' && usable.length === 1;
   if (!usable.length) {
-    // Le détail évite d'avoir à ouvrir la console : il dit si la page n'a
-    // rien montré du tout, ou si c'est la lecture qui échoue.
     const seen = found.seen || {};
     say(
       'Aucune publication lisible sur cette page.\n' +
         `Vu : ${seen.messages ?? '?'} message(s), ${seen.articles ?? '?'} article(s), ` +
         `${seen.texts ?? '?'} bloc(s) de texte, ${seen.images ?? '?'} image(s).\n` +
-        'Faites défiler jusqu’à la publication, puis rouvrez l’extension.',
+        'Faites défiler jusqu’à la publication, puis réessayez.',
       'error',
     );
     return;
   }
-
-  // Une seule publication — une permalink — ne demande aucun choix.
-  if (autoPick) {
-    await choose(usable[0].index);
-    return;
-  }
+  els.empty.classList.add('hidden');
   els.picker.classList.remove('hidden');
+  els.posts.innerHTML = '';
   for (const post of usable) {
     const item = document.createElement('li');
     item.setAttribute('role', 'option');
@@ -134,8 +169,6 @@ async function start() {
     item.addEventListener('click', () => void choose(post.index));
     els.posts.append(item);
   }
-  // Sur une page photo, ce ne sont pas des publications mais les textes de
-  // la page : le dire évite de chercher un post dans la liste.
   say(
     found.kind === 'text'
       ? `Page photo : ${usable.length} textes trouvés — choisissez la légende.`
@@ -163,39 +196,96 @@ async function choose(index) {
     say("Cette publication n'a pas de texte exploitable.", 'error');
     return;
   }
-  chosen = post;
-  els.caption.value = post.caption;
-  if (post.imageUrl) els.preview.src = post.imageUrl;
-  else els.preview.removeAttribute('src');
-  els.capture.classList.remove('hidden');
-  if (post.imageUrl) {
-    say('Texte et image relevés — vérifiez.');
+  const kept = { ...post, capturedAt: Date.now() };
+  await chrome.storage.local.set({ [CAPTURE_KEY]: kept });
+  showCapture(kept);
+  if (!post.imageUrl && lastSeen.biggest?.length) {
+    say(`Texte relevé, aucune image retenue.\nPlus grandes vues :\n${lastSeen.biggest.join('\n')}`, 'error');
+  }
+}
+
+/* ── 2. Le site ────────────────────────────────────────────────────── */
+
+/** Les destinations viennent de la plateforme. Seules celles qui sont
+ * prêtes — extension WordPress connectée, catégorie choisie — se
+ * sélectionnent ; les autres restent visibles avec leur raison, pour savoir
+ * quoi corriger dans la page Sites. */
+async function loadSites() {
+  try {
+    const response = await fetch(`${config.apiBase}/api/jobs/sites`, {
+      headers: { 'X-API-Key': config.apiKey },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    ({ sites } = await response.json());
+    // Une API pas encore mise à jour ne dit pas si un site est prêt : on le
+    // laisse choisir, comme avant.
+    sites = sites.map((site) => ({ ...site, ready: site.ready ?? true }));
+  } catch (error) {
+    els.site.innerHTML = '';
+    els.site.append(new Option('— sites indisponibles —', ''));
+    say('Sites introuvables : ' + error.message, 'error');
+    return;
+  }
+  els.site.innerHTML = '';
+  if (!sites.length) {
+    els.site.append(new Option('— aucun site déclaré —', ''));
+    els.siteNote.textContent = 'Déclarez un site dans la plateforme, section Sites.';
+    els.siteNote.className = 'hint warn';
+    return;
+  }
+  const ready = sites.filter((site) => site.ready);
+  els.site.append(new Option(ready.length ? 'Choisir un site' : '— aucun site prêt —', ''));
+  els.site.options[0].disabled = true;
+  for (const site of [...ready, ...sites.filter((item) => !item.ready)]) {
+    const label = site.ready
+      ? `✓ ${site.name}${site.category ? ` · ${site.category}` : ''}`
+      : `${site.name} — ${site.reason}`;
+    const option = new Option(label, site.siteUrl);
+    option.disabled = !site.ready;
+    els.site.append(option);
+  }
+  const { [LAST_SITE]: last } = await chrome.storage.local.get(LAST_SITE);
+  const remembered = ready.find((site) => site.siteUrl === last);
+  els.site.value = remembered ? remembered.siteUrl : ready.length === 1 ? ready[0].siteUrl : '';
+  if (!els.site.value) els.site.selectedIndex = 0;
+  describeSite();
+}
+
+function describeSite() {
+  const site = sites.find((item) => item.siteUrl === els.site.value);
+  const blocked = sites.filter((item) => !item.ready).length;
+  if (site?.ready) {
+    els.siteNote.textContent =
+      `Extension connectée · les posts iront aux groupes « ${site.category} ».`;
+    els.siteNote.className = 'hint ok';
+  } else if (!sites.some((item) => item.ready)) {
+    els.siteNote.textContent =
+      'Aucun site prêt : dans la plateforme, page Sites, installez l’extension ' +
+      'WordPress 1.3.0, donnez une catégorie, puis cliquez « Vérifier ».';
+    els.siteNote.className = 'hint warn';
   } else {
-    // Sans ce détail, « aucune image » ne dit pas si la page n'en a pas ou
-    // si elles ont toutes été écartées comme trop petites.
-    const biggest = (lastSeen.biggest || []).join('\n');
-    say(
-      'Texte relevé, aucune image retenue.' +
-        (biggest ? `\nPlus grandes vues :\n${biggest}` : ''),
-      biggest ? 'error' : '',
-    );
+    els.siteNote.textContent = blocked
+      ? `${blocked} site(s) grisé(s) : leur raison est indiquée dans la liste.`
+      : '';
+    els.siteNote.className = 'hint';
   }
   refresh();
 }
+
+/* ── Envoi ─────────────────────────────────────────────────────────── */
 
 async function send() {
   els.send.disabled = true;
   say('Envoi…');
   await chrome.storage.local.set({ [LAST_SITE]: els.site.value });
   const body = {
-    facebookUrl: chosen.facebookUrl,
+    facebookUrl: chosen.facebookUrl || chosen.pageUrl,
     siteUrl: els.site.value,
     sourceUrl: els.source.value.trim(),
     caption: els.caption.value.trim(),
-    language: config.language || 'fr',
+    language: config.language || 'auto',
   };
   if (chosen.imageUrl) body.imageUrl = chosen.imageUrl;
-  if (config.profileIds?.length) body.profileIds = config.profileIds;
 
   let response;
   try {
@@ -219,18 +309,30 @@ async function send() {
     els.send.disabled = false;
     return;
   }
-  // Le serveur rend la main tout de suite : réécriture, dépôt WordPress et
-  // fabrication du post suivent, en une minute environ.
+  // Envoyée : la capture a servi, la prochaine ouverture repart de zéro.
+  await chrome.storage.local.remove(CAPTURE_KEY);
+  chrome.action.setBadgeText({ text: '' });
   const { ingestId } = JSON.parse(text);
   say('Envoyé. La réécriture et la publication suivent côté serveur.', 'ok');
   els.done.classList.remove('hidden');
   els.done.innerHTML =
-    'Reprise <code></code><br>Le post Facebook n’apparaîtra qu’une fois ' +
-    'que WordPress aura renvoyé l’article au serveur (WP-Cron).';
+    'Reprise <code></code><br>Le post Facebook apparaîtra une fois que WordPress ' +
+    'aura renvoyé l’article au serveur (WP-Cron), pour les groupes de la catégorie du site.';
   els.done.querySelector('code').textContent = ingestId;
 }
 
-els.site.addEventListener('change', refresh);
+/* ── Démarrage ─────────────────────────────────────────────────────── */
+
+async function start() {
+  chrome.action.setBadgeText({ text: '' });
+  const { [CAPTURE_KEY]: captured } = await chrome.storage.local.get(CAPTURE_KEY);
+  if (captured?.caption) showCapture(captured);
+}
+
+els.pick.addEventListener('click', () => void startPicking());
+els.repick.addEventListener('click', () => void startPicking());
+els.list.addEventListener('click', () => void startList());
+els.site.addEventListener('change', describeSite);
 els.source.addEventListener('input', refresh);
 els.caption.addEventListener('input', refresh);
 els.send.addEventListener('click', () => void send());

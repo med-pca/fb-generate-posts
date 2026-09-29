@@ -7,24 +7,39 @@
   <body>
     <h1>Reprendre une publication</h1>
 
-    <section id="picker" class="hidden">
+    <!-- 1. La publication : capturée au clic dans la page. -->
+    <section id="empty" class="step">
+      <p class="lead">Mettez la page en mode sélection, puis cliquez sur le post à reprendre.</p>
+      <button id="pick" class="primary">🎯 Cliquer sur la publication</button>
+      <p class="hint">Cliquer sur une <b>photo</b> prend cette photo ; ailleurs dans le post, la plus grande.</p>
+      <button id="list" class="link" type="button">ou choisir dans la liste des posts de la page</button>
+    </section>
+
+    <section id="picker" class="step hidden">
       <label>Quelle publication ?</label>
       <ul id="posts"></ul>
     </section>
 
-    <section id="capture" class="hidden">
-      <img id="preview" alt="" />
-      <label for="caption">Texte de la publication <small>repart à l'identique</small></label>
+    <section id="capture" class="step hidden">
+      <div class="shot">
+        <img id="preview" alt="" />
+        <p id="no-image" class="hidden">Aucune image capturée</p>
+      </div>
+      <p class="meta"><span id="captured-at"></span> · <a id="fb-link" target="_blank" rel="noreferrer">voir sur Facebook</a></p>
+      <label for="caption">Texte <small>repart à l'identique</small></label>
       <textarea id="caption" rows="5"></textarea>
+      <button id="repick" class="secondary" type="button">↺ Choisir une autre publication</button>
     </section>
 
+    <!-- 2. Le site : seuls les sites prêts sont sélectionnables. -->
     <label for="site">Site de destination</label>
     <select id="site"><option value="">Chargement…</option></select>
+    <p id="site-note" class="hint"></p>
 
     <label for="source">URL de l'article à réécrire</label>
     <input id="source" type="url" placeholder="https://exemple.com/la-recette" />
 
-    <button id="send" disabled>Envoyer</button>
+    <button id="send" class="primary" disabled>Envoyer</button>
     <p id="status" role="status"></p>
     <p id="done" class="hidden"></p>
   </body>

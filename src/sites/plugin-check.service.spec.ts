@@ -44,3 +44,20 @@ describe('classifyPluginResponse', () => {
     expect(check.message).toMatch(/1\.3\.0/);
   });
 });
+
+import { siteBlocker } from './sites.service';
+
+describe('siteBlocker — les sites que l’extension de capture propose', () => {
+  it('ne laisse choisir qu’un site connecté ET rangé dans une catégorie', () => {
+    expect(siteBlocker({ pluginState: 'CONNECTED', categoryId: 'c' })).toBeNull();
+    expect(siteBlocker({ pluginState: 'CONNECTED', categoryId: null })).toMatch(
+      /catégorie/,
+    );
+    expect(siteBlocker({ pluginState: 'OUTDATED', categoryId: 'c' })).toMatch(
+      /mettre à jour/,
+    );
+    expect(siteBlocker({ pluginState: 'UNKNOWN', categoryId: 'c' })).toMatch(
+      /non vérifiée/,
+    );
+  });
+});
