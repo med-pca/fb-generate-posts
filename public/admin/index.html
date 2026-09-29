@@ -245,6 +245,7 @@
             <div class="panel queue-panel">
               <div class="panel-head"><div><small>EN COURS</small><h2>En train de partir</h2></div></div>
               <div class="table-wrap"><table>
+                <colgroup><col /><col class="w-group" /><col class="w-profile" /><col class="w-state" /></colgroup>
                 <thead><tr><th>Post</th><th>Groupe</th><th>Profil</th><th>État</th></tr></thead>
                 <tbody id="queue-running"></tbody>
               </table></div>
@@ -253,6 +254,7 @@
             <div class="panel queue-panel" id="queue-failed-panel">
               <div class="panel-head"><div><small>EN ÉCHEC</small><h2>Publications qui ont échoué</h2></div></div>
               <div class="table-wrap"><table>
+                <colgroup><col /><col class="w-group" /><col class="w-reason" /><col class="w-actions" /></colgroup>
                 <thead><tr><th>Post</th><th>Groupe</th><th>Raison</th><th>Actions</th></tr></thead>
                 <tbody id="queue-failed"></tbody>
               </table></div>
@@ -264,7 +266,8 @@
                 <button class="link" id="queue-more" type="button">Voir 10 de plus</button>
               </div>
               <div class="table-wrap"><table>
-                <thead><tr><th>#</th><th>Post</th><th>Groupe</th><th>Profils qui peuvent le publier</th><th>Priorité</th><th>Actions</th></tr></thead>
+                <colgroup><col class="w-rank" /><col /><col class="w-group" /><col class="w-profiles" /><col class="w-prio" /><col class="w-actions" /></colgroup>
+                <thead><tr><th>#</th><th>Post</th><th>Groupe</th><th>Profils possibles</th><th>Priorité</th><th>Actions</th></tr></thead>
                 <tbody id="queue-upcoming"></tbody>
               </table></div>
             </div>
@@ -275,7 +278,8 @@
                 <button class="link" id="queue-more-published" type="button">Voir 20 de plus</button>
               </div>
               <div class="table-wrap"><table>
-                <thead><tr><th>Publié le</th><th>Post</th><th>Groupe</th><th>Profil</th><th>Lien en commentaire</th></tr></thead>
+                <colgroup><col class="w-date" /><col /><col class="w-group" /><col class="w-profile" /><col class="w-link" /></colgroup>
+                <thead><tr><th>Publié le</th><th>Post</th><th>Groupe</th><th>Profil</th><th>Lien article</th></tr></thead>
                 <tbody id="queue-published"></tbody>
               </table></div>
             </div>

@@ -143,7 +143,7 @@ setTimeout(async () => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   check('« Relancer » relance l’échec', queueCalls.includes('POST /posts/targets/t-f/retry'), queueCalls);
 
-  check('un envoi forcé est visible dans la file', /→ Salim au prochain passage/.test($('#queue-upcoming').textContent), null);
+  check('un envoi forcé est visible dans la file', /→ Salim/.test($('#queue-upcoming').textContent), null);
   const forceSelect = $('select[data-force="t-f"]');
   forceSelect.value = 'p1';
   forceSelect.dispatchEvent(new window.Event('change', { bubbles: true }));

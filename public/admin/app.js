@@ -1346,9 +1346,21 @@ async function loadQueue() {
 const queuePost = (post) =>
   `<div class="queue-post">${post.imageUrl ? `<img src="${esc(post.imageUrl)}" alt="" loading="lazy">` : '<span class="noimg"></span>'}` +
   `<div><strong title="${esc(post.title)}">${esc(post.title)}</strong>` +
-  `<small>${esc((post.description || '').slice(0, 70))}${(post.description || '').length > 70 ? '…' : ''}</small></div></div>`;
+  `<small title="${esc(post.description || '')}">${esc(post.description || '')}</small></div></div>`;
 const queueGroup = (group) =>
-  `<strong>${esc(group.name)}</strong><small>${group.category ? esc(group.category.name) : 'sans catégorie'}</small>`;
+  `<strong title="${esc(group.name)}">${esc(group.name)}</strong>` +
+  `<small>${group.category ? esc(group.category.name) : 'sans catégorie'}</small>`;
+/** Au plus trois profils, puis « +N » : huit pastilles rendaient chaque
+ * ligne haute comme trois. Le survol donne la liste complète. */
+const profileChips = (profiles) => {
+  if (!profiles.length)
+    return '<span class="chip join-questions" title="Aucun profil n’a rejoint ce groupe : ce post n’en partira pas">aucun profil</span>';
+  const shown = profiles.slice(0, 3).map((p) => `<span class="chip" title="${esc(p.name)}">${esc(p.name)}</span>`);
+  const rest = profiles.slice(3);
+  if (rest.length)
+    shown.push(`<span class="chip more" title="${esc(rest.map((p) => p.name).join(', '))}">+${rest.length}</span>`);
+  return shown.join('');
+};
 const queueProfile = (profile) =>
   profile ? `<strong>${esc(profile.name)}</strong>` : '<span class="muted">—</span>';
 const LINK_LABELS = {
@@ -1391,23 +1403,21 @@ function renderQueue() {
     d.upcoming
       .map((u) => {
         const prio = u.post.priority;
-        const candidates = u.candidates.length
-          ? u.candidates.map((p) => `<span class="chip">${esc(p.name)}</span>`).join(' ')
-          : '<span class="chip join-questions" title="Aucun profil n’a rejoint ce groupe : ce post n’en partira pas">aucun profil</span>';
+        const candidates = profileChips(u.candidates);
         return (
           `<tr><td><span class="rank ${u.rank === 1 ? 'next' : ''}">${u.rank}</span></td>` +
           `<td>${queuePost(u.post)}</td><td>${queueGroup(u.group)}</td><td>` +
           (u.forcedProfile
-            ? `<div class="forced" title="Forcé le ${esc(when(u.forcedAt))}">→ ${esc(u.forcedProfile.name)} au prochain passage` +
+            ? `<div class="forced" title="${esc(u.forcedProfile.name)} le publiera à son prochain passage (forcé le ${esc(when(u.forcedAt))})">→ ${esc(u.forcedProfile.name)}` +
               `<button data-unforce="${u.targetId}" title="Rendre à la file normale">annuler</button></div>`
             : '') +
           `<div class="chips">${candidates}</div></td>` +
-          `<td>${prio ? `<span class="prio ${prio < 0 ? 'low' : ''}">${prio > 0 ? '+' : ''}${prio}</span>` : ''}` +
-          `<div class="row-actions">` +
-          `<button class="edit" data-prio="${u.post.id}" data-move="top" title="Passer devant tous les autres">⤒ En tête</button>` +
+          `<td><div class="prio-actions">` +
+          (prio ? `<span class="prio ${prio < 0 ? 'low' : ''}">${prio > 0 ? '+' : ''}${prio}</span>` : '') +
+          `<button class="edit" data-prio="${u.post.id}" data-move="top" title="En tête : passer devant tous les autres">⤒</button>` +
           `<button class="edit" data-prio="${u.post.id}" data-move="up" title="Avancer d’un cran">↑</button>` +
           `<button class="edit" data-prio="${u.post.id}" data-move="down" title="Reculer d’un cran">↓</button>` +
-          (prio ? `<button class="edit" data-prio="${u.post.id}" data-move="reset" title="Priorité normale">Réinit.</button>` : '') +
+          (prio ? `<button class="edit" data-prio="${u.post.id}" data-move="reset" title="Priorité normale">×</button>` : '') +
           `</div></td><td>${targetActions(u)}</td></tr>`
         );
       })
