@@ -441,6 +441,9 @@ h2 {
 }
 .danger { padding: 7px 11px; border: 1px solid #fecaca; border-radius: 8px; color: #b42318; background: #fff5f5; font-size: .76rem; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Les pastilles d'état se lisent seules : pas étirées sur la cellule. */
+td .pill { display: inline-block; }
+.toolbar .category-input { width: 240px; }
 .card-actions { gap: 6px; flex-wrap: wrap; }
 .table-wrap {
   overflow: auto;

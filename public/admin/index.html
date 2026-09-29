@@ -45,7 +45,7 @@
           <div class="who">
             <span class="online"><i></i> API connectée</span>
             <span id="whoami"></span>
-            <button class="ghost" id="nst-open" type="button">Clé NSTBrowser</button>
+            <button class="edit" id="nst-open" type="button">Clé NSTBrowser</button>
           </div>
         </header>
         <div id="notice" role="status"></div>
@@ -136,7 +136,7 @@
               catégorie.
             </p>
             <form id="category-form" class="toolbar-group">
-              <input name="name" placeholder="Nouvelle catégorie" required maxlength="80" />
+              <input name="name" placeholder="Nouvelle catégorie" required maxlength="80" class="category-input" />
               <button class="primary" type="submit">+ Ajouter</button>
             </form>
           </div>
@@ -538,8 +538,8 @@
             <option value="INACTIVE">Inactif</option>
           </select></label
         >
-        <div class="modal-foot">
-          <button type="button" class="ghost" data-close>Annuler</button>
+        <div class="actions">
+          <button type="button" class="secondary" data-close>Annuler</button>
           <button class="primary" type="submit">Enregistrer</button>
         </div>
       </form>
@@ -561,8 +561,8 @@
           >Nouvelle clé
           <input name="nstApiKey" type="password" autocomplete="off" required />
         </label>
-        <div class="modal-foot">
-          <button type="button" class="ghost" id="nst-clear">Retirer la clé</button>
+        <div class="actions">
+          <button type="button" class="danger" id="nst-clear">Retirer la clé</button>
           <button class="primary" type="submit">Enregistrer</button>
         </div>
       </form>
@@ -578,7 +578,7 @@
         qu'on met dans <code>config.js</code> de l'extension.
       </p>
       <pre id="key-value" class="key"></pre>
-      <div class="modal-foot">
+      <div class="actions">
         <button type="button" class="primary" data-close>J'ai copié</button>
       </div>
     </dialog>
@@ -595,8 +595,8 @@
       <div id="access-rows" class="access-list"></div>
       <form id="access-form">
         <label>Partager avec<select name="userId" id="access-user"></select></label>
-        <div class="modal-foot">
-          <button type="button" class="ghost" data-close>Fermer</button>
+        <div class="actions">
+          <button type="button" class="secondary" data-close>Fermer</button>
           <button class="primary" type="submit">Partager</button>
         </div>
       </form>
@@ -637,8 +637,8 @@
             <option value="INACTIVE">Inactif</option>
           </select></label
         >
-        <div class="modal-foot">
-          <button type="button" class="ghost" data-close>Annuler</button>
+        <div class="actions">
+          <button type="button" class="secondary" data-close>Annuler</button>
           <button class="primary" type="submit">Enregistrer</button>
         </div>
       </form>

@@ -456,12 +456,12 @@ function renderUsers() {
             : ` <span class="muted">sans clé NST</span>`) +
           `</td>` +
           `<td>${new Date(u.createdAt).toLocaleDateString('fr-FR')}</td>` +
-          `<td class="right"><button class="ghost" data-edit-user="${u.id}">Modifier</button>` +
-          `<button class="ghost" data-rotate-user="${u.id}">Nouvelle clé</button>` +
+          `<td><div class="row-actions"><button class="edit" data-edit-user="${u.id}">Modifier</button>` +
+          `<button class="edit" data-rotate-user="${u.id}">Nouvelle clé</button>` +
           (u.id === state.me?.id
             ? ''
-            : `<button class="ghost" data-delete-user="${u.id}">Supprimer</button>`) +
-          `</td></tr>`,
+            : `<button class="danger" data-delete-user="${u.id}">Supprimer</button>`) +
+          `</div></td></tr>`,
       )
       .join('') || '<tr><td colspan="5" class="empty">Aucun compte</td></tr>';
 }
@@ -503,13 +503,13 @@ function renderSites() {
           `<td>${s.hasOwnKey ? 'propre à ce site' : '<span class="muted">clé globale</span>'}</td>` +
           `<td>${s.articles}</td>` +
           `<td><span class="pill">${s.status === 'ACTIVE' ? 'Actif' : 'Inactif'}</span></td>` +
-          `<td class="right"><button class="ghost" data-check-site="${s.id}">Vérifier</button>` +
-          `<button class="ghost" data-share-site="${s.id}">Partager</button>` +
-          `<button class="ghost" data-edit-site="${s.id}">Modifier</button>` +
+          `<td><div class="row-actions"><button class="edit" data-check-site="${s.id}">Vérifier</button>` +
+          `<button class="edit" data-share-site="${s.id}">Partager</button>` +
+          `<button class="edit" data-edit-site="${s.id}">Modifier</button>` +
           (s.articles
             ? ''
-            : `<button class="ghost" data-delete-site="${s.id}">Supprimer</button>`) +
-          `</td></tr>`,
+            : `<button class="danger" data-delete-site="${s.id}">Supprimer</button>`) +
+          `</div></td></tr>`,
       )
       .join('') ||
     '<tr><td colspan="8" class="empty">Aucun site déclaré. L’extension ne pourra rien déposer.</td></tr>';
@@ -524,12 +524,12 @@ function renderCategories() {
       .map(
         (c) =>
           `<tr><td><strong>${esc(c.name)}</strong></td><td>${c.groups}</td><td>${c.sites}</td>` +
-          `<td class="right">` +
+          `<td><div class="row-actions">` +
           (admin
-            ? `<button class="ghost" data-rename-category="${c.id}">Renommer</button>` +
-              `<button class="ghost" data-delete-category="${c.id}">Supprimer</button>`
+            ? `<button class="edit" data-rename-category="${c.id}">Renommer</button>` +
+              `<button class="danger" data-delete-category="${c.id}">Supprimer</button>`
             : '') +
-          `</td></tr>`,
+          `</div></td></tr>`,
       )
       .join('') ||
     '<tr><td colspan="4" class="empty">Aucune catégorie. Créez-en une, puis rangez-y vos groupes et vos sites.</td></tr>';
@@ -1137,7 +1137,7 @@ async function openAccess(kind, resource) {
       .map(
         (a) =>
           `<div class="access-row"><span>${esc(a.username)}</span>` +
-          `<button class="ghost" data-revoke="${a.userId}">Retirer</button></div>`,
+          `<button class="danger" data-revoke="${a.userId}">Retirer</button></div>`,
       )
       .join('') || '<div class="access-empty">Partagé avec personne.</div>';
   // Ni le propriétaire, ni les administrateurs : les uns ont déjà tout, les
