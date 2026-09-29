@@ -264,6 +264,22 @@ describe('JobsService — groupes rejoints uniquement', () => {
     );
   });
 
+  it('commence par le groupe qui porte le post le plus prioritaire', async () => {
+    const { service, prisma } = makeClaimHarness();
+    prisma.group.findMany.mockResolvedValue([{ id: 'calme' }, { id: 'urgent' }, { id: 'moyen' }]);
+    const priorities: Record<string, number> = { calme: 0, urgent: 9, moyen: 2 };
+    prisma.postTarget.findFirst = jest.fn(async ({ where }: any) => ({
+      post: { priority: priorities[where.groupId] },
+    }));
+    const tried: string[] = [];
+    jest.spyOn(service, 'claim').mockImplementation(async (dto: any) => {
+      tried.push(dto.groupId);
+      return { job: null, posts: [] };
+    });
+    await service.claimByProfileExternalId('demo-profile');
+    expect(tried).toEqual(['urgent', 'moyen', 'calme']);
+  });
+
   it('cherche ses posts ET les posts ouverts de son compte', async () => {
     const { service, prisma } = makeClaimHarness();
     await service.claimByProfileExternalId('demo-profile');

@@ -360,7 +360,42 @@ site (catégorie « Recettes »)
   de nouveau post (« Créer les posts » est refusé, 409). Son post déjà créé
   finit sa tournée des groupes, chacun le recevant une fois.
 
+- **Retirer les posts d'un groupe** (bouton « Retirer les posts » de la page
+  Groupes, `DELETE /api/groups/{id}/posts`, `?dryRun=true` pour compter) : les
+  posts en attente sont retirés de CE groupe seulement. Un post qui vise aussi
+  d'autres groupes y reste ; un post qui ne visait que celui-ci est supprimé.
+  Les publications faites ou en cours sont conservées. Un compte ne retire que
+  ses propres posts, même d'un groupe partagé. Journalisé en
+  `GROUP_POSTS_REMOVED`.
+
 Les anciens posts, liés à un profil, continuent de fonctionner comme avant.
+
+### La file de publication
+
+Page **Posts → File d'attente**. L'unité est la **cible** : un post × un
+groupe. Un post qui vise trois groupes part trois fois, à chaque fois par un
+profil qui a rejoint le groupe.
+
+| Tableau | Ce qu'il montre |
+| --- | --- |
+| En cours | Réservé par un automate, ou en train d'être publié : quel post, quel groupe, **quel profil**, depuis quand |
+| Prochaines publications | Les 10 prochaines (« voir plus »), **dans l'ordre exact de réservation**, avec les profils qui peuvent les publier (ceux qui ont rejoint le groupe ; « aucun profil » = ce post n'en partira pas) |
+| Déjà publiés | Quand, dans quel groupe, **par quel profil**, le lien Facebook, et si le lien de l'article est posé en commentaire |
+
+Filtrable par **catégorie** et par groupe. La page se relit toutes les 15 s.
+
+**Ordre de passage** : priorité, puis le plus ancien. Il remplace le tirage
+au hasard : c'est ce qui rend la file prévisible et pilotable. Le groupe
+essayé en premier est celui qui porte le post le plus prioritaire.
+
+**Prioriser** (`PATCH /api/posts/{id}/priority`) : `{"move": "top"}` passe
+devant tous les autres, `up` / `down` d'un cran, `reset` remet à 0, ou
+`{"priority": n}` (−1000 à 1000). La priorité porte sur le post : il passe en
+tête dans **tous** ses groupes.
+
+```http
+GET /api/posts/queue?categoryId=&groupId=&limit=10&publishedLimit=20
+```
 
 ### L'extension WordPress de chaque site
 
@@ -625,6 +660,7 @@ Ce que chaque bloc sert à trancher :
 | `JOB_FINALIZED` | INFO | Toutes les URL sont en place |
 | `CLAIM_LOST` | ERROR | Réservation reprise — vérification manuelle |
 | `ARTICLE_ARCHIVED` | INFO | Premier post publié : l’article ne sert plus |
+| `GROUP_POSTS_REMOVED` | WARN | Posts en attente retirés d’un groupe |
 | `INGEST_CREATED` | INFO | Une reprise a été enregistrée |
 | `INGEST_SCRAPE_CLAIMED` | INFO | Une extension a réservé une collecte |
 | `INGEST_SCRAPED` | INFO | Le texte et l’image du post d’origine sont arrivés |

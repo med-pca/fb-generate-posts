@@ -274,6 +274,9 @@ model Post {
   articleId   String?              @map("article_id")
   article     Article?             @relation(fields: [articleId], references: [id], onDelete: SetNull)
   socialAngle String?              @map("social_angle")
+  /// Ordre de passage : plus haut = publié plus tôt. À égalité, le plus
+  /// ancien d'abord. 0 = normal.
+  priority    Int                  @default(0)
   targets     PostTarget[]
   jobItems    PublicationJobItem[]
   logs        ActivityLog[]
@@ -284,6 +287,7 @@ model Post {
   @@index([profileId, status])
   @@index([ownerId])
   @@index([articleId])
+  @@index([priority, createdAt])
   @@map("posts")
 }
 

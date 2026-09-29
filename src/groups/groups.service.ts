@@ -4,13 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { JoinStatus } from '@prisma/client';
+import { JoinStatus, Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../auth/current-user';
 import {
   groupManageWhere,
   groupWhere,
+  postWhere,
   profileWhere,
   scopeOf,
 } from '../auth/scope';
@@ -192,6 +193,82 @@ export class GroupsService {
         ...(category !== undefined ? { categoryId: category } : {}),
       },
     });
+  }
+
+  /** Retire de ce groupe les posts qui y attendent encore.
+   *
+   * Un post peut viser plusieurs groupes d'une même catégorie : le supprimer
+   * en entier le retirerait aussi des autres. On ne retire donc que sa cible
+   * dans CE groupe ; seul un post qui ne vise plus aucun groupe disparaît.
+   * Ce qui est publié, ou réservé par un automate en cours, reste : c'est
+   * l'historique, et un post en train de partir ne doit pas s'évanouir.
+   *
+   * Un compte ne retire que ses propres posts, même d'un groupe partagé.
+   * `dryRun` compte sans rien toucher, pour confirmer en connaissance. */
+  async removePosts(id: string, acting: CurrentUser | null, dryRun = false) {
+    await this.reachableGroup(id, acting);
+    const now = new Date();
+    const pending: Prisma.PostTargetWhereInput[] = [
+      { status: TargetStatus.AVAILABLE },
+      { status: TargetStatus.FAILED },
+      // Une réservation expirée ne protège plus rien.
+      { status: TargetStatus.CLAIMED, claimExpiresAt: { lt: now } },
+    ];
+    const where: Prisma.PostTargetWhereInput = {
+      groupId: id,
+      post: postWhere(scopeOf(acting)),
+      OR: pending,
+    };
+    const [removable, kept] = await Promise.all([
+      this.prisma.postTarget.findMany({ where, select: { id: true, postId: true } }),
+      this.prisma.postTarget.count({
+        where: {
+          groupId: id,
+          post: postWhere(scopeOf(acting)),
+          OR: [
+            { status: { in: [TargetStatus.PUBLISHED, TargetStatus.CONSUMED] } },
+            { status: TargetStatus.CLAIMED, claimExpiresAt: { gte: now } },
+          ],
+        },
+      }),
+    ]);
+    const postIds = [...new Set(removable.map((target) => target.postId))];
+    // Les posts qui ne visaient que ce groupe : sans cible, ils disparaissent.
+    const orphans = await this.prisma.post.findMany({
+      where: {
+        id: { in: postIds },
+        // Toutes ses cibles sont ici ET retirables : rien d'autre ne le retient.
+        targets: { every: { groupId: id, OR: pending } },
+      },
+      select: { id: true },
+    });
+    const report = {
+      dryRun,
+      removedFromGroup: removable.length,
+      deletedPosts: orphans.length,
+      stillInOtherGroups: postIds.length - orphans.length,
+      kept,
+    };
+    if (dryRun || !removable.length) return report;
+
+    await this.prisma.$transaction([
+      this.prisma.postTarget.deleteMany({
+        where: { id: { in: removable.map((target) => target.id) } },
+      }),
+      this.prisma.post.deleteMany({
+        where: { id: { in: orphans.map((post) => post.id) }, targets: { none: {} } },
+      }),
+      this.prisma.activityLog.create({
+        data: {
+          groupId: id,
+          eventType: 'GROUP_POSTS_REMOVED',
+          level: 'WARN',
+          message: `${removable.length} post(s) retiré(s) du groupe, ${orphans.length} supprimé(s)`,
+          metadata: { ...report, by: acting?.username ?? 'clé globale' },
+        },
+      }),
+    ]);
+    return report;
   }
 
   async remove(id: string, acting: CurrentUser | null) {

@@ -61,3 +61,68 @@ describe('GroupsService — catégorie obligatoire', () => {
     ).resolves.toMatchObject({ status: 'INACTIVE' });
   });
 });
+
+describe('GroupsService.removePosts — vider un groupe de ses posts', () => {
+  function harness() {
+    const prisma: any = {
+      group: { findFirst: jest.fn(async () => ({ id: 'g1' })) },
+      postTarget: {
+        findMany: jest.fn(async () => [
+          { id: 't1', postId: 'seul-ici' },
+          { id: 't2', postId: 'partage' },
+        ]),
+        count: jest.fn(async () => 3),
+        deleteMany: jest.fn((args: any) => args),
+      },
+      post: {
+        findMany: jest.fn(async () => [{ id: 'seul-ici' }]),
+        deleteMany: jest.fn((args: any) => args),
+      },
+      activityLog: { create: jest.fn((args: any) => args) },
+      $transaction: jest.fn(async (ops: any[]) => ops),
+    };
+    const service = new GroupsService(prisma, new CategoriesService(prisma));
+    return { service, prisma };
+  }
+
+  it('compte sans rien toucher en mode à blanc', async () => {
+    const { service, prisma } = harness();
+    const report = await service.removePosts('g1', null, true);
+    expect(report).toEqual({
+      dryRun: true,
+      removedFromGroup: 2,
+      deletedPosts: 1,
+      stillInOtherGroups: 1,
+      kept: 3,
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('ne retire que les cibles en attente, et ne supprime que les posts sans autre groupe', async () => {
+    const { service, prisma } = harness();
+    await service.removePosts('g1', null);
+    const [{ where }] = prisma.postTarget.findMany.mock.calls[0];
+    expect(where.groupId).toBe('g1');
+    // Publié, consommé ou réservé par un job vivant : jamais retiré.
+    expect(JSON.stringify(where.OR)).not.toMatch(/PUBLISHED|CONSUMED/);
+    expect(prisma.postTarget.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['t1', 't2'] } },
+    });
+    expect(prisma.post.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['seul-ici'] }, targets: { none: {} } },
+    });
+    expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe(
+      'GROUP_POSTS_REMOVED',
+    );
+  });
+
+  it('un compte ne retire que ses propres posts d’un groupe partagé', async () => {
+    const { service, prisma } = harness();
+    const sofia: any = { id: 'u1', role: 'MANAGER' };
+    await service.removePosts('g1', sofia, true);
+    const [{ where }] = prisma.postTarget.findMany.mock.calls[0];
+    expect(where.post).toEqual({
+      OR: [{ ownerId: 'u1' }, { profile: { ownerId: 'u1' } }],
+    });
+  });
+});

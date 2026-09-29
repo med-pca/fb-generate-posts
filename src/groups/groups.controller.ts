@@ -9,7 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
@@ -88,6 +88,23 @@ export class GroupsCatalogController {
   @Delete(':id')
   remove(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
     return this.groups.remove(id, acting);
+  }
+
+  @Delete(':id/posts')
+  @ApiOperation({
+    summary: 'Retirer de ce groupe les posts qui y attendent',
+    description:
+      'Seule la cible de ce groupe part : un post qui vise aussi d’autres ' +
+      'groupes y reste, un post qui ne visait que celui-ci est supprimé. Les ' +
+      'publications faites ou en cours sont conservées. `dryRun=true` compte ' +
+      'sans rien toucher.',
+  })
+  removePosts(
+    @Param('id') id: string,
+    @Query('dryRun') dryRun: string | undefined,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.groups.removePosts(id, acting, dryRun === 'true');
   }
 
   @Patch(':id')

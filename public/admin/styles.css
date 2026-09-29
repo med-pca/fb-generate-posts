@@ -992,3 +992,143 @@ body:not(.is-admin) .admin-only { display: none; }
   font-size: 0.82rem;
   line-height: 1.45;
 }
+
+/* ── File d'attente des posts ─────────────────────────────────────── */
+.hidden { display: none !important; }
+.subtabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fff;
+}
+.subtab {
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.subtab.active {
+  color: #fff;
+  background: var(--blue);
+}
+.queue-rule {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.queue-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.queue-stats article {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+.queue-stats span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.queue-stats strong {
+  display: block;
+  margin: 6px 0 2px;
+  font-size: 1.7rem;
+  letter-spacing: -0.04em;
+}
+.queue-stats small {
+  color: #929bad;
+  font-size: 0.74rem;
+}
+.queue-panel {
+  margin-bottom: 18px;
+}
+.queue-panel h2 {
+  margin: 2px 0 0;
+  font-size: 1rem;
+}
+.queue-panel .panel-head small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+}
+.queue-post {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  max-width: 380px;
+}
+.queue-post img,
+.queue-post .noimg {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #eef1f6;
+}
+.queue-post strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rank {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  background: #7d8798;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+.rank.next {
+  background: var(--blue);
+}
+.prio {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #9a5b00;
+  background: #fff1d6;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+.prio.low {
+  color: #667085;
+  background: #eef1f6;
+}
+.pill.state-publishing,
+.pill.link-placed {
+  color: #17803d;
+  background: #e3f7ea;
+}
+.pill.state-claimed,
+.pill.link-waiting {
+  color: #315cb4;
+  background: #e8f0ff;
+}
+.pill.link-missing {
+  color: #b42318;
+  background: #fde8e7;
+}
+.pill.link-none {
+  color: #667085;
+  background: #eef1f6;
+}
+@media (max-width: 760px) {
+  .queue-stats { grid-template-columns: 1fr; }
+}

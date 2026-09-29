@@ -26,6 +26,8 @@ const API = '/api',
     // Les filtres sont appliqués par l'API : la sélection « tout » doit porter
     // sur le même ensemble que celui que la suppression en masse vise.
     postFilters: { profileId: '', articleId: '', groupId: '' },
+    // La file de publication : ses filtres et combien on en montre.
+    queue: { tab: 'queue', categoryId: '', groupId: '', limit: 10, publishedLimit: 20, data: null },
     selection: new Set(),
   };
 let accessToken = localStorage.getItem('postflow_token') || '';
@@ -177,7 +179,7 @@ function render() {
     state.groups
       .map(
         (g) =>
-          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td>${g.category ? `<span class="chip">${esc(g.category.name)}</span>` : '<span class="chip join-questions" title="Modifiez le groupe pour lui choisir une catégorie : sans elle, il ne reçoit aucun article">À ranger</span>'}</td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip join-${(x.joinStatus || 'NOT_JOINED').toLowerCase()}" title="${esc(JOIN_LABELS[x.joinStatus] || '')}${x.joinError ? ' · ' + esc(x.joinError) : ''}">${esc(x.profile.name)} · ${esc(JOIN_LABELS[x.joinStatus] || 'Non rejoint')}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
+          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td>${g.category ? `<span class="chip">${esc(g.category.name)}</span>` : '<span class="chip join-questions" title="Modifiez le groupe pour lui choisir une catégorie : sans elle, il ne reçoit aucun article">À ranger</span>'}</td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip join-${(x.joinStatus || 'NOT_JOINED').toLowerCase()}" title="${esc(JOIN_LABELS[x.joinStatus] || '')}${x.joinError ? ' · ' + esc(x.joinError) : ''}">${esc(x.profile.name)} · ${esc(JOIN_LABELS[x.joinStatus] || 'Non rejoint')}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-clear-group="${g.id}" ${g._count.targets ? '' : 'disabled'}>Retirer les posts</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
       )
       .join('') ||
     '<tr><td colspan="6"><div class="empty">Aucun groupe</div></td></tr>';
@@ -556,6 +558,7 @@ function renderCategories() {
       .map((c) => `<option value="${c.id}">${esc(c.name)}</option>`)
       .join('');
   $$('.groups-by-category').forEach((select) => (select.innerHTML = choose));
+  fillQueueFilters();
 }
 
 function renderArticles() {
@@ -810,6 +813,12 @@ function view(id) {
   // Les journaux se relisent à chaque ouverture : une synthèse périmée
   // conduirait à décider sur l'état d'hier.
   if (id === 'logs') loadLogs();
+  // La file bouge toute seule : elle se relit tant qu'elle est à l'écran.
+  clearInterval(view.queueTimer);
+  if (id === 'posts' && state.queue.tab === 'queue') {
+    loadQueue();
+    view.queueTimer = setInterval(loadQueue, 15000);
+  }
   // Le pilotage se rafraîchit tant qu'il est à l'écran : cette page sert à
   // regarder des navigateurs travailler, un état figé n'y apprend rien.
   clearInterval(view.runnersTimer);
@@ -1299,6 +1308,177 @@ $('#post-form').onsubmit = async (e) => {
     notice(x.message, 'error');
   }
 };
+/* ── File d'attente des posts ─────────────────────────────────────── */
+
+function fillQueueFilters() {
+  const q = state.queue;
+  const categories = $('#queue-category');
+  categories.innerHTML =
+    '<option value="">Toutes les catégories</option>' +
+    state.categories.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  categories.value = q.categoryId;
+  const groups = state.groupOptions.filter((g) => !q.categoryId || g.categoryId === q.categoryId);
+  const groupSelect = $('#queue-group');
+  groupSelect.innerHTML =
+    '<option value="">Tous les groupes</option>' +
+    groups.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  if (!groups.some((g) => g.id === q.groupId)) q.groupId = '';
+  groupSelect.value = q.groupId;
+}
+
+async function loadQueue() {
+  const q = state.queue;
+  const query = new URLSearchParams({ limit: q.limit, publishedLimit: q.publishedLimit });
+  if (q.categoryId) query.set('categoryId', q.categoryId);
+  if (q.groupId) query.set('groupId', q.groupId);
+  try {
+    q.data = await api(`/posts/queue?${query}`);
+    renderQueue();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+}
+
+const queuePost = (post) =>
+  `<div class="queue-post">${post.imageUrl ? `<img src="${esc(post.imageUrl)}" alt="" loading="lazy">` : '<span class="noimg"></span>'}` +
+  `<div><strong title="${esc(post.title)}">${esc(post.title)}</strong>` +
+  `<small>${esc((post.description || '').slice(0, 70))}${(post.description || '').length > 70 ? '…' : ''}</small></div></div>`;
+const queueGroup = (group) =>
+  `<strong>${esc(group.name)}</strong><small>${group.category ? esc(group.category.name) : 'sans catégorie'}</small>`;
+const queueProfile = (profile) =>
+  profile ? `<strong>${esc(profile.name)}</strong>` : '<span class="muted">—</span>';
+const LINK_LABELS = {
+  placed: 'Posé',
+  waiting: 'En attente',
+  missing: 'Manquant',
+  none: 'Sans lien',
+};
+
+function renderQueue() {
+  const d = state.queue.data;
+  if (!d) return;
+  $('#q-running').textContent = d.counts.running;
+  $('#q-upcoming').textContent = d.counts.upcoming;
+  $('#q-published').textContent = d.counts.published;
+
+  $('#queue-running').innerHTML =
+    d.running
+      .map(
+        (r) =>
+          `<tr><td>${queuePost(r.post)}</td><td>${queueGroup(r.group)}</td><td>${queueProfile(r.profile)}</td>` +
+          `<td><span class="pill state-${r.state}">${r.state === 'publishing' ? 'Publication en cours' : 'Réservé'}</span>` +
+          `<small>depuis ${esc(when(r.since))}</small></td></tr>`,
+      )
+      .join('') || '<tr><td colspan="4" class="empty">Rien en cours.</td></tr>';
+
+  $('#queue-upcoming').innerHTML =
+    d.upcoming
+      .map((u) => {
+        const prio = u.post.priority;
+        const candidates = u.candidates.length
+          ? u.candidates.map((p) => `<span class="chip">${esc(p.name)}</span>`).join(' ')
+          : '<span class="chip join-questions" title="Aucun profil n’a rejoint ce groupe : ce post n’en partira pas">aucun profil</span>';
+        return (
+          `<tr><td><span class="rank ${u.rank === 1 ? 'next' : ''}">${u.rank}</span></td>` +
+          `<td>${queuePost(u.post)}</td><td>${queueGroup(u.group)}</td><td><div class="chips">${candidates}</div></td>` +
+          `<td>${prio ? `<span class="prio ${prio < 0 ? 'low' : ''}">${prio > 0 ? '+' : ''}${prio}</span>` : ''}` +
+          `<div class="row-actions">` +
+          `<button class="edit" data-prio="${u.post.id}" data-move="top" title="Passer devant tous les autres">⤒ En tête</button>` +
+          `<button class="edit" data-prio="${u.post.id}" data-move="up" title="Avancer d’un cran">↑</button>` +
+          `<button class="edit" data-prio="${u.post.id}" data-move="down" title="Reculer d’un cran">↓</button>` +
+          (prio ? `<button class="edit" data-prio="${u.post.id}" data-move="reset" title="Priorité normale">Réinit.</button>` : '') +
+          `</div></td></tr>`
+        );
+      })
+      .join('') || '<tr><td colspan="5" class="empty">Aucun post en attente pour ce filtre.</td></tr>';
+  $('#queue-more').hidden = d.upcoming.length >= d.counts.upcoming;
+
+  $('#queue-published').innerHTML =
+    d.published
+      .map(
+        (p) =>
+          `<tr><td><strong>${esc(when(p.publishedAt))}</strong>` +
+          (p.facebookUrl ? `<a href="${esc(p.facebookUrl)}" target="_blank" rel="noreferrer">Voir sur Facebook ↗</a>` : '') +
+          `</td><td>${queuePost(p.post)}</td><td>${queueGroup(p.group)}</td><td>${queueProfile(p.profile)}</td>` +
+          `<td><span class="pill link-${p.link}">${LINK_LABELS[p.link]}</span></td></tr>`,
+      )
+      .join('') || '<tr><td colspan="5" class="empty">Aucune publication pour ce filtre.</td></tr>';
+  $('#queue-more-published').hidden = d.published.length >= d.counts.published;
+}
+
+function showPostsTab(tab) {
+  state.queue.tab = tab;
+  $$('[data-posts-tab]').forEach((b) => b.classList.toggle('active', b.dataset.postsTab === tab));
+  $('#posts-queue').classList.toggle('hidden', tab !== 'queue');
+  $('#posts-all').classList.toggle('hidden', tab !== 'all');
+  view('posts');
+}
+$$('[data-posts-tab]').forEach((b) => (b.onclick = () => showPostsTab(b.dataset.postsTab)));
+$('#queue-category').onchange = (e) => {
+  state.queue.categoryId = e.target.value;
+  fillQueueFilters();
+  loadQueue();
+};
+$('#queue-group').onchange = (e) => {
+  state.queue.groupId = e.target.value;
+  loadQueue();
+};
+$('#queue-refresh').onclick = () => loadQueue();
+$('#queue-more').onclick = () => {
+  state.queue.limit = Math.min(100, state.queue.limit + 10);
+  loadQueue();
+};
+$('#queue-more-published').onclick = () => {
+  state.queue.publishedLimit = Math.min(200, state.queue.publishedLimit + 20);
+  loadQueue();
+};
+/** Prioriser : le post passe devant dans TOUS ses groupes. */
+async function movePost(postId, move, button) {
+  button.disabled = true;
+  try {
+    await api(`/posts/${postId}/priority`, { method: 'PATCH', body: JSON.stringify({ move }) });
+    await loadQueue();
+    if (move === 'top') notice('Post passé en tête de file dans tous ses groupes.');
+  } catch (x) {
+    notice(x.message, 'error');
+    button.disabled = false;
+  }
+}
+
+/** Retire d'un groupe les posts qui y attendent. Un premier appel à blanc
+ * donne les chiffres exacts : un post partagé avec d'autres groupes n'est
+ * retiré que d'ici, et ce qui est publié reste — il faut le dire avant. */
+async function clearGroupPosts(group, button) {
+  button.disabled = true;
+  try {
+    const plan = await api(`/groups/${group.id}/posts?dryRun=true`, { method: 'DELETE' });
+    if (!plan.removedFromGroup) {
+      notice(
+        plan.kept
+          ? `Rien à retirer de « ${group.name} » : ses ${plan.kept} post(s) sont déjà publiés ou en cours.`
+          : `Aucun post en attente dans « ${group.name} ».`,
+      );
+      return;
+    }
+    const lines = [
+      `Retirer ${plan.removedFromGroup} post(s) en attente du groupe « ${group.name} » ?`,
+      '',
+      `• ${plan.deletedPosts} post(s) ne visaient que ce groupe : ils seront supprimés.`,
+      `• ${plan.stillInOtherGroups} post(s) restent dans les autres groupes de leur catégorie.`,
+    ];
+    if (plan.kept) lines.push(`• ${plan.kept} publication(s) faites ou en cours sont conservées.`);
+    if (!confirm(lines.join('\n'))) return;
+    const done = await api(`/groups/${group.id}/posts`, { method: 'DELETE' });
+    notice(
+      `${done.removedFromGroup} post(s) retiré(s) de « ${group.name} », ${done.deletedPosts} supprimé(s).`,
+    );
+    await load();
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
 async function deleteArticlePosts(article, button) {
   const message =
     `Supprimer définitivement tous les posts liés à l’article « ${article.title} » ? L’article sera conservé. Les posts réservés par un automate en cours seront conservés.`;
@@ -1345,6 +1525,17 @@ document.addEventListener('click', (e) => {
       .then(load)
       .then(() => notice('État du profil modifié.'))
       .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  if (e.target.dataset.prio) {
+    void movePost(e.target.dataset.prio, e.target.dataset.move, e.target);
+    return;
+  }
+  const clearGroup = state.groups.find(
+    (x) => x.id === e.target.dataset.clearGroup,
+  );
+  if (clearGroup) {
+    if (!e.target.disabled) void clearGroupPosts(clearGroup, e.target);
     return;
   }
   const toggleGroup = state.groups.find(

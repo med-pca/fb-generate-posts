@@ -52,7 +52,7 @@ window.fetch = async (url, options = {}) => {
 
 window.eval(fs.readFileSync(`${DIR}/app.js`, 'utf8'));
 
-setTimeout(() => {
+setTimeout(async () => {
   const $ = (s) => window.document.querySelector(s);
   let ko = 0;
   const check = (label, ok, got) => { console.log(`${ok ? '  ok  ' : '  KO  '}${label}${ok ? '' : ' → ' + JSON.stringify(got)}`); if (!ok) ko++; };
@@ -73,6 +73,67 @@ setTimeout(() => {
   const groupCategory = $('#group-form select[name=categoryId]');
   check('la catégorie d’un groupe est obligatoire', groupCategory.required && groupCategory.value === '' && !groupCategory.checkValidity(), groupCategory.value);
   check('le groupe ne propose pas « Aucune catégorie »', ![...groupCategory.options].some((o) => /Aucune/.test(o.textContent)), null);
+  // Retirer les posts d'un groupe : chiffres d'abord, puis la suppression.
+  const calls = [];
+  const realFetch = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    calls.push(`${options.method || 'GET'} ${String(url).replace('/api', '')}`);
+    if (String(url).includes('/groups/g1/posts')) {
+      return { ok: true, status: 200, json: async () => ({ removedFromGroup: 4, deletedPosts: 1, stillInOtherGroups: 3, kept: 2 }) };
+    }
+    return realFetch(url, options);
+  };
+  let asked = '';
+  window.confirm = (message) => { asked = message; return true; };
+  window.eval(`clearGroupPosts({ id: 'g1', name: 'Recettes FR' }, document.createElement('button'))`);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('retirer les posts compte d’abord à blanc', calls[0] === 'DELETE /groups/g1/posts?dryRun=true', calls);
+  check('la confirmation donne les chiffres', /4 post\(s\) en attente/.test(asked) && /1 post\(s\) ne visaient que ce groupe/.test(asked) && /2 publication/.test(asked), asked);
+  check('puis supprime pour de bon', calls.includes('DELETE /groups/g1/posts'), calls);
+  window.fetch = realFetch;
+  window.confirm = () => true;
+
+  // ─── La file d'attente des posts ───────────────────────────────
+  const post = (id, priority = 0) => ({ id, title: `Post ${id}`, description: 'Un texte', imageUrl: null, priority });
+  const group = { id: 'g1', name: 'Recettes FR', category: { id: 'c1', name: 'Recettes' } };
+  const salim = { id: 'p1', name: 'Salim' };
+  const queueCalls = [];
+  const beforeQueue = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace('/api', '');
+    queueCalls.push(`${options.method || 'GET'} ${path}`);
+    if (path.startsWith('/posts/queue')) {
+      return { ok: true, status: 200, json: async () => ({
+        counts: { running: 1, upcoming: 12, published: 1 },
+        running: [{ state: 'publishing', since: '2026-09-30T09:00:00Z', post: post('r'), group, profile: salim }],
+        upcoming: [
+          { rank: 1, post: post('a', 3), group, candidates: [salim] },
+          { rank: 2, post: post('b'), group, candidates: [] },
+        ],
+        published: [{ publishedAt: '2026-09-30T08:00:00Z', post: post('p'), group, profile: salim, facebookUrl: 'https://facebook.com/groups/g1/posts/9', link: 'placed' }],
+      }) };
+    }
+    if (path.includes('/priority')) return { ok: true, status: 200, json: async () => ({ id: 'b', priority: 4 }) };
+    return beforeQueue(url, options);
+  };
+  window.eval(`showPostsTab('queue')`);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('la file s’ouvre sur l’onglet Posts', !$('#posts-queue').classList.contains('hidden') && $('#posts-all').classList.contains('hidden'), null);
+  check('les compteurs sont affichés', $('#q-upcoming').textContent === '12' && $('#q-running').textContent === '1', $('#q-upcoming').textContent);
+  const upcomingRows = $('#queue-upcoming').textContent;
+  check('les prochains sont numérotés dans l’ordre', /1.*Post a.*2.*Post b/s.test(upcomingRows), upcomingRows);
+  check('la priorité d’un post est visible', /\+3/.test(upcomingRows), upcomingRows);
+  check('un groupe sans profil est signalé', /aucun profil/.test(upcomingRows), upcomingRows);
+  const publishedRows = $('#queue-published').textContent;
+  check('un post publié dit par quel profil et dans quel groupe', /Salim/.test(publishedRows) && /Recettes FR/.test(publishedRows), publishedRows);
+  check('et le lien Facebook de la publication', !!$('#queue-published a[href="https://facebook.com/groups/g1/posts/9"]'), null);
+  check('« en cours » montre le profil qui publie', /Salim/.test($('#queue-running').textContent) && /Publication en cours/.test($('#queue-running').textContent), null);
+  check('« voir plus » reste proposé quand il en reste', $('#queue-more').hidden === false, null);
+  $('[data-prio="b"][data-move="top"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« En tête » envoie la priorité', queueCalls.includes('PATCH /posts/b/priority'), queueCalls);
+  window.fetch = beforeQueue;
+
   check('la fenêtre d’appairage a les marges des autres', !!$('#pair-modal > .modal-body'), null);
 
   const rows = $('#user-rows').textContent;

@@ -189,7 +189,10 @@ export class JobsService {
           AND pr.status = 'ACTIVE'::"RecordStatus"
           AND g.status = 'ACTIVE'::"RecordStatus"
           AND (p.article_id IS NULL OR a.status = 'ACTIVE'::"RecordStatus")
-        ORDER BY RANDOM()
+        -- La file : priorité d'abord, puis le plus ancien. C'est l'ordre que
+        -- la page « File d'attente » affiche ; le hasard le rendait
+        -- impossible à prévoir comme à piloter.
+        ORDER BY p.priority DESC, p.created_at ASC, pt.created_at ASC
         FOR UPDATE OF pt SKIP LOCKED
         LIMIT ${count}
       `);
@@ -454,8 +457,7 @@ export class JobsService {
       };
     }
 
-    const shuffled = groups.sort(() => Math.random() - 0.5);
-    for (const group of shuffled) {
+    for (const group of await this.byTopPriority(groups, profile)) {
       const result = await this.claim(
         { profileId: profile.id, groupId: group.id },
         acting,
@@ -464,6 +466,35 @@ export class JobsService {
       if ('jobId' in result) return result;
     }
     return { job: null, posts: [], message: 'Aucun post disponible' };
+  }
+
+  /** Le groupe qui porte le post le plus prioritaire passe d'abord : sans
+   * cela, un post mis en tête attendrait que le hasard tombe sur son groupe.
+   * À égalité, le hasard répartit toujours la charge entre les groupes. */
+  private async byTopPriority(
+    groups: Array<{ id: string }>,
+    profile: { id: string; ownerId: string | null },
+  ) {
+    const tops = await Promise.all(
+      groups.map(async (group) => {
+        const top = await this.prisma.postTarget.findFirst({
+          where: {
+            groupId: group.id,
+            status: TargetStatus.AVAILABLE,
+            post: { status: 'AVAILABLE', ...claimablePostWhere(profile) },
+          },
+          orderBy: [
+            { post: { priority: 'desc' } },
+            { post: { createdAt: 'asc' } },
+          ],
+          select: { post: { select: { priority: true } } },
+        });
+        return { group, priority: top?.post.priority ?? 0, tie: Math.random() };
+      }),
+    );
+    return tops
+      .sort((a, b) => b.priority - a.priority || a.tie - b.tie)
+      .map(({ group }) => group);
   }
 
   async markConsumed(

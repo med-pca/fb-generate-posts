@@ -24,13 +24,46 @@ import { PostsService } from './posts.service';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { QueryPostsDto } from './dto/query-posts.dto';
 import { BulkDeletePostsDto } from './dto/bulk-delete-posts.dto';
+import { PriorityDto, QueueQueryDto } from './dto/queue.dto';
+import { QueueService } from './queue.service';
 
 @ApiTags('posts')
 @ApiBearerAuth()
 @UseGuards(AdminAuthGuard)
 @Controller('posts')
 export class PostsController {
-  constructor(private readonly posts: PostsService) {}
+  constructor(
+    private readonly posts: PostsService,
+    private readonly queueService: QueueService,
+  ) {}
+
+  // Avant `:id` : sinon « queue » serait pris pour un identifiant.
+  @Get('queue')
+  @ApiOperation({
+    summary: 'La file de publication',
+    description:
+      'En cours (réservées par un automate), à venir (dans l’ordre exact de ' +
+      'réservation : priorité puis ancienneté) et publiées (quand, dans quel ' +
+      'groupe, par quel profil). Filtrable par catégorie ou groupe.',
+  })
+  queue(@Query() query: QueueQueryDto, @ActingUser() acting: CurrentUser) {
+    return this.queueService.queue(query, acting);
+  }
+
+  @Patch(':id/priority')
+  @ApiOperation({
+    summary: 'Prioriser un post',
+    description:
+      '`move`: top (en tête de file), up, down, reset — ou `priority` exacte. ' +
+      'Le post passe en tête dans tous ses groupes.',
+  })
+  setPriority(
+    @Param('id') id: string,
+    @Body() dto: PriorityDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.queueService.setPriority(id, dto, acting);
+  }
 
   @Post()
   create(@Body() dto: CreatePostDto, @ActingUser() acting: CurrentUser) {
