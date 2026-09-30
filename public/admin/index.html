@@ -132,8 +132,8 @@
           <div class="toolbar">
             <p>
               Une catégorie relie un site à des groupes : chaque article reçu
-              du site devient UN post qui vise tous les groupes actifs de sa
-              catégorie.
+              du site devient un post dans chacun des groupes actifs de sa
+              catégorie — les mêmes données, jamais deux fois dans un groupe.
             </p>
             <form id="category-form" class="toolbar-group">
               <input name="name" placeholder="Nouvelle catégorie" required maxlength="80" class="category-input" />
@@ -413,6 +413,31 @@
               </button>
             </div>
           </div>
+          <div class="toolbar runner-filters">
+            <div class="toolbar-group">
+              <input id="runner-search" type="search" placeholder="Rechercher un profil (nom ou identifiant)" /><select
+                id="runner-mode-filter"
+              >
+                <option value="">Tous les modes</option>
+                <option value="OFF">Arrêté</option>
+                <option value="AUTO">Auto</option>
+                <option value="ON">Marche forcée</option></select
+              ><select id="runner-state-filter">
+                <option value="">Tous les états</option>
+                <option value="check">⚠ À vérifier</option>
+                <option value="working">Au travail</option>
+                <option value="should">Doit publier</option>
+                <option value="idle">Doit publier, mais ne travaille pas</option>
+                <option value="silent">Muet (dit travailler, plus vu)</option>
+                <option value="browser-open">Navigateur ouvert</option>
+                <option value="browser-error">Navigateur en erreur</option>
+                <option value="unpaired">Jamais appairé</option>
+                <option value="inactive">Profil inactif</option>
+              </select
+              ><button class="link" id="runner-filters-reset" type="button" hidden>Effacer les filtres</button>
+            </div>
+            <p id="runner-count" class="runner-count"></p>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -438,8 +463,9 @@
             <p class="form-help">
               Il n’y a plus d’alimentation automatique. Chaque article reçu d’un
               site WordPress (import automatique puis mise en ligne) devient
-              <b>un seul post ouvert</b>, qui vise tous les groupes actifs de la
-              catégorie du site. Un site sans catégorie ne produit aucun post.
+              <b>un post dans chaque groupe actif</b> de la catégorie du site,
+              avec les mêmes données — jamais deux fois dans le même groupe. Un
+              site sans catégorie ne produit aucun post.
             </p>
             <p class="form-help">
               Le coupe-circuit de la publication se trouve dans la page Pilotage.

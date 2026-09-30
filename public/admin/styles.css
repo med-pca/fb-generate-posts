@@ -1298,3 +1298,19 @@ body:not(.is-admin) .admin-only { display: none; }
 .domain-sync { color: #17803d; background: #e3f7ea; }
 .domain-groups { color: #9a5b00; background: #fff1d6; }
 .domain-other { color: #667085; background: #eef1f6; }
+
+/* ── Filtres du Pilotage ──────────────────────────────────────────── */
+.runner-filters #runner-search { width: 300px; }
+.runner-filters select { width: 210px; }
+.runner-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+.runner-count b { color: var(--ink); }
+.warn-link {
+  padding: 0;
+  color: #b54708;
+  font-size: 0.84rem;
+}

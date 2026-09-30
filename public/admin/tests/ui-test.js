@@ -209,6 +209,52 @@ setTimeout(async () => {
   check('chaque ligne porte son domaine', /Synchronisation/.test($('#log-rows').textContent) && !!$('#log-rows .domain-sync'), null);
   window.fetch = beforeLogs;
 
+  // ─── Filtres du Pilotage ───────────────────────────────────────
+  const now = new Date().toISOString();
+  const runner = (over) => ({ profileId: over.name, externalId: `ext-${over.name}`, status: 'ACTIVE', mode: 'AUTO', shouldRun: false, reason: 'hors fenêtre',
+    window: '09:00–18:00', timezone: 'Europe/Paris', atWork: false, running: false, pairedAt: now, browserState: 'STOPPED',
+    published: 0, failed: 0, links: 0, lastSeenAt: now, browserSeenAt: now, ...over });
+  const patched = [];
+  const beforeRunners = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace('/api', '');
+    if (path === '/runners') {
+      return { ok: true, status: 200, json: async () => ({ publishingEnabled: true, profiles: [
+        runner({ name: 'Salim', shouldRun: true, atWork: true, running: true, browserState: 'RUNNING' }),
+        runner({ name: 'Nadia', shouldRun: true }),
+        runner({ name: 'Omar', mode: 'OFF', pairedAt: null }),
+        runner({ name: 'Yasmine', browserState: 'ERROR' }),
+      ] }) };
+    }
+    if (path.startsWith('/runners/') && options.method === 'PATCH') {
+      patched.push(path);
+      return { ok: true, status: 200, json: async () => ({ run: false, reason: 'ok' }) };
+    }
+    return beforeRunners(url, options);
+  };
+  window.eval(`view('runners')`);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const runnerNames = () => [...window.document.querySelectorAll('#runner-rows tr td:first-child strong')].map((el) => el.textContent);
+  check('le Pilotage liste tous les profils', runnerNames().length === 4, runnerNames());
+  check('le compteur signale les profils à vérifier', /2 à vérifier/.test($('#runner-count').textContent), $('#runner-count').textContent);
+  $('#runner-search').value = 'nad';
+  $('#runner-search').dispatchEvent(new window.Event('input'));
+  check('la recherche filtre par nom', runnerNames().join() === 'Nadia', runnerNames());
+  $('#runner-filters-reset').click();
+  $('#runner-mode-filter').value = 'OFF';
+  $('#runner-mode-filter').dispatchEvent(new window.Event('change'));
+  check('le filtre de mode', runnerNames().join() === 'Omar', runnerNames());
+  $('#runner-filters-reset').click();
+  $('[data-runner-check]').click();
+  check('« à vérifier » : doit publier sans travailler, ou navigateur en erreur', runnerNames().sort().join() === 'Nadia,Yasmine', runnerNames());
+  check('les boutons de masse ne visent que les profils affichés', $('#runners-all-off').textContent === 'Arrêter (2)', $('#runners-all-off').textContent);
+  $('#runners-all-off').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Arrêter » ne touche que ces profils-là', patched.sort().join() === '/runners/Nadia,/runners/Yasmine', patched);
+  $('#runner-filters-reset').click();
+  check('sans filtre, les boutons retrouvent leur sens global', $('#runners-all-off').textContent === 'Tout arrêter', $('#runners-all-off').textContent);
+  window.fetch = beforeRunners;
+
   check('la fenêtre d’appairage a les marges des autres', !!$('#pair-modal > .modal-body'), null);
 
   const rows = $('#user-rows').textContent;

@@ -333,10 +333,18 @@ plugin).
 
 ```
 site (catégorie « Recettes »)
-   └─ article reçu ─> UN post ouvert ─> tous les groupes actifs « Recettes »
-                                        (chaque groupe le reçoit une fois,
-                                         par le premier profil qui l'a rejoint)
+   └─ article reçu ─> un post PAR groupe actif « Recettes », mêmes données
+                        ├─ post → Groupe A
+                        ├─ post → Groupe B
+                        └─ post → Groupe C
+      (publié dans son groupe par le premier profil qui l'a rejoint)
 ```
+
+Chaque groupe a **son** post : il se priorise, se modifie, se relance ou se
+retire sans toucher aux autres. Son identifiant `article:group:<groupe>` rend
+impossible un second exemplaire du même article dans le même groupe, même si
+WordPress renvoie l'article. Une modification de l'article sur WordPress
+réaligne tous ses posts encore à publier.
 
 - **Catégories** : une liste gérée (page **Catégories**, `GET/POST
   /api/categories`). Tout compte en crée ; seuls les ADMIN renomment ou

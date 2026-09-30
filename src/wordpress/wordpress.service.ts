@@ -12,6 +12,12 @@ import { ArticlesService } from '../articles/articles.service';
 import { groupWhere } from '../auth/scope';
 import { WordpressArticleDto } from './wordpress.dto';
 
+/** Le post d'un article dans un groupe : un seul par couple article ×
+ * groupe, garanti par l'unicité de `externalId`. */
+export function groupPostExternalId(articleId: string, groupId: string) {
+  return `${articleId}:group:${groupId}`;
+}
+
 export function wordpressCaption(dto: WordpressArticleDto) {
   const clean = (value: string) =>
     value
@@ -128,7 +134,7 @@ export class WordpressService {
         dto,
         {
           message: result.generated
-            ? `« ${dto.title} » reçu de ${dto.siteName} : 1 post pour ${result.groups} groupe(s)`
+            ? `« ${dto.title} » reçu de ${dto.siteName} : ${result.generated} post(s), un par groupe`
             : `« ${dto.title} » reçu de ${dto.siteName} sans post : ${noPost}`,
           articleId: result.articleId,
         },
@@ -241,9 +247,10 @@ export class WordpressService {
             ...fields,
           },
         });
-        // UN post ouvert par article : il vise tous les groupes de la
-        // catégorie du site, et le premier profil qui a rejoint un groupe l'y
-        // publie. Plus de copie par profil, donc plus de doublons.
+        // UN post par groupe de la catégorie, mêmes données partout : chaque
+        // groupe a le sien, qui se priorise, se modifie et se retire seul.
+        // L'identifiant `article:group:<groupe>` interdit un second exemplaire
+        // du même article dans le même groupe, même si WordPress renvoie.
         const groupIds = await this.audience(tx, source, ingest?.groupIds);
         const noPost = groupIds.length
           ? null
@@ -251,17 +258,20 @@ export class WordpressService {
             ? ('no_group' as const)
             : ('no_category' as const);
         if (groupIds.length) {
-          await tx.post.create({
-            data: {
-              ...this.articles.postDataForSlot(article, 0, {
-                profileId: null,
-                delayMin: 10,
-                delayMax: 60,
-              }),
-              ownerId: source.ownerId,
-              targets: { create: groupIds.map((groupId) => ({ groupId })) },
-            },
-          });
+          for (const groupId of groupIds) {
+            await tx.post.create({
+              data: {
+                ...this.articles.postDataForSlot(article, 0, {
+                  profileId: null,
+                  delayMin: 10,
+                  delayMax: 60,
+                }),
+                externalId: groupPostExternalId(article.id, groupId),
+                ownerId: source.ownerId,
+                targets: { create: { groupId } },
+              },
+            });
+          }
         } else {
           this.logger.warn(
             `${source.name} : aucun groupe actif dans sa catégorie — ` +
@@ -273,7 +283,7 @@ export class WordpressService {
           articleId: article.id,
           duplicate: false,
           updated: false,
-          generated: groupIds.length ? 1 : 0,
+          generated: groupIds.length,
           groups: groupIds.length,
           noPost,
           synchronized: 0,

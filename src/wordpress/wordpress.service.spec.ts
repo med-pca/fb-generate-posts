@@ -29,7 +29,7 @@ const stored = () => ({
 
 type PostData = ReturnType<ArticlesService['postDataForSlot']> & {
   ownerId?: string | null;
-  targets: { create: { groupId: string }[] };
+  targets: { create: { groupId: string } };
 };
 type PostContent = ReturnType<ArticlesService['postContent']>;
 type ArticleData = Record<string, unknown> & { title: string };
@@ -134,13 +134,13 @@ function setup(stored_ingest: StoredIngest | null = null) {
 }
 
 describe('WordPress publication', () => {
-  it('creates ONE open post aimed at every active group of the site category', async () => {
+  it('creates ONE post PER group of the site category, same data in each', async () => {
     const { service, tx } = setup();
     expect(await service.publish(payload)).toEqual({
       articleId: 'article',
       duplicate: false,
       updated: false,
-      generated: 1,
+      generated: 2,
       groups: 2,
       noPost: null,
       synchronized: 0,
@@ -150,19 +150,30 @@ describe('WordPress publication', () => {
       where: { categoryId: 'cat_recettes', status: 'ACTIVE' },
       select: { id: true },
     });
-    expect(tx.post.create).toHaveBeenCalledTimes(1);
-    const data = tx.post.create.mock.calls[0][0].data;
-    expect(data).toMatchObject({
-      articleId: 'article',
-      profileId: null,
-      ownerId: null,
-      externalId: 'article:open:0',
-      url: payload.articleUrl,
-      imageUrl: payload.imageUrl,
-      targets: { create: [{ groupId: 'g1' }, { groupId: 'g2' }] },
-    });
-    expect(data.description).toContain('Link in the comments');
-    expect(data.description).not.toContain(payload.articleUrl);
+    expect(tx.post.create).toHaveBeenCalledTimes(2);
+    const [first, second] = tx.post.create.mock.calls.map(([args]) => args.data);
+    // Un post par groupe, chacun rattaché à SON groupe seulement.
+    expect(first.targets.create).toEqual({ groupId: 'g1' });
+    expect(second.targets.create).toEqual({ groupId: 'g2' });
+    // Identité par article × groupe : jamais deux fois l'article dans un groupe.
+    expect([first.externalId, second.externalId]).toEqual([
+      'article:group:g1',
+      'article:group:g2',
+    ]);
+    // Mêmes données partout.
+    for (const data of [first, second]) {
+      expect(data).toMatchObject({
+        articleId: 'article',
+        profileId: null,
+        ownerId: null,
+        title: payload.title,
+        url: payload.articleUrl,
+        imageUrl: payload.imageUrl,
+      });
+    }
+    expect(first.description).toBe(second.description);
+    expect(first.description).toContain('Link in the comments');
+    expect(first.description).not.toContain(payload.articleUrl);
     expect(tx.$executeRaw).toHaveBeenCalled();
   });
 
@@ -349,7 +360,7 @@ describe('WordPress publication', () => {
     expect(prisma.activityLog.create.mock.calls[0][0].data).toMatchObject({
       eventType: 'WORDPRESS_ARTICLE_RECEIVED',
       level: 'INFO',
-      message: '« Mon article » reçu de Mon site : 1 post pour 2 groupe(s)',
+      message: '« Mon article » reçu de Mon site : 2 post(s), un par groupe',
     });
 
     // Sans catégorie : reçu, mais sans post — et la raison est dite.
@@ -486,9 +497,10 @@ describe('Réception d’un article issu d’une reprise', () => {
       where: { id: { in: ['g1'] }, status: 'ACTIVE' },
       select: { id: true },
     });
-    expect(tx.post.create.mock.calls[0][0].data.targets.create).toEqual([
-      { groupId: 'g1' },
-    ]);
+    expect(tx.post.create).toHaveBeenCalledTimes(1);
+    expect(tx.post.create.mock.calls[0][0].data.targets.create).toEqual({
+      groupId: 'g1',
+    });
   });
 
   // Un renvoi identique ne modifie rien, mais doit refermer la reprise :

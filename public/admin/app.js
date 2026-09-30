@@ -28,6 +28,8 @@ const API = '/api',
     // Les filtres sont appliqués par l'API : la sélection « tout » doit porter
     // sur le même ensemble que celui que la suppression en masse vise.
     postFilters: { profileId: '', articleId: '', groupId: '' },
+    // Les filtres du Pilotage survivent au rafraîchissement automatique.
+    runnerFilters: { search: '', mode: '', state: '' },
     // La file de publication : ses filtres et combien on en montre.
     queue: { tab: 'queue', categoryId: '', groupId: '', limit: 10, publishedLimit: 20, data: null },
     selection: new Set(),
@@ -232,6 +234,41 @@ const timeToMinutes = (value) => {
   const [h, m] = value.split(':').map(Number);
   return h * 60 + (m || 0);
 };
+/** Un profil « à vérifier » : quelque chose empêche qu'il publie alors
+ * qu'on le lui demande, ou il ne répond plus. C'est le filtre du matin. */
+function runnerTags(r) {
+  const tags = new Set();
+  if (r.atWork) tags.add('working');
+  if (r.shouldRun) tags.add('should');
+  if (r.shouldRun && !r.atWork) tags.add('idle');
+  if (r.running && !r.atWork) tags.add('silent');
+  if (r.browserState === 'RUNNING') tags.add('browser-open');
+  if (r.browserState === 'ERROR') tags.add('browser-error');
+  if (!r.pairedAt) tags.add('unpaired');
+  if (r.status === 'INACTIVE') tags.add('inactive');
+  if (
+    r.status === 'ACTIVE' &&
+    (tags.has('silent') || tags.has('browser-error') || tags.has('idle') ||
+      (r.mode !== 'OFF' && tags.has('unpaired')))
+  )
+    tags.add('check');
+  return tags;
+}
+function filteredRunners() {
+  const { search, mode, state: wanted } = state.runnerFilters;
+  const needle = search.trim().toLowerCase();
+  return (state.runners?.profiles || []).filter(
+    (r) =>
+      (!needle ||
+        r.name.toLowerCase().includes(needle) ||
+        (r.externalId || '').toLowerCase().includes(needle)) &&
+      (!mode || r.mode === mode) &&
+      (!wanted || runnerTags(r).has(wanted)),
+  );
+}
+const runnerFiltered = () =>
+  Boolean(state.runnerFilters.search.trim() || state.runnerFilters.mode || state.runnerFilters.state);
+
 async function loadRunners() {
   if (!accessToken) return;
   try {
@@ -248,8 +285,20 @@ function renderRunners() {
   $('#runners-note').textContent = data.publishingEnabled
     ? 'Un ordre est pris en compte au battement suivant du navigateur, soit moins d’une minute.'
     : 'Publication coupée : aucun profil ne publie, quel que soit son mode.';
+  const shown = filteredRunners();
+  const filtered = runnerFiltered();
+  const toCheck = data.profiles.filter((r) => runnerTags(r).has('check')).length;
+  $('#runner-count').innerHTML =
+    (filtered ? `<b>${shown.length}</b> profil(s) sur ${data.profiles.length}` : `${data.profiles.length} profil(s)`) +
+    (toCheck ? ` · <button class="link warn-link" data-runner-check type="button">⚠ ${toCheck} à vérifier</button>` : '');
+  $('#runner-filters-reset').hidden = !filtered;
+  // Filtrés : les boutons de masse ne visent que ce qui est affiché — sinon
+  // « Tout arrêter » couperait aussi ce qu'on ne voit pas.
+  $('#runners-all-auto').textContent = filtered ? `Mettre en auto (${shown.length})` : 'Tout en auto';
+  $('#runners-all-off').textContent = filtered ? `Arrêter (${shown.length})` : 'Tout arrêter';
+  $('#runners-all-auto').disabled = $('#runners-all-off').disabled = filtered && !shown.length;
   $('#runner-rows').innerHTML =
-    data.profiles
+    shown
       .map((r) => {
         const worker = r.atWork
           ? `<span class="chip join-joined">au travail · ${esc(PHASE_LABELS[r.phase] || r.phase || '—')}</span>`
@@ -282,7 +331,7 @@ function renderRunners() {
       </tr>`;
       })
       .join('') ||
-    '<tr><td colspan="8"><div class="empty">Aucun profil à piloter.</div></td></tr>';
+    `<tr><td colspan="8"><div class="empty">${filtered ? 'Aucun profil pour ces filtres.' : 'Aucun profil à piloter.'}</div></td></tr>`;
   $$('[data-runner-mode]').forEach(
     (select) =>
       (select.onchange = () =>
@@ -394,6 +443,24 @@ $('#runners-refresh').onclick = () => loadRunners();
 $('#runners-all-auto').onclick = () => patchAllRunners('AUTO');
 $('#runners-all-off').onclick = () => patchAllRunners('OFF');
 async function patchAllRunners(mode) {
+  const verb = mode === 'OFF' ? 'Arrêter' : 'Passer en auto';
+  // Filtrés : seulement les profils actifs affichés, un par un.
+  if (runnerFiltered()) {
+    const targets = filteredRunners().filter((r) => r.status === 'ACTIVE');
+    if (!targets.length) return notice('Aucun profil actif parmi ceux affichés.', 'error');
+    if (!confirm(`${verb} les ${targets.length} profil(s) affiché(s) ?\n${targets.map((r) => '• ' + r.name).join('\n')}`)) return;
+    let done = 0;
+    for (const r of targets) {
+      try {
+        await api(`/runners/${r.profileId}`, { method: 'PATCH', body: JSON.stringify({ mode }) });
+        done += 1;
+      } catch (e) {
+        notice(`${r.name} : ${e.message}`, 'error');
+      }
+    }
+    notice(`${done} profil(s) réglé(s) sur ${targets.length}`);
+    return loadRunners();
+  }
   if (!confirm(mode === 'OFF' ? 'Arrêter tous les profils actifs ?' : 'Passer tous les profils actifs en auto ?'))
     return;
   try {
@@ -407,6 +474,33 @@ async function patchAllRunners(mode) {
     notice(e.message, 'error');
   }
 }
+/* Les filtres du Pilotage : appliqués dans la page, la liste est complète. */
+$('#runner-search').oninput = (e) => {
+  state.runnerFilters.search = e.target.value;
+  renderRunners();
+};
+$('#runner-mode-filter').onchange = (e) => {
+  state.runnerFilters.mode = e.target.value;
+  renderRunners();
+};
+$('#runner-state-filter').onchange = (e) => {
+  state.runnerFilters.state = e.target.value;
+  renderRunners();
+};
+$('#runner-filters-reset').onclick = () => {
+  state.runnerFilters = { search: '', mode: '', state: '' };
+  $('#runner-search').value = '';
+  $('#runner-mode-filter').value = '';
+  $('#runner-state-filter').value = '';
+  renderRunners();
+};
+// Le raccourci « ⚠ N à vérifier » du compteur.
+$('#runner-count').addEventListener('click', (e) => {
+  if (!e.target.closest('[data-runner-check]')) return;
+  state.runnerFilters.state = 'check';
+  $('#runner-state-filter').value = 'check';
+  renderRunners();
+});
 /** Le coupe-circuit vit dans les réglages globaux. */
 $('#publishing-enabled').onchange = async (e) => {
   try {
