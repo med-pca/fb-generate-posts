@@ -606,6 +606,19 @@ describe('IngestService : le site de destination', () => {
     ).rejects.toThrow(/Food Time : extension WordPress à mettre à jour/);
   });
 
+  it('trace une capture refusée, qui sans cela ne laisserait rien côté serveur', async () => {
+    const { service, prisma } = setup(ingest());
+    prisma.contentSource.findUnique.mockResolvedValueOnce({
+      id: 'site_1', name: 'Food Time', originUrl: 'https://site.test',
+      depositKey: null, status: 'ACTIVE', pluginState: 'MISSING',
+    });
+    await expect(
+      service.create({ facebookUrl: 'https://www.facebook.com/x/posts/1', sourceUrl: SOURCE.url, siteUrl: 'https://site.test', language: 'auto' }),
+    ).rejects.toThrow();
+    const traced = prisma.activityLog.create.mock.calls.map(([args]: any) => args.data);
+    expect(traced).toContainEqual(expect.objectContaining({ eventType: 'INGEST_REJECTED', level: 'WARN' }));
+  });
+
   // Sans cela, une installation neuve refuserait sa propre destination.
   it('déclare tout seul le site par défaut la première fois', async () => {
     const { service, prisma } = setup(ingest());

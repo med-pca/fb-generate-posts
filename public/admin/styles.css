@@ -1255,3 +1255,46 @@ body:not(.is-admin) .admin-only { display: none; }
 @media (max-width: 760px) {
   .queue-stats { grid-template-columns: 1fr; }
 }
+
+/* ── Journaux par domaine ─────────────────────────────────────────── */
+.log-domains {
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.log-domains .subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.log-domains .badge {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: #667085;
+  background: #eef1f6;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 800;
+  text-align: center;
+}
+.log-domains .badge.error { color: #fff; background: #d92d20; }
+.log-domains .badge.warn { color: #9a5b00; background: #fff1d6; }
+.log-domains .subtab.active .badge:not(.error):not(.warn) { color: var(--blue); background: #fff; }
+.log-domain-hint {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+.domain-tag {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.domain-publication { color: #315cb4; background: #e8f0ff; }
+.domain-capture { color: #7a3fb8; background: #f3e8ff; }
+.domain-sync { color: #17803d; background: #e3f7ea; }
+.domain-groups { color: #9a5b00; background: #fff1d6; }
+.domain-other { color: #667085; background: #eef1f6; }

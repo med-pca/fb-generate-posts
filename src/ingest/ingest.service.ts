@@ -61,10 +61,32 @@ export class IngestService {
   ) {}
 
   async create(dto: CreateIngestDto, owner: CurrentUser | null = null) {
-    const { siteUrl } = await this.resolveSite(dto.siteUrl);
     const profileIds = [...new Set(dto.profileIds ?? [])];
     const groupIds = [...new Set(dto.groupIds ?? [])];
-    await this.assertScope(profileIds, groupIds);
+    let siteUrl: string;
+    try {
+      ({ siteUrl } = await this.resolveSite(dto.siteUrl));
+      await this.assertScope(profileIds, groupIds);
+    } catch (error) {
+      // Refusée avant d'exister : sans cette trace, une capture rejetée par
+      // l'extension ne laisserait rien à lire côté serveur.
+      await this.prisma.activityLog
+        .create({
+          data: {
+            eventType: 'INGEST_REJECTED',
+            level: 'WARN',
+            message: `Capture refusée : ${error instanceof Error ? error.message : String(error)}`,
+            metadata: {
+              facebookUrl: dto.facebookUrl,
+              sourceUrl: dto.sourceUrl,
+              siteUrl: dto.siteUrl ?? null,
+              by: owner?.username ?? 'clé globale',
+            },
+          },
+        })
+        .catch(() => undefined);
+      throw error;
+    }
     const ingest = await this.prisma.sourceIngest.create({
       data: {
         facebookUrl: dto.facebookUrl,

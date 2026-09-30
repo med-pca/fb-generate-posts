@@ -65,12 +65,46 @@ describe('LogsService — synthèse décisionnelle', () => {
       eventType: 'JOB_CLAIMED',
       total: 100,
       errors: 0,
+      domain: 'publication',
     });
     expect(summary.eventTypes).toContainEqual({
       eventType: 'POST_FAILED',
       total: 3,
       errors: 3,
+      domain: 'publication',
     });
+  });
+
+  it('compte chaque domaine pour les onglets', async () => {
+    const { service } = makeHarness({
+      byEvent: [
+        row('POST_PUBLISHED', LogLevel.INFO, 10),
+        row('POST_FAILED', LogLevel.ERROR, 2),
+        row('INGEST_FAILED', LogLevel.ERROR, 1),
+        row('WORDPRESS_ARTICLE_NO_POST', LogLevel.WARN, 4),
+        row('SITE_PLUGIN_CHANGED', LogLevel.WARN, 1),
+        row('GROUP_JOIN_UPDATED', LogLevel.INFO, 3),
+        row('EXTENSION_PING', LogLevel.INFO, 7),
+      ],
+    });
+    const { domains } = await service.summary({ hours: 24 }, null);
+    const by = Object.fromEntries(domains.map((d) => [d.domain, [d.total, d.errors, d.warns]]));
+    expect(by).toEqual({
+      publication: [12, 2, 0],
+      capture: [1, 1, 0],
+      sync: [5, 0, 5],
+      groups: [3, 0, 0],
+      other: [7, 0, 0],
+    });
+  });
+
+  it('un domaine choisi borne compteurs et incidents', async () => {
+    const { service, prisma } = makeHarness({ byEvent: [] });
+    await service.summary({ hours: 24, domain: 'sync' }, null);
+    // Le premier groupBy (les onglets) reste sur tous les domaines.
+    const [first, second] = prisma.activityLog.groupBy.mock.calls.map(([args]: any) => args.where);
+    expect(JSON.stringify(first)).not.toContain('WORDPRESS_');
+    expect(JSON.stringify(second)).toContain('WORDPRESS_');
   });
 
   it('classe les profils par nombre d’erreurs et les nomme', async () => {

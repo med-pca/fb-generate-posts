@@ -142,9 +142,11 @@ export class PluginCheckService implements OnModuleInit, OnModuleDestroy {
       where: { id: siteId },
       select: {
         id: true,
+        name: true,
         originUrl: true,
         depositKey: true,
         lastDeliveryAt: true,
+        pluginState: true,
         articles: {
           select: { importedAt: true },
           orderBy: { importedAt: 'desc' },
@@ -171,6 +173,26 @@ export class PluginCheckService implements OnModuleInit, OnModuleDestroy {
         pluginCheckedAt: new Date(),
       },
     });
+    // Seul un changement d'état est tracé : une vérification toutes les six
+    // heures qui redit « connectée » ne serait que du bruit.
+    if (site.pluginState !== result.state) {
+      await this.prisma.activityLog
+        .create({
+          data: {
+            eventType: 'SITE_PLUGIN_CHANGED',
+            level: result.state === PluginState.CONNECTED ? 'INFO' : 'WARN',
+            message: `${site.name} : extension ${site.pluginState} → ${result.state} — ${result.message}`,
+            metadata: {
+              siteId: site.id,
+              siteUrl: site.originUrl,
+              from: site.pluginState,
+              to: result.state,
+              version: result.version,
+            },
+          },
+        })
+        .catch(() => undefined);
+    }
     return { siteId: site.id, ...result };
   }
 

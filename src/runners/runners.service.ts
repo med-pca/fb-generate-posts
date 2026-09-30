@@ -431,6 +431,20 @@ export class RunnersService {
     // `skipDuplicates` : deux agents qui synchronisent en même temps ne
     // doivent pas faire échouer l'un des deux sur la contrainte d'unicité.
     if (missing.length) {
+      await this.prisma.activityLog
+        .create({
+          data: {
+            eventType: 'PROFILES_SYNCED',
+            message: `${missing.length} profil(s) NSTBrowser ajouté(s) : ${missing
+              .map(([, name]) => name)
+              .join(', ')}`,
+            metadata: {
+              created: missing.map(([externalId, name]) => ({ externalId, name })),
+              by: acting?.username ?? 'clé globale',
+            },
+          },
+        })
+        .catch(() => undefined);
       await this.prisma.profile.createMany({
         data: missing.map(([externalId, name]) => ({
           externalId,

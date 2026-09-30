@@ -2,14 +2,22 @@ import { Transform } from 'class-transformer';
 import { LogLevel } from '@prisma/client';
 import {
   IsBoolean,
+  IsIn,
   IsDateString,
   IsEnum,
   IsOptional,
   IsString,
 } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { LOG_DOMAIN_KEYS } from '../domains';
+import type { LogDomain } from '../domains';
 
 export class QueryLogsDto extends PaginationDto {
+  /** Publication, captures, synchronisation, groupes, ou autres. */
+  @IsOptional()
+  @IsIn(LOG_DOMAIN_KEYS)
+  domain?: LogDomain;
+
   @IsOptional()
   @IsEnum(LogLevel)
   level?: LogLevel;

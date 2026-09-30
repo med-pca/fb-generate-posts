@@ -411,7 +411,9 @@ describe('syncProfiles', () => {
   /** Un faux Prisma qui ne connaît que ces externalId, et garde ce qu'on crée. */
   function syncing(known: string[]) {
     const created: any[] = [];
+    const traces: any[] = [];
     const prisma = {
+      activityLog: { create: async ({ data }: any) => traces.push(data) },
       profile: {
         findMany: async ({ where }: any) =>
           known
@@ -425,7 +427,7 @@ describe('syncProfiles', () => {
       },
     };
     const service = new RunnersService(prisma as any, { get: () => '' } as any);
-    return { service, created };
+    return { service, created, traces };
   }
 
   const sofia = { id: 'u1', username: 'sofia', role: 'MANAGER', status: 'ACTIVE' } as any;
@@ -447,6 +449,13 @@ describe('syncProfiles', () => {
       { externalId: 'ext-3', name: 'ext-3', ownerId: 'u1' },
     ]);
     expect(result).toMatchObject({ existing: 1, received: 3 });
+  });
+
+  it('trace les profils ajoutés dans la synchronisation', async () => {
+    const { service, traces } = syncing([]);
+    await service.syncProfiles([{ externalId: 'ext-9', name: 'Salim' }], null);
+    expect(traces[0]).toMatchObject({ eventType: 'PROFILES_SYNCED' });
+    expect(traces[0].message).toContain('Salim');
   });
 
   it('avec la clé globale, les profils naissent sans propriétaire', async () => {

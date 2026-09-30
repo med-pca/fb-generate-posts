@@ -104,7 +104,70 @@ export class WordpressService {
     private readonly articles: ArticlesService,
   ) {}
 
+  /** La réception, tracée dans les journaux (domaine « Synchronisation ») :
+   * reçu, mis à jour, reçu sans post, ou refusé. C'est là qu'on cherche
+   * pourquoi un article publié sur WordPress n'a pas donné de post. */
   async publish(dto: WordpressArticleDto) {
+    let result: Awaited<ReturnType<WordpressService['receive']>>;
+    try {
+      result = await this.receive(dto);
+    } catch (error) {
+      await this.trace('WORDPRESS_ARTICLE_REJECTED', 'ERROR', dto, {
+        message: `« ${dto.title} » refusé : ${error instanceof Error ? error.message : String(error)}`,
+      });
+      throw error;
+    }
+    if (!result.duplicate) {
+      const noPost =
+        result.noPost === 'no_category'
+          ? 'le site n’a pas de catégorie'
+          : 'aucun groupe actif dans la catégorie du site';
+      await this.trace(
+        result.generated ? 'WORDPRESS_ARTICLE_RECEIVED' : 'WORDPRESS_ARTICLE_NO_POST',
+        result.generated ? 'INFO' : 'WARN',
+        dto,
+        {
+          message: result.generated
+            ? `« ${dto.title} » reçu de ${dto.siteName} : 1 post pour ${result.groups} groupe(s)`
+            : `« ${dto.title} » reçu de ${dto.siteName} sans post : ${noPost}`,
+          articleId: result.articleId,
+        },
+      );
+    } else if (result.updated) {
+      await this.trace('WORDPRESS_ARTICLE_UPDATED', 'INFO', dto, {
+        message: `« ${dto.title} » modifié sur ${dto.siteName} : ${result.synchronized} post(s) réalignés`,
+        articleId: result.articleId,
+      });
+    }
+    return result;
+  }
+
+  private trace(
+    eventType: string,
+    level: 'INFO' | 'WARN' | 'ERROR',
+    dto: WordpressArticleDto,
+    { message, ...extra }: { message: string } & Record<string, unknown>,
+  ) {
+    return this.prisma.activityLog
+      .create({
+        data: {
+          eventType,
+          level,
+          message,
+          metadata: {
+            siteUrl: dto.siteUrl,
+            siteName: dto.siteName,
+            wordpressPostId: dto.postId,
+            articleUrl: dto.articleUrl,
+            ingestRef: dto.ingestRef ?? null,
+            ...extra,
+          } as Prisma.InputJsonValue,
+        },
+      })
+      .catch(() => undefined);
+  }
+
+  private async receive(dto: WordpressArticleDto) {
     const site = new URL(dto.siteUrl);
     const articleUrl = new URL(dto.articleUrl);
     if (
@@ -182,6 +245,11 @@ export class WordpressService {
         // catégorie du site, et le premier profil qui a rejoint un groupe l'y
         // publie. Plus de copie par profil, donc plus de doublons.
         const groupIds = await this.audience(tx, source, ingest?.groupIds);
+        const noPost = groupIds.length
+          ? null
+          : source.categoryId
+            ? ('no_group' as const)
+            : ('no_category' as const);
         if (groupIds.length) {
           await tx.post.create({
             data: {
@@ -207,6 +275,7 @@ export class WordpressService {
           updated: false,
           generated: groupIds.length ? 1 : 0,
           groups: groupIds.length,
+          noPost,
           synchronized: 0,
           skipped: 0,
         };
@@ -336,6 +405,8 @@ export class WordpressService {
       duplicate: true,
       updated: false,
       generated: 0,
+      groups: 0,
+      noPost: null as 'no_group' | 'no_category' | null,
       synchronized: 0,
       skipped: 0,
     };

@@ -602,6 +602,27 @@ Les automates écrivent dans `activity_logs` (réservations, publications,
 La clé d'automatisation n'a donc pas à circuler dans le navigateur pour
 consulter l'historique.
 
+### Les journaux par domaine
+
+Page **Journaux** : un onglet par domaine, chacun avec son nombre d'erreurs
+(rouge) ou d'avertissements (orange). L'onglet choisi borne tout : compteurs,
+répartition, incidents et liste. Le domaine se déduit du type d'événement
+([src/logs/domains.ts](src/logs/domains.ts)) : l'historique est rangé
+d'emblée, sans migration.
+
+| Domaine | Ce qu'on y lit | Événements |
+| --- | --- | --- |
+| Publication | Les automates : réservations, publications, commentaires, liens ; les gestes de la file | `JOB_*`, `CLAIM_*`, `POST_*`, `COMMENT_*`, `TARGET_*`, `GROUP_POSTS_REMOVED`, `ARTICLE_ARCHIVED` |
+| Captures | Les reprises de FB Catch Post : capture refusée, lecture de la source, réécriture, dépôt | `INGEST_*` (dont `INGEST_REJECTED`) |
+| Synchronisation | Ce qui entre : articles WordPress reçus, mis à jour, **reçus sans post (et pourquoi)**, refusés ; changements d'état des extensions ; profils NSTBrowser ajoutés | `WORDPRESS_ARTICLE_RECEIVED` / `_UPDATED` / `_NO_POST` / `_REJECTED`, `SITE_PLUGIN_CHANGED`, `PROFILES_SYNCED` |
+| Groupes & pilotage | Adhésions aux groupes, navigateurs | `GROUP_JOIN_*`, `BROWSER_*`, `RUNNER_*` |
+| Autres | Tout événement non classé (un automate qui en invente un) | — |
+
+```http
+GET /api/admin/logs?domain=sync
+GET /api/admin/logs/summary?domain=capture   # + domains : les comptes de chaque onglet
+```
+
 ### Lire les journaux
 
 ```http

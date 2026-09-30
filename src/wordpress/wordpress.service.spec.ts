@@ -119,6 +119,12 @@ function setup(stored_ingest: StoredIngest | null = null) {
     sourceIngest: {
       findUnique: jest.fn(() => Promise.resolve(stored_ingest)),
     },
+    activityLog: {
+      create: jest.fn((_args: { data: Record<string, any> }) => {
+        void _args;
+        return Promise.resolve({});
+      }),
+    },
   };
   const service = new WordpressService(
     prisma as unknown as PrismaService,
@@ -136,6 +142,7 @@ describe('WordPress publication', () => {
       updated: false,
       generated: 1,
       groups: 2,
+      noPost: null,
       synchronized: 0,
       skipped: 0,
     });
@@ -226,6 +233,8 @@ describe('WordPress publication', () => {
       duplicate: true,
       updated: false,
       generated: 0,
+      groups: 0,
+      noPost: null,
       synchronized: 0,
       skipped: 0,
     });
@@ -250,6 +259,8 @@ describe('WordPress publication', () => {
       duplicate: true,
       updated: true,
       generated: 0,
+      groups: 0,
+      noPost: null,
       synchronized: 3,
       skipped: 2,
     });
@@ -330,6 +341,36 @@ describe('WordPress publication', () => {
     await expect(service.publish(payload)).rejects.toThrow(
       'database unavailable',
     );
+  });
+
+  it('traces each delivery in the synchronisation journal', async () => {
+    const { service, prisma, tx } = setup();
+    await service.publish(payload);
+    expect(prisma.activityLog.create.mock.calls[0][0].data).toMatchObject({
+      eventType: 'WORDPRESS_ARTICLE_RECEIVED',
+      level: 'INFO',
+      message: '« Mon article » reçu de Mon site : 1 post pour 2 groupe(s)',
+    });
+
+    // Sans catégorie : reçu, mais sans post — et la raison est dite.
+    tx.contentSource.upsert.mockResolvedValue({ id: 'site', name: 'Mon site', categoryId: null, ownerId: null });
+    await service.publish(payload);
+    expect(prisma.activityLog.create.mock.calls[1][0].data).toMatchObject({
+      eventType: 'WORDPRESS_ARTICLE_NO_POST',
+      level: 'WARN',
+    });
+    expect(prisma.activityLog.create.mock.calls[1][0].data.message).toMatch(/pas de catégorie/);
+  });
+
+  it('traces a rejected delivery before failing', async () => {
+    const { service, prisma } = setup();
+    await expect(
+      service.publish({ ...payload, articleUrl: 'https://ailleurs.test/x' }),
+    ).rejects.toThrow();
+    expect(prisma.activityLog.create.mock.calls[0][0].data).toMatchObject({
+      eventType: 'WORDPRESS_ARTICLE_REJECTED',
+      level: 'ERROR',
+    });
   });
 
   it('still imports when the category has no active group', async () => {

@@ -16,6 +16,8 @@ const API = '/api',
     logsSummary: null,
     runners: null,
     logFilters: {
+      // Le domaine d'abord : publication, captures, synchronisation…
+      domain: '',
       hours: 24,
       level: '',
       eventType: '',
@@ -605,6 +607,10 @@ async function loadLogs() {
   // La fenêtre de la synthèse et celle de la liste doivent coïncider, sinon
   // les compteurs annoncent des incidents que le tableau n'affiche pas.
   query.set('since', new Date(Date.now() - f.hours * 3600000).toISOString());
+  if (f.domain) {
+    query.set('domain', f.domain);
+    summaryQuery.set('domain', f.domain);
+  }
   if (f.level) query.set('level', f.level);
   if (f.eventType) query.set('eventType', f.eventType);
   if (f.search) query.set('search', f.search);
@@ -626,9 +632,53 @@ async function loadLogs() {
     notice(e.message, 'error');
   }
 }
+const LOG_DOMAINS = {
+  '': { label: 'Tout', hint: 'Tous les journaux, tous domaines confondus.' },
+  publication: {
+    label: 'Publication',
+    hint: 'Les automates : réservations, publications dans les groupes, commentaires et liens, et les gestes faits depuis la file (relancer, forcer, retirer).',
+  },
+  capture: {
+    label: 'Captures',
+    hint: 'Les reprises depuis l’extension FB Catch Post : capture refusée, lecture de la page source, réécriture, dépôt sur WordPress.',
+  },
+  sync: {
+    label: 'Synchronisation',
+    hint: 'Ce qui entre dans la plateforme : articles reçus de WordPress (avec ou sans post, et pourquoi), état des extensions des sites, profils NSTBrowser ajoutés.',
+  },
+  groups: {
+    label: 'Groupes & pilotage',
+    hint: 'Adhésions des profils aux groupes et état de leurs navigateurs.',
+  },
+  other: { label: 'Autres', hint: 'Les événements qui n’entrent dans aucun domaine connu.' },
+};
+
+/** Les onglets de domaine, chacun avec ce qui mérite l'attention : erreurs
+ * en rouge, avertissements en orange. */
+function renderLogDomains(s) {
+  const counts = Object.fromEntries((s.domains || []).map((d) => [d.domain, d]));
+  const all = (s.domains || []).reduce(
+    (sum, d) => ({ total: sum.total + d.total, errors: sum.errors + d.errors, warns: sum.warns + d.warns }),
+    { total: 0, errors: 0, warns: 0 },
+  );
+  $('#log-domains').innerHTML = Object.entries(LOG_DOMAINS)
+    .map(([key, def]) => {
+      const c = key ? counts[key] || { total: 0, errors: 0, warns: 0 } : all;
+      const badge = c.errors
+        ? `<em class="badge error" title="${c.errors} erreur(s)">${c.errors}</em>`
+        : c.warns
+          ? `<em class="badge warn" title="${c.warns} avertissement(s)">${c.warns}</em>`
+          : `<em class="badge">${c.total}</em>`;
+      return `<button class="subtab ${state.logFilters.domain === key ? 'active' : ''}" data-log-domain="${key}" role="tab">${def.label}${badge}</button>`;
+    })
+    .join('');
+  $('#log-domain-hint').textContent = LOG_DOMAINS[state.logFilters.domain]?.hint || '';
+}
+
 function renderLogs() {
   const s = state.logsSummary;
   if (!s) return;
+  renderLogDomains(s);
   $('#log-total').textContent = s.total;
   $('#log-errors').textContent = s.levels.ERROR;
   $('#log-warns').textContent = s.levels.WARN;
@@ -690,10 +740,11 @@ function renderLogs() {
         const meta = l.metadata
           ? `<details class="log-meta"><summary>Détails</summary><pre>${esc(JSON.stringify(l.metadata, null, 2))}</pre></details>`
           : '';
-        return `<tr><td>${new Date(l.createdAt).toLocaleString('fr-FR')}</td><td><span class="level ${esc(l.level)}">${esc(l.level)}</span></td><td class="event-name">${esc(l.eventType)}</td><td class="log-message">${esc(l.message)}${meta}</td><td>${context.join('<br>') || '—'}</td></tr>`;
+        const domain = LOG_DOMAINS[l.domain] ? l.domain : 'other';
+        return `<tr><td>${new Date(l.createdAt).toLocaleString('fr-FR')}</td><td><span class="level ${esc(l.level)}">${esc(l.level)}</span></td><td><span class="domain-tag domain-${domain}">${LOG_DOMAINS[domain].label}</span></td><td class="event-name">${esc(l.eventType)}</td><td class="log-message">${esc(l.message)}${meta}</td><td>${context.join('<br>') || '—'}</td></tr>`;
       })
       .join('') ||
-    '<tr><td colspan="5"><div class="empty">Aucun journal pour ce filtre.</div></td></tr>';
+    '<tr><td colspan="6"><div class="empty">Aucun journal pour ce filtre.</div></td></tr>';
 
   $('#logs-pagination').innerHTML = paginationBox('logs');
 }
@@ -832,6 +883,14 @@ function refreshLogs() {
   loadLogs();
 }
 $('#log-refresh').onclick = () => loadLogs();
+$('#log-domains').addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-log-domain]');
+  if (!tab) return;
+  state.logFilters.domain = tab.dataset.logDomain;
+  // Un événement choisi dans un autre domaine viderait la liste en silence.
+  state.logFilters.eventType = '';
+  refreshLogs();
+});
 $('#log-hours').onchange = (e) => {
   state.logFilters.hours = Number(e.target.value);
   refreshLogs();

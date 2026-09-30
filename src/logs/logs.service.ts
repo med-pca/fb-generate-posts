@@ -7,6 +7,13 @@ import { LogsSummaryDto } from './dto/logs-summary.dto';
 import { paginated } from '../common/paginated';
 import type { CurrentUser } from '../auth/current-user';
 import { logWhere, scopeOf, seesEverything } from '../auth/scope';
+import {
+  domainOf,
+  domainWhere,
+  LOG_DOMAIN_KEYS,
+  LOG_DOMAINS,
+} from './domains';
+import type { LogDomain } from './domains';
 
 /** Événements qui appellent une vérification manuelle même sans niveau ERROR.
  * `CLAIM_LOST` signale un post peut-être publié sans trace en base : il ne doit
@@ -56,20 +63,30 @@ export class LogsService {
       }),
       this.prisma.activityLog.count({ where }),
     ]);
-    return paginated(data, total, page, limit);
+    // Le domaine de chaque ligne, calculé ici une seule fois : l'interface
+    // n'a pas à recopier les règles de rangement.
+    return paginated(
+      data.map((log) => ({ ...log, domain: domainOf(log.eventType) })),
+      total,
+      page,
+      limit,
+    );
   }
 
   /** Ce qu'il faut regarder avant d'agir : le volume par niveau, les
    * événements dominants, les profils qui échouent et les incidents ouverts. */
   async summary(
-    { hours, profileId }: LogsSummaryDto,
+    { hours, profileId, domain }: LogsSummaryDto,
     acting: CurrentUser | null,
   ) {
     const since = new Date(Date.now() - hours * 3_600_000);
-    const where = this.scoped(
+    const window = this.scoped(
       { createdAt: { gte: since }, ...(profileId ? { profileId } : {}) },
       acting,
     );
+    const where: Prisma.ActivityLogWhereInput = domain
+      ? { AND: [window, domainWhere(domain)] }
+      : window;
     const incidentWhere: Prisma.ActivityLogWhereInput = {
       AND: [
         where,
@@ -82,7 +99,13 @@ export class LogsService {
       ],
     };
 
-    const [byEvent, byProfile, incidents, total] = await Promise.all([
+    const [allEvents, byEvent, byProfile, incidents, total] = await Promise.all([
+      // Tous domaines confondus : de quoi afficher le compte de chaque onglet.
+      this.prisma.activityLog.groupBy({
+        by: ['eventType', 'level'],
+        where: window,
+        _count: { _all: true },
+      }),
       this.prisma.activityLog.groupBy({
         by: ['eventType', 'level'],
         where,
@@ -118,10 +141,45 @@ export class LogsService {
         .filter((row) => INCIDENT_EVENT_TYPES.includes(row.eventType))
         .reduce((sum, row) => sum + row._count._all, 0),
       eventTypes: this.foldEventTypes(byEvent),
+      domain: domain ?? null,
+      domains: this.foldDomains(allEvents),
       profiles: await this.foldProfiles(byProfile),
       incidents,
       incidentsTruncated: incidents.length === INCIDENT_SAMPLE,
     };
+  }
+
+  /** Par domaine : volume, erreurs et avertissements — ce que les onglets
+   * affichent pour dire où regarder d'abord. */
+  private foldDomains(
+    rows: Array<{
+      eventType: string;
+      level: LogLevel;
+      _count: { _all: number };
+    }>,
+  ) {
+    const totals = new Map<
+      LogDomain,
+      { domain: LogDomain; label: string; total: number; errors: number; warns: number }
+    >(
+      LOG_DOMAIN_KEYS.map((key) => [
+        key,
+        {
+          domain: key,
+          label: key === 'other' ? 'Autres' : LOG_DOMAINS[key].label,
+          total: 0,
+          errors: 0,
+          warns: 0,
+        },
+      ]),
+    );
+    for (const row of rows) {
+      const entry = totals.get(domainOf(row.eventType))!;
+      entry.total += row._count._all;
+      if (row.level === LogLevel.ERROR) entry.errors += row._count._all;
+      if (row.level === LogLevel.WARN) entry.warns += row._count._all;
+    }
+    return [...totals.values()];
   }
 
   private foldEventTypes(
@@ -145,7 +203,9 @@ export class LogsService {
       if (row.level === LogLevel.ERROR) entry.errors += row._count._all;
       byType.set(row.eventType, entry);
     }
-    return [...byType.values()].sort((a, b) => b.total - a.total);
+    return [...byType.values()]
+      .map((entry) => ({ ...entry, domain: domainOf(entry.eventType) }))
+      .sort((a, b) => b.total - a.total);
   }
 
   /** Les identifiants de profil sont remplacés par leur nom : c'est le profil
@@ -260,6 +320,7 @@ export class LogsService {
     filters: Omit<QueryLogsDto, 'page' | 'limit'>,
   ): Prisma.ActivityLogWhereInput {
     const where: Prisma.ActivityLogWhereInput = {};
+    if (filters.domain) where.AND = [domainWhere(filters.domain)];
     if (filters.level) where.level = filters.level;
     if (filters.eventType) where.eventType = filters.eventType;
     if (filters.profileId) where.profileId = filters.profileId;

@@ -166,6 +166,49 @@ setTimeout(async () => {
   $('#post-modal').close();
   window.fetch = beforeQueue;
 
+  // ─── Journaux séparés par domaine ──────────────────────────────
+  const logCalls = [];
+  const beforeLogs = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace('/api', '');
+    if (path.startsWith('/admin/logs')) {
+      logCalls.push(path);
+      if (path.startsWith('/admin/logs/summary')) {
+        return { ok: true, status: 200, json: async () => ({
+          total: 9, since: '2026-09-30T00:00:00Z', hours: 24, claimLost: 0,
+          levels: { DEBUG: 0, INFO: 5, WARN: 3, ERROR: 1 },
+          pendingLinkUpdates: { total: 0, pendingSince: null },
+          eventTypes: [], profiles: [], incidents: [],
+          domains: [
+            { domain: 'publication', label: 'Publication', total: 4, errors: 1, warns: 0 },
+            { domain: 'capture', label: 'Captures', total: 1, errors: 0, warns: 0 },
+            { domain: 'sync', label: 'Synchronisation', total: 3, errors: 0, warns: 3 },
+            { domain: 'groups', label: 'Groupes & pilotage', total: 1, errors: 0, warns: 0 },
+            { domain: 'other', label: 'Autres', total: 0, errors: 0, warns: 0 },
+          ],
+        }) };
+      }
+      return { ok: true, status: 200, json: async () => ({
+        data: [{ id: 'l1', createdAt: '2026-09-30T08:00:00Z', level: 'WARN', eventType: 'WORDPRESS_ARTICLE_NO_POST', domain: 'sync', message: '« Couscous » reçu de Food Time sans post : le site n’a pas de catégorie', metadata: null }],
+        meta: { page: 1, limit: 25, total: 1, pages: 1 },
+      }) };
+    }
+    return beforeLogs(url, options);
+  };
+  window.eval(`view('logs')`);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const tabs = [...window.document.querySelectorAll('[data-log-domain]')].map((b) => b.textContent);
+  check('les journaux ont un onglet par domaine', tabs.join('|').includes('Publication') && tabs.join('|').includes('Captures') && tabs.join('|').includes('Synchronisation'), tabs);
+  check('un onglet montre ses erreurs', !!$('[data-log-domain="publication"] .badge.error'), null);
+  check('et ses avertissements', $('[data-log-domain="sync"] .badge.warn')?.textContent === '3', null);
+  $('[data-log-domain="sync"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('choisir un domaine filtre la liste et la synthèse',
+    logCalls.slice(-2).every((c) => c.includes('domain=sync')), logCalls.slice(-2));
+  check('l’onglet explique ce qu’il couvre', /articles reçus de WordPress/.test($('#log-domain-hint').textContent), $('#log-domain-hint').textContent);
+  check('chaque ligne porte son domaine', /Synchronisation/.test($('#log-rows').textContent) && !!$('#log-rows .domain-sync'), null);
+  window.fetch = beforeLogs;
+
   check('la fenêtre d’appairage a les marges des autres', !!$('#pair-modal > .modal-body'), null);
 
   const rows = $('#user-rows').textContent;
@@ -184,7 +227,7 @@ setTimeout(async () => {
 
   setTimeout(() => {
     check('la clé est montrée après création', $('#key-value').textContent.length === 64, $('#key-value').textContent.length);
-    check('avec l’avertissement qu’on ne la reverra pas', /ne sera plus jamais affichée/.test($('.warn').textContent), null);
+    check('avec l’avertissement qu’on ne la reverra pas', /ne sera plus jamais affichée/.test($('#key-modal .warn').textContent), null);
     check('la modale de clé est ouverte', $('#key-modal').open === true, null);
     manager(ko);
   }, 120);
