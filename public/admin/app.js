@@ -538,11 +538,69 @@ async function loadResetCounts() {
     const c = await api('/admin/reset', { method: 'POST', body: JSON.stringify({ dryRun: true }) });
     state.resetCounts = c;
     $('#reset-counts').innerHTML =
-      `<span><b>${c.posts}</b> post(s)</span><span><b>${c.articles}</b> article(s)</span>` +
-      `<span><b>${c.jobs}</b> lot(s)</span><span><b>${c.published}</b> publication(s) faites</span>` +
+      `<span><b>${c.posts}</b> post(s)</span><span><b>${c.postsFromArticles}</b> venant d’articles</span>` +
+      `<span><b>${c.articles}</b> article(s)</span><span><b>${c.published}</b> publication(s) faites</span>` +
       (c.activeJobs ? `<span class="bad"><b>${c.activeJobs}</b> lot(s) en cours</span>` : '');
   } catch (x) {
     $('#reset-counts').textContent = x.message;
+  }
+}
+/** Le choix courant de la fenêtre, tel que l'API l'attend. */
+function resetChoice() {
+  const f = $('#reset-form').elements;
+  return {
+    posts: f.posts.checked,
+    articles: f.articles.checked,
+    articlePosts: f.articlePosts.value || undefined,
+    unarchive: f.unarchive.checked,
+  };
+}
+/** À chaque changement : montrer la bonne question, et dire exactement ce
+ * qui partira — l'API calcule le plan à blanc. */
+async function refreshResetPlan() {
+  const c = state.resetCounts;
+  const choice = resetChoice();
+  const articlesOnly = choice.articles && !choice.posts;
+  const askPosts = articlesOnly && c.postsFromArticles > 0;
+  $('#reset-article-posts').hidden = !askPosts;
+  $('#reset-article-posts-title').textContent =
+    `${c.postsFromArticles} post(s) viennent de ces articles : que faut-il en faire ?`;
+  const offerUnarchive = choice.posts && !choice.articles && c.archivedArticles > 0;
+  $('#reset-unarchive-row').hidden = !offerUnarchive;
+  if (!offerUnarchive) $('#reset-form').elements.unarchive.checked = false;
+  const summary = $('#reset-summary');
+  if (!choice.posts && !choice.articles) {
+    summary.innerHTML = '<p class="muted">Cochez ce que vous voulez effacer.</p>';
+    $('#reset-submit').disabled = true;
+    $('#reset-force-row').hidden = true;
+    return;
+  }
+  if (askPosts && !choice.articlePosts) {
+    summary.innerHTML = '<p class="warn">Dites ce qu’il faut faire des posts liés à ces articles.</p>';
+    $('#reset-submit').disabled = true;
+    return;
+  }
+  try {
+    const { plan, activeJobs } = await api('/admin/reset', {
+      method: 'POST',
+      body: JSON.stringify({ ...choice, dryRun: true }),
+    });
+    const lines = [];
+    if (plan.posts) lines.push(`<li><b>${plan.posts}</b> post(s) supprimé(s), avec leurs publications par groupe</li>`);
+    if (plan.articles) lines.push(`<li><b>${plan.articles}</b> article(s) supprimé(s)</li>`);
+    if (plan.postsDetached) lines.push(`<li><b>${plan.postsDetached}</b> post(s) gardé(s), sans article</li>`);
+    if (plan.articlesUnarchived) lines.push(`<li><b>${plan.articlesUnarchived}</b> article(s) désarchivé(s) : ils pourront redonner des posts</li>`);
+    if (choice.posts && !choice.articles) lines.push('<li>Les articles restent</li>');
+    if (choice.articles && !choice.posts && !plan.posts) lines.push('<li>Aucun post supprimé</li>');
+    const blocked = plan.posts > 0 && activeJobs > 0;
+    summary.innerHTML =
+      `<p>Ce qui va se passer :</p><ul>${lines.join('')}</ul>` +
+      (blocked ? `<p class="warn"><b>${activeJobs} lot(s) sont en cours de publication.</b> Coupez la publication dans le Pilotage et attendez, ou forcez.</p>` : '') +
+      (plan.articles ? '<p class="warn">Les sites WordPress ne renverront pas les articles déjà transmis : seuls ceux publiés ou modifiés ensuite reviendront.</p>' : '');
+    $('#reset-force-row').hidden = !blocked;
+    $('#reset-submit').disabled = false;
+  } catch (x) {
+    summary.textContent = x.message;
   }
 }
 $('#reset-open').onclick = async () => {
@@ -550,25 +608,39 @@ $('#reset-open').onclick = async () => {
   const c = state.resetCounts;
   if (!c) return;
   $('#reset-form').reset();
-  $('#reset-summary').innerHTML =
-    `<p>Seront supprimés, sur <b>tous les comptes</b> :</p><ul>` +
-    `<li><b>${c.posts}</b> post(s) et leurs ${c.published} publication(s) enregistrées</li>` +
-    `<li><b>${c.articles}</b> article(s)</li><li><b>${c.jobs}</b> lot(s) de publication</li></ul>` +
-    `<p class="warn">Irréversible. Les sites WordPress ne renverront pas les articles déjà envoyés : seuls les articles publiés ou modifiés après reviendront.</p>` +
-    (c.activeJobs ? `<p class="warn"><b>${c.activeJobs} lot(s) sont en cours de publication.</b> Coupez la publication dans le Pilotage et attendez, ou forcez.</p>` : '');
-  $('#reset-force-row').hidden = !c.activeJobs;
+  $('#reset-posts-info').textContent =
+    `${c.posts} post(s), dont ${c.published} publication(s) déjà faites` +
+    (c.postsFromArticles ? ` · ${c.postsFromArticles} venant d’articles` : '');
+  $('#reset-articles-info').textContent =
+    `${c.articles} article(s)` + (c.archivedArticles ? `, dont ${c.archivedArticles} archivé(s)` : '');
+  $('#reset-unarchive-label').textContent =
+    `Désarchiver les ${c.archivedArticles} article(s) archivés, pour qu’ils redonnent des posts`;
   $('#reset-modal').showModal();
+  refreshResetPlan();
 };
+$('#reset-form').addEventListener('change', (e) => {
+  if (e.target.name !== 'confirm' && e.target.name !== 'force') refreshResetPlan();
+});
 $('#reset-form').onsubmit = async (e) => {
   e.preventDefault();
   const f = e.target.elements;
   try {
     const r = await api('/admin/reset', {
       method: 'POST',
-      body: JSON.stringify({ confirm: f.confirm.value.trim(), force: f.force.checked }),
+      body: JSON.stringify({ ...resetChoice(), confirm: f.confirm.value.trim(), force: f.force.checked }),
     });
     $('#reset-modal').close();
-    notice(`Remise à zéro faite : ${r.deleted.posts} post(s) et ${r.deleted.articles} article(s) supprimés.`);
+    const d = r.deleted;
+    notice(
+      [
+        d.posts && `${d.posts} post(s) supprimé(s)`,
+        d.articles && `${d.articles} article(s) supprimé(s)`,
+        d.postsDetached && `${d.postsDetached} post(s) gardé(s) sans article`,
+        d.articlesUnarchived && `${d.articlesUnarchived} article(s) désarchivé(s)`,
+      ]
+        .filter(Boolean)
+        .join(' · ') || 'Rien à effacer.',
+    );
     await load();
     loadResetCounts();
   } catch (x) {

@@ -294,6 +294,7 @@ setTimeout(async () => {
 
   // ─── Compteurs du menu, groupes, profils, objectif, remise à zéro ──
   const extraCalls = [];
+  const resetBodies = [];
   const beforeExtra = window.fetch;
   window.fetch = async (url, options = {}) => {
     const path = String(url).replace('/api', '').split('?')[0];
@@ -316,8 +317,15 @@ setTimeout(async () => {
     }
     if (path === '/admin/reset') {
       const body = JSON.parse(options.body || '{}');
-      if (body.dryRun) return { ok: true, status: 200, json: async () => ({ dryRun: true, posts: 143, articles: 42, jobs: 64, published: 211, activeJobs: 0 }) };
-      return { ok: true, status: 200, json: async () => ({ dryRun: false, deleted: { posts: 143, articles: 42 } }) };
+      resetBodies.push(body);
+      const plan = {
+        posts: body.posts ? 143 : body.articlePosts === 'delete' ? 98 : 0,
+        articles: body.articles ? 42 : 0,
+        postsDetached: body.articles && !body.posts && body.articlePosts === 'keep' ? 98 : 0,
+        articlesUnarchived: body.posts && !body.articles && body.unarchive ? 12 : 0,
+      };
+      if (body.dryRun) return { ok: true, status: 200, json: async () => ({ dryRun: true, posts: 143, postsFromArticles: 98, standalonePosts: 45, articles: 42, archivedArticles: 12, jobs: 64, published: 211, activeJobs: 0, plan }) };
+      return { ok: true, status: 200, json: async () => ({ dryRun: false, deleted: plan }) };
     }
     if (path === '/settings') return { ok: true, status: 200, json: async () => ({}) };
     return beforeExtra(url, options);
@@ -350,11 +358,31 @@ setTimeout(async () => {
   check('la zone dangereuse compte avant d’effacer', /143/.test($('#reset-counts').textContent) && /42/.test($('#reset-counts').textContent), $('#reset-counts').textContent);
   $('#reset-open').click();
   await new Promise((resolve) => setTimeout(resolve, 50));
-  check('effacer demande une confirmation écrite', $('#reset-modal').open && $('#reset-form').elements.confirm.required, null);
-  $('#reset-form').elements.confirm.value = 'EFFACER';
+  const rf = $('#reset-form').elements;
+  const tick = async (el, value = true) => {
+    if (el.type === 'radio') el.checked = true; else el.checked = value;
+    el.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  };
+  check('rien n’est coché d’office, le bouton attend un choix', $('#reset-modal').open && !rf.posts.checked && !rf.articles.checked && $('#reset-submit').disabled, null);
+  // Les articles seulement : la question sur leurs posts apparaît.
+  await tick(rf.articles);
+  check('articles seuls : il demande quoi faire de leurs posts', !$('#reset-article-posts').hidden && /98 post\(s\) viennent de ces articles/.test($('#reset-article-posts').textContent) && $('#reset-submit').disabled, null);
+  await tick(window.document.querySelector('#reset-form input[name="articlePosts"][value="keep"]'));
+  check('« les garder » : aucun post supprimé, 98 gardés sans article', /98<\/b> post\(s\) gardé/.test($('#reset-summary').innerHTML) && /Aucun post supprimé/.test($('#reset-summary').textContent) && !$('#reset-submit').disabled, $('#reset-summary').textContent);
+  rf.confirm.value = 'EFFACER';
   $('#reset-form').dispatchEvent(new window.Event('submit', { cancelable: true }));
   await new Promise((resolve) => setTimeout(resolve, 80));
-  check('puis efface', /143 post\(s\) et 42 article\(s\) supprimés/.test($('#notice').textContent), $('#notice').textContent);
+  const sent = resetBodies.filter((b) => !b.dryRun).pop();
+  check('il envoie exactement ce choix', sent.articles === true && sent.posts === false && sent.articlePosts === 'keep' && sent.confirm === 'EFFACER', sent);
+  check('puis dit ce qui a été fait', /42 article\(s\) supprimé\(s\) · 98 post\(s\) gardé\(s\) sans article/.test($('#notice').textContent), $('#notice').textContent);
+  // Les posts seulement : on propose de désarchiver les articles.
+  $('#reset-open').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  await tick(rf.posts);
+  check('posts seuls : pas de question sur les articles, mais le désarchivage proposé', $('#reset-article-posts').hidden && !$('#reset-unarchive-row').hidden, null);
+  check('posts seuls : les articles restent', /143<\/b> post\(s\) supprimé/.test($('#reset-summary').innerHTML) && /Les articles restent/.test($('#reset-summary').textContent), $('#reset-summary').textContent);
+  $('#reset-modal').close();
   window.fetch = beforeExtra;
 
   check('la fenêtre d’appairage a les marges des autres', !!$('#pair-modal > .modal-body'), null);

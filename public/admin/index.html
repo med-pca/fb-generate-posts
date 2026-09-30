@@ -518,13 +518,14 @@
           <div class="panel settings-panel danger-zone admin-only">
             <div class="panel-head"><div><small>ZONE DANGEREUSE</small><h2>Repartir de zéro</h2></div></div>
             <p class="form-help">
-              Supprime <b>tous les posts, tous les articles</b> et les lots de
-              publication, sur tous les comptes. Restent : profils, groupes,
-              catégories, sites, comptes, réglages et journaux. Irréversible.
+              Effacez <b>les posts</b>, <b>les articles</b>, ou les deux — au
+              choix. Sur tous les comptes, et irréversible. Profils, groupes,
+              catégories, sites, comptes, réglages et journaux ne sont jamais
+              touchés.
             </p>
             <div id="reset-counts" class="reset-counts"></div>
             <div class="actions">
-              <button class="danger" id="reset-open" type="button">Tout effacer (posts et articles)…</button>
+              <button class="danger" id="reset-open" type="button">Choisir quoi effacer…</button>
             </div>
           </div>
         </section>
@@ -701,12 +702,34 @@
     <dialog id="reset-modal">
       <form id="reset-form">
         <div class="modal-head">
-          <div><small>ZONE DANGEREUSE</small><h2>Tout effacer ?</h2></div>
+          <div><small>ZONE DANGEREUSE</small><h2>Que voulez-vous effacer ?</h2></div>
           <button class="close" type="button" data-close>×</button>
         </div>
+        <p class="hint">Sur tous les comptes. Profils, groupes, catégories, sites, comptes, réglages et journaux ne sont jamais touchés.</p>
+        <div class="reset-choices">
+          <label class="reset-choice"
+            ><input type="checkbox" name="posts" />
+            <span><b>Les posts</b><small id="reset-posts-info"></small></span></label
+          >
+          <label class="reset-choice"
+            ><input type="checkbox" name="articles" />
+            <span><b>Les articles</b><small id="reset-articles-info"></small></span></label
+          >
+        </div>
+        <fieldset id="reset-article-posts" class="reset-question" hidden>
+          <legend id="reset-article-posts-title">Des posts viennent de ces articles</legend>
+          <label class="inline-check"
+            ><input type="radio" name="articlePosts" value="delete" /> Les supprimer aussi</label
+          ><label class="inline-check"
+            ><input type="radio" name="articlePosts" value="keep" /> Les garder (ils restent dans la file, sans article)</label
+          >
+        </fieldset>
+        <label class="inline-check" id="reset-unarchive-row" hidden
+          ><input type="checkbox" name="unarchive" /> <span id="reset-unarchive-label">Désarchiver les articles</span></label
+        >
         <div id="reset-summary" class="reset-summary"></div>
         <label
-          >Pour confirmer, tapez <b>EFFACER</b>
+          ><span>Pour confirmer, tapez <b>EFFACER</b></span>
           <input name="confirm" autocomplete="off" required pattern="EFFACER" />
         </label>
         <label class="inline-check" id="reset-force-row" hidden
@@ -714,7 +737,7 @@
         >
         <div class="actions">
           <button type="button" class="secondary" data-close>Annuler</button>
-          <button class="danger" type="submit">Effacer définitivement</button>
+          <button class="danger" type="submit" id="reset-submit" disabled>Effacer définitivement</button>
         </div>
       </form>
     </dialog>

@@ -526,20 +526,30 @@ Autres lectures : `GET /api/insights/counters` (les compteurs du menu de
 gauche) et `GET /api/insights/profiles` (par profil : publiés aujourd'hui, sur
 7 jours, au total, échecs, groupes rejoints ou en attente, stock qui l'attend).
 
-### Repartir de zéro
+### Effacer les posts, les articles, ou les deux
 
-**Paramètres → Zone dangereuse** (ADMIN) : supprime tous les posts, tous les
-articles et les lots de publication, sur tous les comptes. Restent profils,
-groupes, catégories, sites, comptes, réglages et journaux.
+**Paramètres → Zone dangereuse** (ADMIN), sur tous les comptes. On coche ce
+qu'on veut effacer ; la fenêtre dit, avant de confirmer, exactement ce qui va
+se passer.
+
+| Coché | Effet |
+| --- | --- |
+| Posts seulement | Tous les posts et leurs publications par groupe. Les articles restent ; option **désarchiver** les articles, pour qu'ils redonnent des posts |
+| Articles seulement | Tous les articles. Pour les posts qui en viennent, la fenêtre **demande** : les supprimer aussi, ou les garder (ils restent dans la file, sans article) |
+| Les deux | Tout |
+
+Jamais touchés : profils, groupes, catégories, sites, comptes, réglages,
+journaux. Les lots de publication vidés partent avec leurs posts.
 
 ```http
-POST /api/admin/reset   { "dryRun": true }          # compter
-POST /api/admin/reset   { "confirm": "EFFACER" }    # effacer
+POST /api/admin/reset  { "posts": true, "unarchive": true, "dryRun": true }         # compter, voir le plan
+POST /api/admin/reset  { "articles": true, "articlePosts": "keep", "confirm": "EFFACER" }
 ```
 
-Refusé tant qu'un lot est en cours de publication (sauf `"force": true`).
-Journal : `ADMIN_RESET`. Les sites WordPress ne renvoient pas d'eux-mêmes les
-articles déjà transmis : seuls ceux publiés ou modifiés ensuite reviennent.
+`confirm: "EFFACER"` est exigé. Dès que des posts sont supprimés, c'est
+refusé pendant qu'un lot se publie, sauf `force: true`. Journal :
+`ADMIN_RESET`, avec le choix fait. Les sites WordPress ne renvoient pas
+d'eux-mêmes les articles déjà transmis.
 
 ### La clé NSTBrowser de chaque compte
 

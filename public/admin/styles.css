@@ -1591,3 +1591,34 @@ body:not(.is-admin) .admin-only { display: none; }
 .settings-panel > .form-help { padding: 0 24px; }
 .settings-panel > .panel-head + .form-help { padding-top: 16px; }
 .settings-panel > .form-help:last-child { padding-bottom: 20px; }
+
+/* ── Effacer au choix ─────────────────────────────────────────────── */
+.reset-choices { display: grid; gap: 8px; }
+.reset-choice {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.reset-choice:has(input:checked) { border-color: #fda29b; background: #fffbfa; }
+.reset-choice input { width: 17px; min-height: 17px; margin-top: 2px; }
+.reset-choice b { display: block; font-size: 0.9rem; }
+.reset-choice small { display: block; margin-top: 2px; color: var(--muted); font-weight: 500; }
+.reset-question { display: grid; gap: 8px; }
+.reset-question legend { padding: 0 4px; color: #344054; font-weight: 700; }
+.reset-question .inline-check { color: #344054; font-size: 0.84rem; }
+/* `display: flex` des cases à cocher l'emportait sur `hidden`. */
+#reset-form [hidden] { display: none !important; }
+.reset-summary {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f7f8fa;
+  color: #344054;
+  font-size: 0.84rem;
+}
+.reset-summary p { margin: 0 0 4px; }
+.reset-summary ul { margin: 4px 0; padding-left: 18px; }
+.reset-summary .warn { margin-top: 8px; }

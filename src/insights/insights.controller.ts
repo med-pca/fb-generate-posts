@@ -7,7 +7,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { AdminRoleGuard } from '../auth/admin-role.guard';
 import { ActingUser } from '../auth/current-user';
@@ -16,6 +16,24 @@ import { InsightsService } from './insights.service';
 import { RESET_CONFIRMATION, ResetService } from './reset.service';
 
 class ResetDto {
+  @IsOptional()
+  @IsBoolean()
+  posts?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  articles?: boolean;
+
+  /** Articles supprimés seuls : supprimer aussi leurs posts, ou les garder. */
+  @IsOptional()
+  @IsIn(['delete', 'keep'])
+  articlePosts?: 'delete' | 'keep';
+
+  /** Posts supprimés seuls : désarchiver les articles pour les réutiliser. */
+  @IsOptional()
+  @IsBoolean()
+  unarchive?: boolean;
+
   @IsOptional()
   @IsString()
   confirm?: string;
@@ -75,11 +93,14 @@ export class ResetController {
   @Post()
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Tout effacer : posts, articles et lots (ADMIN)',
+    summary: 'Effacer les posts, les articles, ou les deux (ADMIN)',
     description:
-      `\`dryRun: true\` compte sans rien toucher. Sinon \`confirm: "${RESET_CONFIRMATION}"\` ` +
-      'est exigé ; refusé tant qu’un lot est en cours, sauf `force: true`. ' +
-      'Profils, groupes, catégories, sites, comptes et journaux restent.',
+      '`posts` et/ou `articles` disent quoi effacer. Articles seuls : ' +
+      '`articlePosts: "delete"` supprime aussi leurs posts, `"keep"` les garde ' +
+      'détachés (obligatoire s’il y en a). Posts seuls : `unarchive: true` rend ' +
+      `les articles réutilisables. \`dryRun: true\` compte et dit le plan ; sinon ` +
+      `\`confirm: "${RESET_CONFIRMATION}"\` est exigé. Refusé pendant qu’un lot ` +
+      'se publie si des posts sont supprimés, sauf `force: true`.',
   })
   reset(@Body() dto: ResetDto, @ActingUser() acting: CurrentUser) {
     return this.resets.reset(dto, acting);
