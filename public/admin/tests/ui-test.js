@@ -292,6 +292,71 @@ setTimeout(async () => {
   $('#runner-filters-reset').click();
   window.fetch = beforePairing;
 
+  // ─── Compteurs du menu, groupes, profils, objectif, remise à zéro ──
+  const extraCalls = [];
+  const beforeExtra = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace('/api', '').split('?')[0];
+    extraCalls.push(`${options.method || 'GET'} ${path}`);
+    if (path === '/insights/counters') {
+      return { ok: true, status: 200, json: async () => ({ profiles: 18, groups: 11, categories: 3, sites: 4, sitesAlert: 1, articles: 42, posts: 58, postsFailed: 2, logErrors: 3, users: 2, publishedToday: 86, dailyTarget: 200 }) };
+    }
+    if (path === '/insights/objective') {
+      return { ok: true, status: 200, json: async () => ({
+        settings: { dailyTarget: 200, objectiveStart: 480, objectiveEnd: 1320, objectiveTimezone: 'Europe/Paris' },
+        serverTime: '2026-09-30T13:00:00Z',
+        pace: { status: 'late', target: 200, published: 86, expected: 102, delta: -16, remaining: 114, minutesLeft: 420, ratePerHour: 14, neededPerHour: 17, projection: 184 },
+        hourly: Array.from({ length: 24 }, (_, h) => (h === 10 ? 12 : 0)),
+        stock: { publishable: 58, blocked: 25, deficit: 56 }, articles: { today: 3, needed: 12, postsPerArticle: 4.7 },
+        profiles: { participating: 2, atWork: 1, share: 100, rows: [{ id: 'a', name: 'Salim', mode: 'AUTO', joinedGroups: 2, publishedToday: 60, share: 100, atWork: true, participating: true }] },
+        categories: [{ id: 'c1', name: 'Recettes', groups: 3, publishableGroups: 2, publishedToday: 86, stock: 83, stockPublishable: 58, articlesNeeded: 28 }],
+        groups: [{ id: 'g3', name: 'Groupe vide', category: { name: 'Recettes' }, publishedToday: 0, stock: 25, participants: [], blocked: 'no_profile' }],
+        advice: [{ level: 'error', text: 'Stock insuffisant : il manque 56 post(s), soit environ 12 article(s) à importer.' }],
+      }) };
+    }
+    if (path === '/admin/reset') {
+      const body = JSON.parse(options.body || '{}');
+      if (body.dryRun) return { ok: true, status: 200, json: async () => ({ dryRun: true, posts: 143, articles: 42, jobs: 64, published: 211, activeJobs: 0 }) };
+      return { ok: true, status: 200, json: async () => ({ dryRun: false, deleted: { posts: 143, articles: 42 } }) };
+    }
+    if (path === '/settings') return { ok: true, status: 200, json: async () => ({}) };
+    return beforeExtra(url, options);
+  };
+  window.eval(`loadCounters()`);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const badge = (v) => window.document.querySelector(`.nav[data-view="${v}"] .nav-count`);
+  check('le menu montre le nombre de posts en attente et d’échecs', badge('posts')?.textContent === '58 · 2✕' && badge('posts').classList.contains('alert'), badge('posts')?.textContent);
+  check('le menu montre le nombre d’articles', badge('articles')?.textContent === '42', badge('articles')?.textContent);
+  check('le Pilotage affiche publiés / objectif', badge('runners')?.textContent === '86/200', badge('runners')?.textContent);
+  check('les sites non prêts sont signalés', badge('sites')?.textContent === '1/4' && badge('sites').classList.contains('alert'), badge('sites')?.textContent);
+
+  window.eval(`view('runners')`);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('l’objectif du jour s’affiche', /86 \/ 200 publications/.test($('#obj-title').textContent), $('#obj-title').textContent);
+  check('il dit si l’on est en retard, et de combien', /En retard/.test($('#obj-status').textContent) && /102 \(-16\)/.test($('#obj-status').textContent), $('#obj-status').textContent);
+  check('il chiffre les articles à importer', /12/.test($('#obj-kpis').textContent) && /articles à importer/.test($('#obj-kpis').textContent), null);
+  check('il signale un groupe bloqué', /aucun profil/.test($('#obj-groups').textContent), null);
+  check('le graphique a une barre par heure', window.document.querySelectorAll('#obj-chart .bar-col').length === 24, null);
+  const of = $('#objective-form');
+  of.elements.dailyTarget.value = '250';
+  of.elements.objectiveStart.value = '09:00';
+  of.elements.objectiveEnd.value = '21:30';
+  of.dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('régler l’objectif l’enregistre', extraCalls.includes('PATCH /settings'), extraCalls.slice(-5));
+
+  window.eval(`view('settings')`);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('la zone dangereuse compte avant d’effacer', /143/.test($('#reset-counts').textContent) && /42/.test($('#reset-counts').textContent), $('#reset-counts').textContent);
+  $('#reset-open').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('effacer demande une confirmation écrite', $('#reset-modal').open && $('#reset-form').elements.confirm.required, null);
+  $('#reset-form').elements.confirm.value = 'EFFACER';
+  $('#reset-form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('puis efface', /143 post\(s\) et 42 article\(s\) supprimés/.test($('#notice').textContent), $('#notice').textContent);
+  window.fetch = beforeExtra;
+
   check('la fenêtre d’appairage a les marges des autres', !!$('#pair-modal > .modal-body'), null);
 
   const rows = $('#user-rows').textContent;

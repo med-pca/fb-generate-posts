@@ -20,6 +20,7 @@ import { UsersModule } from './users/users.module';
 import { AccessModule } from './access/access.module';
 import { RunnersModule } from './runners/runners.module';
 import { CategoriesModule } from './categories/categories.module';
+import { InsightsModule } from './insights/insights.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { CategoriesModule } from './categories/categories.module';
     AccessModule,
     RunnersModule,
     CategoriesModule,
+    InsightsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

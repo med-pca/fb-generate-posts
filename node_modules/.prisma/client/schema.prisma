@@ -443,6 +443,13 @@ model AutomationSetting {
   publishingEnabled          Boolean  @default(true) @map("publishing_enabled")
   minimumAvailablePerProfile Int      @default(10) @map("minimum_available_per_profile")
   minimumAvailablePerGroup   Int      @default(8) @map("minimum_available_per_group")
+  /// L'objectif de publications par jour (0 = pas d'objectif), et la plage
+  /// horaire sur laquelle on l'étale : c'est elle qui dit si l'on est en
+  /// avance ou en retard à une heure donnée.
+  dailyTarget                Int      @default(0) @map("daily_target")
+  objectiveStart             Int      @default(480) @map("objective_start")
+  objectiveEnd               Int      @default(1320) @map("objective_end")
+  objectiveTimezone          String   @default("Europe/Paris") @map("objective_timezone")
   createdAt                  DateTime @default(now()) @map("created_at")
   updatedAt                  DateTime @updatedAt @map("updated_at")
 

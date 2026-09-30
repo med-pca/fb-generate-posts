@@ -498,6 +498,49 @@ derrière un proxy), donc celle qui marche depuis ce navigateur.
 `PUBLIC_API_BASE_URL` la force quand l'adresse vue du serveur n'est pas celle que
 le navigateur doit appeler.
 
+### L'objectif du jour
+
+En tête du **Pilotage** : un objectif de publications par jour (par exemple
+200), étalé sur une plage horaire (8 h → 22 h par défaut, fuseau
+`Europe/Paris`), suivi en temps réel (relu toutes les 30 s).
+
+- **Où l'on en est** : publiés / objectif, et surtout l'écart avec ce qui est
+  **attendu à cette heure** (à mi-plage, la moitié). Statut : en avance, dans
+  les temps (moins de 10 % de retard), en retard, atteint, manqué.
+- **Rythme** : celui de la dernière heure, celui qu'il faut tenir d'ici la fin,
+  et la projection en fin de plage au rythme actuel.
+- **Stock** : les posts prêts dans des groupes qui peuvent publier (au moins un
+  profil actif, non arrêté, qui les a rejoints), et ceux **bloqués** ailleurs.
+- **Articles à importer** : ce qui manque au stock, converti en articles — un
+  article d'un site devient un post dans chaque groupe prêt de sa catégorie.
+- **Par catégorie, par groupe, par profil** : publiés, stock, blocages ; la
+  part de l'objectif de chaque profil participant.
+- **Conseils** : ce qu'il faut faire, par ordre d'importance.
+
+```http
+GET   /api/insights/objective
+PATCH /api/settings   { "dailyTarget": 200, "objectiveStart": 480, "objectiveEnd": 1320 }
+```
+
+Autres lectures : `GET /api/insights/counters` (les compteurs du menu de
+gauche) et `GET /api/insights/profiles` (par profil : publiés aujourd'hui, sur
+7 jours, au total, échecs, groupes rejoints ou en attente, stock qui l'attend).
+
+### Repartir de zéro
+
+**Paramètres → Zone dangereuse** (ADMIN) : supprime tous les posts, tous les
+articles et les lots de publication, sur tous les comptes. Restent profils,
+groupes, catégories, sites, comptes, réglages et journaux.
+
+```http
+POST /api/admin/reset   { "dryRun": true }          # compter
+POST /api/admin/reset   { "confirm": "EFFACER" }    # effacer
+```
+
+Refusé tant qu'un lot est en cours de publication (sauf `"force": true`).
+Journal : `ADMIN_RESET`. Les sites WordPress ne renvoient pas d'eux-mêmes les
+articles déjà transmis : seuls ceux publiés ou modifiés ensuite reviennent.
+
 ### La clé NSTBrowser de chaque compte
 
 Chaque compte règle sa propre clé de l'API locale NSTBrowser dans l'admin

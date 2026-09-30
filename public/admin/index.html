@@ -395,6 +395,44 @@
           <div class="pagination" id="logs-pagination"></div>
         </section>
         <section id="runners" class="view">
+          <!-- L'objectif du jour : où l'on en est, ce qu'il manque, où ça coince. -->
+          <div class="panel objective" id="objective">
+            <div class="panel-head">
+              <div><small>OBJECTIF DU JOUR</small><h2 id="obj-title">Publications du jour</h2></div>
+              <form id="objective-form" class="objective-form">
+                <label>Objectif<input name="dailyTarget" type="number" min="0" max="100000" placeholder="200" /><span>posts / jour</span></label>
+                <label>De<input name="objectiveStart" type="time" /></label>
+                <label>à<input name="objectiveEnd" type="time" /></label>
+                <button class="secondary" type="submit">Enregistrer</button>
+              </form>
+            </div>
+            <div class="objective-body">
+              <div class="obj-status" id="obj-status"></div>
+              <div class="obj-progress" id="obj-progress" role="img"></div>
+              <div class="obj-kpis" id="obj-kpis"></div>
+              <ul class="obj-advice" id="obj-advice"></ul>
+              <div class="obj-grid">
+                <div class="obj-block">
+                  <h3>Publications par heure <small>aujourd’hui</small></h3>
+                  <div class="obj-chart" id="obj-chart"></div>
+                </div>
+                <div class="obj-block">
+                  <h3>Par catégorie <small>stock et articles à importer</small></h3>
+                  <div class="obj-table" id="obj-categories"></div>
+                </div>
+              </div>
+              <div class="obj-grid">
+                <div class="obj-block">
+                  <h3>Par profil <small>part de l’objectif</small></h3>
+                  <div class="obj-table" id="obj-profiles"></div>
+                </div>
+                <div class="obj-block">
+                  <h3>Par groupe <small>distribution et blocages</small></h3>
+                  <div class="obj-table" id="obj-groups"></div>
+                </div>
+              </div>
+            </div>
+          </div>
           <div class="toolbar">
             <p>
               Chaque profil publie quand cette page le dit. L’agent local ouvre
@@ -476,6 +514,18 @@
             <p class="form-help">
               Le coupe-circuit de la publication se trouve dans la page Pilotage.
             </p>
+          </div>
+          <div class="panel settings-panel danger-zone admin-only">
+            <div class="panel-head"><div><small>ZONE DANGEREUSE</small><h2>Repartir de zéro</h2></div></div>
+            <p class="form-help">
+              Supprime <b>tous les posts, tous les articles</b> et les lots de
+              publication, sur tous les comptes. Restent : profils, groupes,
+              catégories, sites, comptes, réglages et journaux. Irréversible.
+            </p>
+            <div id="reset-counts" class="reset-counts"></div>
+            <div class="actions">
+              <button class="danger" id="reset-open" type="button">Tout effacer (posts et articles)…</button>
+            </div>
           </div>
         </section>
       </main>
@@ -644,6 +694,27 @@
         <div class="actions">
           <button type="button" class="secondary" data-close>Annuler</button>
           <button class="primary" type="submit">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="reset-modal">
+      <form id="reset-form">
+        <div class="modal-head">
+          <div><small>ZONE DANGEREUSE</small><h2>Tout effacer ?</h2></div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <div id="reset-summary" class="reset-summary"></div>
+        <label
+          >Pour confirmer, tapez <b>EFFACER</b>
+          <input name="confirm" autocomplete="off" required pattern="EFFACER" />
+        </label>
+        <label class="inline-check" id="reset-force-row" hidden
+          ><input type="checkbox" name="force" /> Forcer malgré les lots en cours de publication</label
+        >
+        <div class="actions">
+          <button type="button" class="secondary" data-close>Annuler</button>
+          <button class="danger" type="submit">Effacer définitivement</button>
         </div>
       </form>
     </dialog>

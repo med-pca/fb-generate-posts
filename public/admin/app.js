@@ -139,8 +139,12 @@ async function load() {
     // Les comptes ne regardent que les administrateurs : les demander en
     // gestionnaire rendrait un 403 et ferait échouer tout le chargement.
     state.users = me.role === 'ADMIN' ? await api('/users') : [];
+    // Les statistiques des profils : ne pas les avoir ne doit pas empêcher
+    // la page de s'afficher.
+    state.profileStats = await api('/insights/profiles').catch(() => ({}));
     document.body.classList.toggle('is-admin', me.role === 'ADMIN');
     render();
+    loadCounters();
   } catch (e) {
     notice(e.message, 'error');
   }
@@ -152,6 +156,104 @@ const JOIN_LABELS = {
   QUESTIONS: 'Questions',
   FAILED: 'Échec',
 };
+/* ── Compteurs du menu ─────────────────────────────────────────────── */
+/** À côté de chaque entrée du menu, son nombre ; en rouge ce qui demande
+ * une action (erreurs, sites non prêts, publications en échec). */
+async function loadCounters() {
+  try {
+    state.counters = await api('/insights/counters');
+    renderCounters();
+  } catch {
+    // Un compteur manquant n'empêche rien.
+  }
+}
+function renderCounters() {
+  const c = state.counters;
+  if (!c) return;
+  const set = (view, value, { alert = false, title = '' } = {}) => {
+    const button = document.querySelector(`.nav[data-view="${view}"]`);
+    if (!button) return;
+    let badge = button.querySelector('.nav-count');
+    if (!badge) {
+      badge = document.createElement('em');
+      badge.className = 'nav-count';
+      button.append(badge);
+    }
+    badge.hidden = value === null || value === undefined || value === '';
+    badge.textContent = value;
+    badge.classList.toggle('alert', alert);
+    badge.title = title;
+  };
+  set('profiles', c.profiles, { title: 'profils actifs' });
+  set('groups', c.groups, { title: 'groupes actifs' });
+  set('categories', c.categories);
+  set('sites', c.sitesAlert ? `${c.sitesAlert}/${c.sites}` : c.sites, {
+    alert: c.sitesAlert > 0,
+    title: c.sitesAlert ? `${c.sitesAlert} site(s) non prêt(s) (extension ou catégorie)` : 'sites actifs',
+  });
+  set('articles', c.articles);
+  set('posts', c.postsFailed ? `${c.posts} · ${c.postsFailed}✕` : c.posts, {
+    alert: c.postsFailed > 0,
+    title: `${c.posts} publication(s) en attente${c.postsFailed ? `, ${c.postsFailed} en échec` : ''}`,
+  });
+  set('logs', c.logErrors || '', { alert: c.logErrors > 0, title: `${c.logErrors} erreur(s) sur 24 h` });
+  set('users', c.users || '');
+  set('runners', c.dailyTarget ? `${c.publishedToday}/${c.dailyTarget}` : c.publishedToday, {
+    title: 'publiés aujourd’hui' + (c.dailyTarget ? ' / objectif' : ''),
+  });
+}
+setInterval(() => accessToken && loadCounters(), 60000);
+
+/* ── Groupes : les profils liés, en résumé ─────────────────────────── */
+/** Dix-huit pastilles par groupe rendaient la page illisible : un résumé
+ * par état, et la liste nominative au clic. */
+const JOIN_ORDER = ['JOINED', 'REQUESTED', 'QUESTIONS', 'NOT_JOINED', 'FAILED'];
+function groupProfilesCell(g) {
+  if (!g.profiles.length) return '<span class="muted">aucun profil</span>';
+  const by = {};
+  for (const x of g.profiles) (by[x.joinStatus || 'NOT_JOINED'] ||= []).push(x);
+  const summary = JOIN_ORDER.filter((k) => by[k])
+    .map((k) => `<span class="chip join-${k.toLowerCase()}">${by[k].length} ${esc(JOIN_LABELS[k]).toLowerCase()}</span>`)
+    .join('');
+  const detail = JOIN_ORDER.filter((k) => by[k])
+    .map(
+      (k) =>
+        `<div class="join-line"><b>${esc(JOIN_LABELS[k])}</b> : ${by[k]
+          .map((x) => `<span title="${esc(x.joinError || '')}">${esc(x.profile.name)}</span>`)
+          .join(', ')}</div>`,
+    )
+    .join('');
+  return `<div class="chips">${summary}</div><details class="join-details"><summary>Voir les ${g.profiles.length} profils</summary>${detail}</details>`;
+}
+
+/* ── Profils : leurs statistiques ──────────────────────────────────── */
+function profileMetrics(p) {
+  const st = state.profileStats?.[p.id];
+  if (!st)
+    return `<div class="metrics"><div><strong>${p._count.profileGroups}</strong><span>groupes liés</span></div><div><strong>${p._count.posts}</strong><span>posts</span></div></div>`;
+  const g = st.groups;
+  const state_ = st.atWork
+    ? '<span class="chip join-joined">au travail</span>'
+    : st.mode === 'OFF'
+      ? '<span class="chip join-not_joined">arrêté</span>'
+      : '<span class="chip join-requested">en attente</span>';
+  return (
+    `<div class="metrics profile-stats">` +
+    `<div><strong>${st.publishedToday}</strong><span>publiés aujourd’hui</span></div>` +
+    `<div><strong>${st.publishedWeek}</strong><span>sur 7 jours</span></div>` +
+    `<div><strong>${st.publishedTotal}</strong><span>au total</span></div>` +
+    `<div class="${st.failedWeek ? 'bad' : ''}"><strong>${st.failedWeek}</strong><span>échecs (7 j)</span></div>` +
+    `<div><strong>${st.stock}</strong><span>posts qui l’attendent</span></div>` +
+    `<div><strong>${g.joined}</strong><span>groupes rejoints</span></div>` +
+    `</div>` +
+    `<p class="profile-line">${state_} ` +
+    (g.requested ? `<span class="chip join-requested">${g.requested} demande(s)</span> ` : '') +
+    (g.pending ? `<span class="chip join-not_joined">${g.pending} à rejoindre</span> ` : '') +
+    (g.failed ? `<span class="chip join-failed">${g.failed} échec(s)</span> ` : '') +
+    `<small>${st.lastPublishedAt ? `dernière publication ${esc(ago(st.lastPublishedAt))}` : 'aucune publication encore'}</small></p>`
+  );
+}
+
 function render() {
   renderWhoami();
   renderUsers();
@@ -176,14 +278,14 @@ function render() {
     state.profiles
       .map(
         (p) =>
-          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''}"><div class="card-head"><div class="person"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></div><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><div class="metrics"><div><strong>${p._count.profileGroups}</strong><span>groupes liés</span></div><div><strong>${p._count.posts}</strong><span>posts</span></div></div><div class="card-actions"><button class="edit" data-toggle-profile="${p.id}">${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
+          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''}"><div class="card-head"><div class="person"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></div><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-toggle-profile="${p.id}">${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
       )
       .join('') || '<div class="empty">Créez votre premier profil.</div>';
   $('#group-rows').innerHTML =
     state.groups
       .map(
         (g) =>
-          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td>${g.category ? `<span class="chip">${esc(g.category.name)}</span>` : '<span class="chip join-questions" title="Modifiez le groupe pour lui choisir une catégorie : sans elle, il ne reçoit aucun article">À ranger</span>'}</td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td><div class="chips">${g.profiles.map((x) => `<span class="chip join-${(x.joinStatus || 'NOT_JOINED').toLowerCase()}" title="${esc(JOIN_LABELS[x.joinStatus] || '')}${x.joinError ? ' · ' + esc(x.joinError) : ''}">${esc(x.profile.name)} · ${esc(JOIN_LABELS[x.joinStatus] || 'Non rejoint')}</span>`).join('')}</div></td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-clear-group="${g.id}" ${g._count.targets ? '' : 'disabled'}>Retirer les posts</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
+          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td>${g.category ? `<span class="chip">${esc(g.category.name)}</span>` : '<span class="chip join-questions" title="Modifiez le groupe pour lui choisir une catégorie : sans elle, il ne reçoit aucun article">À ranger</span>'}</td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td>${groupProfilesCell(g)}</td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-clear-group="${g.id}" ${g._count.targets ? '' : 'disabled'}>Retirer les posts</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
       )
       .join('') ||
     '<tr><td colspan="6"><div class="empty">Aucun groupe</div></td></tr>';
@@ -294,6 +396,185 @@ function pairingCell(r) {
     `<small class="pairing-detail" title="${esc(p.detail)}">${esc(p.detail)}${esc(since)}</small>`
   );
 }
+
+/* ── L'objectif du jour ─────────────────────────────────────────────── */
+const PACE_TEXT = {
+  no_target: ['neutral', 'Aucun objectif réglé'],
+  not_started: ['neutral', 'La plage de publication n’a pas commencé'],
+  ahead: ['good', 'En avance'],
+  on_track: ['good', 'Dans les temps'],
+  late: ['bad', 'En retard'],
+  reached: ['good', 'Objectif atteint'],
+  missed: ['bad', 'Objectif manqué'],
+};
+async function loadObjective() {
+  if (!accessToken) return;
+  try {
+    state.objective = await api('/insights/objective');
+    renderObjective();
+  } catch (e) {
+    notice(e.message, 'error');
+  }
+}
+function renderObjective() {
+  const o = state.objective;
+  if (!o) return;
+  const p = o.pace;
+  const f = $('#objective-form');
+  // Ne pas écraser ce que l'on est en train de saisir.
+  if (!f.contains(document.activeElement)) {
+    f.elements.dailyTarget.value = o.settings.dailyTarget || '';
+    f.elements.objectiveStart.value = minutesToTime(o.settings.objectiveStart);
+    f.elements.objectiveEnd.value = minutesToTime(o.settings.objectiveEnd);
+  }
+  const [tone, label] = PACE_TEXT[p.status] || ['neutral', p.status];
+  const window_ = `${minutesToTime(o.settings.objectiveStart)} → ${minutesToTime(o.settings.objectiveEnd)}`;
+  $('#obj-title').textContent = p.target
+    ? `${p.published} / ${p.target} publications aujourd’hui`
+    : `${p.published} publication(s) aujourd’hui`;
+  $('#obj-status').className = `obj-status ${tone}`;
+  $('#obj-status').innerHTML =
+    `<b>${label}</b>` +
+    (p.target && !['no_target', 'reached'].includes(p.status)
+      ? ` · attendu à cette heure : ${p.expected} (${p.delta >= 0 ? '+' : ''}${p.delta})`
+      : '') +
+    `<span>plage ${window_} · mis à jour ${new Date(o.serverTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>`;
+
+  // La barre : publié, et le repère de ce qui est attendu maintenant.
+  const pct = (n) => (p.target ? Math.min(100, (n / p.target) * 100) : 0);
+  $('#obj-progress').setAttribute('aria-label', `${p.published} publiés sur ${p.target}, ${p.expected} attendus`);
+  $('#obj-progress').innerHTML = p.target
+    ? `<div class="obj-bar"><i class="done ${tone}" style="width:${pct(p.published)}%"></i>` +
+      `<b class="expected" style="left:${pct(p.expected)}%" title="Attendu à cette heure : ${p.expected}"></b></div>`
+    : '';
+
+  const kpi = (value, labelText, sub = '', cls = '') =>
+    `<div class="obj-kpi ${cls}"><strong>${value}</strong><span>${labelText}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  $('#obj-kpis').innerHTML =
+    kpi(p.remaining, 'reste à publier', p.target ? `sur ${p.target}` : '') +
+    kpi(`${p.ratePerHour}/h`, 'rythme actuel', p.target && p.minutesLeft ? `il faut ${p.neededPerHour}/h` : '', p.target && p.ratePerHour < p.neededPerHour ? 'bad' : '') +
+    kpi(p.projection, 'projection fin de plage', p.target ? (p.projection >= p.target ? 'objectif tenu' : `manque ${p.target - p.projection}`) : '', p.target && p.projection < p.target ? 'bad' : '') +
+    kpi(o.stock.publishable, 'posts prêts', o.stock.blocked ? `+${o.stock.blocked} bloqués` : 'dans des groupes actifs', o.stock.deficit ? 'bad' : '') +
+    kpi(o.articles.needed, 'articles à importer', `${o.articles.today} reçu(s) aujourd’hui`, o.articles.needed ? 'bad' : '') +
+    kpi(`${o.profiles.atWork}/${o.profiles.participating}`, 'profils au travail', o.profiles.share ? `${o.profiles.share} posts chacun` : '');
+
+  $('#obj-advice').innerHTML = o.advice
+    .map((a) => `<li class="${a.level}"><span>${a.level === 'ok' ? '✓' : a.level === 'error' ? '✕' : '!'}</span>${esc(a.text)}</li>`)
+    .join('');
+
+  // Heure par heure : une seule série, barres fines ancrées à la base.
+  const max = Math.max(1, ...o.hourly);
+  const nowHour = Number(new Date(o.serverTime).toLocaleString('fr-FR', { hour: '2-digit', hour12: false, timeZone: o.settings.objectiveTimezone }).slice(0, 2));
+  $('#obj-chart').innerHTML =
+    '<div class="bars">' +
+    o.hourly
+      .map((n, h) => {
+        const inWindow = h * 60 >= o.settings.objectiveStart - 59 && h * 60 < o.settings.objectiveEnd;
+        return `<div class="bar-col ${inWindow ? '' : 'off'} ${h === nowHour ? 'now' : ''}" title="${String(h).padStart(2, '0')} h : ${n} publication(s)">` +
+          `<i style="height:${(n / max) * 100}%"></i><span>${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span></div>`;
+      })
+      .join('') +
+    `</div><p class="obj-chart-note">Maximum : ${max} en une heure · heures de ${o.settings.objectiveTimezone}</p>`;
+
+  const table = (head, rows, empty) =>
+    rows.length ? `<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>` : `<p class="muted">${empty}</p>`;
+  $('#obj-categories').innerHTML = table(
+    ['Catégorie', 'Groupes prêts', 'Publiés', 'Stock prêt', 'Articles à importer'],
+    o.categories.map(
+      (c) =>
+        `<tr><td><b>${esc(c.name)}</b></td><td>${c.publishableGroups}/${c.groups}${c.id && c.publishableGroups ? `<small>1 article = ${c.publishableGroups} post(s)</small>` : c.id ? '<small>aucun groupe prêt</small>' : '<small>à ranger dans une catégorie</small>'}</td>` +
+        `<td>${c.publishedToday}</td><td>${c.stockPublishable}${c.stock > c.stockPublishable ? `<small>+${c.stock - c.stockPublishable} bloqués</small>` : ''}</td>` +
+        `<td class="${c.articlesNeeded ? 'bad' : ''}">${c.articlesNeeded || '—'}</td></tr>`,
+    ),
+    'Aucun groupe actif.',
+  );
+  $('#obj-profiles').innerHTML = table(
+    ['Profil', 'Publiés', 'Part', 'Groupes', 'État'],
+    o.profiles.rows.map((r) => {
+      const share = r.share ? Math.min(100, Math.round((r.publishedToday / r.share) * 100)) : 0;
+      return (
+        `<tr class="${r.participating ? '' : 'inactive'}"><td><b>${esc(r.name)}</b></td><td>${r.publishedToday}</td>` +
+        `<td>${r.share ? `${r.publishedToday}/${r.share}<div class="mini-bar"><i style="width:${share}%"></i></div>` : '—'}</td>` +
+        `<td>${r.joinedGroups}</td><td>${r.atWork ? '<span class="chip join-joined">au travail</span>' : r.mode === 'OFF' ? '<span class="chip join-not_joined">arrêté</span>' : !r.joinedGroups ? '<span class="chip join-questions">aucun groupe</span>' : '<span class="chip join-requested">en attente</span>'}</td></tr>`
+      );
+    }),
+    'Aucun profil actif.',
+  );
+  $('#obj-groups').innerHTML = table(
+    ['Groupe', 'Publiés', 'Stock', 'Profils'],
+    o.groups.slice(0, 30).map(
+      (g) =>
+        `<tr class="${g.blocked ? 'blocked' : ''}"><td><b title="${esc(g.name)}">${esc(g.name)}</b><small>${esc(g.category?.name || 'sans catégorie')}</small></td>` +
+        `<td>${g.publishedToday}</td><td>${g.stock}</td>` +
+        `<td>${g.blocked ? `<span class="chip join-failed">${g.blocked === 'no_profile' ? 'aucun profil' : 'profils arrêtés'}</span>` : `${g.participants.length} profil(s)`}</td></tr>`,
+    ),
+    'Aucun groupe actif.',
+  );
+}
+$('#objective-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  try {
+    await api('/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        dailyTarget: Number(f.dailyTarget.value || 0),
+        objectiveStart: timeToMinutes(f.objectiveStart.value) ?? 480,
+        objectiveEnd: timeToMinutes(f.objectiveEnd.value) ?? 1320,
+      }),
+    });
+    notice('Objectif enregistré.');
+    document.activeElement?.blur?.();
+    await loadObjective();
+    loadCounters();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+
+/* ── Repartir de zéro (administrateurs) ────────────────────────────── */
+async function loadResetCounts() {
+  try {
+    const c = await api('/admin/reset', { method: 'POST', body: JSON.stringify({ dryRun: true }) });
+    state.resetCounts = c;
+    $('#reset-counts').innerHTML =
+      `<span><b>${c.posts}</b> post(s)</span><span><b>${c.articles}</b> article(s)</span>` +
+      `<span><b>${c.jobs}</b> lot(s)</span><span><b>${c.published}</b> publication(s) faites</span>` +
+      (c.activeJobs ? `<span class="bad"><b>${c.activeJobs}</b> lot(s) en cours</span>` : '');
+  } catch (x) {
+    $('#reset-counts').textContent = x.message;
+  }
+}
+$('#reset-open').onclick = async () => {
+  await loadResetCounts();
+  const c = state.resetCounts;
+  if (!c) return;
+  $('#reset-form').reset();
+  $('#reset-summary').innerHTML =
+    `<p>Seront supprimés, sur <b>tous les comptes</b> :</p><ul>` +
+    `<li><b>${c.posts}</b> post(s) et leurs ${c.published} publication(s) enregistrées</li>` +
+    `<li><b>${c.articles}</b> article(s)</li><li><b>${c.jobs}</b> lot(s) de publication</li></ul>` +
+    `<p class="warn">Irréversible. Les sites WordPress ne renverront pas les articles déjà envoyés : seuls les articles publiés ou modifiés après reviendront.</p>` +
+    (c.activeJobs ? `<p class="warn"><b>${c.activeJobs} lot(s) sont en cours de publication.</b> Coupez la publication dans le Pilotage et attendez, ou forcez.</p>` : '');
+  $('#reset-force-row').hidden = !c.activeJobs;
+  $('#reset-modal').showModal();
+};
+$('#reset-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  try {
+    const r = await api('/admin/reset', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: f.confirm.value.trim(), force: f.force.checked }),
+    });
+    $('#reset-modal').close();
+    notice(`Remise à zéro faite : ${r.deleted.posts} post(s) et ${r.deleted.articles} article(s) supprimés.`);
+    await load();
+    loadResetCounts();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 
 async function loadRunners() {
   if (!accessToken) return;
@@ -1024,10 +1305,16 @@ function view(id) {
   // Le pilotage se rafraîchit tant qu'il est à l'écran : cette page sert à
   // regarder des navigateurs travailler, un état figé n'y apprend rien.
   clearInterval(view.runnersTimer);
+  clearInterval(view.objectiveTimer);
   if (id === 'runners') {
     loadRunners();
     view.runnersTimer = setInterval(loadRunners, 10000);
+    // L'objectif se relit toutes les 30 s : c'est le « temps réel » de la
+    // journée, sans charger l'API à chaque battement.
+    loadObjective();
+    view.objectiveTimer = setInterval(loadObjective, 30000);
   }
+  if (id === 'settings' && state.me?.role === 'ADMIN') loadResetCounts();
 }
 function refreshLogs() {
   state.page.logs = 1;
