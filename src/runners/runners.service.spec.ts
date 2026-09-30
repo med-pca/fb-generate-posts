@@ -1,5 +1,6 @@
 import { BrowserState, RunnerMode } from '@prisma/client';
 import { RunnersService } from './runners.service';
+import { keyHash } from './pairing';
 
 /** Un faux Prisma réduit à ce que le service touche : un profil, sa ligne de
  * pilotage, et le réglage global. Assez pour vérifier les décisions, qui sont
@@ -468,5 +469,38 @@ describe('syncProfiles', () => {
     const { service, created } = syncing([]);
     expect(await service.syncProfiles([], sofia)).toEqual({ created: [], existing: 0, received: 0 });
     expect(created).toEqual([]);
+  });
+});
+
+describe('appairage — ce que le serveur retient pour le vérifier', () => {
+  it('l’échange du code retient l’empreinte de la clé et l’identifiant remis', async () => {
+    const { service, profiles } = harness({
+      profiles: [
+        {
+          id: 'p1',
+          name: 'Salim',
+          externalId: 'ext-1',
+          ownerId: 'u1',
+          runner: { pairCode: 'ABCD2345', pairCodeExpiresAt: new Date(Date.now() + 60_000) },
+        },
+      ],
+      owners: [{ id: 'u1', status: 'ACTIVE', automationKey: 'cle-du-compte' }],
+    });
+    await service.pair('ABCD2345', 'https://api.test/api', '1.2.3.4');
+    const { runner } = profiles[0];
+    expect(runner.pairedKeyHash).toBe(keyHash('cle-du-compte'));
+    expect(runner.pairedExternalId).toBe('ext-1');
+    expect(runner.keyRejectedAt).toBeNull();
+  });
+
+  it('un battement réussi relit la clé du navigateur et efface un refus', async () => {
+    const { service, upserts } = harness({
+      profiles: [{ id: 'p1', name: 'Salim', externalId: 'ext-1' }],
+    });
+    await service.heartbeat('ext-1', {}, null, 'cle-du-navigateur');
+    expect(upserts[0].update).toMatchObject({
+      pairedKeyHash: keyHash('cle-du-navigateur'),
+      keyRejectedAt: null,
+    });
   });
 });

@@ -255,6 +255,43 @@ setTimeout(async () => {
   check('sans filtre, les boutons retrouvent leur sens global', $('#runners-all-off').textContent === 'Tout arrêter', $('#runners-all-off').textContent);
   window.fetch = beforeRunners;
 
+  // ─── L'état réel des appairages ────────────────────────────────
+  const pairingCalls = [];
+  const beforePairing = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace('/api', '');
+    if (path === '/runners') {
+      return { ok: true, status: 200, json: async () => ({ publishingEnabled: true, profiles: [
+        runner({ name: 'Salim', pairing: { state: 'confirmed', detail: 'Confirmé par un battement récent', broken: false } }),
+        runner({ name: 'Nadia', pairing: { state: 'key_changed', detail: 'La clé du compte a changé depuis l’appairage : ré-appairer', broken: true } }),
+        runner({ name: 'Omar', pairing: { state: 'unconfirmed', detail: 'Appairé, mais aucun battement depuis', broken: false } }),
+      ] }) };
+    }
+    if (path === '/runners/pairing-check') {
+      pairingCalls.push(options.method);
+      return { ok: true, status: 200, json: async () => ({
+        checked: 3, byState: { confirmed: 1, key_changed: 1, unconfirmed: 1 },
+        broken: [{ name: 'Nadia', state: 'key_changed', detail: 'La clé du compte a changé depuis l’appairage : ré-appairer', broken: true }],
+        unconfirmed: [{ name: 'Omar', state: 'unconfirmed' }],
+      }) };
+    }
+    return beforePairing(url, options);
+  };
+  window.eval(`loadRunners()`);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const rowsText = $('#runner-rows').textContent;
+  check('un appairage cassé s’affiche « à ré-appairer », pas « appairé »', /à ré-appairer/.test(rowsText) && /La clé du compte a changé/.test(rowsText), rowsText);
+  check('un appairage non confirmé est distingué', /non confirmé/.test(rowsText), null);
+  check('un appairage confirmé porte sa coche', /appairé ✓/.test(rowsText), null);
+  check('un appairage cassé compte « à vérifier »', /1 à vérifier/.test($('#runner-count').textContent), $('#runner-count').textContent);
+  $('#runners-pairing-check').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Vérifier les appairages » interroge l’API', pairingCalls[0] === 'POST', pairingCalls);
+  check('le résultat dit ce qui est à refaire, et pourquoi', !$('#pairing-report').hidden && /1 à refaire/.test($('#pairing-report').textContent) && /Nadia/.test($('#pairing-report').textContent), $('#pairing-report').textContent);
+  check('puis ne montre que les appairages à refaire', [...window.document.querySelectorAll('#runner-rows tr td:first-child strong')].map((el) => el.textContent).join() === 'Nadia', null);
+  $('#runner-filters-reset').click();
+  window.fetch = beforePairing;
+
   check('la fenêtre d’appairage a les marges des autres', !!$('#pair-modal > .modal-body'), null);
 
   const rows = $('#user-rows').textContent;

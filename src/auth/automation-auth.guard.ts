@@ -27,8 +27,10 @@ export class AutomationAuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<RequestWithUser>();
     const provided = String(request.headers['x-api-key'] || '');
-    if (!provided)
+    if (!provided) {
+      await this.noteBrowserRejected(request, 'aucune clé présentée');
       throw new UnauthorizedException('Clé d’automatisation invalide');
+    }
 
     const global = this.config.get<string>('AUTOMATION_API_KEY');
     if (global && this.equal(provided, global)) {
@@ -40,6 +42,10 @@ export class AutomationAuthGuard implements CanActivate {
       where: { automationKey: provided },
     });
     if (!user) {
+      await this.noteBrowserRejected(
+        request,
+        'clé inconnue (régénérée depuis l’appairage ?)',
+      );
       if (!global) {
         throw new ServiceUnavailableException(
           'AUTOMATION_API_KEY doit être configuré, ou une clé de compte présentée',
@@ -48,6 +54,7 @@ export class AutomationAuthGuard implements CanActivate {
       throw new UnauthorizedException('Clé d’automatisation invalide');
     }
     if (user.status !== RecordStatus.ACTIVE) {
+      await this.noteBrowserRejected(request, `compte « ${user.username} » désactivé`);
       throw new UnauthorizedException('Ce compte est désactivé');
     }
     request.user = {
@@ -57,6 +64,29 @@ export class AutomationAuthGuard implements CanActivate {
       status: user.status,
     };
     return true;
+  }
+
+  /** Le battement d'un navigateur refusé : noté sur le profil qu'il vise,
+   * pour que le Pilotage montre un appairage cassé au lieu d'« appairé ».
+   * Seules les routes d'un navigateur comptent (ordre et battement), pas
+   * celles de l'agent local. Un échec d'écriture ne change rien au refus. */
+  private async noteBrowserRejected(request: RequestWithUser, reason: string) {
+    const match = /\/control\/profile\/([^/?#]+)/.exec(request.url || '');
+    if (!match) return;
+    let externalId: string;
+    try {
+      externalId = decodeURIComponent(match[1]);
+    } catch {
+      return;
+    }
+    try {
+      await this.prisma.profileRunner.updateMany({
+        where: { profile: { externalId } },
+        data: { keyRejectedAt: new Date(), keyRejectReason: reason },
+      });
+    } catch {
+      // Une trace manquée ne change rien au refus.
+    }
   }
 
   /** Comparaison en temps constant, même sur des longueurs différentes. */

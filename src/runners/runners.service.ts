@@ -17,6 +17,7 @@ import { HeartbeatDto } from './dto/heartbeat.dto';
 import { BrowserReportDto } from './dto/browser-report.dto';
 import { NstProfileDto } from './dto/sync-profiles.dto';
 import { formatWindow, insideWindow, localClock } from './window';
+import { keyHash, pairingHealth } from './pairing';
 
 /** Au-delà de ce délai sans battement, le navigateur n'est plus considéré
  * comme au travail. Trois battements manqués : assez pour absorber une page
@@ -173,7 +174,17 @@ export class RunnersService {
     // À usage unique : le code disparaît avec l'échange.
     await this.prisma.profileRunner.update({
       where: { profileId: runner.profileId },
-      data: { pairCode: null, pairCodeExpiresAt: null, pairedAt: new Date() },
+      data: {
+        pairCode: null,
+        pairCodeExpiresAt: null,
+        pairedAt: new Date(),
+        // Ce que le navigateur détient désormais : c'est à cela qu'on
+        // reconnaîtra plus tard un appairage que des changements ont cassé.
+        pairedKeyHash: keyHash(apiKey),
+        pairedExternalId: runner.profile.externalId,
+        keyRejectedAt: null,
+        keyRejectReason: null,
+      },
     });
     this.pairAttempts.delete(from);
 
@@ -280,7 +291,11 @@ export class RunnersService {
   // ── Ce que l'extension demande ────────────────────────────────────────
 
   async control(profileExternalId: string, acting: CurrentUser | null = null) {
-    const { profile, settings } = await this.context(profileExternalId, acting);
+    const { profile, settings } = await this.context(
+      profileExternalId,
+      acting,
+      true,
+    );
     return this.answer(
       this.decide(
         profile.runner,
@@ -299,10 +314,20 @@ export class RunnersService {
     profileExternalId: string,
     dto: HeartbeatDto,
     acting: CurrentUser | null = null,
+    providedKey?: string,
   ) {
-    const { profile, settings } = await this.context(profileExternalId, acting);
+    const { profile, settings } = await this.context(
+      profileExternalId,
+      acting,
+      true,
+    );
     const reported = {
       lastSeenAt: new Date(),
+      // Un battement réussi dit quelle clé le navigateur détient vraiment, et
+      // efface un refus antérieur : c'est la preuve que l'appairage marche.
+      ...(providedKey ? { pairedKeyHash: keyHash(providedKey) } : {}),
+      keyRejectedAt: null,
+      keyRejectReason: null,
       running: dto.running ?? false,
       phase: dto.phase ?? null,
       message: dto.message?.slice(0, 1000) ?? null,
@@ -499,9 +524,11 @@ export class RunnersService {
         externalId: true,
         status: true,
         runner: true,
+        owner: { select: { automationKey: true, status: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
+    const currentKeys = this.currentKeyHashes(profiles);
     return {
       publishingEnabled: settings.publishingEnabled,
       serverTime: now.toISOString(),
@@ -544,6 +571,14 @@ export class RunnersService {
           // L'appairage : un navigateur jamais appairé ne parlera jamais, quel
           // que soit son mode -- c'est la première chose à voir sur la ligne.
           pairedAt: runner?.pairedAt ?? null,
+          // L'état RÉEL de l'appairage — pas seulement « un code a été
+          // échangé un jour ».
+          pairing: pairingHealth(
+            runner ?? null,
+            profile,
+            currentKeys.get(profile.id) ?? null,
+            now,
+          ),
           pairCodePending:
             Boolean(runner?.pairCode) &&
             (runner?.pairCodeExpiresAt?.getTime() ?? 0) > now.getTime(),
@@ -636,7 +671,11 @@ export class RunnersService {
    *
    * Sans cette borne, une clé de compte piloterait le profil d'un autre en
    * devinant son identifiant — les routes du pilotage ne prennent que cela. */
-  private async context(profileExternalId: string, acting: CurrentUser | null) {
+  private async context(
+    profileExternalId: string,
+    acting: CurrentUser | null,
+    fromBrowser = false,
+  ) {
     const profile = await this.prisma.profile.findFirst({
       where: {
         externalId: profileExternalId,
@@ -644,7 +683,92 @@ export class RunnersService {
       },
       select: { id: true, status: true, runner: true },
     });
-    if (!profile) throw new NotFoundException('Profil introuvable');
+    if (!profile) {
+      // La clé est valide, mais c'est celle d'un autre compte : le
+      // navigateur a été appairé avant un changement de propriétaire.
+      if (fromBrowser) {
+        await this.noteRejectedKey(
+          profileExternalId,
+          `clé du compte « ${acting?.username ?? 'global'} », qui ne voit pas ce profil`,
+        );
+      }
+      throw new NotFoundException('Profil introuvable');
+    }
     return { profile, settings: await this.globalSettings() };
+  }
+
+  /** Un battement refusé : le navigateur parle, mais n'est plus reconnu. Noté
+   * sur le profil qu'il prétend être, pour que le Pilotage le montre. */
+  async noteRejectedKey(profileExternalId: string, reason: string) {
+    try {
+      await this.prisma.profileRunner.updateMany({
+        where: { profile: { externalId: profileExternalId } },
+        data: {
+          keyRejectedAt: new Date(),
+          keyRejectReason: reason.slice(0, 300),
+        },
+      });
+    } catch {
+      // Une trace manquée ne doit pas masquer le refus lui-même.
+    }
+  }
+
+  /** La clé que détient un navigateur bien appairé, par profil : celle du
+   * propriétaire actif, sinon la clé globale — comme à l'appairage. */
+  private currentKeyHashes(
+    profiles: Array<{
+      id: string;
+      owner: { automationKey: string; status: string } | null;
+    }>,
+  ) {
+    const global = this.config.get<string>('AUTOMATION_API_KEY') || '';
+    return new Map(
+      profiles.map((profile) => {
+        const key =
+          profile.owner?.status === 'ACTIVE'
+            ? profile.owner.automationKey
+            : global;
+        return [profile.id, key ? keyHash(key) : null];
+      }),
+    );
+  }
+
+  /** Vérifier l'état réel de tous les appairages, d'un coup. Rend le compte
+   * par état et la liste de ce qui est à refaire ; trace un journal quand
+   * quelque chose ne va pas. */
+  async checkPairings(acting: CurrentUser | null = null, now = new Date()) {
+    const { profiles } = await this.list(acting, now);
+    const paired = profiles.filter((p) => p.pairing.state !== 'never');
+    const byState: Record<string, number> = {};
+    for (const p of paired) byState[p.pairing.state] = (byState[p.pairing.state] ?? 0) + 1;
+    const broken = paired.filter((p) => p.pairing.broken);
+    const unconfirmed = paired.filter((p) =>
+      ['unconfirmed', 'stale'].includes(p.pairing.state),
+    );
+    if (broken.length || unconfirmed.length) {
+      await this.prisma.activityLog
+        .create({
+          data: {
+            eventType: 'RUNNER_PAIRING_CHECKED',
+            level: broken.length ? 'WARN' : 'INFO',
+            message:
+              `Appairages vérifiés : ${paired.length - broken.length - unconfirmed.length} confirmé(s), ` +
+              `${broken.length} à refaire, ${unconfirmed.length} à confirmer`,
+            metadata: {
+              broken: broken.map((p) => ({ name: p.name, state: p.pairing.state, detail: p.pairing.detail })),
+              unconfirmed: unconfirmed.map((p) => ({ name: p.name, state: p.pairing.state })),
+              by: acting?.username ?? 'clé globale',
+            },
+          },
+        })
+        .catch(() => undefined);
+    }
+    return {
+      checkedAt: now.toISOString(),
+      checked: paired.length,
+      byState,
+      broken: broken.map((p) => ({ profileId: p.profileId, name: p.name, ...p.pairing })),
+      unconfirmed: unconfirmed.map((p) => ({ profileId: p.profileId, name: p.name, ...p.pairing })),
+    };
   }
 }

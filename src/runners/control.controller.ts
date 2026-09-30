@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { ActingUser } from '../auth/current-user';
@@ -48,8 +56,11 @@ export class ControlController {
     @Param('profileExternalId') profileExternalId: string,
     @Body() dto: HeartbeatDto,
     @ActingUser() acting: CurrentUser | null,
+    @Headers('x-api-key') apiKey?: string,
   ) {
-    return this.runners.heartbeat(profileExternalId, dto, acting);
+    // La clé sert à reconnaître plus tard un appairage que des changements
+    // ont cassé : son empreinte seule est gardée.
+    return this.runners.heartbeat(profileExternalId, dto, acting, apiKey);
   }
 
   @Get('launcher')

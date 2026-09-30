@@ -34,6 +34,18 @@ export class RunnersController {
     return this.runners.list(acting);
   }
 
+  @Post('pairing-check')
+  @ApiOperation({
+    summary: 'Vérifier l’état réel de tous les appairages',
+    description:
+      'Compare la clé que chaque navigateur détient à la clé actuelle de son ' +
+      'compte, l’identifiant NSTBrowser, les battements refusés et les ' +
+      'battements réussis. Rend le compte par état et ce qui est à refaire.',
+  })
+  checkPairings(@ActingUser() acting: CurrentUser) {
+    return this.runners.checkPairings(acting);
+  }
+
   @Patch('all')
   @ApiOperation({
     summary: 'Régler tous les profils d’un coup',

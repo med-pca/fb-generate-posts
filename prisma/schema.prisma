@@ -558,6 +558,18 @@ model ProfileRunner {
   /// Quand ce profil a ete appaire, et depuis quelle adresse : de quoi
   /// reconnaitre un navigateur qu'on a perdu de vue.
   pairedAt          DateTime? @map("paired_at")
+  /// Empreinte (sha256) de la clé que le navigateur détient : remise à
+  /// l'appairage, relue à chaque battement réussi. Si la clé actuelle du
+  /// compte ne correspond plus, l'appairage est cassé, même si `pairedAt`
+  /// dit le contraire.
+  pairedKeyHash     String?   @map("paired_key_hash")
+  /// L'identifiant NSTBrowser remis à l'appairage : s'il a changé depuis, le
+  /// navigateur se présente sous un nom que l'API ne connaît plus.
+  pairedExternalId  String?   @map("paired_external_id")
+  /// Le dernier battement REFUSÉ de ce profil (clé inconnue, clé d'un autre
+  /// compte) : le navigateur parle, mais n'est plus reconnu.
+  keyRejectedAt     DateTime? @map("key_rejected_at")
+  keyRejectReason   String?   @map("key_reject_reason")
 
   /// Ce que l'extension rapporte a chaque battement.
   lastSeenAt DateTime? @map("last_seen_at")

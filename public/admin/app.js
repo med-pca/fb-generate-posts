@@ -244,11 +244,15 @@ function runnerTags(r) {
   if (r.running && !r.atWork) tags.add('silent');
   if (r.browserState === 'RUNNING') tags.add('browser-open');
   if (r.browserState === 'ERROR') tags.add('browser-error');
-  if (!r.pairedAt) tags.add('unpaired');
+  const pairing = r.pairing?.state || (r.pairedAt ? 'confirmed' : 'never');
+  if (pairing === 'never' || pairing === 'code_pending') tags.add('unpaired');
+  if (r.pairing?.broken) tags.add('pairing-broken');
+  if (pairing === 'unconfirmed' || pairing === 'stale') tags.add('pairing-unconfirmed');
   if (r.status === 'INACTIVE') tags.add('inactive');
   if (
     r.status === 'ACTIVE' &&
     (tags.has('silent') || tags.has('browser-error') || tags.has('idle') ||
+      tags.has('pairing-broken') ||
       (r.mode !== 'OFF' && tags.has('unpaired')))
   )
     tags.add('check');
@@ -268,6 +272,28 @@ function filteredRunners() {
 }
 const runnerFiltered = () =>
   Boolean(state.runnerFilters.search.trim() || state.runnerFilters.mode || state.runnerFilters.state);
+
+/** L'état RÉEL de l'appairage, calculé par l'API : clé encore valable,
+ * identifiant inchangé, battements reçus ou refusés. */
+const PAIRING_LABELS = {
+  confirmed: ['joined', 'appairé ✓'],
+  unconfirmed: ['requested', 'non confirmé'],
+  stale: ['questions', 'à confirmer'],
+  key_changed: ['failed', 'à ré-appairer'],
+  id_changed: ['failed', 'à ré-appairer'],
+  rejected: ['failed', 'refusé'],
+  code_pending: ['requested', 'code émis'],
+  never: ['not_joined', 'jamais appairé'],
+};
+function pairingCell(r) {
+  const p = r.pairing || { state: r.pairedAt ? 'confirmed' : 'never', detail: '' };
+  const [tone, label] = PAIRING_LABELS[p.state] || ['not_joined', p.state];
+  const since = r.pairedAt ? ` · appairé ${ago(r.pairedAt)}` : '';
+  return (
+    `<span class="chip join-${tone}" title="${esc(p.detail)}">${label}</span>` +
+    `<small class="pairing-detail" title="${esc(p.detail)}">${esc(p.detail)}${esc(since)}</small>`
+  );
+}
 
 async function loadRunners() {
   if (!accessToken) return;
@@ -314,11 +340,7 @@ function renderRunners() {
           .join('');
         // L'appairage d'abord : un navigateur jamais appairé ne parlera jamais,
         // quel que soit son mode. C'est la première chose à regarder.
-        const paired = r.pairedAt
-          ? `<span class="chip join-joined">appairé</span><small>${esc(ago(r.pairedAt))}</small>`
-          : r.pairCodePending
-            ? `<span class="chip join-requested">code émis</span><small>en attente du navigateur</small>`
-            : `<span class="chip join-not_joined">jamais appairé</span>`;
+        const paired = pairingCell(r);
         return `<tr class="${r.status === 'INACTIVE' ? 'inactive' : ''}">
         <td><strong>${esc(r.name)}</strong><small>${esc(r.externalId || 'sans identifiant NSTBrowser')}</small></td>
         <td>${paired}</td>
@@ -493,6 +515,41 @@ $('#runner-filters-reset').onclick = () => {
   $('#runner-mode-filter').value = '';
   $('#runner-state-filter').value = '';
   renderRunners();
+};
+/** Vérifier tous les appairages d'un coup : l'API compare, pour chaque
+ * profil appairé, la clé du navigateur à celle du compte, l'identifiant, et
+ * ses battements. Le résultat reste affiché, et les profils à refaire sont
+ * filtrés d'emblée. */
+$('#runners-pairing-check').onclick = async (e) => {
+  const button = e.target;
+  button.disabled = true;
+  button.textContent = 'Vérification…';
+  try {
+    const report = await api('/runners/pairing-check', { method: 'POST' });
+    const ok = report.byState.confirmed || 0;
+    const box = $('#pairing-report');
+    box.hidden = false;
+    box.className = `banner pairing-report ${report.broken.length ? 'bad' : report.unconfirmed.length ? 'warn' : 'good'}`;
+    box.innerHTML =
+      `<b>${report.checked} appairage(s) vérifié(s)</b> — ${ok} confirmé(s), ` +
+      `${report.broken.length} à refaire, ${report.unconfirmed.length} à confirmer.` +
+      (report.broken.length
+        ? '<ul>' + report.broken.map((p) => `<li><b>${esc(p.name)}</b> : ${esc(p.detail)}</li>`).join('') + '</ul>'
+        : '') +
+      (report.unconfirmed.length
+        ? `<small>À confirmer : ${report.unconfirmed.map((p) => esc(p.name)).join(', ')} — ouvrez leur navigateur : le premier battement confirme l’appairage.</small>`
+        : '');
+    if (report.broken.length) {
+      state.runnerFilters.state = 'pairing-broken';
+      $('#runner-state-filter').value = 'pairing-broken';
+    }
+    await loadRunners();
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Vérifier les appairages';
+  }
 };
 // Le raccourci « ⚠ N à vérifier » du compteur.
 $('#runner-count').addEventListener('click', (e) => {

@@ -408,11 +408,15 @@
                 Tout en auto
               </button
               ><button class="danger" id="runners-all-off">Tout arrêter</button
+              ><button class="secondary" id="runners-pairing-check" title="Vérifier que chaque navigateur appairé est encore reconnu">
+                Vérifier les appairages
+              </button
               ><button class="secondary" id="runners-refresh">
                 Rafraîchir
               </button>
             </div>
           </div>
+          <div id="pairing-report" class="banner pairing-report" hidden></div>
           <div class="toolbar runner-filters">
             <div class="toolbar-group">
               <input id="runner-search" type="search" placeholder="Rechercher un profil (nom ou identifiant)" /><select
@@ -431,6 +435,8 @@
                 <option value="silent">Muet (dit travailler, plus vu)</option>
                 <option value="browser-open">Navigateur ouvert</option>
                 <option value="browser-error">Navigateur en erreur</option>
+                <option value="pairing-broken">Appairage à refaire</option>
+                <option value="pairing-unconfirmed">Appairage non confirmé</option>
                 <option value="unpaired">Jamais appairé</option>
                 <option value="inactive">Profil inactif</option>
               </select

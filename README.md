@@ -534,6 +534,37 @@ POST /api/control/profiles/sync   { "profiles": [{ "externalId": "...", "name": 
 - On ne fait qu'ajouter : rien n'est renommé, déplacé ni supprimé.
 - `python -m app.launcher --no-sync` la désactive, `--sync-every 300` change le rythme.
 
+### L'état réel d'un appairage
+
+« Appairé » ne veut plus dire « un code a été échangé un jour ». La colonne
+Appairage du Pilotage montre ce que l'API peut constater, sans pouvoir
+interroger le navigateur :
+
+| État | Ce qui le prouve | Quoi faire |
+| --- | --- | --- |
+| appairé ✓ | un battement réussi depuis moins de 24 h | rien |
+| non confirmé | appairé, mais aucun battement depuis | ouvrir le navigateur |
+| à confirmer | plus vu depuis plus de 24 h | ouvrir le navigateur |
+| à ré-appairer (clé) | la clé du compte n'est plus celle du navigateur : clé régénérée, profil passé à un autre compte, compte désactivé | Ré-appairer |
+| à ré-appairer (identifiant) | l'identifiant NSTBrowser a changé depuis l'appairage | Ré-appairer |
+| refusé | le navigateur bat, mais sa clé est refusée (inconnue, ou d'un compte qui ne voit pas ce profil) | Ré-appairer |
+
+Ce que le serveur retient pour en juger (`profile_runners`) : l'empreinte
+sha256 de la clé remise à l'appairage puis relue à chaque battement
+(`paired_key_hash`), l'identifiant remis (`paired_external_id`), et le dernier
+battement refusé (`key_rejected_at`, `key_reject_reason`). La clé elle-même
+n'est jamais stockée une seconde fois.
+
+**Vérifier les appairages** (bouton du Pilotage, `POST /api/runners/pairing-check`)
+vérifie tous les profils appairés d'un coup, affiche le bilan en tête de page
+(ce qui est à refaire et pourquoi) et filtre la liste sur les appairages à
+refaire. Journal : `RUNNER_PAIRING_CHECKED` (domaine « Groupes & pilotage »).
+Un appairage cassé compte aussi dans « ⚠ à vérifier ».
+
+Les appairages faits avant cette version n'ont pas d'empreinte : ils sont
+jugés sur leurs battements, et reçoivent leur empreinte au premier battement
+réussi.
+
 ### Ce que l'admin règle, par profil
 
 | Mode | Effet |
