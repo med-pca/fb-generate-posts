@@ -1977,7 +1977,11 @@ function renderQueue() {
         (r) =>
           `<tr><td>${queuePost(r.post)}</td><td>${queueGroup(r.group)}</td><td>${queueProfile(r.profile)}</td>` +
           `<td><span class="pill state-${r.state}">${r.state === 'publishing' ? 'Publication en cours' : 'Réservé'}</span>` +
-          `<small>depuis ${esc(when(r.since))}</small></td></tr>`,
+          `<small>depuis ${esc(when(r.since))}${r.expiresAt ? ` · jusqu’à ${esc(when(r.expiresAt))}` : ''}</small>` +
+          // Un lot qui ne bouge plus (navigateur fermé, extension réinstallée)
+          // garde son profil « occupé » : le libérer remet ses posts en file.
+          (r.jobId ? `<button class="edit release-job" data-release-job="${r.jobId}" data-profile="${esc(r.profile?.name || '')}">Libérer le lot</button>` : '') +
+          `</td></tr>`,
       )
       .join('') || '<tr><td colspan="4" class="empty">Rien en cours.</td></tr>';
 
@@ -2205,6 +2209,15 @@ document.addEventListener('click', (e) => {
       .then(load)
       .then(() => notice('État du profil modifié.'))
       .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  if (e.target.dataset.releaseJob) {
+    const { releaseJob, profile } = e.target.dataset;
+    if (!confirm(`Libérer le lot de ${profile || 'ce profil'} ?\nSes posts pas encore commencés retournent dans la file, et le profil pourra en réserver d’autres. Un post en cours de publication est laissé tel quel.`)) return;
+    void queueAction(async () => {
+      const r = await api(`/admin/jobs/${releaseJob}/release`, { method: 'POST' });
+      return { warning: r.inProgress ? `${r.inProgress} post(s) en cours de publication laissé(s) tel(s) quel(s).` : null };
+    }, 'Lot libéré : ses posts sont de retour dans la file.', e.target);
     return;
   }
   if (e.target.dataset.retry) {

@@ -407,6 +407,27 @@ toutes les 30 min pour une même raison) :
 | `not_allowed` | les posts appartiennent à un autre gestionnaire, ou sont forcés vers un autre profil |
 | `taken` | pris par d'autres profils entre-temps |
 
+### Un lot ne bloque plus un profil pour rien
+
+Un profil ne réserve pas de nouveau lot tant qu'il en tient un. Trois causes
+pouvaient le laisser « occupé » sans que rien ne se publie :
+
+- **La réservation était trop courte** : 30 min fixes, alors que l'extension
+  attend le délai de chaque post (10 à 60 min) entre deux posts d'un lot. Elle
+  dure désormais **`CLAIM_TTL_MINUTES` + la somme des délais** des posts du lot.
+- **Un échec faisait attendre le délai complet** : rien n'a été publié, rien à
+  espacer — l'extension (1.0.12) passe au post suivant après 15 s.
+- **Un lot oublié** (extension réinstallée ou relancée en plein lot) : quand
+  l'extension retrouve un lot qu'elle ne connaît pas, elle le **libère**
+  (`POST /api/jobs/{id}/release`) et réserve aussitôt.
+
+Côté API, un lot dont tous les posts sont terminés est **clos
+automatiquement** à la réservation suivante (`JOB_AUTO_COMPLETED`). Et
+l'admin peut **libérer un lot** depuis la file (« En train de partir » →
+« Libérer le lot », `POST /api/admin/jobs/{id}/release`). Libérer rend à la
+file les posts pas encore commencés ; un post en cours de publication est
+laissé tel quel, pour ne jamais le publier deux fois (`JOB_RELEASED`).
+
 ### L'image d'un post
 
 L'extension de publication télécharge l'image elle-même. Les images sont sur

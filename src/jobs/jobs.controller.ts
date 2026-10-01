@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   Post,
   Query,
@@ -149,6 +150,22 @@ export class JobsController {
     @ActingUser() acting: CurrentUser | null,
   ) {
     return this.jobs.markCommented(jobId, postId, dto, acting);
+  }
+
+  @Post(':jobId/release')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Libérer un lot que plus personne ne traite',
+    description:
+      'Ses posts pas encore commencés retournent dans la file ; le profil ' +
+      'peut réserver à nouveau. Utilisé par l’extension quand elle retrouve ' +
+      'un lot qu’elle a oublié (réinstallée en plein lot).',
+  })
+  release(
+    @Param('jobId') jobId: string,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.jobs.release(jobId, acting, 'repris par l’extension');
   }
 
   @Post(':jobId/complete')

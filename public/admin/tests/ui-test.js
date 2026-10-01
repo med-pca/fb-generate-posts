@@ -106,7 +106,7 @@ setTimeout(async () => {
       return { ok: true, status: 200, json: async () => ({
         counts: { running: 1, upcoming: 12, published: 1, failed: 1 },
         failed: [{ targetId: 't-f', error: 'Le groupe n’accepte plus les publications', attempts: 2, failedAt: '2026-09-30T07:00:00Z', post: post('f'), group, profile: salim, candidates: [salim] }],
-        running: [{ state: 'publishing', since: '2026-09-30T09:00:00Z', post: post('r'), group, profile: salim }],
+        running: [{ state: 'claimed', since: '2026-09-30T09:00:00Z', expiresAt: '2026-09-30T10:45:00Z', jobId: 'job-bloque', post: post('r'), group, profile: salim }],
         upcoming: [
           { rank: 1, targetId: 't-a', post: post('a', 3), group, candidates: [salim], forcedProfile: salim, forcedAt: '2026-09-30T09:00:00Z' },
           { rank: 2, targetId: 't-b', post: post('b'), group: { ...group, pendingJoins: 8 }, candidates: [] },
@@ -115,6 +115,7 @@ setTimeout(async () => {
       }) };
     }
     if (path.includes('/priority')) return { ok: true, status: 200, json: async () => ({ id: 'b', priority: 4 }) };
+    if (path === '/admin/jobs/job-bloque/release') return { ok: true, status: 200, json: async () => ({ jobId: 'job-bloque', released: 3, inProgress: 0 }) };
     if (path.startsWith('/posts/targets/')) return { ok: true, status: 200, json: async () => ({ warning: path.endsWith('/force') && options.body.includes('p1') ? 'Salim est à l’arrêt dans le Pilotage.' : null }) };
     if (path === '/posts/f') return { ok: true, status: 200, json: async () => ({ id: 'f', title: 'Post f', description: 'Texte long', url: 'https://site.test/f', imageUrl: 'https://img.test/f.jpg', delay: 20 }) };
     return beforeQueue(url, options);
@@ -130,7 +131,10 @@ setTimeout(async () => {
   const publishedRows = $('#queue-published').textContent;
   check('un post publié dit par quel profil et dans quel groupe', /Salim/.test(publishedRows) && /Recettes FR/.test(publishedRows), publishedRows);
   check('et le lien Facebook de la publication', !!$('#queue-published a[href="https://facebook.com/groups/g1/posts/9"]'), null);
-  check('« en cours » montre le profil qui publie', /Salim/.test($('#queue-running').textContent) && /Publication en cours/.test($('#queue-running').textContent), null);
+  check('« en cours » montre le profil qui tient le lot', /Salim/.test($('#queue-running').textContent) && /Réservé/.test($('#queue-running').textContent), null);
+  $('[data-release-job="job-bloque"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Libérer le lot » débloque le profil', queueCalls.includes('POST /admin/jobs/job-bloque/release'), queueCalls);
   check('« voir plus » reste proposé quand il en reste', $('#queue-more').hidden === false, null);
   $('[data-prio="b"][data-move="top"]').click();
   await new Promise((resolve) => setTimeout(resolve, 50));

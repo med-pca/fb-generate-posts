@@ -366,3 +366,79 @@ describe('JobsService — groupes rejoints uniquement', () => {
     });
   });
 });
+
+describe('JobsService — un lot ne bloque plus un profil pour rien', () => {
+  function harness(items: Array<{ id: string; status: string; postTargetId: string }>, jobStatus = 'CLAIMED') {
+    const ops: Array<[string, any]> = [];
+    const record = (name: string) => jest.fn((args: any) => { ops.push([name, args]); return args; });
+    const prisma: any = {
+      publicationJob: {
+        findFirst: jest.fn(async () => ({ id: 'job_1' })),
+        findUnique: jest.fn(async () => ({ id: 'job_1', status: jobStatus, profileId: 'p1', groupId: 'g1', items })),
+        update: record('publicationJob.update'),
+      },
+      postTarget: { updateMany: record('postTarget.updateMany') },
+      publicationJobItem: { updateMany: record('publicationJobItem.updateMany') },
+      activityLog: { create: record('activityLog.create') },
+      $transaction: jest.fn(async (list: any[]) => list),
+    };
+    return { service: new JobsService(prisma, {} as any), ops };
+  }
+
+  it('libérer : les posts pas commencés retournent dans la file', async () => {
+    const { service, ops } = harness([
+      { id: 'i1', status: 'CLAIMED', postTargetId: 't1' },
+      { id: 'i2', status: 'FAILED', postTargetId: 't2' },
+      { id: 'i3', status: 'CLAIMED', postTargetId: 't3' },
+    ]);
+    const r = await service.release('job_1', null, 'repris par l’extension');
+    expect(r).toMatchObject({ released: 2, inProgress: 0 });
+    const target = ops.find(([n]) => n === 'postTarget.updateMany')![1];
+    expect(target.where.id.in).toEqual(['t1', 't3']);
+    expect(target.data.status).toBe('AVAILABLE');
+    expect(ops.find(([n]) => n === 'publicationJob.update')![1].data.status).toBe('EXPIRED');
+    expect(ops.find(([n]) => n === 'activityLog.create')![1].data.eventType).toBe('JOB_RELEASED');
+  });
+
+  it('un post en cours de publication n’est jamais remis en file (doublon)', async () => {
+    const { service, ops } = harness([
+      { id: 'i1', status: 'CONSUMED', postTargetId: 't1' },
+      { id: 'i2', status: 'CLAIMED', postTargetId: 't2' },
+    ]);
+    const r = await service.release('job_1');
+    expect(r).toMatchObject({ released: 1, inProgress: 1 });
+    expect(ops.find(([n]) => n === 'postTarget.updateMany')![1].where.id.in).toEqual(['t2']);
+  });
+
+  it('un lot déjà clos ne bouge pas', async () => {
+    const { service, ops } = harness([], 'COMPLETED');
+    expect(await service.release('job_1')).toMatchObject({ alreadyClosed: true });
+    expect(ops).toEqual([]);
+  });
+});
+
+describe('JobsService — un lot terminé ne bloque pas le profil', () => {
+  it('tous ses posts finis : il est clos, et le profil réserve à nouveau', async () => {
+    const logs: any[] = [];
+    const prisma: any = {
+      profile: { findFirst: jest.fn(async () => ({ id: 'p1', status: 'ACTIVE', ownerId: null })) },
+      publicationJob: {
+        findFirst: jest.fn(async () => ({ id: 'vieux_lot', claimExpiresAt: new Date(Date.now() + 600_000) })),
+        updateMany: jest.fn(async () => ({ count: 0 })),
+      },
+      publicationJobItem: { count: jest.fn(async () => 0) },
+      postTarget: { updateMany: jest.fn(async () => ({ count: 0 })), count: jest.fn(async () => 0) },
+      profileGroup: { findMany: jest.fn(async () => []) },
+      group: { findMany: jest.fn(async () => []) },
+      activityLog: { create: jest.fn(async ({ data }: any) => logs.push(data)) },
+    };
+    const service = new JobsService(prisma, {} as any);
+    const complete = jest.spyOn(service, 'complete').mockResolvedValue({} as any);
+    const result: any = await service.claimByProfileExternalId('demo');
+    expect(complete).toHaveBeenCalledWith('vieux_lot');
+    expect(logs.map((l) => l.eventType)).toContain('JOB_AUTO_COMPLETED');
+    expect(logs.map((l) => l.eventType)).not.toContain('CLAIM_SKIPPED_BUSY');
+    // Il n'est plus « occupé » : il passe à la recherche de posts.
+    expect(result.activeJobId).toBeUndefined();
+  });
+});

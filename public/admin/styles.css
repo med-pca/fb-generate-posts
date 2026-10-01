@@ -1634,3 +1634,4 @@ body:not(.is-admin) .admin-only { display: none; }
   font-size: 0.68rem;
   font-weight: 700;
 }
+.release-job { display: block; margin-top: 6px; }

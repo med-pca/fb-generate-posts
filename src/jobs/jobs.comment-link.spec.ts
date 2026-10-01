@@ -25,6 +25,43 @@ function service(prisma: any) {
   return new JobsService(prisma, config as any);
 }
 
+describe('JobsService — la réservation couvre le lot entier', () => {
+  it('30 min + la somme des délais des posts choisis', async () => {
+    const tx: any = {
+      publicationJob: {
+        updateMany: jest.fn(async () => ({})),
+        create: jest.fn(async ({ data }: any) => ({
+          id: 'job_1',
+          claimExpiresAt: data.claimExpiresAt,
+          profile: { id: 'p1', externalId: 'demo', name: 'Profil', defaultImageUrl: null },
+          group: { id: 'g1', externalId: 'grp', name: 'Groupe', url: 'https://fb/g1' },
+          items: [],
+        })),
+      },
+      postTarget: { updateMany: jest.fn(async () => ({})) },
+      // Trois posts, espacés de 40, 25 et 10 minutes.
+      $queryRaw: jest.fn(async () => [
+        { id: 't1', postId: 'p1', delay: 40 },
+        { id: 't2', postId: 'p2', delay: 25 },
+        { id: 't3', postId: 'p3', delay: 10 },
+      ]),
+    };
+    const prisma: any = {
+      profile: { findFirst: jest.fn(async () => ({ id: 'p1', minPostsPerJob: 3, maxPostsPerJob: 3 })) },
+      group: { findFirst: jest.fn(async () => ({ id: 'g1' })) },
+      $transaction: jest.fn(async (cb: any) => cb(tx)),
+    };
+    const before = Date.now();
+    await service(prisma).claim({ profileId: 'p1', groupId: 'g1' });
+    // Le premier appel balaie les réservations expirées ; celui-ci réserve.
+    const reserving = tx.postTarget.updateMany.mock.calls.find(([args]: any) => args.data.status === 'CLAIMED');
+    const expires = reserving[0].data.claimExpiresAt.getTime();
+    // 30 + 40 + 25 + 10 = 105 minutes : le lot entier tient dans la réservation.
+    expect(Math.round((expires - before) / 60_000)).toBe(105);
+    expect(tx.publicationJob.create.mock.calls[0][0].data.claimExpiresAt.getTime()).toBe(expires);
+  });
+});
+
 describe('JobsService — publication sans URL puis commentaire', () => {
   it('ne transmet jamais l’URL dans le lot réservé', async () => {
     const tx: any = {
@@ -358,6 +395,8 @@ describe('JobsService — réservation par lot', () => {
           claimExpiresAt: EXPIRES,
         })),
       },
+      // Un post du lot est encore à publier : le lot travaille vraiment.
+      publicationJobItem: { count: jest.fn(async () => 1) },
       activityLog: { create: jest.fn(async () => ({})) },
     };
 

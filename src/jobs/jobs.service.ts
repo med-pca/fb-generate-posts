@@ -15,7 +15,7 @@ import { PublishJobItemDto } from './dto/publish-job-item.dto';
 import type { CurrentUser } from '../auth/current-user';
 import { jobWhere, profileWhere, scopeOf } from '../auth/scope';
 
-type LockedTarget = { id: string; postId: string };
+type LockedTarget = { id: string; postId: string; delay: number };
 
 /** Ce qu'un automate reçoit pour publier : image et description, jamais
  * l'URL. Le commentaire l'accompagne, il recevra le lien plus tard. */
@@ -184,14 +184,18 @@ export class JobsService {
       profile.minPostsPerJob,
       profile.maxPostsPerJob,
     );
-    const ttlMinutes = this.config.get<number>('CLAIM_TTL_MINUTES', 30);
-    const claimExpiresAt = new Date(Date.now() + ttlMinutes * 60_000);
+    const ttlMinutes = Number(this.config.get<number>('CLAIM_TTL_MINUTES', 30));
+    // Fixée une fois les posts choisis : la réservation doit couvrir le lot
+    // ENTIER, délais compris. Avec 30 min fixes, un lot de trois posts
+    // espacés de 40 min expirait en route — le profil restait « occupé »
+    // par un lot qui ne pouvait plus aboutir.
+    let claimExpiresAt = new Date(Date.now() + ttlMinutes * 60_000);
 
     const job = await this.prisma.$transaction(async (tx) => {
       await this.releaseExpiredClaims(tx);
 
       const targets = await tx.$queryRaw<LockedTarget[]>(Prisma.sql`
-        SELECT pt.id, pt.post_id AS "postId"
+        SELECT pt.id, pt.post_id AS "postId", p.delay
         FROM post_targets pt
         INNER JOIN posts p ON p.id = pt.post_id
         LEFT JOIN users u ON u.id = p.owner_id
@@ -230,6 +234,8 @@ export class JobsService {
       `);
 
       if (targets.length === 0) return null;
+      const pacing = targets.reduce((sum, target) => sum + Number(target.delay || 0), 0);
+      claimExpiresAt = new Date(Date.now() + (ttlMinutes + pacing) * 60_000);
       const targetIds = targets.map((target) => target.id);
       await tx.postTarget.updateMany({
         where: { id: { in: targetIds }, status: TargetStatus.AVAILABLE },
@@ -438,7 +444,18 @@ export class JobsService {
       },
       select: { id: true, claimExpiresAt: true },
     });
-    if (active) {
+    // Un lot dont tous les posts sont terminés (publiés ou en échec) n'occupe
+    // plus rien : l'extension n'a simplement pas pu le clore. On le clôt ici
+    // plutôt que de bloquer le profil jusqu'à son expiration.
+    if (active && (await this.isFinished(active.id))) {
+      await this.complete(active.id).catch(() => undefined);
+      await this.log({
+        profileId: profile.id,
+        jobId: active.id,
+        eventType: 'JOB_AUTO_COMPLETED',
+        message: `Lot ${active.id} clos automatiquement : tous ses posts étaient terminés`,
+      });
+    } else if (active) {
       await this.log({
         profileId: profile.id,
         jobId: active.id,
@@ -656,6 +673,81 @@ export class JobsService {
           b.forced - a.forced || b.priority - a.priority || a.tie - b.tie,
       )
       .map(({ group }) => group);
+  }
+
+  /** Plus aucun post du lot n'attend ni n'est en cours. */
+  private async isFinished(jobId: string) {
+    const open = await this.prisma.publicationJobItem.count({
+      where: {
+        jobId,
+        status: { in: [TargetStatus.CLAIMED, TargetStatus.CONSUMED] },
+      },
+    });
+    return open === 0;
+  }
+
+  /** Libérer un lot que plus personne ne traite : ses posts pas encore
+   * commencés retournent dans la file, et le profil peut en réserver un
+   * autre.
+   *
+   * C'est ce que fait l'extension quand elle retrouve un lot qu'elle a
+   * oublié (réinstallée, ou relancée en plein lot), et ce que fait l'admin
+   * depuis la file. Un post « en cours de publication » (CONSUMED) n'est
+   * pas remis en file : il est peut-être déjà sur Facebook, le republier
+   * ferait un doublon. */
+  async release(
+    jobId: string,
+    acting: CurrentUser | null = null,
+    reason = 'lot libéré',
+  ) {
+    await this.reachableJob(jobId, acting);
+    const job = await this.prisma.publicationJob.findUnique({
+      where: { id: jobId },
+      select: {
+        id: true,
+        status: true,
+        profileId: true,
+        groupId: true,
+        items: { select: { id: true, status: true, postTargetId: true } },
+      },
+    });
+    if (!job) throw new NotFoundException('Job introuvable');
+    if (job.status !== JobStatus.CLAIMED) {
+      return { jobId, released: 0, inProgress: 0, alreadyClosed: true };
+    }
+    const waiting = job.items.filter((item) => item.status === TargetStatus.CLAIMED);
+    const inProgress = job.items.filter((item) => item.status === TargetStatus.CONSUMED).length;
+    await this.prisma.$transaction([
+      this.prisma.postTarget.updateMany({
+        where: {
+          id: { in: waiting.map((item) => item.postTargetId) },
+          status: TargetStatus.CLAIMED,
+        },
+        data: { status: TargetStatus.AVAILABLE, claimedAt: null, claimExpiresAt: null },
+      }),
+      this.prisma.publicationJobItem.updateMany({
+        where: { id: { in: waiting.map((item) => item.id) } },
+        data: { status: TargetStatus.FAILED, error: `Rendu à la file : ${reason}` },
+      }),
+      this.prisma.publicationJob.update({
+        where: { id: jobId },
+        data: { status: JobStatus.EXPIRED, completedAt: new Date() },
+      }),
+      this.prisma.activityLog.create({
+        data: {
+          jobId,
+          profileId: job.profileId,
+          groupId: job.groupId,
+          eventType: 'JOB_RELEASED',
+          level: 'WARN',
+          message:
+            `Lot libéré (${reason}) : ${waiting.length} post(s) rendu(s) à la file` +
+            (inProgress ? `, ${inProgress} en cours de publication laissé(s) tel(s) quel(s)` : ''),
+          metadata: { by: acting?.username ?? 'clé globale', reason },
+        },
+      }),
+    ]);
+    return { jobId, released: waiting.length, inProgress, alreadyClosed: false };
   }
 
   async markConsumed(
