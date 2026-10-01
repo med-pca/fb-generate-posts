@@ -504,3 +504,54 @@ describe('appairage — ce que le serveur retient pour le vérifier', () => {
     });
   });
 });
+
+describe('autoPair — l’extension s’appaire seule', () => {
+  function setup(existing: { inScope?: boolean; elsewhere?: boolean } = {}) {
+    const upserts: any[] = [];
+    const created: any[] = [];
+    const prisma: any = {
+      profile: {
+        findFirst: jest.fn(async ({ where }: any) => {
+          const scoped = Object.keys(where).length > 1;
+          if (existing.inScope) return { id: 'p1', name: 'Salim', externalId: 'ext-1', status: 'ACTIVE' };
+          if (!scoped && existing.elsewhere) return { id: 'p9' };
+          return null;
+        }),
+        create: jest.fn(async ({ data }: any) => {
+          created.push(data);
+          return { id: 'new', name: data.name, externalId: data.externalId, status: 'ACTIVE' };
+        }),
+      },
+      profileRunner: { upsert: jest.fn(async (args: any) => upserts.push(args)) },
+      activityLog: { create: jest.fn(async () => ({})) },
+    };
+    return { service: new RunnersService(prisma, { get: () => '' } as any), upserts, created };
+  }
+  const sofia: any = { id: 'u1', username: 'sofia', role: 'MANAGER' };
+
+  it('un profil connu : appairé, avec l’empreinte de la clé', async () => {
+    const { service, upserts, created } = setup({ inScope: true });
+    const r = await service.autoPair('ext-1', 'Salim', sofia, 'cle-du-compte');
+    expect(r).toMatchObject({ profileExternalId: 'ext-1', profileName: 'Salim', created: false });
+    expect(created).toEqual([]);
+    expect(upserts[0].update).toMatchObject({
+      pairedExternalId: 'ext-1',
+      pairedKeyHash: keyHash('cle-du-compte'),
+      keyRejectedAt: null,
+    });
+    expect(upserts[0].update.pairedAt).toBeInstanceOf(Date);
+  });
+
+  it('un profil absent : créé au nom du compte, avec son nom NSTBrowser', async () => {
+    const { service, created } = setup();
+    const r = await service.autoPair('ext-2', 'Nadia', sofia, 'k');
+    expect(r.created).toBe(true);
+    expect(created[0]).toEqual({ externalId: 'ext-2', name: 'Nadia', ownerId: 'u1' });
+  });
+
+  it('un profil d’un autre compte est refusé', async () => {
+    const { service, created } = setup({ elsewhere: true });
+    await expect(service.autoPair('ext-3', 'X', sofia, 'k')).rejects.toThrow('autre compte');
+    expect(created).toEqual([]);
+  });
+});

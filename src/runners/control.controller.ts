@@ -14,6 +14,7 @@ import type { CurrentUser } from '../auth/current-user';
 import { BrowserReportDto } from './dto/browser-report.dto';
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { SyncProfilesDto } from './dto/sync-profiles.dto';
+import { AutoPairDto } from './dto/auto-pair.dto';
 import { RunnersService } from './runners.service';
 
 /** Côté terrain : ce que l'extension d'un navigateur et l'agent local viennent
@@ -61,6 +62,22 @@ export class ControlController {
     // La clé sert à reconnaître plus tard un appairage que des changements
     // ont cassé : son empreinte seule est gardée.
     return this.runners.heartbeat(profileExternalId, dto, acting, apiKey);
+  }
+
+  @Post('auto-pair')
+  @ApiOperation({
+    summary: 'Appairage automatique d’un navigateur',
+    description:
+      'L’extension préconfigurée (clé incluse) a détecté seule son profil ' +
+      'NSTBrowser et s’annonce : plus de code à copier par profil. Un profil ' +
+      'absent de la plateforme est créé au nom du compte de la clé.',
+  })
+  autoPair(
+    @Body() dto: AutoPairDto,
+    @ActingUser() acting: CurrentUser | null,
+    @Headers('x-api-key') apiKey?: string,
+  ) {
+    return this.runners.autoPair(dto.profileExternalId, dto.name, acting, apiKey);
   }
 
   @Get('launcher')

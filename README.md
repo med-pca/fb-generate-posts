@@ -714,6 +714,27 @@ POST /api/control/profiles/sync   { "profiles": [{ "externalId": "...", "name": 
 - On ne fait qu'ajouter : rien n'est renommé, déplacé ni supprimé.
 - `python -m app.launcher --no-sync` la désactive, `--sync-every 300` change le rythme.
 
+### Appairage automatique (sans code)
+
+Avec beaucoup de profils, copier un code par profil devient pénible. À la
+place :
+
+1. Construire le paquet préconfiguré de l'extension de publication :
+   `cd fb-lyazidi/extension && npm run pack:preset` → `fb-lyazidi/dist/fb-group-poster-preset.zip`.
+   Il prend l'adresse de l'API, la clé (`JOB_API_KEY`) et la clé NSTBrowser
+   (`NST_API_KEY`) dans `fb-lyazidi/.env`. **Il contient la clé : ne pas le
+   partager** (`dist/` est ignoré par git).
+2. L'installer **une fois pour tous les profils** dans NSTBrowser.
+3. Au lancement de chaque profil, l'extension **détecte seule son profil
+   NSTBrowser** (un bref onglet + l'API locale de NSTBrowser) et s'annonce :
+   `POST /api/control/auto-pair { profileExternalId, name }` (`X-API-Key`).
+   Un profil absent de la plateforme est créé au nom du compte de la clé ; un
+   profil d'un autre compte est refusé. Journal : `RUNNER_AUTO_PAIRED`.
+
+La détection est refaite à chaque démarrage : un profil NSTBrowser cloné se
+présente sous son propre identifiant. L'appairage par code reste disponible
+(options de l'extension), avec un bouton « Détecter le profil et s'appairer ».
+
 ### L'état réel d'un appairage
 
 « Appairé » ne veut plus dire « un code a été échangé un jour ». La colonne

@@ -197,6 +197,81 @@ export class RunnersService {
     };
   }
 
+  /** L'appairage automatique : un navigateur qui a déjà une clé (extension
+   * préconfigurée) et qui a détecté seul son profil NSTBrowser se déclare.
+   *
+   * Plus de code par profil à copier : on installe la même extension dans
+   * tous les profils, et chacun s'appaire au démarrage. Un profil encore
+   * absent de la plateforme est créé (comme la synchronisation de l'agent
+   * local), au nom du compte de la clé. Un profil d'un autre compte est
+   * refusé : la clé ne le voit pas. */
+  async autoPair(
+    rawExternalId: string,
+    rawName: string | undefined,
+    acting: CurrentUser | null,
+    providedKey?: string,
+  ) {
+    const externalId = String(rawExternalId || '').trim();
+    if (!externalId) throw new BadRequestException('Identifiant de profil NSTBrowser manquant');
+    let profile = await this.prisma.profile.findFirst({
+      where: { externalId, ...profileWhere(scopeOf(acting)) },
+      select: { id: true, name: true, externalId: true, status: true },
+    });
+    let created = false;
+    if (!profile) {
+      const elsewhere = await this.prisma.profile.findFirst({
+        where: { externalId },
+        select: { id: true },
+      });
+      if (elsewhere) {
+        throw new NotFoundException(
+          'Ce profil appartient à un autre compte : la clé de cette extension ne le voit pas',
+        );
+      }
+      profile = await this.prisma.profile.create({
+        data: {
+          externalId,
+          name: String(rawName || '').trim().slice(0, 200) || externalId,
+          ownerId: acting?.id ?? null,
+        },
+        select: { id: true, name: true, externalId: true, status: true },
+      });
+      created = true;
+    }
+    const pairing = {
+      pairedAt: new Date(),
+      pairedExternalId: externalId,
+      ...(providedKey ? { pairedKeyHash: keyHash(providedKey) } : {}),
+      keyRejectedAt: null,
+      keyRejectReason: null,
+      pairCode: null,
+      pairCodeExpiresAt: null,
+    };
+    await this.prisma.profileRunner.upsert({
+      where: { profileId: profile.id },
+      create: { profileId: profile.id, ...pairing },
+      update: pairing,
+    });
+    await this.prisma.activityLog
+      .create({
+        data: {
+          profileId: profile.id,
+          eventType: 'RUNNER_AUTO_PAIRED',
+          message: created
+            ? `Profil « ${profile.name} » créé et appairé automatiquement par son navigateur`
+            : `Navigateur appairé automatiquement au profil « ${profile.name} »`,
+          metadata: { externalId, created, by: acting?.username ?? 'clé globale' },
+        },
+      })
+      .catch(() => undefined);
+    return {
+      profileExternalId: externalId,
+      profileName: profile.name,
+      profileActive: profile.status === 'ACTIVE',
+      created,
+    };
+  }
+
   /** La clé que ce navigateur utilisera : celle du propriétaire du profil, à
    * défaut la clé globale. Celle du propriétaire est préférable -- elle ne voit
    * que son périmètre, et se révoque sans couper les autres. */
