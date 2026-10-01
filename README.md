@@ -428,6 +428,26 @@ l'admin peut **libérer un lot** depuis la file (« En train de partir » →
 file les posts pas encore commencés ; un post en cours de publication est
 laissé tel quel, pour ne jamais le publier deux fois (`JOB_RELEASED`).
 
+### Retrouver le post publié, pour le commenter
+
+Après la publication, l'extension doit **retrouver le post** dans le groupe
+pour l'ouvrir et y poser le premier commentaire « . », remplacé ensuite par
+l'URL. Depuis la version **1.0.13** :
+
+- le post est reconnu sur ses **lettres et chiffres** seulement : les emojis
+  (affichés en images par Facebook), les caractères stylisés et la
+  ponctuation ne l'empêchent plus ;
+- s'il n'est pas dans le fil, l'extension **recharge** le fil, puis cherche dans
+  **« Votre contenu publié »** du groupe (les seuls posts du compte) ;
+- un post **soumis** (fenêtre de publication fermée) mais toujours introuvable
+  est enregistré **publié, à vérifier** — plus en échec : une relance l'aurait
+  publié deux fois.
+
+Dans la file, un échec qui est en réalité en ligne se règle avec **« ✓ Déjà en
+ligne »** (`POST /api/posts/targets/{id}/published`, `TARGET_MARKED_PUBLISHED`) :
+enregistré publié, jamais republié. **« ↻ Relancer » ne sert que si le post
+n'est pas sur Facebook.**
+
 ### L'image d'un post
 
 L'extension de publication télécharge l'image elle-même. Les images sont sur

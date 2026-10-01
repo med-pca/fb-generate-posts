@@ -182,6 +182,15 @@ describe('QueueService — actions sur une publication', () => {
     expect(prisma.postTarget.update.mock.calls[0][0].data).toMatchObject({ status: 'AVAILABLE', lastError: null });
   });
 
+  it('« déjà en ligne » : un échec devient publié, sans republier', async () => {
+    const { service, prisma } = actions({ status: 'FAILED' });
+    await service.markPublished('t1', null);
+    expect(prisma.postTarget.update.mock.calls[0][0].data).toMatchObject({ status: 'PUBLISHED', lastError: null });
+    expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('TARGET_MARKED_PUBLISHED');
+    const live = actions({ status: 'AVAILABLE' });
+    await expect(live.service.markPublished('t1', null)).rejects.toThrow('en échec');
+  });
+
   it('ne relance que ce qui a échoué', async () => {
     const { service } = actions({ status: 'PUBLISHED' });
     await expect(service.retry('t1', null)).rejects.toThrow('échec');

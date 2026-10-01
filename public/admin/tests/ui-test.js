@@ -146,6 +146,9 @@ setTimeout(async () => {
   $('[data-retry="t-f"]').click();
   await new Promise((resolve) => setTimeout(resolve, 50));
   check('« Relancer » relance l’échec', queueCalls.includes('POST /posts/targets/t-f/retry'), queueCalls);
+  $('[data-mark-online="t-f"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Déjà en ligne » l’enregistre publié sans le republier', queueCalls.includes('POST /posts/targets/t-f/published'), queueCalls);
 
   check('un envoi forcé est visible dans la file', /→ Salim/.test($('#queue-upcoming').textContent), null);
   const forceSelect = $('select[data-force="t-f"]');

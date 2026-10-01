@@ -2035,7 +2035,8 @@ function targetActions(row, { retry = false } = {}) {
     : '<select disabled title="Aucun profil n’a rejoint ce groupe"><option>Aucun profil dans ce groupe</option></select>';
   return (
     `<div class="queue-actions">${who}<div class="row-actions">` +
-    (retry ? `<button class="edit" data-retry="${row.targetId}">↻ Relancer</button>` : '') +
+    (retry ? `<button class="edit" data-retry="${row.targetId}" title="Le republier : seulement s’il n’est PAS en ligne">↻ Relancer</button>` : '') +
+    (retry ? `<button class="edit" data-mark-online="${row.targetId}" title="Il est bien sur Facebook : l’enregistrer comme publié, sans le republier">✓ Déjà en ligne</button>` : '') +
     `<button class="edit" data-edit-queued="${row.post.id}">Modifier</button>` +
     `<button class="danger" data-remove-target="${row.targetId}" data-title="${esc(row.post.title)}" data-group="${esc(row.group.name)}">Retirer</button>` +
     `</div></div>`
@@ -2218,6 +2219,14 @@ document.addEventListener('click', (e) => {
       const r = await api(`/admin/jobs/${releaseJob}/release`, { method: 'POST' });
       return { warning: r.inProgress ? `${r.inProgress} post(s) en cours de publication laissé(s) tel(s) quel(s).` : null };
     }, 'Lot libéré : ses posts sont de retour dans la file.', e.target);
+    return;
+  }
+  if (e.target.dataset.markOnline) {
+    void queueAction(
+      () => api(`/posts/targets/${e.target.dataset.markOnline}/published`, { method: 'POST' }),
+      'Enregistré comme publié : il ne sera pas republié.',
+      e.target,
+    );
     return;
   }
   if (e.target.dataset.retry) {

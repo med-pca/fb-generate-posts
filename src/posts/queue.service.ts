@@ -340,6 +340,34 @@ export class QueueService {
     return { targetId: target.id, status: TargetStatus.AVAILABLE };
   }
 
+  /** Un échec qui n'en est pas un : le post est bien en ligne sur Facebook
+   * (l'extension ne l'a simplement pas retrouvé dans le fil). L'enregistrer
+   * comme publié évite qu'une relance le publie une seconde fois. */
+  async markPublished(targetId: string, acting: CurrentUser | null) {
+    const target = await this.target(targetId, acting);
+    if (target.status !== TargetStatus.FAILED) {
+      throw new ConflictException('Seule une publication en échec se marque « déjà en ligne »');
+    }
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.postTarget.update({
+        where: { id: target.id },
+        data: { status: TargetStatus.PUBLISHED, publishedAt: now, lastError: null },
+      }),
+      this.prisma.activityLog.create({
+        data: {
+          postId: target.postId,
+          groupId: target.groupId,
+          postTargetId: target.id,
+          eventType: 'TARGET_MARKED_PUBLISHED',
+          message: `« ${target.post.title} » marqué déjà en ligne dans « ${target.group.name} » (sans republier)`,
+          metadata: { by: acting?.username ?? 'clé globale' },
+        },
+      }),
+    ]);
+    return { targetId: target.id, status: TargetStatus.PUBLISHED };
+  }
+
   /** Retirer un post d'UN groupe. S'il ne vise plus aucun groupe, il
    * disparaît. Une publication faite ou en cours ne se retire pas : c'est
    * l'historique, ou un post en train de partir. */

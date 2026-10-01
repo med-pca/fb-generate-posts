@@ -67,6 +67,21 @@ export class PostsController {
     return this.queueService.retry(targetId, acting);
   }
 
+  @Post('targets/:targetId/published')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Marquer « déjà en ligne » une publication en échec',
+    description:
+      'Quand le post est bien sur Facebook mais que l’extension ne l’a pas ' +
+      'retrouvé : l’enregistre comme publié, sans le republier.',
+  })
+  markPublished(
+    @Param('targetId') targetId: string,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.queueService.markPublished(targetId, acting);
+  }
+
   @Delete('targets/:targetId')
   @ApiOperation({
     summary: 'Retirer un post d’un seul groupe',
