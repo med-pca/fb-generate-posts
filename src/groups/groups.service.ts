@@ -271,6 +271,45 @@ export class GroupsService {
     return report;
   }
 
+  /** Corriger à la main l'état d'une adhésion : le profil a rejoint le
+   * groupe, mais rien ne l'a remonté (demande acceptée après coup, adhésion
+   * faite à la main dans le navigateur). Sans cela, le groupe resterait sans
+   * profil pour publier. */
+  async setJoinStatus(
+    groupId: string,
+    profileId: string,
+    joinStatus: JoinStatus,
+    acting: CurrentUser | null,
+  ) {
+    await this.reachableGroup(groupId, acting);
+    await this.reachableProfile(profileId, acting);
+    const link = await this.prisma.profileGroup.findUnique({
+      where: { profileId_groupId: { profileId, groupId } },
+    });
+    if (!link) throw new NotFoundException('Ce profil n’est pas lié à ce groupe');
+    const updated = await this.prisma.profileGroup.update({
+      where: { id: link.id },
+      data: { joinStatus, joinCheckedAt: new Date(), joinError: null },
+    });
+    if (link.joinStatus !== joinStatus) {
+      await this.prisma.activityLog.create({
+        data: {
+          profileId,
+          groupId,
+          eventType: 'GROUP_JOIN_UPDATED',
+          message: `Adhésion corrigée à la main : ${link.joinStatus} → ${joinStatus}`,
+          metadata: {
+            previous: link.joinStatus,
+            joinStatus,
+            by: acting?.username ?? 'clé globale',
+            manual: true,
+          },
+        },
+      });
+    }
+    return { profileId, groupId, joinStatus: updated.joinStatus };
+  }
+
   async remove(id: string, acting: CurrentUser | null) {
     await this.ownedGroup(id, acting);
     return this.prisma.group.delete({ where: { id } });
@@ -322,16 +361,21 @@ export class GroupsService {
       where: { id: link.id },
       data: { joinStatus, joinCheckedAt: new Date(), joinError: error ?? null },
     });
-    await this.prisma.activityLog.create({
-      data: {
-        profileId: profile.id,
-        groupId,
-        eventType: 'GROUP_JOIN_UPDATED',
-        level: joinStatus === 'FAILED' ? 'WARN' : 'INFO',
-        message: `Adhésion au groupe : ${joinStatus}`,
-        metadata: { previous: link.joinStatus, joinStatus, error },
-      },
-    });
+    // Une vérification qui confirme l'état connu ne s'écrit pas : l'extension
+    // revérifie régulièrement les demandes en attente, et les journaux
+    // seraient noyés.
+    if (link.joinStatus !== joinStatus) {
+      await this.prisma.activityLog.create({
+        data: {
+          profileId: profile.id,
+          groupId,
+          eventType: 'GROUP_JOIN_UPDATED',
+          level: joinStatus === 'FAILED' ? 'WARN' : 'INFO',
+          message: `Adhésion au groupe : ${link.joinStatus} → ${joinStatus}`,
+          metadata: { previous: link.joinStatus, joinStatus, error },
+        },
+      });
+    }
     return {
       groupId,
       joinStatus: updated.joinStatus,

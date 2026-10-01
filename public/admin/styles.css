@@ -1622,3 +1622,15 @@ body:not(.is-admin) .admin-only { display: none; }
 .reset-summary p { margin: 0 0 4px; }
 .reset-summary ul { margin: 4px 0; padding-left: 18px; }
 .reset-summary .warn { margin-top: 8px; }
+
+/* ── Adhésions : corriger à la main ───────────────────────────────── */
+.join-name { display: inline-flex; align-items: center; gap: 4px; margin-right: 8px; }
+.mark-joined {
+  padding: 1px 6px;
+  border: 1px solid #b7e4c7;
+  border-radius: 999px;
+  color: #17803d;
+  background: #f0faf3;
+  font-size: 0.68rem;
+  font-weight: 700;
+}

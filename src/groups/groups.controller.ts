@@ -16,6 +16,7 @@ import type { CurrentUser } from '../auth/current-user';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { GroupsService } from './groups.service';
 import { UpdateGroupDto } from './dto/update-group.dto';
+import { SetJoinStatusDto } from './dto/update-join-status.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('groups')
@@ -88,6 +89,23 @@ export class GroupsCatalogController {
   @Delete(':id')
   remove(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
     return this.groups.remove(id, acting);
+  }
+
+  @Patch(':id/profiles/:profileId/join-status')
+  @ApiOperation({
+    summary: 'Corriger à la main l’adhésion d’un profil à un groupe',
+    description:
+      'Quand un profil a rejoint le groupe sans que l’extension le remonte ' +
+      '(demande acceptée plus tard, adhésion faite à la main). Seul un profil ' +
+      '« Rejoint » peut publier dans le groupe.',
+  })
+  setJoinStatus(
+    @Param('id') id: string,
+    @Param('profileId') profileId: string,
+    @Body() dto: SetJoinStatusDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.groups.setJoinStatus(id, profileId, dto.joinStatus, acting);
   }
 
   @Delete(':id/posts')

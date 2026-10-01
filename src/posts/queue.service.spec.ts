@@ -18,8 +18,8 @@ function setup() {
   const findMany = jest.fn(async ({ where }: any) => {
     if (where.status === 'AVAILABLE') {
       return [
-        { id: 't-a', forcedProfile: profile, forcedAt: new Date(), post: post('a', 5), group: { ...group, profiles: [{ profile }] } },
-        { id: 't-b', forcedProfile: null, forcedAt: null, post: post('b'), group: { ...group, profiles: [] } },
+        { id: 't-a', forcedProfile: profile, forcedAt: new Date(), post: post('a', 5), group: { ...group, _count: { profiles: 0 }, profiles: [{ profile }] } },
+        { id: 't-b', forcedProfile: null, forcedAt: null, post: post('b'), group: { ...group, _count: { profiles: 8 }, profiles: [] } },
       ];
     }
     if (where.status === 'FAILED') {
@@ -30,7 +30,7 @@ function setup() {
           attemptsCount: 2,
           updatedAt: new Date(),
           post: post('f'),
-          group: { ...group, profiles: [{ profile }] },
+          group: { ...group, _count: { profiles: 0 }, profiles: [{ profile }] },
           jobItems: [{ error: 'x', job: { profile } }],
         },
       ];
@@ -85,6 +85,9 @@ describe('QueueService.queue', () => {
       candidates: [profile],
     });
     expect(q.upcoming[0].forcedProfile).toEqual(profile);
+    // Aucun profil « Rejoint », mais 8 demandes en attente : c'est dit.
+    expect(q.upcoming[1]).toMatchObject({ candidates: [], group: { pendingJoins: 8 } });
+    expect((q.upcoming[1].group as any).profiles).toBeUndefined();
 
     expect(q.running[0]).toMatchObject({ state: 'publishing', profile: { name: 'Salim' }, group: { name: 'Recettes FR' } });
 

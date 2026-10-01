@@ -296,6 +296,13 @@ export class InsightsService {
               },
             },
           },
+          _count: {
+            select: {
+              profiles: {
+                where: { status: 'ACTIVE', joinStatus: { in: ['REQUESTED', 'QUESTIONS'] } },
+              },
+            },
+          },
         },
         orderBy: { name: 'asc' },
       }),
@@ -356,8 +363,13 @@ export class InsightsService {
         publishedToday: byGroup.get(group.id) ?? 0,
         stock,
         participants: participants.map((p) => ({ id: p.id, name: p.name })),
+        pendingJoins: group._count.profiles,
+        // Sans profil « Rejoint » : demandes en attente (souvent acceptées
+        // depuis, sans que rien ne l'ait remonté), ou personne du tout.
         blocked: !joined.length
-          ? 'no_profile'
+          ? group._count.profiles
+            ? 'requests_pending'
+            : 'no_profile'
           : !participants.length
             ? 'profiles_off'
             : null,
@@ -466,7 +478,11 @@ export class InsightsService {
     if (blocked.length) {
       advice.push({
         level: 'warn',
-        text: `${blocked.length} groupe(s) ont ${stockBlocked} post(s) qui ne partiront pas : aucun profil actif ne les a rejoints (${blocked
+        text: `${blocked.length} groupe(s) ont ${stockBlocked} post(s) qui ne partiront pas : aucun profil actif ne les a rejoints${
+          blocked.some((g) => g.blocked === 'requests_pending')
+            ? ' — des demandes d’adhésion y sont en attente : si elles ont été acceptées, faites revérifier l’extension d’adhésion ou corrigez dans Groupes'
+            : ''
+        } (${blocked
           .slice(0, 5)
           .map((g) => g.name)
           .join(', ')}${blocked.length > 5 ? '…' : ''}).`,

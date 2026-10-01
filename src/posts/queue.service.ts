@@ -38,6 +38,18 @@ const GROUP_WITH_CANDIDATES = {
       where: { status: 'ACTIVE' as const, joinStatus: 'JOINED' as const },
       select: { profile: { select: PROFILE_FIELDS } },
     },
+    // Les demandes d'adhésion en attente : souvent acceptées depuis, sans que
+    // rien ne l'ait remonté. C'est ce qui explique un groupe « sans profil ».
+    _count: {
+      select: {
+        profiles: {
+          where: {
+            status: 'ACTIVE' as const,
+            joinStatus: { in: ['REQUESTED' as const, 'QUESTIONS' as const] },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -197,10 +209,14 @@ export class QueueService {
         ]),
       ]);
 
-    const withoutCandidates = <T extends { profiles: unknown }>(g: T) => {
-      const { profiles, ...rest } = g;
+    const withoutCandidates = <
+      T extends { profiles: unknown; _count: { profiles: number } },
+    >(
+      g: T,
+    ) => {
+      const { profiles, _count, ...rest } = g;
       void profiles;
-      return rest;
+      return { ...rest, pendingJoins: _count.profiles };
     };
 
     return {

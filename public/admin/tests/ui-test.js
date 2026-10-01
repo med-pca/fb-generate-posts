@@ -109,7 +109,7 @@ setTimeout(async () => {
         running: [{ state: 'publishing', since: '2026-09-30T09:00:00Z', post: post('r'), group, profile: salim }],
         upcoming: [
           { rank: 1, targetId: 't-a', post: post('a', 3), group, candidates: [salim], forcedProfile: salim, forcedAt: '2026-09-30T09:00:00Z' },
-          { rank: 2, targetId: 't-b', post: post('b'), group, candidates: [] },
+          { rank: 2, targetId: 't-b', post: post('b'), group: { ...group, pendingJoins: 8 }, candidates: [] },
         ],
         published: [{ publishedAt: '2026-09-30T08:00:00Z', post: post('p'), group, profile: salim, facebookUrl: 'https://facebook.com/groups/g1/posts/9', link: 'placed' }],
       }) };
@@ -126,7 +126,7 @@ setTimeout(async () => {
   const upcomingRows = $('#queue-upcoming').textContent;
   check('les prochains sont numérotés dans l’ordre', /1.*Post a.*2.*Post b/s.test(upcomingRows), upcomingRows);
   check('la priorité d’un post est visible', /\+3/.test(upcomingRows), upcomingRows);
-  check('un groupe sans profil est signalé', /aucun profil/.test(upcomingRows), upcomingRows);
+  check('un groupe sans profil « Rejoint » dit ses demandes en attente', /8 demande\(s\) en attente/.test(upcomingRows), upcomingRows);
   const publishedRows = $('#queue-published').textContent;
   check('un post publié dit par quel profil et dans quel groupe', /Salim/.test(publishedRows) && /Recettes FR/.test(publishedRows), publishedRows);
   check('et le lien Facebook de la publication', !!$('#queue-published a[href="https://facebook.com/groups/g1/posts/9"]'), null);
@@ -384,6 +384,34 @@ setTimeout(async () => {
   check('posts seuls : les articles restent', /143<\/b> post\(s\) supprimé/.test($('#reset-summary').innerHTML) && /Les articles restent/.test($('#reset-summary').textContent), $('#reset-summary').textContent);
   $('#reset-modal').close();
   window.fetch = beforeExtra;
+
+  // ─── Groupes : corriger une adhésion à la main ─────────────────
+  const joinCalls = [];
+  const beforeJoin = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace('/api', '').split('?')[0];
+    if (path === '/groups') {
+      return { ok: true, status: 200, json: async () => ({ data: [{ id: 'g9', name: 'Garden', externalId: 'garden', url: 'https://fb/g9', status: 'ACTIVE', category: { name: 'Garden' },
+        profiles: [
+          { profileId: 'p1', status: 'ACTIVE', joinStatus: 'JOINED', profile: { name: 'Nihad' } },
+          { profileId: 'p2', status: 'ACTIVE', joinStatus: 'REQUESTED', profile: { name: 'Hafsa' } },
+        ], _count: { targets: 0 }, availablePosts: 0 }], meta: { page: 1, limit: 12, total: 1, pages: 1 } }) };
+    }
+    if (path.includes('/join-status')) {
+      joinCalls.push(`${options.method} ${path} ${options.body}`);
+      return { ok: true, status: 200, json: async () => ({ joinStatus: 'JOINED' }) };
+    }
+    return beforeJoin(url, options);
+  };
+  window.eval(`load()`);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  const groupCell = $('#group-rows').textContent;
+  check('le groupe résume ses adhésions', /1 rejoint/.test(groupCell) && /1 demande envoyée/.test(groupCell), groupCell);
+  check('un profil rejoint n’a pas de bouton, une demande en attente si', !$('[data-mark-joined="p1"]') && !!$('[data-mark-joined="p2"]'), null);
+  $('[data-mark-joined="p2"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« ✓ rejoint » corrige l’adhésion', joinCalls[0] === 'PATCH /groups/g9/profiles/p2/join-status {"joinStatus":"JOINED"}', joinCalls);
+  window.fetch = beforeJoin;
 
   check('la fenêtre d’appairage a les marges des autres', !!$('#pair-modal > .modal-body'), null);
 

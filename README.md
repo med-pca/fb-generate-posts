@@ -378,6 +378,23 @@ réaligne tous ses posts encore à publier.
 
 Les anciens posts, liés à un profil, continuent de fonctionner comme avant.
 
+### Adhésions : « aucun profil » alors que le profil a rejoint
+
+Seul un profil marqué **Rejoint** publie dans un groupe. Une demande acceptée
+plus tard par l'administrateur du groupe restait « Demande envoyée » : le
+groupe apparaissait « sans profil » dans la file. Trois corrections :
+
+- **L'extension d'adhésion** (`fb-extention-join` 1.2.0) revérifie les
+  demandes en attente toutes les 6 h, sans jamais recliquer.
+- **Groupes → Voir les profils** : un bouton **✓ rejoint** à côté de chaque
+  profil non rejoint corrige l'adhésion à la main
+  (`PATCH /api/groups/{id}/profiles/{profileId}/join-status`).
+- **La file et l'objectif** disent « N demande(s) en attente » au lieu de
+  « aucun profil » quand c'est le cas.
+
+Une revérification qui ne change rien n'écrit plus dans les journaux ; un
+changement d'état reste tracé (`GROUP_JOIN_UPDATED`, « REQUESTED → JOINED »).
+
 ### La file de publication
 
 Page **Posts → File d'attente**. L'unité est la **cible** : un post × un

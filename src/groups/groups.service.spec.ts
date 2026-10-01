@@ -126,3 +126,37 @@ describe('GroupsService.removePosts — vider un groupe de ses posts', () => {
     });
   });
 });
+
+describe('GroupsService — adhésions', () => {
+  function harness(current: string) {
+    const logs: any[] = [];
+    const prisma: any = {
+      group: { findFirst: jest.fn(async () => ({ id: 'g1' })) },
+      profile: { findFirst: jest.fn(async () => ({ id: 'p1', status: 'ACTIVE' })) },
+      profileGroup: {
+        findUnique: jest.fn(async () => ({ id: 'pg1', joinStatus: current })),
+        update: jest.fn(async ({ data }: any) => ({ joinStatus: data.joinStatus, joinCheckedAt: data.joinCheckedAt, joinError: null })),
+      },
+      activityLog: { create: jest.fn(async ({ data }: any) => logs.push(data)) },
+    };
+    return { service: new GroupsService(prisma, new CategoriesService(prisma)), prisma, logs };
+  }
+
+  it('l’admin corrige à la main une demande acceptée depuis : « Rejoint »', async () => {
+    const { service, prisma, logs } = harness('REQUESTED');
+    await expect(service.setJoinStatus('g1', 'p1', 'JOINED', { username: 'admin' } as any)).resolves.toMatchObject({ joinStatus: 'JOINED' });
+    expect(prisma.profileGroup.update.mock.calls[0][0].data.joinStatus).toBe('JOINED');
+    expect(logs[0]).toMatchObject({ eventType: 'GROUP_JOIN_UPDATED' });
+    expect(logs[0].message).toMatch(/à la main : REQUESTED → JOINED/);
+  });
+
+  it('une revérification qui confirme l’état connu ne remplit pas les journaux', async () => {
+    const { service, prisma, logs } = harness('REQUESTED');
+    prisma.profile.findFirst = jest.fn(async () => ({ id: 'p1', status: 'ACTIVE' }));
+    await service.updateJoinStatus('ext-1', 'g1', { joinStatus: 'REQUESTED' } as any);
+    expect(prisma.profileGroup.update).toHaveBeenCalled();
+    expect(logs).toEqual([]);
+    await service.updateJoinStatus('ext-1', 'g1', { joinStatus: 'JOINED' } as any);
+    expect(logs[0].message).toMatch(/REQUESTED → JOINED/);
+  });
+});

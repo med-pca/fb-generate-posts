@@ -7,11 +7,17 @@ const published = (n: number, groupId: string, profileId: string, minutesAgo = 9
     job: { profileId },
     postTarget: { groupId },
   }));
-const group = (id: string, category: string | null, profiles: Array<{ id: string; mode: string }>) => ({
+const group = (
+  id: string,
+  category: string | null,
+  profiles: Array<{ id: string; mode: string }>,
+  pendingJoins = 0,
+) => ({
   id,
   name: id,
   category: category ? { id: category, name: category } : null,
   profiles: profiles.map((p) => ({ profile: { id: p.id, name: p.id, runner: { mode: p.mode } } })),
+  _count: { profiles: pendingJoins },
 });
 
 function setup() {
@@ -33,7 +39,7 @@ function setup() {
       findMany: async () => [
         group('g1', 'Recettes', [{ id: 'salim', mode: 'AUTO' }]),
         group('g2', 'Recettes', [{ id: 'nadia', mode: 'ON' }]),
-        group('g3', 'Recettes', []),
+        group('g3', 'Recettes', [], 4),
       ],
     },
     profile: {
@@ -57,7 +63,8 @@ describe('InsightsService.objective', () => {
     expect(o.pace.ratePerHour).toBe(20);
     // g3 n'a aucun profil : son stock ne partira pas.
     expect(o.stock).toEqual({ publishable: 40, blocked: 25, deficit: 100 });
-    expect(o.groups.find((g) => g.id === 'g3')?.blocked).toBe('no_profile');
+    // Aucun profil « Rejoint », mais 4 demandes en attente.
+    expect(o.groups.find((g) => g.id === 'g3')).toMatchObject({ blocked: 'requests_pending', pendingJoins: 4 });
     // 2 groupes prêts dans « Recettes » : 1 article = 2 posts → 50 articles.
     expect(o.articles.needed).toBe(50);
     expect(o.categories[0]).toMatchObject({ name: 'Recettes', groups: 3, publishableGroups: 2, articlesNeeded: 50 });
@@ -69,6 +76,7 @@ describe('InsightsService.objective', () => {
     const texts = o.advice.map((a) => a.text).join(' | ');
     expect(texts).toMatch(/Stock insuffisant/);
     expect(texts).toMatch(/ne partiront pas/);
+    expect(texts).toMatch(/demandes d’adhésion y sont en attente/);
     expect(texts).toMatch(/En retard de 40/);
   });
 

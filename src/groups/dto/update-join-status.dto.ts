@@ -9,3 +9,9 @@ export class UpdateJoinStatusDto {
   @IsString()
   error?: string;
 }
+
+/** Ce que l'admin fixe à la main. */
+export class SetJoinStatusDto {
+  @IsEnum(JoinStatus)
+  joinStatus!: JoinStatus;
+}

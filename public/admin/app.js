@@ -219,8 +219,17 @@ function groupProfilesCell(g) {
     .map(
       (k) =>
         `<div class="join-line"><b>${esc(JOIN_LABELS[k])}</b> : ${by[k]
-          .map((x) => `<span title="${esc(x.joinError || '')}">${esc(x.profile.name)}</span>`)
-          .join(', ')}</div>`,
+          .map(
+            (x) =>
+              `<span class="join-name" title="${esc(x.joinError || '')}">${esc(x.profile.name)}` +
+              // Rejoint sur Facebook sans que rien ne l'ait remonté : se
+              // corrige ici, sinon le groupe reste sans profil pour publier.
+              (k === 'JOINED'
+                ? ''
+                : `<button class="link mark-joined" data-mark-joined="${x.profileId}" data-group="${g.id}" title="${esc(x.profile.name)} a bien rejoint ce groupe sur Facebook">✓ rejoint</button>`) +
+              `</span>`,
+          )
+          .join(' ')}</div>`,
     )
     .join('');
   return `<div class="chips">${summary}</div><details class="join-details"><summary>Voir les ${g.profiles.length} profils</summary>${detail}</details>`;
@@ -506,7 +515,7 @@ function renderObjective() {
       (g) =>
         `<tr class="${g.blocked ? 'blocked' : ''}"><td><b title="${esc(g.name)}">${esc(g.name)}</b><small>${esc(g.category?.name || 'sans catégorie')}</small></td>` +
         `<td>${g.publishedToday}</td><td>${g.stock}</td>` +
-        `<td>${g.blocked ? `<span class="chip join-failed">${g.blocked === 'no_profile' ? 'aucun profil' : 'profils arrêtés'}</span>` : `${g.participants.length} profil(s)`}</td></tr>`,
+        `<td>${g.blocked ? `<span class="chip join-failed">${g.blocked === 'no_profile' ? 'aucun profil' : g.blocked === 'requests_pending' ? `${g.pendingJoins} demande(s) en attente` : 'profils arrêtés'}</span>` : `${g.participants.length} profil(s)`}</td></tr>`,
     ),
     'Aucun groupe actif.',
   );
@@ -1923,9 +1932,11 @@ const queueGroup = (group) =>
   `<small>${group.category ? esc(group.category.name) : 'sans catégorie'}</small>`;
 /** Au plus trois profils, puis « +N » : huit pastilles rendaient chaque
  * ligne haute comme trois. Le survol donne la liste complète. */
-const profileChips = (profiles) => {
+const profileChips = (profiles, pendingJoins = 0) => {
   if (!profiles.length)
-    return '<span class="chip join-questions" title="Aucun profil n’a rejoint ce groupe : ce post n’en partira pas">aucun profil</span>';
+    return pendingJoins
+      ? `<span class="chip join-questions" title="Aucun profil marqué « Rejoint », mais ${pendingJoins} demande(s) d’adhésion en attente : si elles ont été acceptées sur Facebook, l’extension d’adhésion les revérifie, ou corrigez dans Groupes">${pendingJoins} demande(s) en attente</span>`
+      : '<span class="chip join-questions" title="Aucun profil n’a rejoint ce groupe : ce post n’en partira pas">aucun profil</span>';
   const shown = profiles.slice(0, 3).map((p) => `<span class="chip" title="${esc(p.name)}">${esc(p.name)}</span>`);
   const rest = profiles.slice(3);
   if (rest.length)
@@ -1974,7 +1985,7 @@ function renderQueue() {
     d.upcoming
       .map((u) => {
         const prio = u.post.priority;
-        const candidates = profileChips(u.candidates);
+        const candidates = profileChips(u.candidates, u.group.pendingJoins);
         return (
           `<tr><td><span class="rank ${u.rank === 1 ? 'next' : ''}">${u.rank}</span></td>` +
           `<td>${queuePost(u.post)}</td><td>${queueGroup(u.group)}</td><td>` +
@@ -2227,6 +2238,21 @@ document.addEventListener('click', (e) => {
   }
   if (e.target.dataset.prio) {
     void movePost(e.target.dataset.prio, e.target.dataset.move, e.target);
+    return;
+  }
+  if (e.target.dataset.markJoined) {
+    const { markJoined, group } = e.target.dataset;
+    e.target.disabled = true;
+    api(`/groups/${group}/profiles/${markJoined}/join-status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ joinStatus: 'JOINED' }),
+    })
+      .then(() => notice('Adhésion corrigée : le profil peut maintenant publier dans ce groupe.'))
+      .then(load)
+      .catch((x) => {
+        e.target.disabled = false;
+        notice(x.message, 'error');
+      });
     return;
   }
   const clearGroup = state.groups.find(
