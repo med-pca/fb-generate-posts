@@ -8,7 +8,9 @@ import { Prisma } from '@prisma/client';
 export const LOG_DOMAINS = {
   publication: {
     label: 'Publication',
-    prefixes: ['JOB_', 'JOBS_', 'CLAIM_', 'POST_', 'COMMENT_', 'TARGET_'],
+    // `WORKER_*` : ce que l'extension de publication écrit elle-même
+    // (publié, échec, rien à publier, lien non posé…).
+    prefixes: ['JOB_', 'JOBS_', 'CLAIM_', 'POST_', 'COMMENT_', 'TARGET_', 'WORKER_'],
     exact: ['GROUP_POSTS_REMOVED', 'ARTICLE_ARCHIVED'],
   },
   capture: {

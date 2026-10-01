@@ -767,7 +767,7 @@ d'emblée, sans migration.
 
 | Domaine | Ce qu'on y lit | Événements |
 | --- | --- | --- |
-| Publication | Les automates : réservations, publications, commentaires, liens ; les gestes de la file | `JOB_*`, `CLAIM_*`, `POST_*`, `COMMENT_*`, `TARGET_*`, `GROUP_POSTS_REMOVED`, `ARTICLE_ARCHIVED` |
+| Publication | Les automates : réservations, publications, commentaires, liens ; les gestes de la file ; ce que l'extension de publication écrit | `JOB_*`, `CLAIM_*`, `POST_*`, `COMMENT_*`, `TARGET_*`, `WORKER_*`, `GROUP_POSTS_REMOVED`, `ARTICLE_ARCHIVED` |
 | Captures | Les reprises de FB Catch Post : capture refusée, lecture de la source, réécriture, dépôt | `INGEST_*` (dont `INGEST_REJECTED`) |
 | Synchronisation | Ce qui entre : articles WordPress reçus, mis à jour, **reçus sans post (et pourquoi)**, refusés ; changements d'état des extensions ; profils NSTBrowser ajoutés | `WORDPRESS_ARTICLE_RECEIVED` / `_UPDATED` / `_NO_POST` / `_REJECTED`, `SITE_PLUGIN_CHANGED`, `PROFILES_SYNCED` |
 | Groupes & pilotage | Adhésions aux groupes, navigateurs | `GROUP_JOIN_*`, `BROWSER_*`, `RUNNER_*` |
