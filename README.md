@@ -407,6 +407,20 @@ toutes les 30 min pour une même raison) :
 | `not_allowed` | les posts appartiennent à un autre gestionnaire, ou sont forcés vers un autre profil |
 | `taken` | pris par d'autres profils entre-temps |
 
+### L'image d'un post
+
+L'extension de publication télécharge l'image elle-même. Les images sont sur
+les sites WordPress — un domaine par site — et Chrome ne laisse l'extension les
+lire que si elle y est autorisée :
+
+- depuis la version **1.0.11**, l'extension a d'office le droit de lire les
+  images en HTTPS de n'importe quel site (plus de clic « Autoriser un autre
+  domaine » dans chaque profil) ;
+- si un site refuse quand même (anti-hotlink, erreur réseau), l'extension
+  demande l'image à la plateforme : `GET /api/jobs/media?url=…` (`X-API-Key`).
+  Ce relais ne sert **que** les images utilisées par un post ou un profil, en
+  HTTPS, vers une adresse publique vérifiée à chaque redirection.
+
 ### Adhésions : « aucun profil » alors que le profil a rejoint
 
 Seul un profil marqué **Rejoint** publie dans un groupe. Une demande acceptée
