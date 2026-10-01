@@ -443,6 +443,15 @@ l'URL. Depuis la version **1.0.13** :
   est enregistré **publié, à vérifier** — plus en échec : une relance l'aurait
   publié deux fois.
 
+Pour remplacer « . » par l'URL, l'extension doit aussi lire **l'identifiant
+du commentaire**. Facebook l'écrit en chiffres ou en base64
+(`comment:<post>_<commentaire>`) ; avant la version **1.0.14**, seul le format
+en chiffres était lu — le commentaire restait « . » (`WORKER_COMMENT_ID_MISSING`).
+
+Depuis la 1.0.14 aussi, un lot interrompu par un arrêt (Pilotage, fenêtre
+horaire, navigateur relancé) entre deux posts est **repris** au redémarrage,
+au lieu d'être oublié puis libéré.
+
 Dans la file, un échec qui est en réalité en ligne se règle avec **« ✓ Déjà en
 ligne »** (`POST /api/posts/targets/{id}/published`, `TARGET_MARKED_PUBLISHED`) :
 enregistré publié, jamais republié. **« ↻ Relancer » ne sert que si le post
