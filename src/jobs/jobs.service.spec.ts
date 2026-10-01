@@ -227,7 +227,12 @@ describe('JobsService — groupes rejoints uniquement', () => {
       },
       publicationJob: { findFirst: jest.fn(async () => null) },
       publicationJobItem: {},
-      postTarget: { updateMany: jest.fn(async () => ({ count: 0 })) },
+      postTarget: {
+        updateMany: jest.fn(async () => ({ count: 0 })),
+        count: jest.fn(async () => 0),
+      },
+      // Les groupes liés au profil, pour le diagnostic d'un « rien à publier ».
+      profileGroup: { findMany: jest.fn(async () => []) },
       group: {
         findFirst: jest.fn(async () => null),
         findMany: jest.fn(async () => []),
@@ -262,6 +267,46 @@ describe('JobsService — groupes rejoints uniquement', () => {
     expect(prisma.group.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining(joinedLink) }),
     );
+  });
+
+  describe('rien à publier : le diagnostic dit pourquoi', () => {
+    const link = (id: string, joinStatus: string) => ({ joinStatus, group: { id, name: `Groupe ${id}` } });
+
+    it('lié à aucun groupe', async () => {
+      const { service } = makeClaimHarness();
+      const r: any = await service.claimByProfileExternalId('demo-profile');
+      expect(r).toMatchObject({ job: null, reason: 'no_group' });
+      expect(r.message).toMatch(/lié à aucun groupe/);
+    });
+
+    it('n’a rejoint aucun groupe, et des posts l’attendent ailleurs', async () => {
+      const { service, prisma } = makeClaimHarness();
+      prisma.profileGroup.findMany.mockResolvedValue([link('g1', 'REQUESTED'), link('g2', 'NOT_JOINED')]);
+      prisma.postTarget.count.mockResolvedValue(12);
+      const r: any = await service.claimByProfileExternalId('demo-profile');
+      expect(r.reason).toBe('not_joined');
+      expect(r.message).toMatch(/n’a rejoint aucun de ses 2 groupe/);
+      expect(r.message).toMatch(/12 post\(s\) attendent dans des groupes qu’il n’a pas rejoints \(Groupe g1, Groupe g2\)/);
+      expect(r.message).toMatch(/marquez-les « rejoint »/);
+    });
+
+    it('rien en attente dans ses groupes rejoints', async () => {
+      const { service, prisma } = makeClaimHarness();
+      prisma.profileGroup.findMany.mockResolvedValue([link('g1', 'JOINED')]);
+      const r: any = await service.claimByProfileExternalId('demo-profile');
+      expect(r.reason).toBe('no_post');
+      expect(r.message).toMatch(/Aucun post en attente dans ses 1 groupe/);
+    });
+
+    it('des posts attendent, mais aucun ne lui est permis', async () => {
+      const { service, prisma } = makeClaimHarness();
+      prisma.profileGroup.findMany.mockResolvedValue([link('g1', 'JOINED')]);
+      // 5 en attente dans ses groupes ; 0 permis (autre compte, ou forcés ailleurs).
+      prisma.postTarget.count.mockResolvedValueOnce(5).mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+      const r: any = await service.claimByProfileExternalId('demo-profile');
+      expect(r.reason).toBe('not_allowed');
+      expect(r.diagnosis).toMatchObject({ postsInJoinedGroups: 5, postsAllowed: 0 });
+    });
   });
 
   it('commence par le groupe qui porte le post le plus prioritaire', async () => {
@@ -307,7 +352,7 @@ describe('JobsService — groupes rejoints uniquement', () => {
     ]);
   });
 
-  it('cherche ses posts ET les posts ouverts de son compte', async () => {
+  it('cherche ses posts, les posts ouverts de son compte, et ceux créés par un admin', async () => {
     const { service, prisma } = makeClaimHarness();
     await service.claimByProfileExternalId('demo-profile');
     const [[{ where }]] = prisma.group.findMany.mock.calls;
@@ -315,7 +360,8 @@ describe('JobsService — groupes rejoints uniquement', () => {
       status: 'AVAILABLE',
       OR: [
         { profileId: 'profile_1' },
-        { profileId: null, OR: [{ ownerId: null }, { ownerId: 'u1' }] },
+        // Sans propriétaire, créé par un ADMIN, ou du compte du profil.
+        { profileId: null, OR: [{ ownerId: null }, { owner: { role: 'ADMIN' } }, { ownerId: 'u1' }] },
       ],
     });
   });

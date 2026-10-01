@@ -207,6 +207,7 @@ export class InsightsService {
                       profileId: null,
                       OR: [
                         { ownerId: null },
+                        { owner: { role: 'ADMIN' } },
                         ...(profile.ownerId ? [{ ownerId: profile.ownerId }] : []),
                       ],
                     },

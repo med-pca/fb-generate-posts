@@ -47,7 +47,17 @@ type EmptyClaim = {
   posts: ClaimedPost[];
   message?: string;
   activeJobId?: string;
+  /** Pourquoi rien : de quoi agir, au lieu d'un « aucun post » muet. */
+  reason?: EmptyReason;
+  diagnosis?: Record<string, unknown>;
 };
+
+export type EmptyReason =
+  | 'no_group' // lié à aucun groupe actif
+  | 'not_joined' // n'a rejoint aucun de ses groupes
+  | 'no_post' // rien en attente dans ses groupes rejoints
+  | 'not_allowed' // des posts attendent, mais aucun ne lui est permis
+  | 'taken'; // pris entre-temps par d'autres profils
 
 /** Une entrée de réservation par lot : soit un job à confier à un thread,
  * soit la raison pour laquelle ce profil n'en reçoit pas. */
@@ -82,7 +92,13 @@ export function claimablePostWhere(profile: {
       {
         profileId: null,
         OR: [
+          // Sans propriétaire, ou créé par un ADMIN : pour tous les profils.
+          // Un post créé à la main dans l'admin appartient au compte admin,
+          // alors que les profils ajoutés par la synchronisation NSTBrowser
+          // n'ont pas de propriétaire : exiger le même compte les excluait.
           { ownerId: null },
+          { owner: { role: 'ADMIN' } },
+          // Créé par un gestionnaire : pour ses profils seulement.
           ...(profile.ownerId ? [{ ownerId: profile.ownerId }] : []),
         ],
       },
@@ -178,6 +194,7 @@ export class JobsService {
         SELECT pt.id, pt.post_id AS "postId"
         FROM post_targets pt
         INNER JOIN posts p ON p.id = pt.post_id
+        LEFT JOIN users u ON u.id = p.owner_id
         INNER JOIN profiles pr ON pr.id = ${dto.profileId}
         INNER JOIN groups g ON g.id = pt.group_id
         LEFT JOIN articles a ON a.id = p.article_id
@@ -192,7 +209,11 @@ export class JobsService {
             p.profile_id = ${dto.profileId}
             OR (
               p.profile_id IS NULL
-              AND (p.owner_id IS NULL OR p.owner_id = pr.owner_id)
+              AND (
+                p.owner_id IS NULL
+                OR u.role = 'ADMIN'::"Role"
+                OR p.owner_id = pr.owner_id
+              )
             )
           )
           AND p.status = 'AVAILABLE'::"PostStatus"
@@ -463,9 +484,7 @@ export class JobsService {
       return {
         job: null,
         posts: [],
-        message: groupExternalId
-          ? 'Aucun post disponible pour ce profil et ce groupe (ou groupe pas encore rejoint)'
-          : 'Aucun post disponible dans les groupes rejoints par ce profil',
+        ...(await this.explainNothingToClaim(profile, groupExternalId)),
       };
     }
 
@@ -477,7 +496,123 @@ export class JobsService {
       // `jobId` distingue une réservation aboutie d'un groupe déjà vidé.
       if ('jobId' in result) return result;
     }
-    return { job: null, posts: [], message: 'Aucun post disponible' };
+    return {
+      job: null,
+      posts: [],
+      reason: 'taken',
+      message:
+        'Les posts disponibles viennent d’être réservés par d’autres profils : réessayer au prochain passage',
+    };
+  }
+
+  /** Pourquoi un profil ne trouve rien à publier — avec les chiffres et les
+   * noms qui disent quoi faire. Sans cela, le journal ne disait que « aucun
+   * post », que le profil n'ait rejoint aucun groupe, que ses posts attendent
+   * ailleurs, ou qu'ils soient réservés à un autre compte. */
+  async explainNothingToClaim(
+    profile: { id: string; ownerId: string | null },
+    groupExternalId?: string,
+  ): Promise<{ reason: EmptyReason; message: string; diagnosis: Record<string, unknown> }> {
+    const links = await this.prisma.profileGroup.findMany({
+      where: {
+        profileId: profile.id,
+        status: 'ACTIVE',
+        group: {
+          status: 'ACTIVE',
+          ...(groupExternalId ? { externalId: groupExternalId } : {}),
+        },
+      },
+      select: { joinStatus: true, group: { select: { id: true, name: true } } },
+    });
+    const scope = groupExternalId ? ` (groupe imposé : ${groupExternalId})` : '';
+    if (!links.length) {
+      return {
+        reason: 'no_group',
+        message: `Ce profil n’est lié à aucun groupe actif${scope} : liez-le à des groupes (page Groupes).`,
+        diagnosis: { linkedGroups: 0 },
+      };
+    }
+    // En attente, quel que soit le profil : ce qui est publiable en général.
+    const waiting: Prisma.PostTargetWhereInput = {
+      status: TargetStatus.AVAILABLE,
+      post: {
+        status: 'AVAILABLE',
+        OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }],
+      },
+    };
+    const joined = links.filter((l) => l.joinStatus === JoinStatus.JOINED);
+    const notJoined = links.filter((l) => l.joinStatus !== JoinStatus.JOINED);
+    const pending = notJoined.filter(
+      (l) => l.joinStatus === JoinStatus.REQUESTED || l.joinStatus === JoinStatus.QUESTIONS,
+    );
+    const ids = (list: typeof links) => list.map((l) => l.group.id);
+    const names = (list: typeof links) =>
+      list.slice(0, 3).map((l) => l.group.name).join(', ') + (list.length > 3 ? '…' : '');
+    const [inJoined, allowedInJoined, inNotJoined] = await Promise.all([
+      joined.length
+        ? this.prisma.postTarget.count({ where: { ...waiting, groupId: { in: ids(joined) } } })
+        : 0,
+      joined.length
+        ? this.prisma.postTarget.count({
+            where: {
+              ...waiting,
+              groupId: { in: ids(joined) },
+              post: { AND: [waiting.post as Prisma.PostWhereInput, claimablePostWhere(profile)] },
+              ...notForcedElsewhere(profile.id),
+            },
+          })
+        : 0,
+      notJoined.length
+        ? this.prisma.postTarget.count({ where: { ...waiting, groupId: { in: ids(notJoined) } } })
+        : 0,
+    ]);
+    const diagnosis = {
+      linkedGroups: links.length,
+      joinedGroups: joined.length,
+      pendingRequests: pending.length,
+      postsInJoinedGroups: inJoined,
+      postsAllowed: allowedInJoined,
+      postsInGroupsNotJoined: inNotJoined,
+    };
+    const elsewhere = inNotJoined
+      ? ` ${inNotJoined} post(s) attendent dans des groupes qu’il n’a pas rejoints (${names(notJoined)})` +
+        (pending.length
+          ? ` — ${pending.length} demande(s) d’adhésion en attente : si elles ont été acceptées, marquez-les « rejoint » (page Groupes).`
+          : '.')
+      : '';
+    if (!joined.length) {
+      return {
+        reason: 'not_joined',
+        message:
+          `Ce profil n’a rejoint aucun de ses ${links.length} groupe(s)${scope}` +
+          (pending.length ? ` (${pending.length} demande(s) en attente)` : '') +
+          '.' +
+          elsewhere,
+        diagnosis,
+      };
+    }
+    if (!inJoined) {
+      return {
+        reason: 'no_post',
+        message:
+          `Aucun post en attente dans ses ${joined.length} groupe(s) rejoint(s)${scope}.` + elsewhere,
+        diagnosis,
+      };
+    }
+    if (!allowedInJoined) {
+      return {
+        reason: 'not_allowed',
+        message:
+          `${inJoined} post(s) attendent dans ses groupes, mais aucun ne lui est permis : ` +
+          'ils appartiennent à un autre compte (gestionnaire), ou sont forcés vers un autre profil.',
+        diagnosis,
+      };
+    }
+    return {
+      reason: 'taken',
+      message: 'Les posts disponibles viennent d’être réservés par d’autres profils : réessayer au prochain passage.',
+      diagnosis,
+    };
   }
 
   /** Le groupe qui porte le post le plus prioritaire passe d'abord : sans

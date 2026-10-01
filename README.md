@@ -378,6 +378,35 @@ réaligne tous ses posts encore à publier.
 
 Les anciens posts, liés à un profil, continuent de fonctionner comme avant.
 
+### Qui peut publier un post sans profil
+
+Un post n'est attaché à un profil **qu'au moment de la réservation** : le
+profil qui passe prend la prochaine publication d'un groupe qu'il a rejoint,
+et le lot créé dit « ce profil publie ce post dans ce groupe ».
+
+Un post sans profil est réservable par un profil quand :
+
+1. le profil a **rejoint** le groupe (adhésion « Rejoint », profil et groupe
+   actifs) ;
+2. le post est **sans propriétaire, ou créé par un ADMIN** — ou créé par le
+   gestionnaire à qui appartient le profil. (Un post créé à la main dans
+   l'admin appartient au compte admin ; les profils ajoutés par la
+   synchronisation NSTBrowser n'ont pas de propriétaire : exiger le même
+   compte les excluait.)
+3. la publication n'est pas forcée vers un autre profil.
+
+**Rien à publier ?** La réservation dit pourquoi (`reason`, `message`,
+`diagnosis`) et l'extension l'écrit dans le journal (`WORKER_NO_POST`, au plus
+toutes les 30 min pour une même raison) :
+
+| `reason` | Ce qu'il faut faire |
+| --- | --- |
+| `no_group` | lier le profil à des groupes |
+| `not_joined` | il n'a rejoint aucun de ses groupes ; si des demandes ont été acceptées, « ✓ rejoint » dans Groupes |
+| `no_post` | aucun post en attente dans ses groupes rejoints (les posts sont peut-être dans d'autres groupes, nommés dans le message) |
+| `not_allowed` | les posts appartiennent à un autre gestionnaire, ou sont forcés vers un autre profil |
+| `taken` | pris par d'autres profils entre-temps |
+
 ### Adhésions : « aucun profil » alors que le profil a rejoint
 
 Seul un profil marqué **Rejoint** publie dans un groupe. Une demande acceptée

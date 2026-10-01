@@ -390,7 +390,11 @@ describe('JobsService — réservation par lot', () => {
         findFirst: jest.fn(async () => null),
         updateMany: jest.fn(async () => ({ count: 0 })),
       },
-      postTarget: { updateMany: jest.fn(async () => ({ count: 0 })) },
+      postTarget: {
+        updateMany: jest.fn(async () => ({ count: 0 })),
+        count: jest.fn(async () => 0),
+      },
+      profileGroup: { findMany: jest.fn(async () => []) },
       group: { findMany: jest.fn(async () => []) },
       activityLog: { create: jest.fn(async () => ({})) },
     };
