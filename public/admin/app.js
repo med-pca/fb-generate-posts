@@ -1011,7 +1011,9 @@ function renderSites() {
           pluginCell(s) +
           `<td>${s.hasOwnKey ? 'propre à ce site' : '<span class="muted">clé globale</span>'}</td>` +
           `<td>${s.articles}</td>` +
-          `<td><span class="pill">${s.status === 'ACTIVE' ? 'Actif' : 'Inactif'}</span></td>` +
+          (s.status === 'ACTIVE'
+            ? '<td><span class="pill">Actif</span></td>'
+            : '<td><span class="pill plugin-unknown" title="Les articles publiés pendant la désactivation sont ignorés, et le restent ; à la réactivation, les suivants sont créés normalement">Inactif</span><small>nouveaux articles ignorés</small></td>') +
           `<td><div class="row-actions"><button class="edit" data-check-site="${s.id}">Vérifier</button>` +
           `<button class="edit" data-share-site="${s.id}">Partager</button>` +
           `<button class="edit" data-edit-site="${s.id}">Modifier</button>` +

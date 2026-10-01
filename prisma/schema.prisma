@@ -296,36 +296,55 @@ model Post {
 /// et on peut y déposer des reprises. Déclaré dans la plateforme pour qu'une
 /// extension puisse choisir où publier.
 model ContentSource {
-  id              String       @id @default(cuid())
+  id              String           @id @default(cuid())
   name            String
-  originUrl       String       @unique @map("origin_url")
+  originUrl       String           @unique @map("origin_url")
   /// Clé du plugin de CE site. Vide : la clé globale WORDPRESS_API_KEY sert.
   /// Deux sites n'ont aucune raison de partager la même.
-  depositKey      String?      @map("deposit_key")
+  depositKey      String?          @map("deposit_key")
   /// Un site inactif n'est plus proposé comme destination ; ses articles et
   /// ses posts restent intacts.
-  ownerId         String?      @map("owner_id")
-  owner           User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  ownerId         String?          @map("owner_id")
+  owner           User?            @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   /// Ses articles partent vers les groupes de cette catégorie.
-  categoryId      String?      @map("category_id")
-  category        Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  status          RecordStatus @default(ACTIVE)
+  categoryId      String?          @map("category_id")
+  category        Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  status          RecordStatus     @default(ACTIVE)
   /// L'extension WordPress de ce site : la dernière vérification de sa
   /// route `dfb/v1/status`, et le dernier article qu'elle nous a envoyé.
-  pluginState     PluginState  @default(UNKNOWN) @map("plugin_state")
-  pluginVersion   String?      @map("plugin_version")
-  pluginMessage   String?      @map("plugin_message") @db.Text
-  pluginCheckedAt DateTime?    @map("plugin_checked_at")
-  lastDeliveryAt  DateTime?    @map("last_delivery_at")
+  pluginState     PluginState      @default(UNKNOWN) @map("plugin_state")
+  pluginVersion   String?          @map("plugin_version")
+  pluginMessage   String?          @map("plugin_message") @db.Text
+  pluginCheckedAt DateTime?        @map("plugin_checked_at")
+  lastDeliveryAt  DateTime?        @map("last_delivery_at")
   articles        Article[]
+  ignoredArticles IgnoredArticle[]
   access          SiteAccess[]
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([ownerId])
   @@index([categoryId])
   @@map("content_sources")
+}
+
+/// Un article reçu pendant que son site était désactivé : ignoré, et
+/// retenu comme tel. Sans cette trace, WordPress le renverrait à sa première
+/// modification et il serait créé après coup — alors que la désactivation
+/// dit précisément de ne pas le prendre.
+model IgnoredArticle {
+  id         String        @id @default(cuid())
+  sourceId   String        @map("source_id")
+  source     ContentSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  /// Même identifiant que `Article.externalId` : `wordpress:<id du post>`.
+  externalId String        @map("external_id")
+  title      String
+  reason     String
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  @@unique([sourceId, externalId])
+  @@map("ignored_articles")
 }
 
 /// Un site partagé avec un compte : il peut y déposer des reprises, sans

@@ -114,6 +114,11 @@ export class WordpressService {
    * reçu, mis à jour, reçu sans post, ou refusé. C'est là qu'on cherche
    * pourquoi un article publié sur WordPress n'a pas donné de post. */
   async publish(dto: WordpressArticleDto) {
+    // Un site désactivé : l'article est ignoré pour de bon, avant tout le
+    // reste — ni article, ni post, ni mise à jour, ni reprise refermée.
+    const ignored = await this.ignoreIfPaused(dto);
+    if (ignored) return ignored;
+
     let result: Awaited<ReturnType<WordpressService['receive']>>;
     try {
       result = await this.receive(dto);
@@ -146,6 +151,79 @@ export class WordpressService {
       });
     }
     return result;
+  }
+
+  /** Pendant qu'un site est désactivé, ses articles ne sont PAS pris, et ne
+   * le seront pas après : à la réactivation, seuls les articles suivants
+   * sont créés.
+   *
+   * La réponse est un succès pour le plugin : il marque l'article envoyé et
+   * cesse de le renvoyer. L'article est retenu comme ignoré, parce que
+   * WordPress le renverrait à sa prochaine modification — et il serait
+   * alors créé après coup.
+   *
+   * Un article déjà reçu AVANT la désactivation n'est pas mis à jour
+   * pendant la pause, mais n'est pas oublié : il reste un article du site. */
+  private async ignoreIfPaused(dto: WordpressArticleDto) {
+    let siteUrl: string;
+    try {
+      const site = new URL(dto.siteUrl);
+      siteUrl = site.origin + site.pathname.replace(/\/+$/, '');
+    } catch {
+      return null; // l'URL invalide sera refusée par la réception normale
+    }
+    const source = await this.prisma.contentSource.findUnique({
+      where: { originUrl: siteUrl },
+      select: { id: true, name: true, status: true },
+    });
+    if (!source) return null;
+    const externalId = `wordpress:${dto.postId}`;
+    const key = { sourceId_externalId: { sourceId: source.id, externalId } };
+    const known = await this.prisma.ignoredArticle.findUnique({ where: key });
+    const answer = (articleId: string, reason: string) => ({
+      articleId,
+      duplicate: false,
+      updated: false,
+      generated: 0,
+      groups: 0,
+      noPost: null as 'no_group' | 'no_category' | null,
+      synchronized: 0,
+      skipped: 0,
+      ignored: true,
+      reason,
+    });
+
+    if (known) {
+      // Ignoré pendant une pause : il le reste, même une fois le site réactivé.
+      return answer(`ignored:${known.id}`, 'ignored_while_inactive');
+    }
+    if (source.status !== 'INACTIVE') return null;
+
+    const existing = await this.prisma.article.findUnique({
+      where: key,
+      select: { id: true },
+    });
+    if (existing) {
+      await this.trace('WORDPRESS_SITE_INACTIVE', 'WARN', dto, {
+        message: `« ${dto.title} » modifié sur ${source.name}, désactivé : modification non reprise`,
+        articleId: existing.id,
+      });
+      return answer(existing.id, 'site_inactive_update_skipped');
+    }
+    const record = await this.prisma.ignoredArticle.upsert({
+      where: key,
+      create: {
+        sourceId: source.id,
+        externalId,
+        title: dto.title.slice(0, 500),
+        reason: 'site_inactive',
+      },
+      update: {},
+    });
+    await this.trace('WORDPRESS_SITE_INACTIVE', 'WARN', dto, {
+      message: `« ${dto.title} » ignoré : ${source.name} est désactivé (il ne sera pas créé, même après réactivation)`,
+    });
+    return answer(`ignored:${record.id}`, 'site_inactive');
   }
 
   private trace(

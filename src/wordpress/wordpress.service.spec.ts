@@ -119,6 +119,23 @@ function setup(stored_ingest: StoredIngest | null = null) {
     sourceIngest: {
       findUnique: jest.fn(() => Promise.resolve(stored_ingest)),
     },
+    // Le site tel que déclaré : actif sauf mention contraire.
+    contentSource: {
+      findUnique: jest.fn<Promise<{ id: string; name: string; status: string } | null>, unknown[]>(
+        () => Promise.resolve({ id: 'site', name: 'Mon site', status: 'ACTIVE' }),
+      ),
+    },
+    // Les articles ignorés pendant une pause du site.
+    ignoredArticle: {
+      findUnique: jest.fn<Promise<{ id: string } | null>, unknown[]>(() => Promise.resolve(null)),
+      upsert: jest.fn((_args: { create: Record<string, any> }) => {
+        void _args;
+        return Promise.resolve({ id: 'ign_1' });
+      }),
+    },
+    article: {
+      findUnique: jest.fn<Promise<{ id: string } | null>, unknown[]>(() => Promise.resolve(null)),
+    },
     activityLog: {
       create: jest.fn((_args: { data: Record<string, any> }) => {
         void _args;
@@ -382,6 +399,66 @@ describe('WordPress publication', () => {
       eventType: 'WORDPRESS_ARTICLE_REJECTED',
       level: 'ERROR',
     });
+  });
+
+  describe('a deactivated site', () => {
+    const paused = (prisma: any) =>
+      prisma.contentSource.findUnique.mockResolvedValue({ id: 'site', name: 'Food Time', status: 'INACTIVE' });
+
+    it('ignores a new article for good: no article, no post — but answers « received »', async () => {
+      const { service, tx, prisma } = setup();
+      paused(prisma);
+      const result: any = await service.publish(payload);
+      // Un succès : le plugin marque l'article envoyé et ne le renvoie plus.
+      expect(result).toMatchObject({ ignored: true, reason: 'site_inactive', articleId: 'ignored:ign_1' });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.article.create).not.toHaveBeenCalled();
+      expect(tx.post.create).not.toHaveBeenCalled();
+      // Retenu comme ignoré, pour ne pas le créer à sa prochaine modification.
+      expect(prisma.ignoredArticle.upsert.mock.calls[0][0].create).toMatchObject({
+        sourceId: 'site',
+        externalId: 'wordpress:42',
+        reason: 'site_inactive',
+      });
+      expect(prisma.activityLog.create.mock.calls[0][0].data).toMatchObject({
+        eventType: 'WORDPRESS_SITE_INACTIVE',
+        level: 'WARN',
+      });
+      expect(prisma.activityLog.create.mock.calls[0][0].data.message).toMatch(/ne sera pas créé, même après réactivation/);
+    });
+
+    it('does not apply an update to an article received before the pause', async () => {
+      const { service, tx, prisma } = setup();
+      paused(prisma);
+      prisma.article.findUnique.mockResolvedValue({ id: 'existing' });
+      const result: any = await service.publish({ ...payload, title: 'Titre corrigé' });
+      expect(result).toMatchObject({ ignored: true, articleId: 'existing' });
+      expect(tx.article.update).not.toHaveBeenCalled();
+      expect(tx.post.updateMany).not.toHaveBeenCalled();
+      expect(prisma.ignoredArticle.upsert).not.toHaveBeenCalled();
+    });
+
+    it('once reactivated: the NEXT articles are created normally', async () => {
+      const { service, tx } = setup();
+      await service.publish(payload);
+      expect(tx.article.create).toHaveBeenCalled();
+      expect(tx.post.create).toHaveBeenCalled();
+    });
+
+    it('once reactivated: an article ignored during the pause stays ignored, even if edited', async () => {
+      const { service, tx, prisma } = setup();
+      prisma.ignoredArticle.findUnique.mockResolvedValue({ id: 'ign_1' });
+      const result: any = await service.publish({ ...payload, title: 'Modifié après la réactivation' });
+      expect(result).toMatchObject({ ignored: true, reason: 'ignored_while_inactive' });
+      expect(tx.article.create).not.toHaveBeenCalled();
+    });
+  });
+
+  it('an unknown site is still declared and synchronised', async () => {
+    const { service, tx, prisma } = setup();
+    prisma.contentSource.findUnique.mockResolvedValue(null);
+    await service.publish(payload);
+    expect(tx.article.create).toHaveBeenCalled();
   });
 
   it('still imports when the category has no active group', async () => {

@@ -417,6 +417,23 @@ GET /api/posts/queue?categoryId=&groupId=&limit=10&publishedLimit=20
 Le tableau **En échec** montre la raison, le profil qui a essayé et le nombre
 de tentatives. Journaux : `TARGET_RETRIED`, `TARGET_FORCED`, `TARGET_REMOVED`.
 
+### Un site désactivé ne synchronise plus
+
+Tant qu'un site est **inactif** (page Sites → Modifier → État), ses articles
+sont **ignorés pour de bon** : ni article, ni post. À la réactivation, les
+articles **suivants** sont créés normalement ; ceux publiés pendant la pause
+ne le seront jamais.
+
+- L'API répond un succès (`ignored: true`) : le plugin marque l'article envoyé
+  et cesse de le renvoyer.
+- L'article ignoré est retenu (`ignored_articles`) : WordPress le renverrait à
+  sa prochaine modification, et il serait alors créé après coup. Il reste
+  ignoré, même une fois le site réactivé.
+- Un article reçu **avant** la pause n'est pas mis à jour pendant celle-ci,
+  mais reste un article du site.
+- Journal : `WORDPRESS_SITE_INACTIVE` (Synchronisation). Les reprises vers un
+  site inactif sont refusées.
+
 ### L'extension WordPress de chaque site
 
 La page **Sites** dit, site par site, si le plugin Data FB Posting est
