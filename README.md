@@ -578,6 +578,81 @@ Routes : `POST /verify/members/claim`, `POST /verify/members/:id/result`
 `PATCH /admin/verify/profiles/:id` `{ facebookUserId }` (admin). Migration :
 `20261003090000_member_moderation`.
 
+### La rubrique Modérateurs (profils protégés)
+
+Les profils **modérateurs** (vérification des publications, adhésion et
+pré-approbation de nos profils) sont **à part** et **protégés** :
+
+- seul un **administrateur de la plateforme** peut en désigner un, le
+  modifier, le désactiver, le lier ou le délier, régler son pilotage, ou lui
+  retirer le rôle ; un gestionnaire le voit en lecture seule (refus
+  « Profil modérateur : seul un administrateur… ») ;
+- ils n'apparaissent plus dans la page Profils, ni dans les actions en masse,
+  ni comme repreneurs à la désactivation d'un profil ; « Tout en auto / tout
+  arrêter » du Pilotage ne les touche pas (sauf pour un administrateur).
+
+**Rubrique `/moderateurs`** : chaque modérateur avec son état (**en ligne**
+si son extension a relu ses réglages il y a moins de 3 min, **suspendu**),
+ses chiffres du jour et de la semaine, et ce qui attend (publications à
+vérifier, à traiter, adhésions à faire). L'administrateur y **désigne** un
+modérateur.
+
+**Page `/moderateurs/<id>`** : ses chiffres (aujourd'hui, 7 j, 30 j, total —
+vérifiées, en ligne avec lien, sans lien, introuvables, en attente,
+illisibles, supprimées, suppressions impossibles, adresses retrouvées,
+adhésions acceptées, pré-approuvés, échecs), le graphe des 14 jours, ses 40
+dernières actions (avec le lien du post et l'historique), et pour
+l'administrateur :
+
+- **▶ Lancer un passage** : son extension le lance dans la minute ;
+- **Suspendre / Reprendre** : suspendu, il ne reçoit plus aucune tâche ;
+- **Réglages** : publications par passage, fréquence, adhésions et
+  pré-approbations oui/non (relus par l'extension chaque minute) ;
+- **Revérifier « à traiter »**, **Relancer les adhésions en échec**,
+  **Retirer le rôle**.
+
+Routes : `GET /moderators`, `GET /moderators/:id`,
+`PATCH /moderators/:id/settings`, `POST /moderators/:id/run|recheck|retry-members`
+(admin), et pour l'extension `POST /verify/control` (relu chaque minute).
+Journaux `MODERATOR_*`. Migration `20261003180000_moderators`. Extension
+FB Post Checker **1.3.0** requise pour les passages demandés et les réglages
+à distance.
+
+### Tester la pré-approbation : déjà faite ou pas ?
+
+Le modérateur peut **contrôler sur Facebook**, pour chacun de nos profils
+dans chacun de ses groupes, si la pré-approbation est faite :
+
+- **Contrôler (sans rien modifier)** : il ouvre la page du membre dans le
+  groupe, ouvre le menu de gestion, lit les options, le referme. **Rien n'est
+  cliqué.** « Retirer la pré-approbation » proposé = **déjà faite** ;
+  « Pré-approuver » proposé = **pas faite** ; aucun menu = pas l'option
+  (il n'est pas admin/modérateur) ; ni l'un ni l'autre = introuvable.
+- **Contrôler et corriger** : même chose, puis il pré-approuve ce qui manque.
+
+Où le lancer :
+- **un seul groupe** (premier essai) : page du profil → ligne du groupe →
+  **🔍 Tester** (ou plusieurs groupes cochés → « Tester la pré-approbation ») ;
+- **tout** : rubrique Modérateurs → **Contrôler tout** / **Contrôler et
+  corriger**. Les modérateurs actifs sont réveillés et s'y mettent dans la
+  minute (extension FB Post Checker **1.4.0**).
+
+Traçabilité : chaque constat est enregistré sur la liaison profil × groupe
+(état, date, ce qui a été vu) et écrit au journal — `MEMBER_AUDIT_REQUESTED`,
+`MEMBER_AUDIT_ALREADY`, `MEMBER_AUDIT_NOT_DONE`, `MEMBER_AUDIT_FIXED`,
+`MEMBER_AUDIT_NO_PERMISSION`, `MEMBER_AUDIT_NOT_FOUND`,
+`MEMBER_AUDIT_UNREACHABLE` — avec le libellé exact vu sur Facebook et le
+modérateur qui a regardé. La plateforme s'aligne sur Facebook : « pas faite »
+remet la pré-approbation en tâche, « déjà faite » l'enregistre. La rubrique
+Modérateurs affiche le bilan et le détail (filtres : en attente, déjà faite,
+pas faite, impossible), et la page du profil montre pour chaque groupe
+« ✓ déjà faite / ✗ pas faite — vérifié il y a … ».
+
+Routes : `POST /moderators/audit { mode, profileGroupIds?, profileId? }`
+(admin), `GET /moderators/audit`, et pour l'extension
+`POST /verify/members/audit/claim`, `POST /verify/members/audit/:id/result`.
+Migration `20261003210000_preapproval_audit`.
+
 ### Traçabilité : le lien de chaque publication et son historique
 
 Chaque publication (un post dans un groupe) garde **l'adresse de son post

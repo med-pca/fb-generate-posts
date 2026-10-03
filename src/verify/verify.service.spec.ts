@@ -196,4 +196,12 @@ describe('VerifyService', () => {
     const res = await service.claim('m', 5, null, NOW);
     expect(res.tasks[0]).toMatchObject({ postUrl: null, group: { url: 'https://facebook.com/groups/1' }, author: 'Salim' });
   });
+
+  it('un modérateur suspendu par l’admin ne reçoit rien', async () => {
+    const { service, prisma } = setup();
+    prisma.profile.findFirst.mockResolvedValueOnce({ id: 'm1', name: 'Modo', isModerator: true, status: 'ACTIVE', moderatorPaused: true });
+    const r = await service.claim('m', 5, null, NOW);
+    expect(r).toMatchObject({ tasks: [], paused: true });
+    expect(prisma.postTarget.findMany).not.toHaveBeenCalled();
+  });
 });

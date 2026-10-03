@@ -126,7 +126,7 @@ async function load() {
       api(`/groups?page=${state.page.groups}&limit=12`),
       api(`/articles?page=${state.page.articles}&limit=12`),
       api(`/posts?${postQuery}`),
-      api('/profiles?page=1&limit=100'),
+      api('/profiles?page=1&limit=100&withModerators=true'),
       api('/articles?page=1&limit=100'),
       api('/groups?page=1&limit=100'),
       api('/settings'),
@@ -420,12 +420,60 @@ async function renderProfilePage(profileId, { focusDeactivate = false } = {}) {
       `<button class="edit" type="button" data-edit-profile="${p.id}">Modifier</button>` +
       `<button class="primary" type="button" data-toggle-profile="${p.id}">Activer</button>`;
   }
+  // Un modérateur : sa vraie page est dans la rubrique Modérateurs, et seul
+  // un administrateur le modifie.
+  if (p.isModerator) {
+    $('#pd-actions').innerHTML =
+      `<button class="primary" type="button" data-goto="/moderateurs/${p.id}">🛡 Sa page modérateur</button>` +
+      (isAdminUser() ? $('#pd-actions').innerHTML : '');
+    if (!isAdminUser()) {
+      $('#pd-transfer').hidden = true;
+      $('#pp-groups').classList.add('locked');
+    }
+  }
   renderMemberships();
   await loadAddableGroups();
   if (focusDeactivate) $('#pd-transfer').scrollIntoView?.({ block: 'start' });
 }
 
 /* ── Page profil : ses groupes ──────────────────────────────────────── */
+const AUDIT_STATES = {
+  PREAPPROVED: ['join-joined', '✓ déjà faite'],
+  NOT_PREAPPROVED: ['join-failed', '✗ pas faite'],
+  NO_PERMISSION: ['join-questions', 'pas l’option'],
+  NOT_FOUND: ['join-not_joined', 'introuvable'],
+};
+/** La pré-approbation d'une liaison : ce que le dernier contrôle a vu sur
+ * Facebook, sinon ce que la plateforme croit (« non vérifié »). */
+function preApprovalCell(m) {
+  if (m.auditPending) return '<span class="chip join-requested" title="Le modérateur va regarder sur Facebook">⏳ test en cours</span>';
+  const st = AUDIT_STATES[m.preApprovalState];
+  if (st) {
+    return `<span class="chip ${st[0]}" title="${esc(m.preApprovalDetail || '')}">${st[1]}</span>` +
+      `<small>vérifié ${esc(ago(m.preApprovalCheckedAt))}</small>`;
+  }
+  return m.preApproved
+    ? '<span class="chip join-joined">oui</span><small>non vérifié sur Facebook</small>'
+    : '<span class="muted">non</span>';
+}
+/** Demander au modérateur de regarder (mode « check » : rien n'est cliqué). */
+async function requestAudit(body, button) {
+  if (button) button.disabled = true;
+  try {
+    const r = await api('/moderators/audit', { method: 'POST', body: JSON.stringify(body) });
+    notice(
+      r.requested
+        ? `${r.requested} contrôle(s) demandé(s)${r.moderators ? ' : le modérateur s’en charge dans la minute.' : ', mais aucun modérateur actif.'}`
+        : 'Rien à contrôler : le profil doit être membre du groupe et son compte Facebook connu.',
+      r.requested && r.moderators ? 'success' : 'error',
+    );
+    return r;
+  } catch (x) {
+    notice(x.message, 'error');
+    if (button) button.disabled = false;
+    return null;
+  }
+}
 function renderMemberships() {
   const pp = state.profilePage;
   const all = Array.isArray(pp.data.memberships) ? pp.data.memberships : [];
@@ -445,10 +493,13 @@ function renderMemberships() {
           `<td>${m.category ? `<span class="chip">${esc(m.category.name)}</span>` : '<span class="muted">—</span>'}</td>` +
           `<td><span class="chip ${JOIN_CLASS[m.joinStatus] || ''}">${JOIN_TEXT[m.joinStatus] || m.joinStatus}</span>` +
           (m.memberActionError ? `<small class="bad" title="${esc(m.memberActionError)}">⚠ vérificateur</small>` : '') + `</td>` +
-          `<td>${m.preApproved ? '<span class="chip join-joined">oui</span>' : '<span class="muted">non</span>'}</td>` +
+          `<td>${preApprovalCell(m)}</td>` +
           `<td>${m.waiting}</td>` +
           `<td><div class="row-actions">` +
           (m.joinStatus !== 'JOINED' ? `<button class="edit" type="button" data-pp-joined="${m.groupId}" title="Il a bien rejoint ce groupe sur Facebook">✓ rejoint</button>` : '') +
+          (m.joinStatus === 'JOINED' && isAdminUser()
+            ? `<button class="edit" type="button" data-pp-audit="${m.linkId}" ${m.auditPending ? 'disabled' : ''} title="Le modérateur regarde sur Facebook si la pré-approbation est faite, sans rien modifier">🔍 Tester</button>`
+            : '') +
           `<button class="danger" type="button" data-pp-unlink="${m.groupId}" data-name="${esc(m.name)}">Retirer</button></div></td></tr>`,
       )
       .join('') || `<tr><td colspan="7" class="empty">${all.length ? 'Aucun groupe pour ce filtre.' : 'Lié à aucun groupe : ajoutez-en ci-dessous.'}</td></tr>`;
@@ -500,6 +551,11 @@ async function ppMarkJoined(groupIds) {
   }
 }
 $('#pp-memberships').addEventListener('click', (e) => {
+  const audit = e.target.dataset.ppAudit;
+  if (audit) {
+    void requestAudit({ mode: 'check', profileGroupIds: [audit] }, e.target).then((r) => r && renderProfilePage(state.profilePage.id));
+    return;
+  }
   const unlink = e.target.dataset.ppUnlink;
   if (unlink) return void ppUnlink([unlink], `« ${e.target.dataset.name} »`);
   const joined = e.target.dataset.ppJoined;
@@ -507,6 +563,12 @@ $('#pp-memberships').addEventListener('click', (e) => {
 });
 $('#pp-unlink').onclick = () => ppUnlink([...state.profilePage.selected], `${state.profilePage.selected.size} groupe(s)`);
 $('#pp-mark-joined').onclick = () => ppMarkJoined([...state.profilePage.selected]);
+$('#pp-audit-selected').onclick = (e) => {
+  const pp = state.profilePage;
+  const ids = pp.data.memberships.filter((m) => pp.selected.has(m.groupId) && m.joinStatus === 'JOINED').map((m) => m.linkId);
+  if (!ids.length) return notice('Sélectionnez des groupes où il est membre (« Rejoint »).', 'error');
+  void requestAudit({ mode: 'check', profileGroupIds: ids }, e.target).then((r) => r && renderProfilePage(pp.id));
+};
 
 /** Les groupes qu'on peut encore lui lier, par catégorie et recherche. */
 async function loadAddableGroups() {
@@ -1064,12 +1126,12 @@ function renderRunners() {
             : '<span class="fb-missing" title="Remonté automatiquement par l’extension de publication (≥ 1.3.0) au prochain battement ; sans lui, le vérificateur ne peut ni accepter son adhésion ni le pré-approuver">⚠ compte Facebook inconnu</span>'}` +
           ` <button class="link inline-link" type="button" data-fb-id="${r.profileId}" data-current="${esc(r.facebookUserId || '')}">${r.facebookUserId ? 'modifier' : 'saisir'}</button></small></td>
         <td>${paired}</td>
-        <td><select data-runner-mode="${r.profileId}">${modes}</select><small class="${r.shouldRun ? '' : 'muted'}">${r.shouldRun ? '▶ doit publier' : '■ ' + esc(r.reason)}</small></td>
+        <td><select data-runner-mode="${r.profileId}" ${r.isModerator && state.me?.role !== 'ADMIN' ? 'disabled title="Profil modérateur : réservé aux administrateurs"' : ''}>${modes}</select><small class="${r.shouldRun ? '' : 'muted'}">${r.shouldRun ? '▶ doit publier' : '■ ' + esc(r.reason)}</small></td>
         <td>${esc(r.window)}<small>${esc(r.timezone)}</small></td>
         <td>${browser}<small>${esc(ago(r.browserSeenAt))}${r.browserMessage ? ' · ' + esc(r.browserMessage) : ''}</small></td>
         <td>${worker}<small>${esc(ago(r.lastSeenAt))}</small></td>
         <td>${r.published} publiés · ${r.failed} échecs · ${r.links} liens${r.message ? `<small>${esc(r.message)}</small>` : ''}</td>
-        <td><div class="row-actions"><button class="edit" data-runner-pair="${r.profileId}">${r.pairedAt ? 'Ré-appairer' : 'Appairer'}</button><button class="edit" data-runner-edit="${r.profileId}">Réglages</button><button class="edit" data-runner-moderator="${r.profileId}" data-on="${r.isModerator ? '1' : ''}" title="Le vérificateur ouvre les posts publiés par les autres profils, vérifie le lien, supprime et fait republier ce qui est en défaut. Il doit être administrateur des groupes.">${r.isModerator ? 'Retirer vérificateur' : 'Vérificateur'}</button></div></td>
+        <td><div class="row-actions"><button class="edit" data-runner-pair="${r.profileId}">${r.pairedAt ? 'Ré-appairer' : 'Appairer'}</button><button class="edit" data-runner-edit="${r.profileId}">Réglages</button><button class="edit admin-only" data-runner-moderator="${r.profileId}" data-on="${r.isModerator ? '1' : ''}" title="Le vérificateur ouvre les posts publiés par les autres profils, vérifie le lien, supprime et fait republier ce qui est en défaut. Il doit être administrateur des groupes.">${r.isModerator ? 'Retirer vérificateur' : 'Vérificateur'}</button></div></td>
       </tr>`;
       })
       .join('') ||
@@ -1834,6 +1896,7 @@ const ROUTES = {
   '/parametres': { view: 'settings' },
   '/comptes': { view: 'users' },
   '/actions-en-masse': { view: 'bulk' },
+  '/moderateurs': { view: 'moderators' },
 };
 /** L'adresse d'une rubrique (et, pour les posts, de son onglet). */
 function pathOf(id, tab) {
@@ -1843,7 +1906,7 @@ function pathOf(id, tab) {
 /** Mettre l'adresse à jour sans recharger : le bouton Précédent du
  * navigateur ramène à la rubrique d'avant, et un lien se partage. */
 function syncUrl(id) {
-  if (id === 'profile-page') return;
+  if (id === 'profile-page' || id === 'moderator-page') return;
   const path = pathOf(id);
   if (location.pathname.replace(/\/+$/, '') !== path.replace(/\/+$/, '') && path) {
     history.pushState({ view: id }, '', path);
@@ -1852,6 +1915,12 @@ function syncUrl(id) {
 }
 /** La rubrique que l'adresse désigne (au chargement, ou Précédent). */
 function routeFromUrl() {
+  const moderator = /^\/moderateurs\/([A-Za-z0-9_-]{6,64})\/?$/.exec(location.pathname);
+  if (moderator) {
+    view('moderator-page', { fromUrl: true });
+    void renderModeratorPage(moderator[1]);
+    return;
+  }
   const profile = /^\/profils\/([A-Za-z0-9_-]{6,64})\/?$/.exec(location.pathname);
   if (profile) {
     view('profile-page', { fromUrl: true });
@@ -1860,6 +1929,11 @@ function routeFromUrl() {
   }
   const path = (location.pathname.replace(/\/+$/, '') || '/').toLowerCase();
   const route = ROUTES[path] || ROUTES['/'];
+  // « Voir au journal » depuis les contrôles : les constats MEMBER_AUDIT_*.
+  if (route.view === 'logs' && new URLSearchParams(location.search).get('audit')) {
+    state.logFilters.search = 'MEMBER_AUDIT';
+    $('#log-search').value = 'MEMBER_AUDIT';
+  }
   if (route.view === 'posts') showPostsTab(route.tab, { fromUrl: true });
   else view(route.view, { fromUrl: true });
 }
@@ -1885,9 +1959,12 @@ function view(id, { fromUrl = false } = {}) {
     runners: 'Pilotage',
     settings: 'Paramètres',
     bulk: 'Actions en masse',
+    moderators: 'Modérateurs',
     'profile-page': 'Profil',
+    'moderator-page': 'Modérateur',
   }[id];
   if (id === 'bulk') loadBulk();
+  if (id === 'moderators') loadModerators();
   // Les journaux se relisent à chaque ouverture : une synthèse périmée
   // conduirait à décider sur l'état d'hier.
   if (id === 'logs') loadLogs();
@@ -3645,3 +3722,272 @@ async function bulkShare(action) {
 }
 $('#bs-grant').onclick = () => bulkShare('grant');
 $('#bs-revoke').onclick = () => bulkShare('revoke');
+
+/* ── Modérateurs : leur rubrique ───────────────────────────────────── */
+const isAdminUser = () => state.me?.role === 'ADMIN';
+const MOD_ROWS = [
+  ['verified', 'Publications vérifiées'],
+  ['ok', '✓ En ligne avec leur lien'],
+  ['missingLink', 'Sans le lien de l’article'],
+  ['missingPost', 'Introuvables'],
+  ['pending', 'En attente de validation'],
+  ['unreachable', 'Pages illisibles'],
+  ['deleted', 'Supprimées (sans lien)'],
+  ['deleteFailed', 'Suppressions impossibles'],
+  ['urlFound', 'Adresses retrouvées'],
+  ['approved', 'Adhésions acceptées'],
+  ['preApproved', 'Profils pré-approuvés'],
+  ['memberFailed', 'Adhésions / pré-approbations en échec'],
+];
+const BAD_ROWS = new Set(['missingLink', 'missingPost', 'deleteFailed', 'memberFailed']);
+
+function modState(settings) {
+  return (
+    (settings.online
+      ? `<span class="chip join-joined" title="Son extension a relu ses réglages ${esc(ago(settings.seenAt))}">● en ligne</span>`
+      : `<span class="chip join-not_joined" title="${settings.seenAt ? `Vu ${esc(ago(settings.seenAt))}` : 'Jamais vu : extension ≥ 1.3.0 installée et activée ?'}">○ hors ligne</span>`) +
+    (settings.paused ? ' <span class="chip join-failed">suspendu</span>' : '')
+  );
+}
+function modDue(due) {
+  return (
+    `<article><span>À vérifier</span><strong>${due.verifications}</strong><small>publications en attente du contrôle</small></article>` +
+    `<article class="failed-stat"><span>À traiter</span><strong>${due.needsAction}</strong><small>ce qu’il n’a pas pu régler</small></article>` +
+    `<article><span>Nos profils</span><strong>${due.members}</strong><small>adhésions / pré-approbations à faire</small></article>`
+  );
+}
+
+/* ── Contrôle de la pré-approbation : résultats ────────────────────── */
+async function loadAudit() {
+  let a;
+  try {
+    a = await api('/moderators/audit');
+  } catch (x) {
+    return;
+  }
+  if (!a || !a.summary || !Array.isArray(a.rows)) return;
+  state.audit = a;
+  const sm = a.summary;
+  $('#audit-summary').innerHTML =
+    `<article><span>En attente</span><strong>${sm.pending}</strong><small>le modérateur va regarder</small></article>` +
+    `<article><span>Déjà faite</span><strong>${sm.preApproved}</strong><small>vu sur Facebook ✓</small></article>` +
+    `<article class="failed-stat"><span>Pas faite</span><strong>${sm.notPreApproved}</strong><small>à pré-approuver</small></article>` +
+    `<article><span>Impossible</span><strong>${sm.noPermission + sm.notFound}</strong><small>pas l’option, ou introuvable</small></article>`;
+  renderAudit();
+  // Tant que des contrôles attendent, on relit.
+  clearTimeout(loadAudit.timer);
+  if (sm.pending && document.querySelector('#moderators.active')) loadAudit.timer = setTimeout(loadAudit, 15000);
+}
+function renderAudit() {
+  const a = state.audit;
+  if (!a) return;
+  const f = $('#audit-filter').value;
+  const text = $('#audit-search').value.trim().toLowerCase();
+  const rows = a.rows.filter(
+    (r) =>
+      (!f || (f === 'pending' ? r.pending : !r.pending && r.state === f)) &&
+      (!text || r.profile.name.toLowerCase().includes(text) || r.group.name.toLowerCase().includes(text)),
+  );
+  $('#audit-rows').innerHTML =
+    rows
+      .map((r) => {
+        const st = AUDIT_STATES[r.state];
+        const cell = r.pending
+          ? `<span class="chip join-requested">⏳ ${r.mode === 'fix' ? 'contrôle + correction' : 'contrôle'} en attente</span>`
+          : st
+            ? `<span class="chip ${st[0]}">${st[1]}</span>`
+            : '—';
+        return `<tr><td><button class="link inline-link" type="button" data-goto="/profils/${r.profile.id}">${esc(r.profile.name)}</button></td>` +
+          `<td>${r.group.url ? `<a href="${esc(r.group.url)}" target="_blank" rel="noreferrer">${esc(r.group.name)}</a>` : esc(r.group.name)}</td>` +
+          `<td>${cell}</td><td><small>${esc(r.detail || '')}</small></td><td><small>${r.checkedAt ? esc(when(r.checkedAt)) : '—'}</small></td></tr>`;
+      })
+      .join('') || '<tr><td colspan="5" class="empty">Aucun contrôle pour ce filtre. Lancez un test depuis la page d’un profil, ou « Contrôler tout ».</td></tr>';
+}
+$('#audit-filter').onchange = () => renderAudit();
+$('#audit-search').oninput = () => renderAudit();
+$('#audit-panel').addEventListener('click', async (e) => {
+  const mode = e.target.dataset.audit;
+  if (!mode) return;
+  const text = mode === 'check'
+    ? 'Contrôler la pré-approbation de TOUS nos profils dans leurs groupes ?\nLe modérateur regarde seulement : rien n’est modifié sur Facebook.'
+    : 'Contrôler puis PRÉ-APPROUVER ce qui manque, pour tous nos profils ?\nLe modérateur cliquera « Pré-approuver » là où ce n’est pas fait.';
+  if (!confirm(text)) return;
+  const r = await requestAudit({ mode }, e.target);
+  e.target.disabled = false;
+  if (r) await loadAudit();
+});
+
+async function loadModerators() {
+  void loadAudit();
+  let d;
+  try {
+    d = await api('/moderators');
+  } catch (x) {
+    notice(x.message, 'error');
+    return;
+  }
+  $('#mod-due').innerHTML = modDue(d.due);
+  $('#mod-cards').innerHTML =
+    d.moderators
+      .map((m) => {
+        const t = m.today, w = m.week;
+        return (
+          `<article class="profile-card moderator-card"><div class="card-head"><button type="button" class="person person-link" data-goto="/moderateurs/${m.id}">` +
+          `<span class="avatar moderator-avatar">🛡</span><div><h3>${esc(m.name)}</h3><p>${esc(m.externalId || 'sans identifiant')}</p></div></button>` +
+          `<span class="status">${m.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div>` +
+          `<p class="profile-health">${modState(m.settings)}</p>` +
+          `<div class="metrics profile-stats">` +
+          `<div><strong>${t.verified}</strong><span>vérifiées aujourd’hui</span></div>` +
+          `<div><strong>${w.verified}</strong><span>vérifiées (7 j)</span></div>` +
+          `<div class="${w.missingLink + w.missingPost ? 'bad' : ''}"><strong>${w.missingLink + w.missingPost}</strong><span>en défaut (7 j)</span></div>` +
+          `<div><strong>${w.deleted}</strong><span>supprimées (7 j)</span></div>` +
+          `<div><strong>${w.approved}</strong><span>adhésions (7 j)</span></div>` +
+          `<div><strong>${w.preApproved}</strong><span>pré-approuvés (7 j)</span></div>` +
+          `</div><div class="card-actions"><button class="edit" type="button" data-goto="/moderateurs/${m.id}">Ouvrir sa page</button></div></article>`
+        );
+      })
+      .join('') ||
+    `<div class="empty">Aucun modérateur.${isAdminUser() ? ' Désignez-en un ci-dessus : un profil administrateur ou modérateur de vos groupes Facebook.' : ''}</div>`;
+  // Désigner : un profil qui n'est pas encore modérateur (administrateurs).
+  const ids = new Set(d.moderators.map((m) => m.id));
+  const candidates = (state.profileOptions || []).filter((p) => !ids.has(p.id) && p.status === 'ACTIVE');
+  $('#mod-designate').innerHTML =
+    '<option value="">Désigner un modérateur…</option>' + candidates.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  $('#mod-designate-go').disabled = true;
+}
+$('#mod-designate').onchange = (e) => ($('#mod-designate-go').disabled = !e.target.value);
+$('#mod-designate-go').onclick = async () => {
+  const id = $('#mod-designate').value;
+  const name = $('#mod-designate').selectedOptions[0]?.textContent;
+  if (!id || !confirm(`Faire de « ${name} » un modérateur ?\nIl quittera la liste des profils qui publient, et seul un administrateur pourra le modifier.`)) return;
+  try {
+    await api(`/admin/verify/profiles/${id}`, { method: 'PATCH', body: JSON.stringify({ isModerator: true }) });
+    notice(`${name} est maintenant modérateur.`);
+    await load();
+    await loadModerators();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+
+function moderatorChart(days) {
+  const max = Math.max(1, ...days.map((d) => d.ok + d.problems + d.members));
+  const bars = days
+    .map((d) => {
+      const label = new Date(`${d.day}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+      return `<div class="pd-bar" title="${esc(label)} : ${d.ok} en ligne avec lien, ${d.problems} en défaut, ${d.members} adhésion(s)/pré-approbation(s)">` +
+        `<div class="pd-bar-stack"><span class="mem" style="height:${(d.members / max) * 100}%"></span><span class="fail" style="height:${(d.problems / max) * 100}%"></span><span class="pub" style="height:${(d.ok / max) * 100}%"></span></div>` +
+        `<small>${esc(label.slice(0, 2))}</small></div>`;
+    })
+    .join('');
+  return `<div class="pd-legend"><span class="pub">En ligne avec lien</span><span class="fail">En défaut</span><span class="mem">Adhésions / pré-approbations</span></div><div class="pd-bars">${bars}</div>`;
+}
+
+async function renderModeratorPage(id) {
+  state.moderatorPage = { id };
+  $('#md-title').textContent = 'Chargement…';
+  let d;
+  try {
+    d = await api(`/moderators/${id}`);
+  } catch (x) {
+    notice(x.message, 'error');
+    return;
+  }
+  state.moderatorPage.data = d;
+  const m = d.moderator, s = d.moderator.settings, admin = isAdminUser();
+  $('#md-title').textContent = m.name;
+  $('#title').textContent = m.name;
+  document.title = `PostFlow — ${m.name}`;
+  $('#md-sub').innerHTML = `MODÉRATEUR · ${m.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} ${modState(s)}${s.agent ? ` <small class="muted">${esc(s.agent)}</small>` : ''}`;
+  $('#md-lock').hidden = admin;
+  $('#md-due').innerHTML = modDue(d.due);
+  $('#md-counts').innerHTML = MOD_ROWS.map(
+    ([key, label]) =>
+      `<tr><th>${label}</th>` +
+      ['today', 'week', 'month', 'total'].map((p) => `<td class="${BAD_ROWS.has(key) && d.counts[p][key] ? 'bad' : ''}">${d.counts[p][key]}</td>`).join('') +
+      `</tr>`,
+  ).join('');
+  const f = $('#md-settings');
+  f.elements.batchSize.value = s.batchSize;
+  f.elements.everyMinutes.value = s.everyMinutes;
+  f.elements.members.checked = s.members;
+  [...f.elements].forEach((el) => (el.disabled = !admin));
+  $('#md-chart').innerHTML = moderatorChart(d.days);
+  $('#md-recent').innerHTML =
+    d.recent
+      .map((r) => {
+        const tone = r.level === 'ERROR' ? 'bad' : r.level === 'WARN' ? 'warn' : 'good';
+        return `<li class="${tone}"><b>${esc(r.message)}</b><small>${esc(when(r.at))} · ${esc(r.eventType)}</small>` +
+          (r.facebookUrl || r.postTargetId
+            ? `<div class="link-actions">${r.facebookUrl ? `<a href="${esc(r.facebookUrl)}" target="_blank" rel="noreferrer">Post Facebook ↗</a>` : ''}${r.postTargetId ? `<button type="button" data-history="${r.postTargetId}">Historique</button>` : ''}</div>`
+            : '') +
+          `</li>`;
+      })
+      .join('') || '<li>Aucune action sur 30 jours.</li>';
+  $('#md-actions').innerHTML = admin
+    ? `<button class="primary" type="button" data-mod-act="run" ${s.paused ? 'disabled title="Suspendu"' : ''}>▶ Lancer un passage</button>` +
+      `<button class="edit" type="button" data-mod-act="pause">${s.paused ? 'Reprendre' : 'Suspendre'}</button>` +
+      `<button class="edit" type="button" data-mod-act="recheck" ${d.due.needsAction ? '' : 'disabled'} title="Les publications « à traiter » repartent en vérification">↻ Revérifier « à traiter » (${d.due.needsAction})</button>` +
+      `<button class="edit" type="button" data-mod-act="retry-members" ${d.due.memberProblems ? '' : 'disabled'}>↻ Relancer les adhésions en échec (${d.due.memberProblems})</button>` +
+      `<button class="danger" type="button" data-mod-act="unset">Retirer le rôle</button>`
+    : '';
+}
+
+$('#md-actions').addEventListener('click', async (e) => {
+  const act = e.target.dataset.modAct;
+  const mp = state.moderatorPage;
+  if (!act || !mp?.data) return;
+  const m = mp.data.moderator;
+  const calls = {
+    run: () => api(`/moderators/${m.id}/run`, { method: 'POST' }),
+    pause: () => api(`/moderators/${m.id}/settings`, { method: 'PATCH', body: JSON.stringify({ paused: !m.settings.paused }) }),
+    recheck: () => api(`/moderators/${m.id}/recheck`, { method: 'POST' }),
+    'retry-members': () => api(`/moderators/${m.id}/retry-members`, { method: 'POST' }),
+    unset: () => api(`/admin/verify/profiles/${m.id}`, { method: 'PATCH', body: JSON.stringify({ isModerator: false }) }),
+  };
+  if (act === 'unset' && !confirm(`Retirer le rôle de modérateur à « ${m.name} » ?\nIl redevient un profil ordinaire.`)) return;
+  e.target.disabled = true;
+  try {
+    const r = await calls[act]();
+    notice(
+      act === 'run'
+        ? r.online
+          ? 'Passage demandé : son extension le lance dans la minute.'
+          : 'Passage demandé, mais son extension est hors ligne : il partira quand elle se reconnectera.'
+        : act === 'pause'
+          ? m.settings.paused ? 'Modérateur repris.' : 'Modérateur suspendu : il ne prend plus de tâches.'
+          : act === 'recheck'
+            ? `${r.requeued} publication(s) remise(s) en vérification.`
+            : act === 'retry-members'
+              ? `${r.requeued} adhésion(s) / pré-approbation(s) relancée(s).`
+              : `${m.name} n’est plus modérateur.`,
+    );
+    if (act === 'unset') {
+      await load();
+      history.pushState({}, '', '/moderateurs');
+      routeFromUrl();
+    } else await renderModeratorPage(m.id);
+  } catch (x) {
+    notice(x.message, 'error');
+    e.target.disabled = false;
+  }
+});
+$('#md-settings').onsubmit = async (e) => {
+  e.preventDefault();
+  const mp = state.moderatorPage;
+  const f = e.target;
+  try {
+    await api(`/moderators/${mp.id}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        batchSize: Number(f.elements.batchSize.value),
+        everyMinutes: Number(f.elements.everyMinutes.value),
+        members: f.elements.members.checked,
+      }),
+    });
+    notice('Réglages enregistrés : son extension les applique dans la minute.');
+    await renderModeratorPage(mp.id);
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};

@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
 /** Filtrer et trier les profils. */
@@ -33,6 +34,13 @@ export class QueryProfilesDto extends PaginationDto {
   @IsOptional()
   @IsString()
   categoryId?: string;
+
+  /** Inclure les modérateurs (listes de filtres) ; par défaut, ils sont à part. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  withModerators?: boolean;
 
   @ApiPropertyOptional({ enum: ['recent', 'name', 'score', 'failures', 'published'] })
   @IsOptional()

@@ -14,6 +14,7 @@ import { Prisma } from '@prisma/client';
 import { QueryProfilesDto } from './dto/query-profiles.dto';
 import { ProfileHealthService } from './profile-health.service';
 import { HEALTH_LABELS, healthOf } from './profile-health';
+import { assertMayManage } from '../auth/moderator-guard';
 
 @Injectable()
 export class ProfilesService {
@@ -54,6 +55,9 @@ export class ProfilesService {
       });
     }
     if (query.status) and.push({ status: query.status });
+    // Les modérateurs ont leur rubrique : ils ne se mêlent pas aux profils
+    // qui publient (sauf pour les listes de filtres, qui les demandent).
+    if (!query.withModerators) and.push({ isModerator: false });
     if (query.activity === 'running') and.push({ runner: { mode: { not: 'OFF' } } });
     if (query.activity === 'off') and.push({ OR: [{ runner: null }, { runner: { mode: 'OFF' } }] });
     if (query.categoryId) {
@@ -131,12 +135,15 @@ export class ProfilesService {
   /** Ce qu'un appelant peut atteindre, ou une 404. Une ressource qu'on n'a
    * pas le droit de voir est introuvable, pas interdite : répondre 403
    * confirmerait son existence. */
+  /** Atteignable ET modifiable : un profil modérateur ne se modifie que
+   * par un administrateur de la plateforme. */
   private async reachable(id: string, acting: CurrentUser | null) {
     const profile = await this.prisma.profile.findFirst({
       where: { id, ...profileWhere(scopeOf(acting)) },
-      select: { id: true },
+      select: { id: true, isModerator: true },
     });
     if (!profile) throw new NotFoundException('Profil introuvable');
+    assertMayManage(profile, acting);
     return profile;
   }
 

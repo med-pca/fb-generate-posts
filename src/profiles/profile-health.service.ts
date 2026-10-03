@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { profileWhere, scopeOf } from '../auth/scope';
 import { JobsService } from '../jobs/jobs.service';
+import { assertMayManage } from '../auth/moderator-guard';
 import { HEALTH_LABELS, HEALTH_WINDOW_DAYS, healthOf, rankCandidates } from './profile-health';
 import type { Health, HealthInput } from './profile-health';
 
@@ -218,11 +219,16 @@ export class ProfileHealthService {
       where: { profileId: id },
       orderBy: { group: { name: 'asc' } },
       select: {
+        id: true,
         status: true,
         joinStatus: true,
         joinCheckedAt: true,
         preApprovedAt: true,
         memberActionError: true,
+        auditRequestedAt: true,
+        preApprovalState: true,
+        preApprovalCheckedAt: true,
+        preApprovalDetail: true,
         group: { select: { id: true, name: true, url: true, status: true, category: { select: { id: true, name: true } } } },
       },
     });
@@ -235,6 +241,11 @@ export class ProfileHealthService {
       : [];
     const stockBy = new Map(stocks.map((s) => [s.groupId, s._count._all]));
     const memberships = links.map((l) => ({
+      linkId: l.id,
+      auditPending: Boolean(l.auditRequestedAt),
+      preApprovalState: l.preApprovalState,
+      preApprovalCheckedAt: l.preApprovalCheckedAt,
+      preApprovalDetail: l.preApprovalDetail,
       groupId: l.group.id,
       name: l.group.name,
       url: l.group.url,
@@ -312,7 +323,7 @@ export class ProfileHealthService {
       ...joined.map((j) => j.groupId),
     ]);
     const others = await this.prisma.profile.findMany({
-      where: { id: { not: id }, status: 'ACTIVE', ...profileWhere(scope) },
+      where: { id: { not: id }, status: 'ACTIVE', isModerator: false, ...profileWhere(scope) },
       select: {
         id: true,
         name: true,
@@ -371,11 +382,12 @@ export class ProfileHealthService {
    *   groupes les prennent. Les groupes où il était seul sont signalés. */
   async deactivate(id: string, transferTo: string | null | undefined, acting: CurrentUser | null, now = new Date()) {
     const profile = await this.reachable(id, acting);
+    assertMayManage(profile, acting);
     let heir: { id: string; name: string } | null = null;
     if (transferTo) {
       if (transferTo === id) throw new BadRequestException('Choisissez un AUTRE profil pour reprendre ses posts');
       heir = await this.prisma.profile.findFirst({
-        where: { id: transferTo, status: 'ACTIVE', ...profileWhere(scopeOf(acting)) },
+        where: { id: transferTo, status: 'ACTIVE', isModerator: false, ...profileWhere(scopeOf(acting)) },
         select: { id: true, name: true },
       });
       if (!heir) throw new BadRequestException('Le profil repreneur doit être actif et à vous');

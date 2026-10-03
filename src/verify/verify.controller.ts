@@ -13,7 +13,8 @@ import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
-import { MemberResultDto, ModeratorDto, ResolveDto, VerifyClaimDto, VerifyResultDto } from './dto/verify.dto';
+import { AuditResultDto, MemberResultDto, ModeratorDto, ResolveDto, VerifyClaimDto, VerifyResultDto } from './dto/verify.dto';
+import { AuditService } from './audit.service';
 import { VerifyService } from './verify.service';
 import { MembersService } from './members.service';
 
@@ -26,7 +27,22 @@ export class VerifyController {
   constructor(
     private readonly verify: VerifyService,
     private readonly members: MembersService,
+    private readonly audit: AuditService,
   ) {}
+
+  @Post('members/audit/claim')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Réserver les contrôles de pré-approbation demandés par l’admin' })
+  claimAudit(@Body() dto: VerifyClaimDto, @ActingUser() acting: CurrentUser | null) {
+    return this.audit.claim(dto.profileExternalId, dto.limit ?? 5, acting);
+  }
+
+  @Post('members/audit/:taskId/result')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Rapporter un contrôle : déjà pré-approuvé, pas fait, corrigé…' })
+  auditResult(@Param('taskId') taskId: string, @Body() dto: AuditResultDto, @ActingUser() acting: CurrentUser | null) {
+    return this.audit.report(taskId, dto, acting);
+  }
 
   @Post('members/claim')
   @HttpCode(200)

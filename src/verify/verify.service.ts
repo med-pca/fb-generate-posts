@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { postWhere, profileWhere, scopeOf } from '../auth/scope';
 import { normalizeFacebookUrl, trace } from '../trace/trace';
+import { assertMayManage, isAdmin } from '../auth/moderator-guard';
 import type { TraceKind } from '../trace/trace';
 
 /** Délai avant de vérifier un post publié : le temps que son commentaire
@@ -68,7 +69,15 @@ export class VerifyService {
   async moderator(profileExternalId: string, acting: CurrentUser | null) {
     const profile = await this.prisma.profile.findFirst({
       where: { externalId: profileExternalId, ...profileWhere(scopeOf(acting)) },
-      select: { id: true, name: true, isModerator: true, status: true },
+      select: {
+        id: true,
+        name: true,
+        isModerator: true,
+        status: true,
+        moderatorPaused: true,
+        moderatorBatch: true,
+        moderatorMembers: true,
+      },
     });
     if (!profile) throw new NotFoundException('Profil vérificateur introuvable');
     if (!profile.isModerator || profile.status !== 'ACTIVE') {
@@ -102,11 +111,15 @@ export class VerifyService {
     acting: CurrentUser | null,
     now = new Date(),
   ) {
-    await this.moderator(profileExternalId, acting);
+    const moderator = await this.moderator(profileExternalId, acting);
+    // Suspendu par l'administrateur : rien à faire.
+    if (moderator.moderatorPaused) {
+      return { tasks: [], paused: true, verifyAfterMinutes: this.verifyAfterMinutes() };
+    }
     const due = await this.prisma.postTarget.findMany({
       where: this.dueWhere(acting, now),
       orderBy: { publishedAt: 'asc' },
-      take: Math.max(1, Math.min(20, limit || 5)),
+      take: Math.max(1, Math.min(20, moderator.moderatorBatch || limit || 5)),
       select: {
         id: true,
         publishedAt: true,
@@ -484,9 +497,14 @@ export class VerifyService {
   ) {
     const profile = await this.prisma.profile.findFirst({
       where: { id: profileId, ...profileWhere(scopeOf(acting)) },
-      select: { id: true },
+      select: { id: true, isModerator: true },
     });
     if (!profile) throw new NotFoundException('Profil introuvable');
+    // Désigner ou retirer un modérateur, ou toucher à l'un d'eux : ADMIN.
+    if (patch.isModerator !== undefined && !isAdmin(acting)) {
+      throw new ForbiddenException('Seul un administrateur de la plateforme désigne les modérateurs');
+    }
+    assertMayManage(profile, acting);
     const data: Prisma.ProfileUpdateInput = {};
     if (patch.isModerator !== undefined) data.isModerator = patch.isModerator;
     if (patch.facebookUserId !== undefined) {

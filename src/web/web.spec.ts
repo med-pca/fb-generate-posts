@@ -65,6 +65,8 @@ describe('pages de la plateforme', () => {
   it('la fiche d’un profil et les actions en masse ont leur adresse', async () => {
     expect((await get('/profils/cmg1abc234xyz', 'bon-jeton')).statusCode).toBe(200);
     expect((await get('/actions-en-masse', 'bon-jeton')).statusCode).toBe(200);
+    expect((await get('/moderateurs', 'bon-jeton')).statusCode).toBe(200);
+    expect((await get('/moderateurs/cmg1abc234xyz', 'bon-jeton')).statusCode).toBe(200);
     expect((await get('/profils/cmg1abc234xyz')).headers.location).toBe('/login?next=%2Fprofils%2Fcmg1abc234xyz');
     expect((await get('/profils/%3Cscript%3E', 'bon-jeton')).statusCode).toBe(404);
   });

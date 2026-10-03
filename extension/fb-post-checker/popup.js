@@ -7,6 +7,7 @@ const RESULTS = {
   retry_later: 'à revoir plus tard',
   member_done: 'fait',
   gave_up: 'abandonné',
+  audit: 'contrôle',
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const time = (iso) => (iso ? new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '');

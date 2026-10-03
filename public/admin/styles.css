@@ -1851,3 +1851,33 @@ td.bad { color: #b42318; font-weight: 700; }
 .pick-panel .toolbar-group select { width: auto; }
 .pp-table td, .pp-table th { vertical-align: middle; }
 .pp-table td:last-child { white-space: nowrap; }
+
+/* Modérateurs. */
+.moderator-avatar { background: #ede4ff; color: #6941c6; }
+.moderator-card { border-top: 3px solid #7c3aed; }
+.pd-legend .mem::before { background: #7c3aed; }
+.pd-bar-stack .mem { background: #7c3aed; }
+.md-counts { width: 100%; font-size: 0.84rem; }
+.md-counts th { text-align: start; font-weight: 600; }
+.md-counts td { text-align: end; font-variant-numeric: tabular-nums; }
+.md-counts td.bad { color: #b42318; font-weight: 700; }
+.md-settings { display: grid; gap: 10px; }
+.md-settings label { display: grid; gap: 4px; font-size: 0.84rem; font-weight: 650; }
+.md-settings label.inline-check { display: flex; align-items: center; gap: 8px; }
+.md-settings input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; }
+.md-settings small { color: var(--muted); letter-spacing: 0; text-transform: none; }
+#md-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.locked { opacity: 0.6; pointer-events: none; }
+.md-counts tbody th {
+  padding: 10px 12px;
+  color: var(--ink);
+  background: none;
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+#audit-panel { margin-top: 18px; }
+#audit-panel .panel-head { flex-wrap: wrap; gap: 10px; }
+.pp-table td .chip + small { display: block; margin-top: 3px; color: var(--muted); font-size: 0.72rem; }

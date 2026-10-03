@@ -23,6 +23,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { InsightsModule } from './insights/insights.module';
 import { VerifyModule } from './verify/verify.module';
 import { BulkModule } from './bulk/bulk.module';
+import { ModeratorsModule } from './moderators/moderators.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { BulkModule } from './bulk/bulk.module';
     InsightsModule,
     VerifyModule,
     BulkModule,
+    ModeratorsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -15,11 +15,13 @@ export const APP_ROUTES: Record<string, AppRoute> = {
   '/parametres': { view: 'settings', title: 'Paramètres' },
   '/comptes': { view: 'users', title: 'Comptes' },
   '/actions-en-masse': { view: 'bulk', title: 'Actions en masse' },
+  '/moderateurs': { view: 'moderators', title: 'Modérateurs' },
 };
 
 /** Les pages qui portent un identifiant : la fiche d'un profil. */
 export const DYNAMIC_ROUTES: Array<{ pattern: RegExp; fastify: string; view: string }> = [
   { pattern: /^\/profils\/[a-z0-9_-]{6,64}$/i, fastify: '/profils/:id', view: 'profile-page' },
+  { pattern: /^\/moderateurs\/[a-z0-9_-]{6,64}$/i, fastify: '/moderateurs/:id', view: 'moderator-page' },
 ];
 
 /** Une adresse de la plateforme, sans barre finale ni paramètres. */

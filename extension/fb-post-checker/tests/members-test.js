@@ -90,6 +90,26 @@ const request = (id, name, state = '') => `
   const other = page('<div role="main"></div>', 'https://www.facebook.com/groups/1/user/999999/');
   check('page d’un autre membre → rien cliqué', (await other.FPM.preapproveFromMemberPage(ours)).outcome === 'unreachable', null);
 
+  // ─── Contrôle (sans rien modifier) : déjà fait, ou pas ? ────────────
+  m = memberPage(['Envoyer un message', 'Retirer la pré-approbation', 'Retirer du groupe']);
+  r = await m.p.FPM.auditPreapproval(ours);
+  check('contrôle : « déjà fait » lu dans le menu', r.outcome === 'already' && /Retirer la pré-approbation/i.test(r.detail), r);
+  check('contrôle : AUCUN clic dans le menu', m.log.length === 0, m.log);
+
+  m = memberPage(['Envoyer un message', 'Pré-approuver les publications']);
+  r = await m.p.FPM.auditPreapproval(ours);
+  check('contrôle : « pas fait » quand l’option est proposée', r.outcome === 'not_done', r);
+  check('contrôle : l’option n’est PAS cliquée', !m.log.includes('Pré-approuver les publications'), m.log);
+
+  m = memberPage(['Envoyer un message']);
+  r = await m.p.FPM.auditPreapproval(ours);
+  check('contrôle : ni l’un ni l’autre → introuvable, avec ce qui a été vu', r.outcome === 'not_found' && /Envoyer un message/.test(r.detail), r);
+
+  const bare = page('<div role="main"><h1>Salim</h1></div>', 'https://www.facebook.com/groups/1/user/100011/');
+  check('contrôle : pas de menu de gestion → pas l’option (pas admin)', (await bare.FPM.auditPreapproval(ours)).outcome === 'no_permission', null);
+  const otherMember = page('<div role="main"></div>', 'https://www.facebook.com/groups/1/user/999999/');
+  check('contrôle : page d’un autre membre → rien lu', (await otherMember.FPM.auditPreapproval(ours)).outcome === 'unreachable', null);
+
   // ─── Repli : publications en attente ───────────────────────────────
   w = page(`<div role="main">
     <div class="pending"><a href="/groups/1/user/100011/">Salim</a><p>Recette</p>

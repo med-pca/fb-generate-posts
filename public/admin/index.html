@@ -32,6 +32,7 @@
             ⚭ <span>Comptes</span></button
           ><button class="nav" data-view="runners">
             ⏻ <span>Pilotage</span></button
+          ><button class="nav" data-view="moderators">🛡 <span>Modérateurs</span></button
           ><button class="nav" data-view="bulk">⧉ <span>Actions en masse</span></button
           ><button class="nav" data-view="settings">⚙ <span>Paramètres</span></button>
         </nav>
@@ -509,12 +510,13 @@
             <div class="bulk-bar" id="pp-group-bar" hidden>
               <span id="pp-group-selected"></span>
               <button class="edit" type="button" id="pp-mark-joined">✓ Marquer « rejoint »</button>
+              <button class="edit admin-only" type="button" id="pp-audit-selected" title="Le modérateur regarde sur Facebook, sans rien modifier">🔍 Tester la pré-approbation</button>
               <button class="danger" type="button" id="pp-unlink">Retirer de ces groupes</button>
             </div>
             <div class="table-wrap"><table class="pp-table">
               <thead><tr>
                 <th class="w-check"><input type="checkbox" id="pp-check-all" aria-label="Tout sélectionner" /></th>
-                <th>Groupe</th><th>Catégorie</th><th>Adhésion</th><th>Pré-approuvé</th><th>Posts en attente</th><th></th>
+                <th>Groupe</th><th>Catégorie</th><th>Adhésion</th><th>Pré-approbation</th><th>Posts en attente</th><th></th>
               </tr></thead>
               <tbody id="pp-memberships"></tbody>
             </table></div>
@@ -621,6 +623,91 @@
               </div>
             </div>
             <div id="bs-result" class="bulk-result" hidden></div>
+          </div>
+        </section>
+
+        <!-- Les modérateurs : à part des profils qui publient, protégés
+             (seul un administrateur les modifie), avec leurs chiffres. -->
+        <section id="moderators" class="view">
+          <div class="toolbar">
+            <p>Les profils modérateurs vérifient les publications, acceptent l’adhésion de nos profils et les pré-approuvent. Seul un <b>administrateur</b> de la plateforme peut les modifier.</p>
+            <div class="toolbar-group admin-only">
+              <select id="mod-designate"><option value="">Désigner un modérateur…</option></select
+              ><button class="primary" type="button" id="mod-designate-go" disabled>Désigner</button>
+            </div>
+          </div>
+          <div class="queue-stats" id="mod-due"></div>
+          <div id="mod-cards" class="cards"></div>
+
+          <div class="panel pp-panel" id="audit-panel">
+            <div class="panel-head">
+              <div><small>TEST · TRAÇABILITÉ</small><h2>Pré-approbation de nos profils : déjà faite ou pas ?</h2></div>
+              <div class="row-actions admin-only">
+                <button class="edit" type="button" data-audit="check" title="Le modérateur ouvre la page de chaque profil dans chaque groupe et lit si c’est fait. Il ne clique rien.">🔍 Contrôler tout (sans rien modifier)</button>
+                <button class="primary" type="button" data-audit="fix" title="Même contrôle, puis il pré-approuve ce qui manque.">Contrôler et corriger</button>
+              </div>
+            </div>
+            <p class="form-help">Pour un premier essai, testez <b>un seul groupe</b> depuis la page d’un profil (bouton « Tester » sur la ligne du groupe). Chaque constat est écrit au journal (<code>MEMBER_AUDIT_*</code>) avec ce que le modérateur a vu sur Facebook.</p>
+            <div class="queue-stats" id="audit-summary"></div>
+            <div class="toolbar-group pp-add-filters">
+              <select id="audit-filter">
+                <option value="">Tous les constats</option>
+                <option value="pending">⏳ En attente du modérateur</option>
+                <option value="PREAPPROVED">✓ Déjà pré-approuvé</option>
+                <option value="NOT_PREAPPROVED">✗ Pas pré-approuvé</option>
+                <option value="NO_PERMISSION">Pas l’option (admin ?)</option>
+                <option value="NOT_FOUND">Option introuvable</option>
+              </select>
+              <input id="audit-search" type="search" placeholder="Profil ou groupe" />
+              <button class="link" type="button" data-goto="/journaux?audit=1">Voir au journal →</button>
+            </div>
+            <div class="table-wrap"><table class="pp-table">
+              <thead><tr><th>Profil</th><th>Groupe</th><th>Constat</th><th>Vu sur Facebook</th><th>Contrôlé</th></tr></thead>
+              <tbody id="audit-rows"></tbody>
+            </table></div>
+          </div>
+        </section>
+
+        <section id="moderator-page" class="view">
+          <div class="pp-head">
+            <button class="link back-link" type="button" data-goto="/moderateurs">← Tous les modérateurs</button>
+            <div class="pp-title">
+              <span class="avatar moderator-avatar" id="md-avatar">🛡</span>
+              <div>
+                <small id="md-sub">MODÉRATEUR</small>
+                <h2 id="md-title">Modérateur</h2>
+              </div>
+            </div>
+            <div class="row-actions" id="md-actions"></div>
+          </div>
+          <p class="form-help" id="md-lock" hidden>🔒 Lecture seule : seul un administrateur de la plateforme règle et pilote les modérateurs.</p>
+          <div class="queue-stats" id="md-due"></div>
+          <div class="pd-two">
+            <div class="panel pp-panel">
+              <h3 class="history-h">Ses chiffres</h3>
+              <div class="table-wrap"><table class="md-counts">
+                <thead><tr><th></th><th>Aujourd’hui</th><th>7 jours</th><th>30 jours</th><th>Total</th></tr></thead>
+                <tbody id="md-counts"></tbody>
+              </table></div>
+            </div>
+            <div class="panel pp-panel">
+              <h3 class="history-h">Réglages</h3>
+              <form id="md-settings" class="md-settings">
+                <label>Publications par passage <input name="batchSize" type="number" min="1" max="20" required /></label>
+                <label>Un passage toutes les (minutes) <input name="everyMinutes" type="number" min="2" max="240" required /></label>
+                <label class="inline-check"><input name="members" type="checkbox" /> Accepter l’adhésion de nos profils et les pré-approuver</label>
+                <small id="md-settings-help">Son extension relit ces réglages chaque minute.</small>
+                <div class="actions"><button class="primary" type="submit">Enregistrer</button></div>
+              </form>
+            </div>
+          </div>
+          <div class="panel pp-panel">
+            <h3 class="history-h">14 derniers jours</h3>
+            <div id="md-chart" class="pd-chart"></div>
+          </div>
+          <div class="panel pp-panel">
+            <h3 class="history-h">Ses dernières actions (30 jours)</h3>
+            <ol id="md-recent" class="history-events"></ol>
           </div>
         </section>
 

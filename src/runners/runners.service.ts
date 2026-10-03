@@ -10,6 +10,7 @@ import { randomInt } from 'node:crypto';
 import { BrowserState, Prisma, RunnerMode } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { scopeOf } from '../auth/scope';
+import { assertMayManage, isAdmin } from '../auth/moderator-guard';
 import { profileWhere } from '../auth/scope';
 import type { CurrentUser } from '../auth/current-user';
 import { UpdateRunnerDto } from './dto/update-runner.dto';
@@ -728,9 +729,10 @@ export class RunnersService {
   ) {
     const profile = await this.prisma.profile.findFirst({
       where: { id: profileId, ...profileWhere(scopeOf(acting)) },
-      select: { id: true, status: true },
+      select: { id: true, status: true, isModerator: true },
     });
     if (!profile) throw new NotFoundException('Profil introuvable');
+    assertMayManage(profile, acting);
 
     const patch = {
       ...(dto.mode !== undefined ? { mode: dto.mode } : {}),
@@ -765,8 +767,10 @@ export class RunnersService {
   /** Tout allumer ou tout éteindre d'un coup : ce qu'on cherche quand quelque
    * chose va mal, et qu'ouvrir vingt interrupteurs n'est pas une option. */
   async updateAll(dto: UpdateRunnerDto, acting: CurrentUser | null = null) {
+    // « Tout en auto / tout arrêter » ne touche pas aux modérateurs, sauf
+    // pour un administrateur.
     const profiles = await this.prisma.profile.findMany({
-      where: { status: 'ACTIVE', ...profileWhere(scopeOf(acting)) },
+      where: { status: 'ACTIVE', ...(isAdmin(acting) ? {} : { isModerator: false }), ...profileWhere(scopeOf(acting)) },
       select: { id: true },
     });
     for (const profile of profiles) await this.update(profile.id, dto, acting);

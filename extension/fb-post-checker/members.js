@@ -27,6 +27,8 @@
       .toLowerCase();
   const words = (list) => list.map(fold);
   const labelOf = (el) => fold(el.getAttribute('aria-label') || el.innerText || el.textContent || '');
+  // Le libellé tel que Facebook l'affiche : c'est lui qui va au journal.
+  const rawLabel = (el) => String(el.getAttribute('aria-label') || el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
 
   const APPROVE = words(['approve', 'approuver', 'accepter', 'aprobar', 'aceptar', 'aprovar', 'genehmigen', 'approva', 'onayla', 'zatwierdź', 'goedkeuren', 'موافقة', 'قبول', 'الموافقة', 'وافق']);
   const PREAPPROVE = words([
@@ -222,5 +224,39 @@
     };
   }
 
-  self.FPM = { approve, preapproveFromMemberPage, preapproveFromPending, memberIdsIn, idOfHref, fold };
+  /** CONTRÔLE, sans rien modifier : la page du membre dit-elle « déjà
+   * pré-approuvé » (option « Retirer la pré-approbation ») ou « pas fait »
+   * (option « Pré-approuver » proposée) ? Le menu est ouvert pour être lu,
+   * puis refermé ; aucune option n'est cliquée. */
+  async function auditPreapproval(member) {
+    if (unavailable()) return { outcome: 'no_permission', detail: 'page du membre indisponible' };
+    if (!location.pathname.includes(`/user/${member.facebookUserId}`)) {
+      return { outcome: 'unreachable', detail: 'la page ouverte n’est pas celle de ce membre : rien lu' };
+    }
+    const main = document.querySelector('[role="main"]') || document.body;
+    const feed = main.querySelector('[role="feed"]');
+    const triggers = buttons(main)
+      .filter((b) => !(feed && feed.contains(b)))
+      .filter((b) => b.getAttribute('aria-haspopup') === 'menu' || hasLabel(b, MANAGE))
+      .slice(0, 5);
+    if (!triggers.length) return { outcome: 'no_permission', detail: 'aucun menu de gestion sur sa page : le modérateur est-il admin/modérateur du groupe ?' };
+    const seen = [];
+    for (const t of triggers) {
+      t.click();
+      await sleep(1200);
+      const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"], [role="dialog"] [role="menuitem"], [role="listbox"] [role="option"]')];
+      const labels = items.map((i) => rawLabel(i)).filter(Boolean);
+      seen.push(...labels);
+      const already = items.find((i) => hasPhrase(i, ALREADY_PREAPPROVED));
+      const offered = items.find((i) => hasLabel(i, PREAPPROVE) && !hasPhrase(i, ALREADY_PREAPPROVED));
+      closeMenus();
+      await sleep(400);
+      if (already) return { outcome: 'already', detail: `menu : « ${rawLabel(already)} »` };
+      if (offered) return { outcome: 'not_done', detail: `menu : « ${rawLabel(offered)} » proposé, non cliqué` };
+    }
+    return { outcome: 'not_found', detail: `ni « pré-approuver » ni « retirer la pré-approbation » (vu : ${[...new Set(seen)].slice(0, 12).join(' | ') || 'rien'})` };
+  }
+
+  self.FPM = {
+    auditPreapproval, approve, preapproveFromMemberPage, preapproveFromPending, memberIdsIn, idOfHref, fold };
 })();

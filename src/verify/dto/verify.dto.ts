@@ -13,6 +13,8 @@ import {
 } from 'class-validator';
 import { VERIFY_OUTCOMES } from '../verify.service';
 import { MEMBER_KINDS, MEMBER_OUTCOMES } from '../members.service';
+import { AUDIT_OUTCOMES } from '../audit.service';
+import type { AuditOutcome } from '../audit.service';
 import type { MemberKind, MemberOutcome } from '../members.service';
 import type { VerifyOutcome } from '../verify.service';
 
@@ -111,4 +113,44 @@ export class ResolveDto {
   @ApiProperty({ enum: ['ok', 'republish'] })
   @IsIn(['ok', 'republish'])
   action!: 'ok' | 'republish';
+}
+
+/** Le constat d'un contrôle de pré-approbation. */
+export class AuditResultDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  profileExternalId!: string;
+
+  @ApiProperty({ enum: AUDIT_OUTCOMES })
+  @IsIn(AUDIT_OUTCOMES as unknown as string[])
+  outcome!: AuditOutcome;
+
+  @ApiProperty({ example: '100089123456789' })
+  @Matches(/^\d{5,20}$/)
+  facebookUserId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  detail?: string;
+}
+
+/** Demander un contrôle : `check` (regarder) ou `fix` (regarder puis corriger). */
+export class AuditRequestDto {
+  @ApiProperty({ enum: ['check', 'fix'] })
+  @IsIn(['check', 'fix'])
+  mode!: 'check' | 'fix';
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsString({ each: true })
+  profileGroupIds?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  profileId?: string;
 }

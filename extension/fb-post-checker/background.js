@@ -8,15 +8,27 @@
 importScripts('config.js');
 
 const ALARM = 'fpc-round';
+/** Chaque minute : relire ses réglages sur la plateforme (suspendu, taille
+ * de lot, fréquence, adhésions) et lancer un passage demandé par l'admin. */
+const CONTROL = 'fpc-control';
 const LOG_SIZE = 60;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function settings() {
-  const stored = await chrome.storage.local.get(['apiBase', 'apiKey', 'profileExternalId', 'enabled', 'members']);
-  return {
+  const stored = await chrome.storage.local.get(['apiBase', 'apiKey', 'profileExternalId', 'enabled', 'members', 'server']);
+  const cfg = {
     ...self.FPC_CONFIG,
     ...Object.fromEntries(Object.entries(stored).filter(([, v]) => v !== undefined && v !== '')),
   };
+  // Les réglages de la plateforme (rubrique Modérateurs) priment.
+  const server = stored.server;
+  if (server) {
+    cfg.batchSize = server.batchSize ?? cfg.batchSize;
+    cfg.everyMinutes = server.everyMinutes ?? cfg.everyMinutes;
+    if (server.members === false) cfg.members = false;
+    cfg.paused = Boolean(server.paused);
+  }
+  return cfg;
 }
 
 async function log(level, message, extra = {}) {
@@ -180,6 +192,61 @@ async function memberRound(cfg, tabId, reason) {
   return done;
 }
 
+/* ── Contrôle de la pré-approbation (demandé par l'admin) ───────────── */
+
+/** Pour chacun : ouvrir sa page de membre, lire si c'est déjà fait ou pas.
+ * En mode « fix », pré-approuver ce qui manque ; en mode « check », rien
+ * n'est cliqué. Chaque constat part à la plateforme, qui le journalise. */
+async function auditRound(cfg, tabId, reason) {
+  let claim;
+  try {
+    claim = await api(cfg, '/verify/members/audit/claim', { profileExternalId: cfg.profileExternalId, limit: cfg.batchSize });
+  } catch (err) {
+    await log('error', `Contrôle : réservation refusée : ${err.message}`);
+    return 0;
+  }
+  let done = 0;
+  for (const task of claim.tasks || []) {
+    const base = groupBase(task.group.url);
+    await setStatus({ state: 'busy', message: `Contrôle · ${task.member.name} · ${task.group.name}`, at: new Date().toISOString() });
+    let verdict;
+    try {
+      if (!base) throw new Error('adresse du groupe inconnue');
+      await open(tabId, `${base}/user/${task.member.facebookUserId}/`);
+      await sleep(cfg.settleSeconds * 1000);
+      verdict = (await inPage(tabId, (m) => self.FPM.auditPreapproval(m), [task.member])) || { outcome: 'unreachable', detail: 'page illisible' };
+      if (task.mode === 'fix' && verdict.outcome === 'not_done') {
+        const fixed = await inPage(tabId, (m) => self.FPM.preapproveFromMemberPage(m), [task.member]);
+        verdict = fixed?.outcome === 'done'
+          ? { outcome: 'fixed', detail: `${verdict.detail} → pré-approuvé` }
+          : { outcome: 'not_done', detail: `${verdict.detail} → correction impossible : ${fixed?.detail || 'page illisible'}` };
+      }
+    } catch (err) {
+      verdict = { outcome: 'unreachable', detail: `erreur : ${err.message}` };
+    }
+    try {
+      await api(cfg, `/verify/members/audit/${task.taskId}/result`, {
+        profileExternalId: cfg.profileExternalId,
+        outcome: verdict.outcome,
+        facebookUserId: task.member.facebookUserId,
+        detail: verdict.detail,
+      });
+      const LABEL = { already: 'déjà fait', not_done: 'PAS fait', fixed: 'corrigé', no_permission: 'pas l’option', not_found: 'option introuvable', unreachable: 'illisible' };
+      await log(
+        verdict.outcome === 'already' || verdict.outcome === 'fixed' ? 'ok' : verdict.outcome === 'not_done' ? 'warn' : 'error',
+        `Contrôle · ${task.member.name} · ${task.group.name} · ${LABEL[verdict.outcome] || verdict.outcome} — ${verdict.detail || ''}`,
+        { result: 'audit' },
+      );
+    } catch (err) {
+      await log('error', `Contrôle : rapport refusé (${task.group.name}) : ${err.message}`);
+    }
+    done += 1;
+    const [min, max] = cfg.pauseSeconds;
+    await sleep((min + Math.random() * (max - min)) * 1000);
+  }
+  return done;
+}
+
 let round = null;
 
 /** Un passage. Jamais deux en même temps. */
@@ -192,6 +259,10 @@ async function doRound(reason) {
   const cfg = await settings();
   if (!cfg.apiKey || !cfg.profileExternalId) {
     await setStatus({ state: 'config', message: 'Saisissez la clé d’API et l’identifiant du profil', at: new Date().toISOString() });
+    return;
+  }
+  if (cfg.paused) {
+    await setStatus({ state: 'config', message: 'Suspendu par l’administrateur (rubrique Modérateurs)', at: new Date().toISOString() });
     return;
   }
   await setStatus({ state: 'busy', message: `Passage (${reason})…`, at: new Date().toISOString() });
@@ -240,7 +311,9 @@ async function doRound(reason) {
         await sleep((min + Math.random() * (max - min)) * 1000);
       }
     }
-    if (cfg.members !== false) members = await memberRound(cfg, tab.id, reason);
+    // Les contrôles demandés par l'admin passent avant le reste des membres.
+    members += await auditRound(cfg, tab.id, reason);
+    if (cfg.members !== false) members += await memberRound(cfg, tab.id, reason);
   } finally {
     chrome.tabs.remove(tab.id).catch(() => {});
   }
@@ -255,10 +328,45 @@ async function schedule() {
   const cfg = await settings();
   await chrome.alarms.clear(ALARM);
   if (cfg.enabled) chrome.alarms.create(ALARM, { periodInMinutes: cfg.everyMinutes, delayInMinutes: 0.1 });
+  chrome.alarms.create(CONTROL, { periodInMinutes: 1, delayInMinutes: 0.05 });
+}
+
+/** Relire ses réglages ; lancer le passage demandé par l'admin. */
+async function poll() {
+  const cfg = await settings();
+  if (!cfg.apiKey || !cfg.profileExternalId) return;
+  let server;
+  try {
+    server = await api(cfg, '/verify/control', {
+      profileExternalId: cfg.profileExternalId,
+      agent: `checker ${chrome.runtime.getManifest().version}`,
+    });
+  } catch (err) {
+    await setStatus({ state: 'error', message: `Plateforme : ${err.message}`, at: new Date().toISOString() });
+    return;
+  }
+  const { server: before, lastRunRequest } = await chrome.storage.local.get(['server', 'lastRunRequest']);
+  await chrome.storage.local.set({ server });
+  if (before?.everyMinutes !== server.everyMinutes) await schedule();
+  if (server.paused) {
+    if (!round) await setStatus({ state: 'config', message: 'Suspendu par l’administrateur (rubrique Modérateurs)', at: new Date().toISOString() });
+    return;
+  }
+  // Première relecture : une ancienne demande ne relance rien.
+  if (!before) {
+    await chrome.storage.local.set({ lastRunRequest: server.runRequestedAt || null });
+    return;
+  }
+  if (server.runRequestedAt && server.runRequestedAt !== lastRunRequest) {
+    await chrome.storage.local.set({ lastRunRequest: server.runRequestedAt });
+    await log('ok', 'Passage demandé par l’administrateur');
+    runRound('demande de l’admin');
+  }
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) runRound('auto');
+  if (alarm.name === CONTROL) poll();
 });
 chrome.runtime.onInstalled.addListener(schedule);
 chrome.runtime.onStartup.addListener(schedule);

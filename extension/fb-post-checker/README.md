@@ -49,6 +49,14 @@ Pilotage montre la raison (avec les entrées de menu vues) et propose
 « Relancer ». La case « Accepter l'adhésion de nos profils… » de la fenêtre
 active ou coupe cette partie.
 
+## Piloté depuis la plateforme
+
+Chaque minute, l'extension relit ses réglages dans la rubrique
+**Modérateurs** (`POST /verify/control`) : suspendu ou non, publications par
+passage, fréquence, adhésions oui/non. Ils priment sur ceux de la fenêtre. Un
+« ▶ Lancer un passage » de l'administrateur part dans la minute. La
+plateforme voit ainsi le modérateur « en ligne ».
+
 ## Installation
 
 1. Dans le Pilotage, sur la ligne du profil : **Vérificateur**. Ce profil doit

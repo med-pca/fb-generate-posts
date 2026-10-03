@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { groupWhere, profileWhere, scopeOf, siteWhere } from '../auth/scope';
 import { AccessService } from '../access/access.service';
+import { isAdmin } from '../auth/moderator-guard';
 
 /** Le travail en masse : on gère des dizaines de profils et des centaines
  * de groupes, un par un ne tient pas. */
@@ -45,6 +46,8 @@ export class BulkService {
       where: {
         AND: [
           profileWhere(scopeOf(acting)),
+          // Les modérateurs se gèrent dans leur rubrique.
+          { isModerator: false },
           search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { externalId: { contains: search } }] } : {},
         ],
       },
@@ -66,7 +69,11 @@ export class BulkService {
       throw new BadRequestException(`Trop de liaisons d’un coup (${profileIds.length} × ${groupIds.length}) : découpez la sélection`);
     }
     const [profiles, groups] = await Promise.all([
-      this.prisma.profile.findMany({ where: { id: { in: profileIds }, ...profileWhere(scope) }, select: { id: true, name: true } }),
+      // Un modérateur n'est touché en masse que par un administrateur.
+      this.prisma.profile.findMany({
+        where: { id: { in: profileIds }, ...profileWhere(scope), ...(isAdmin(acting) ? {} : { isModerator: false }) },
+        select: { id: true, name: true },
+      }),
       this.prisma.group.findMany({ where: { id: { in: groupIds }, ...groupWhere(scope) }, select: { id: true, name: true } }),
     ]);
     const pIds = profiles.map((p) => p.id);

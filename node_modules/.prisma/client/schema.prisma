@@ -187,6 +187,18 @@ model Profile {
   /// qu'ils sont en ligne avec leur lien, et supprime ceux qui ne l'ont pas.
   /// Il doit être administrateur ou modérateur des groupes contrôlés.
   isModerator              Boolean          @default(false) @map("is_moderator")
+  /// Réglages du modérateur, pilotés depuis sa rubrique (ADMIN seulement) ;
+  /// son extension les relit chaque minute.
+  moderatorPaused          Boolean          @default(false) @map("moderator_paused")
+  /// Un passage demandé par l'admin : l'extension le lance à sa prochaine
+  /// relecture (dans la minute).
+  moderatorRunAt           DateTime?        @map("moderator_run_at")
+  moderatorBatch           Int              @default(5) @map("moderator_batch")
+  moderatorEveryMinutes    Int              @default(10) @map("moderator_every_minutes")
+  moderatorMembers         Boolean          @default(true) @map("moderator_members")
+  /// Dernière relecture par son extension : en ligne ou non.
+  moderatorSeenAt          DateTime?        @map("moderator_seen_at")
+  moderatorAgent           String?          @map("moderator_agent")
   /// L'identifiant numérique du compte Facebook de ce profil (cookie
   /// `c_user`), remonté par l'extension de publication. C'est LUI, jamais le
   /// nom, qui désigne nos profils au vérificateur : un nom se partage.
@@ -253,29 +265,39 @@ model GroupAccess {
 }
 
 model ProfileGroup {
-  id                 String       @id @default(cuid())
-  profileId          String       @map("profile_id")
-  profile            Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  groupId            String       @map("group_id")
-  group              Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  status             RecordStatus @default(ACTIVE)
-  joinStatus         JoinStatus   @default(NOT_JOINED) @map("join_status")
-  joinCheckedAt      DateTime?    @map("join_checked_at")
-  joinError          String?      @map("join_error") @db.Text
+  id                   String       @id @default(cuid())
+  profileId            String       @map("profile_id")
+  profile              Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  groupId              String       @map("group_id")
+  group                Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status               RecordStatus @default(ACTIVE)
+  joinStatus           JoinStatus   @default(NOT_JOINED) @map("join_status")
+  joinCheckedAt        DateTime?    @map("join_checked_at")
+  joinError            String?      @map("join_error") @db.Text
   /// Le vérificateur (admin/modérateur du groupe) a accepté la demande
   /// d'adhésion de ce profil.
-  memberApprovedAt   DateTime?    @map("member_approved_at")
+  memberApprovedAt     DateTime?    @map("member_approved_at")
   /// Le vérificateur a « pré-approuvé » ce profil : ses posts paraissent sans
   /// passer par la validation des modérateurs.
-  preApprovedAt      DateTime?    @map("pre_approved_at")
+  preApprovedAt        DateTime?    @map("pre_approved_at")
   /// Le dernier essai du vérificateur, et pourquoi il a échoué.
-  memberActionError  String?      @map("member_action_error") @db.Text
-  memberActionAt     DateTime?    @map("member_action_at")
+  memberActionError    String?      @map("member_action_error") @db.Text
+  memberActionAt       DateTime?    @map("member_action_at")
   /// Réservé par un vérificateur jusqu'à cette heure (ou repoussé).
-  memberClaimedUntil DateTime?    @map("member_claimed_until")
-  memberAttempts     Int          @default(0) @map("member_attempts")
-  createdAt          DateTime     @default(now()) @map("created_at")
-  updatedAt          DateTime     @updatedAt @map("updated_at")
+  memberClaimedUntil   DateTime?    @map("member_claimed_until")
+  memberAttempts       Int          @default(0) @map("member_attempts")
+  /// Contrôle de la pré-approbation demandé par l'admin : `check` = regarder
+  /// sans rien cliquer, `fix` = regarder puis pré-approuver ce qui manque.
+  auditRequestedAt     DateTime?    @map("audit_requested_at")
+  auditMode            String?      @map("audit_mode")
+  auditClaimedUntil    DateTime?    @map("audit_claimed_until")
+  /// Ce que le dernier contrôle a vu sur Facebook : PREAPPROVED,
+  /// NOT_PREAPPROVED, NO_PERMISSION, NOT_FOUND.
+  preApprovalState     String?      @map("pre_approval_state")
+  preApprovalCheckedAt DateTime?    @map("pre_approval_checked_at")
+  preApprovalDetail    String?      @map("pre_approval_detail") @db.Text
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
 
   @@unique([profileId, groupId])
   @@index([groupId, status])

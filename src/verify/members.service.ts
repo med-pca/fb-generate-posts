@@ -70,6 +70,8 @@ export class MembersService {
 
   async claim(profileExternalId: string, limit: number, acting: CurrentUser | null, now = new Date()) {
     const moderator = await this.verify.moderator(profileExternalId, acting);
+    // Suspendu, ou adhésions coupées par l'administrateur.
+    if (moderator.moderatorPaused || moderator.moderatorMembers === false) return { tasks: [] };
     const due = await this.prisma.profileGroup.findMany({
       where: this.dueWhere(acting, moderator.id, now),
       orderBy: { updatedAt: 'asc' },
@@ -122,7 +124,7 @@ export class MembersService {
     // Le garde-fou : l'extension doit avoir agi sur NOTRE profil. Un rapport
     // pour un autre identifiant est refusé et signalé.
     if (!row.profile.facebookUserId || row.profile.facebookUserId !== input.facebookUserId) {
-      await this.log(row, 'MEMBER_MISMATCH', 'ERROR', `Rapport refusé : l’identifiant ${input.facebookUserId} n’est pas celui de « ${row.profile.name} »`, moderator.name);
+      await this.log(row, 'MEMBER_MISMATCH', 'ERROR', `Rapport refusé : l’identifiant ${input.facebookUserId} n’est pas celui de « ${row.profile.name} »`, moderator);
       throw new ForbiddenException('Cet identifiant Facebook n’est pas celui de ce profil');
     }
     const detail = (input.detail || '').slice(0, 1000);
@@ -144,7 +146,7 @@ export class MembersService {
           input.kind === 'approve'
             ? `Adhésion de « ${row.profile.name} » acceptée dans « ${row.group.name} »${input.outcome === 'already' ? ' (déjà membre)' : ''}`
             : `« ${row.profile.name} » pré-approuvé dans « ${row.group.name} » : ses posts paraissent sans validation${input.outcome === 'already' ? ' (déjà le cas)' : ''}`,
-          moderator.name,
+          moderator,
         ),
       ]);
       return { taskId, result: 'done' };
@@ -175,7 +177,7 @@ export class MembersService {
         attempts >= MAX_ATTEMPTS ? 'ERROR' : 'WARN',
         `${input.kind === 'approve' ? 'Adhésion' : 'Pré-approbation'} de « ${row.profile.name} » dans « ${row.group.name} » : ${reason}` +
           (attempts >= MAX_ATTEMPTS ? ` (abandon après ${MAX_ATTEMPTS} essais)` : ''),
-        moderator.name,
+        moderator,
         { detail },
       ),
     ]);
@@ -187,11 +189,19 @@ export class MembersService {
     eventType: string,
     level: 'INFO' | 'WARN' | 'ERROR',
     message: string,
-    by: string,
+    moderator: { id: string; name: string },
     extra: Record<string, unknown> = {},
   ) {
+    // `moderatorId` : ce que la rubrique Modérateurs compte pour lui.
     return this.prisma.activityLog.create({
-      data: { profileId: row.profileId, groupId: row.groupId, eventType, level, message, metadata: { by, ...extra } },
+      data: {
+        profileId: row.profileId,
+        groupId: row.groupId,
+        eventType,
+        level,
+        message,
+        metadata: { by: moderator.name, moderatorId: moderator.id, ...extra },
+      },
     });
   }
 

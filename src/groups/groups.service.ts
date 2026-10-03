@@ -15,6 +15,7 @@ import {
   profileWhere,
   scopeOf,
 } from '../auth/scope';
+import { assertMayManage } from '../auth/moderator-guard';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -160,9 +161,10 @@ export class GroupsService {
   private async reachableProfile(id: string, acting: CurrentUser | null) {
     const profile = await this.prisma.profile.findFirst({
       where: { id, ...profileWhere(scopeOf(acting)) },
-      select: { id: true },
+      select: { id: true, isModerator: true },
     });
     if (!profile) throw new NotFoundException('Profil introuvable');
+    assertMayManage(profile, acting);
     return profile;
   }
 

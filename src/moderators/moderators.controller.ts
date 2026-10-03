@@ -1,0 +1,108 @@
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { ApiHeader, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { AdminAuthGuard } from '../auth/admin-auth.guard';
+import { AdminRoleGuard } from '../auth/admin-role.guard';
+import { AutomationAuthGuard } from '../auth/automation-auth.guard';
+import { ActingUser } from '../auth/current-user';
+import type { CurrentUser } from '../auth/current-user';
+import { AuditRequestDto, VerifyClaimDto } from '../verify/dto/verify.dto';
+import { AuditService } from '../verify/audit.service';
+import { Query } from '@nestjs/common';
+import { ModeratorsService } from './moderators.service';
+
+export class ModeratorSettingsDto {
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() paused?: boolean;
+  @ApiPropertyOptional({ minimum: 1, maximum: 20 }) @IsOptional() @IsInt() @Min(1) @Max(20) batchSize?: number;
+  @ApiPropertyOptional({ minimum: 2, maximum: 240 }) @IsOptional() @IsInt() @Min(2) @Max(240) everyMinutes?: number;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() members?: boolean;
+}
+
+export class ModeratorControlDto extends VerifyClaimDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200) agent?: string;
+}
+
+/** La rubrique Modérateurs : lecture pour tous les comptes connectés (leur
+ * périmètre), réglages et actions pour les administrateurs seulement. */
+@ApiTags('moderators')
+@UseGuards(AdminAuthGuard)
+@Controller('moderators')
+export class ModeratorsController {
+  constructor(
+    private readonly moderators: ModeratorsService,
+    private readonly audit: AuditService,
+  ) {}
+
+  @Post('audit')
+  @HttpCode(200)
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Contrôler la pré-approbation de nos profils (tous, un profil, ou des liaisons précises) (admin)' })
+  requestAudit(@Body() dto: AuditRequestDto, @ActingUser() acting: CurrentUser) {
+    return this.audit.request(dto, acting);
+  }
+
+  @Get('audit')
+  @ApiOperation({ summary: 'Résultats des contrôles de pré-approbation' })
+  auditResults(@ActingUser() acting: CurrentUser, @Query('profileId') profileId?: string) {
+    return this.audit.results(acting, profileId);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Les modérateurs, leur état et leurs chiffres' })
+  list(@ActingUser() acting: CurrentUser) {
+    return this.moderators.list(acting);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Un modérateur : chiffres, 14 jours, dernières actions' })
+  detail(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.moderators.detail(id, acting);
+  }
+
+  @Patch(':id/settings')
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Régler un modérateur : suspendre, taille de lot, fréquence, adhésions (admin)' })
+  settings(@Param('id') id: string, @Body() dto: ModeratorSettingsDto, @ActingUser() acting: CurrentUser) {
+    return this.moderators.updateSettings(id, dto, acting);
+  }
+
+  @Post(':id/run')
+  @HttpCode(200)
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Lancer un passage maintenant (admin)' })
+  run(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.moderators.run(id, acting);
+  }
+
+  @Post(':id/recheck')
+  @HttpCode(200)
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Remettre en vérification les publications « à traiter » (admin)' })
+  recheck(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.moderators.recheck(id, acting);
+  }
+
+  @Post(':id/retry-members')
+  @HttpCode(200)
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Relancer les adhésions / pré-approbations abandonnées (admin)' })
+  retryMembers(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.moderators.retryMembers(id, acting);
+  }
+}
+
+/** Côté terrain : l'extension du modérateur relit ses réglages. */
+@ApiTags('moderators')
+@ApiHeader({ name: 'X-API-Key', required: true })
+@UseGuards(AutomationAuthGuard)
+@Controller('verify')
+export class ModeratorControlController {
+  constructor(private readonly moderators: ModeratorsService) {}
+
+  @Post('control')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Réglages du modérateur et passage demandé (relu chaque minute par l’extension)' })
+  control(@Body() dto: ModeratorControlDto, @ActingUser() acting: CurrentUser | null) {
+    return this.moderators.control(dto.profileExternalId, dto.agent, acting);
+  }
+}
