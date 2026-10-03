@@ -1915,6 +1915,7 @@ const ROUTES = {
   '/comptes': { view: 'users' },
   '/actions-en-masse': { view: 'bulk' },
   '/moderateurs': { view: 'moderators' },
+  '/pre-approbations': { view: 'preapprovals' },
 };
 /** L'adresse d'une rubrique (et, pour les posts, de son onglet). */
 function pathOf(id, tab) {
@@ -1980,11 +1981,13 @@ function view(id, { fromUrl = false } = {}) {
     settings: 'Paramètres',
     bulk: 'Actions en masse',
     moderators: 'Modérateurs',
+    preapprovals: 'Pré-approbations',
     'profile-page': 'Profil',
     'moderator-page': 'Modérateur',
   }[id];
   if (id === 'bulk') loadBulk();
   if (id === 'moderators') loadModerators();
+  if (id === 'preapprovals') loadPreapprovals();
   // Les journaux se relisent à chaque ouverture : une synthèse périmée
   // conduirait à décider sur l'état d'hier.
   if (id === 'logs') loadLogs();
@@ -3745,6 +3748,7 @@ $('#bs-revoke').onclick = () => bulkShare('revoke');
 
 /* ── Modérateurs : leur rubrique ───────────────────────────────────── */
 const isAdminUser = () => state.me?.role === 'ADMIN';
+// Deux missions, deux tableaux : les posts, et nos profils.
 const MOD_ROWS = [
   ['verified', 'Publications vérifiées'],
   ['ok', '✓ En ligne avec leur lien'],
@@ -3755,9 +3759,11 @@ const MOD_ROWS = [
   ['deleted', 'Supprimées (sans lien)'],
   ['deleteFailed', 'Suppressions impossibles'],
   ['urlFound', 'Adresses retrouvées'],
-  ['approved', 'Adhésions acceptées'],
-  ['preApproved', 'Profils pré-approuvés'],
-  ['memberFailed', 'Adhésions / pré-approbations en échec'],
+];
+const MOD_MEMBER_ROWS = [
+  ['approved', '✓ Adhésions acceptées'],
+  ['preApproved', '✓ Profils pré-approuvés'],
+  ['memberFailed', 'Échecs (adhésion / pré-approbation)'],
 ];
 const BAD_ROWS = new Set(['missingLink', 'missingPost', 'deleteFailed', 'memberFailed']);
 
@@ -3984,20 +3990,25 @@ async function renderModeratorPage(id) {
   $('#md-sub').innerHTML = `MODÉRATEUR · ${m.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} ${modState(s)}${s.agent ? ` <small class="muted">${esc(s.agent)}</small>` : ''}`;
   $('#md-lock').hidden = admin;
   $('#md-due').innerHTML = modDue(d.due);
-  $('#md-counts').innerHTML = MOD_ROWS.map(
-    ([key, label]) =>
-      `<tr><th>${label}</th>` +
-      ['today', 'week', 'month', 'total'].map((p) => `<td class="${BAD_ROWS.has(key) && d.counts[p][key] ? 'bad' : ''}">${d.counts[p][key]}</td>`).join('') +
-      `</tr>`,
-  ).join('');
+  const countRows = (rows) =>
+    rows
+      .map(
+        ([key, label]) =>
+          `<tr><th>${label}</th>` +
+          ['today', 'week', 'month', 'total'].map((p) => `<td class="${BAD_ROWS.has(key) && d.counts[p][key] ? 'bad' : ''}">${d.counts[p][key]}</td>`).join('') +
+          `</tr>`,
+      )
+      .join('');
+  $('#md-counts').innerHTML = countRows(MOD_ROWS);
+  $('#md-counts-members').innerHTML = countRows(MOD_MEMBER_ROWS);
   const f = $('#md-settings');
   f.elements.batchSize.value = s.batchSize;
   f.elements.everyMinutes.value = s.everyMinutes;
   f.elements.members.checked = s.members;
   [...f.elements].forEach((el) => (el.disabled = !admin));
   $('#md-chart').innerHTML = moderatorChart(d.days);
-  $('#md-recent').innerHTML =
-    d.recent
+  const recentList = (rows) =>
+    rows
       .map((r) => {
         const tone = r.level === 'ERROR' ? 'bad' : r.level === 'WARN' ? 'warn' : 'good';
         return `<li class="${tone}"><b>${esc(r.message)}</b><small>${esc(when(r.at))} · ${esc(r.eventType)}</small>` +
@@ -4007,8 +4018,11 @@ async function renderModeratorPage(id) {
           `</li>`;
       })
       .join('') || '<li>Aucune action sur 30 jours.</li>';
+  $('#md-recent').innerHTML = recentList(d.recent.filter((r) => !r.eventType.startsWith('MEMBER_')));
+  $('#md-recent-members').innerHTML = recentList(d.recent.filter((r) => r.eventType.startsWith('MEMBER_')));
   $('#md-actions').innerHTML = admin
-    ? `<button class="primary" type="button" data-mod-act="run" ${s.paused ? 'disabled title="Suspendu"' : ''}>▶ Lancer un passage</button>` +
+    ? `<button class="primary" type="button" data-mod-act="run" ${s.paused ? 'disabled title="Suspendu"' : ''}>▶ Vérifier les posts</button>` +
+      `<button class="primary violet" type="button" data-mod-act="run-members" ${s.paused || !s.members ? 'disabled title="Suspendu, ou tâches profils désactivées"' : ''}>▶ Lancer les tâches profils</button>` +
       `<button class="edit" type="button" data-mod-act="pause">${s.paused ? 'Reprendre' : 'Suspendre'}</button>` +
       `<button class="edit" type="button" data-mod-act="recheck" ${d.due.needsAction ? '' : 'disabled'} title="Les publications « à traiter » repartent en vérification">↻ Revérifier « à traiter » (${d.due.needsAction})</button>` +
       `<button class="edit" type="button" data-mod-act="retry-members" ${d.due.memberProblems ? '' : 'disabled'}>↻ Relancer les adhésions en échec (${d.due.memberProblems})</button>` +
@@ -4022,7 +4036,8 @@ $('#md-actions').addEventListener('click', async (e) => {
   if (!act || !mp?.data) return;
   const m = mp.data.moderator;
   const calls = {
-    run: () => api(`/moderators/${m.id}/run`, { method: 'POST' }),
+    run: () => api(`/moderators/${m.id}/run`, { method: 'POST', body: JSON.stringify({ kind: 'posts' }) }),
+    'run-members': () => api(`/moderators/${m.id}/run`, { method: 'POST', body: JSON.stringify({ kind: 'members' }) }),
     pause: () => api(`/moderators/${m.id}/settings`, { method: 'PATCH', body: JSON.stringify({ paused: !m.settings.paused }) }),
     recheck: () => api(`/moderators/${m.id}/recheck`, { method: 'POST' }),
     'retry-members': () => api(`/moderators/${m.id}/retry-members`, { method: 'POST' }),
@@ -4033,10 +4048,9 @@ $('#md-actions').addEventListener('click', async (e) => {
   try {
     const r = await calls[act]();
     notice(
-      act === 'run'
-        ? r.online
-          ? 'Passage demandé : son extension le lance dans la minute.'
-          : 'Passage demandé, mais son extension est hors ligne : il partira quand elle se reconnectera.'
+      act === 'run' || act === 'run-members'
+        ? `${act === 'run' ? 'Vérification des posts' : 'Tâches « nos profils »'} demandée(s) : ` +
+          (r.online ? 'son extension s’y met dans la minute.' : 'son extension est hors ligne, elles partiront quand elle se reconnectera.')
         : act === 'pause'
           ? m.settings.paused ? 'Modérateur repris.' : 'Modérateur suspendu : il ne prend plus de tâches.'
           : act === 'recheck'
@@ -4074,3 +4088,172 @@ $('#md-settings').onsubmit = async (e) => {
     notice(x.message, 'error');
   }
 };
+
+/* ── Pré-approbations : nos profils × groupes ──────────────────────── */
+state.pa = { state: 'todo', profileId: '', search: '', selected: new Set(), data: null };
+const PA_STATES = [
+  ['todo', '✗ À pré-approuver'],
+  ['requested', '⏳ Demandé'],
+  ['failed', '⚠ En échec'],
+  ['done', '✓ Déjà pré-approuvé'],
+  ['blocked', 'Compte Facebook inconnu'],
+  ['all', 'Tous'],
+];
+const PA_CHIP = {
+  todo: ['join-not_joined', 'pas pré-approuvé'],
+  requested: ['join-requested', '⏳ demandé au modérateur'],
+  failed: ['join-failed', '⚠ échec'],
+  done: ['join-joined', '✓ pré-approuvé'],
+  blocked: ['join-questions', 'compte Facebook inconnu'],
+};
+const dateFr = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '');
+
+async function loadPreapprovals() {
+  const pa = state.pa;
+  const q = new URLSearchParams({ state: pa.state });
+  if (pa.profileId) q.set('profileId', pa.profileId);
+  if (pa.search) q.set('search', pa.search);
+  try {
+    pa.data = await api(`/moderators/preapprovals?${q}`);
+  } catch (x) {
+    notice(x.message, 'error');
+    return;
+  }
+  if (!pa.data || !Array.isArray(pa.data.rows)) return;
+  // Une sélection ne garde que ce qui est encore affiché.
+  const visible = new Set(pa.data.rows.map((r) => r.linkId));
+  for (const id of [...pa.selected]) if (!visible.has(id)) pa.selected.delete(id);
+  renderPreapprovals();
+}
+
+function renderPreapprovals() {
+  const pa = state.pa, d = pa.data;
+  if (!d) return;
+  const select = $('#pa-profile');
+  select.innerHTML =
+    '<option value="">Tous les profils (récents d’abord)</option>' +
+    d.profiles
+      .map((p) => `<option value="${p.id}">${esc(p.name)} — ajouté le ${dateFr(p.createdAt)} · ${p.todo} à faire${p.facebookKnown ? '' : ' · ⚠ compte Facebook inconnu'}</option>`)
+      .join('');
+  select.value = pa.profileId;
+  $('#pa-states').innerHTML = PA_STATES.map(
+    ([key, label]) =>
+      `<button class="subtab ${pa.state === key ? 'active' : ''}" type="button" data-pa-state="${key}">${label}` +
+      (key !== 'all' && d.counts[key] !== undefined ? ` <span class="badge ${key === 'failed' || key === 'blocked' ? 'error' : ''}">${d.counts[key]}</span>` : '') +
+      `</button>`,
+  ).join('');
+  let lastProfile = null;
+  const admin = isAdminUser();
+  $('#pa-rows').innerHTML =
+    d.rows
+      .map((r) => {
+        let header = '';
+        if (r.profile.id !== lastProfile) {
+          lastProfile = r.profile.id;
+          const mine = d.rows.filter((x) => x.profile.id === r.profile.id);
+          header =
+            `<tr class="pa-profile"><td class="w-check"><input type="checkbox" data-pa-profile="${r.profile.id}" ${mine.every((x) => pa.selected.has(x.linkId)) ? 'checked' : ''} aria-label="Tout ${esc(r.profile.name)}"></td>` +
+            `<td colspan="5"><button class="link inline-link" type="button" data-goto="/profils/${r.profile.id}"><b>${esc(r.profile.name)}</b></button>` +
+            ` <small>ajouté le ${dateFr(r.profile.createdAt)} · ${mine.length} groupe(s) ici${r.profile.facebookKnown ? '' : ' · ⚠ compte Facebook inconnu : à saisir dans le Pilotage'}</small></td></tr>`;
+        }
+        const chip = PA_CHIP[r.state] || ['', r.state];
+        const detail =
+          r.state === 'failed'
+            ? `${esc(r.error)} <small>${esc(when(r.errorAt))} · ${r.attempts} essai(s)</small>`
+            : r.state === 'done'
+              ? `le ${esc(when(r.preApprovedAt))}`
+              : r.state === 'requested'
+                ? `demandé ${esc(ago(r.requestedAt))}`
+                : r.audit
+                  ? `dernier contrôle : ${esc(r.audit.detail || r.audit.state)} <small>${esc(ago(r.audit.at))}</small>`
+                  : '';
+        const can = r.state === 'todo' || r.state === 'failed';
+        return (
+          header +
+          `<tr><td class="w-check"><input type="checkbox" data-pa-select="${r.linkId}" ${pa.selected.has(r.linkId) ? 'checked' : ''} ${r.state === 'blocked' ? 'disabled' : ''}></td>` +
+          `<td>${r.group.url ? `<a href="${esc(r.group.url)}" target="_blank" rel="noreferrer">${esc(r.group.name)}</a>` : esc(r.group.name)}</td>` +
+          `<td>${r.group.category ? `<span class="chip">${esc(r.group.category.name)}</span>` : '<span class="muted">—</span>'}</td>` +
+          `<td><span class="chip ${chip[0]}">${chip[1]}</span>${r.auditPending ? ' <span class="chip join-requested">🔍 test en cours</span>' : ''}</td>` +
+          `<td class="pa-detail">${detail}</td>` +
+          `<td><div class="row-actions">` +
+          (admin && can ? `<button class="edit" type="button" data-pa-one="${r.linkId}">★ Pré-approuver</button>` : '') +
+          (admin && r.state !== 'blocked' && !r.auditPending ? `<button class="edit" type="button" data-pa-test="${r.linkId}" title="Regarder sur Facebook, sans rien modifier">🔍</button>` : '') +
+          `</div></td></tr>`
+        );
+      })
+      .join('') || '<tr><td colspan="6" class="empty">Rien pour ce filtre.</td></tr>';
+  $('#pa-selected').textContent = `${pa.selected.size} sélectionné(s)`;
+  $('#pa-go').disabled = $('#pa-audit').disabled = !pa.selected.size;
+  $('#pa-go').textContent = pa.selected.size ? `★ Pré-approuver la sélection (${pa.selected.size})` : '★ Pré-approuver la sélection';
+  $('#pa-count').textContent = d.total > d.rows.length ? `${d.rows.length} affichés sur ${d.total} : affinez avec le profil ou la recherche.` : `${d.total} ligne(s).`;
+}
+
+$('#pa-states').addEventListener('click', (e) => {
+  const st = e.target.closest('[data-pa-state]')?.dataset.paState;
+  if (!st) return;
+  state.pa.state = st;
+  state.pa.selected.clear();
+  loadPreapprovals();
+});
+$('#pa-profile').onchange = (e) => {
+  state.pa.profileId = e.target.value;
+  state.pa.selected.clear();
+  loadPreapprovals();
+};
+$('#pa-search').onchange = (e) => {
+  state.pa.search = e.target.value.trim();
+  loadPreapprovals();
+};
+$('#pa-refresh').onclick = () => loadPreapprovals();
+$('#pa-rows').addEventListener('change', (e) => {
+  const pa = state.pa;
+  const one = e.target.dataset.paSelect;
+  const profile = e.target.dataset.paProfile;
+  if (one) e.target.checked ? pa.selected.add(one) : pa.selected.delete(one);
+  if (profile) {
+    for (const r of pa.data.rows) if (r.profile.id === profile && r.state !== 'blocked') e.target.checked ? pa.selected.add(r.linkId) : pa.selected.delete(r.linkId);
+  }
+  renderPreapprovals();
+});
+$('#pa-all').onclick = () => {
+  for (const r of state.pa.data?.rows || []) if (r.state !== 'blocked') state.pa.selected.add(r.linkId);
+  renderPreapprovals();
+};
+$('#pa-none').onclick = () => {
+  state.pa.selected.clear();
+  renderPreapprovals();
+};
+async function paRequest(ids, button) {
+  const r = await requestMembers({ kind: 'preapprove', profileGroupIds: ids }, button);
+  if (!r) return;
+  const box = $('#pa-result');
+  box.hidden = false;
+  box.innerHTML =
+    `<b>★ ${r.requested} pré-approbation(s) demandée(s) au modérateur.</b>` +
+    (r.moderators ? '<small>Il s’y met dans la minute : l’état passe à « ⏳ demandé », puis « ✓ pré-approuvé » ou « ⚠ échec » avec la raison.</small>' : '<small class="bad">⚠ Aucun modérateur ne peut le faire (aucun désigné, suspendu, ou tâches profils désactivées).</small>') +
+    (r.blocked.noFacebookId ? `<small class="bad">${r.blocked.noFacebookId} impossible(s) : compte Facebook inconnu (${r.blocked.profiles.map(esc).join(', ')}).</small>` : '');
+  state.pa.selected.clear();
+  await loadPreapprovals();
+}
+$('#pa-go').onclick = (e) => {
+  const n = state.pa.selected.size;
+  if (!confirm(`Demander au modérateur de pré-approuver ${n} profil(s) × groupe(s) ?`)) return;
+  void paRequest([...state.pa.selected], e.target);
+};
+$('#pa-audit').onclick = async (e) => {
+  const r = await requestAudit({ mode: 'check', profileGroupIds: [...state.pa.selected] }, e.target);
+  e.target.disabled = false;
+  if (r) {
+    state.pa.selected.clear();
+    await loadPreapprovals();
+  }
+};
+$('#pa-rows').addEventListener('click', async (e) => {
+  const one = e.target.dataset.paOne;
+  if (one) return void paRequest([one], e.target);
+  const test = e.target.dataset.paTest;
+  if (test) {
+    const r = await requestAudit({ mode: 'check', profileGroupIds: [test] }, e.target);
+    if (r) await loadPreapprovals();
+  }
+});

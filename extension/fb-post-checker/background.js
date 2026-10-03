@@ -1,9 +1,13 @@
-/* FB Post Checker — le tour du vérificateur.
+/* Modérateur · PostFlow — deux missions SÉPARÉES, chacune avec son état,
+ * ses compteurs du jour et son historique :
  *
- * Toutes les N minutes (si activé) : demander à la plateforme un lot de
- * publications à contrôler, ouvrir chacune dans un onglet, lire la page,
- * supprimer celles qui sont en ligne SANS le lien, et rapporter. C'est la
- * plateforme qui décide ensuite : vérifié, republié, ou à traiter.
+ *   - « posts »   : rouvrir les posts publiés, vérifier le lien, supprimer
+ *                   ceux qui n'en ont pas ; la plateforme republie ;
+ *   - « members » : nos profils dans les groupes — contrôles demandés par
+ *                   l'admin, adhésions à accepter, pré-approbations.
+ *
+ * Chacune se lance seule (bouton, demande de l'admin) ou automatiquement
+ * selon son interrupteur. Jamais deux en même temps : elles se suivent.
  */
 importScripts('config.js');
 
@@ -14,8 +18,12 @@ const CONTROL = 'fpc-control';
 const LOG_SIZE = 60;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** La mission en cours : ses journaux et son état vont dans sa rubrique. */
+let currentCat = 'posts';
+const today = () => new Date().toISOString().slice(0, 10);
+
 async function settings() {
-  const stored = await chrome.storage.local.get(['apiBase', 'apiKey', 'profileExternalId', 'enabled', 'members', 'server']);
+  const stored = await chrome.storage.local.get(['apiBase', 'apiKey', 'profileExternalId', 'enabled', 'members', 'posts', 'server']);
   const cfg = {
     ...self.FPC_CONFIG,
     ...Object.fromEntries(Object.entries(stored).filter(([, v]) => v !== undefined && v !== '')),
@@ -31,19 +39,42 @@ async function settings() {
   return cfg;
 }
 
+/** Une ligne d'historique, dans la rubrique de la mission (`posts`,
+ * `members`, ou `system`). `count` incrémente le compteur du jour. */
 async function log(level, message, extra = {}) {
-  const { logs = [] } = await chrome.storage.local.get('logs');
+  const cat = extra.cat || currentCat;
+  const key = `logs_${cat}`;
+  const stored = await chrome.storage.local.get([key, `stats_${cat}`]);
+  const logs = stored[key] || [];
   logs.unshift({ at: new Date().toISOString(), level, message, ...extra });
-  await chrome.storage.local.set({ logs: logs.slice(0, LOG_SIZE) });
+  const patch = { [key]: logs.slice(0, LOG_SIZE) };
+  if (extra.count) {
+    let stats = stored[`stats_${cat}`];
+    if (!stats || stats.day !== today()) stats = { day: today(), counts: {} };
+    for (const c of [].concat(extra.count)) stats.counts[c] = (stats.counts[c] || 0) + 1;
+    patch[`stats_${cat}`] = stats;
+  }
+  await chrome.storage.local.set(patch);
 }
 
-async function setStatus(patch) {
-  const { status = {} } = await chrome.storage.local.get('status');
-  await chrome.storage.local.set({ status: { ...status, ...patch } });
+/** L'état d'une mission (ou `system` : configuration, suspension, réseau). */
+async function setStatus(catOrPatch, maybePatch) {
+  const cat = typeof catOrPatch === 'string' ? catOrPatch : currentCat;
+  const patch = typeof catOrPatch === 'string' ? maybePatch : catOrPatch;
+  const key = `status_${cat}`;
+  const { [key]: status = {} } = await chrome.storage.local.get(key);
+  await chrome.storage.local.set({ [key]: { ...status, ...patch } });
+}
+
+/** L'adresse de l'API : la plateforme sert ses routes sous /api. On accepte
+ * « https://post.pulserecipe.com » comme « …/api ». */
+function apiRoot(base) {
+  const root = String(base || '').trim().replace(/\/+$/, '');
+  return /\/api$/.test(root) ? root : `${root}/api`;
 }
 
 async function api(cfg, path, body) {
-  const res = await fetch(`${cfg.apiBase.replace(/\/+$/, '')}${path}`, {
+  const res = await fetch(`${apiRoot(cfg.apiBase)}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': cfg.apiKey },
     body: JSON.stringify(body),
@@ -181,9 +212,10 @@ async function memberRound(cfg, tabId, reason) {
       const ok = verdict.outcome === 'done' || verdict.outcome === 'already';
       await log(ok ? 'ok' : answer.result === 'gave_up' ? 'error' : 'warn', `${what} · ${task.member.name} · ${task.group.name} · ${verdict.detail || verdict.outcome}`, {
         result: ok ? 'member_done' : answer.result,
+        count: ok ? (task.kind === 'approve' ? 'approved' : 'preapproved') : 'failed',
       });
     } catch (err) {
-      await log('error', `${what} : rapport refusé (${task.group.name}) : ${err.message}`);
+      await log('error', `${what} : rapport refusé (${task.group.name}) : ${err.message}`, { count: 'failed' });
     }
     done += 1;
     const [min, max] = cfg.pauseSeconds;
@@ -235,7 +267,7 @@ async function auditRound(cfg, tabId, reason) {
       await log(
         verdict.outcome === 'already' || verdict.outcome === 'fixed' ? 'ok' : verdict.outcome === 'not_done' ? 'warn' : 'error',
         `Contrôle · ${task.member.name} · ${task.group.name} · ${LABEL[verdict.outcome] || verdict.outcome} — ${verdict.detail || ''}`,
-        { result: 'audit' },
+        { result: 'audit', count: `audit_${verdict.outcome}` },
       );
     } catch (err) {
       await log('error', `Contrôle : rapport refusé (${task.group.name}) : ${err.message}`);
@@ -247,79 +279,110 @@ async function auditRound(cfg, tabId, reason) {
   return done;
 }
 
-let round = null;
-
-/** Un passage. Jamais deux en même temps. */
-function runRound(reason) {
-  if (!round) round = doRound(reason).finally(() => (round = null));
-  return round;
-}
-
-async function doRound(reason) {
-  const cfg = await settings();
-  if (!cfg.apiKey || !cfg.profileExternalId) {
-    await setStatus({ state: 'config', message: 'Saisissez la clé d’API et l’identifiant du profil', at: new Date().toISOString() });
-    return;
-  }
-  if (cfg.paused) {
-    await setStatus({ state: 'config', message: 'Suspendu par l’administrateur (rubrique Modérateurs)', at: new Date().toISOString() });
-    return;
-  }
-  await setStatus({ state: 'busy', message: `Passage (${reason})…`, at: new Date().toISOString() });
+/** Vérifier les posts publiés. */
+async function postsRound(cfg, tabId, reason) {
   let claim;
   try {
     claim = await api(cfg, '/verify/claim', { profileExternalId: cfg.profileExternalId, limit: cfg.batchSize });
   } catch (err) {
     await log('error', `Réservation refusée : ${err.message}`);
     await setStatus({ state: 'error', message: err.message, at: new Date().toISOString() });
-    return;
+    return 0;
   }
   const tasks = claim.tasks || [];
+  let done = 0;
+  for (const task of tasks) {
+    const { enabled } = await chrome.storage.local.get('enabled');
+    if (reason === 'auto' && enabled === false) break;
+    await setStatus({ state: 'busy', message: `${done + 1}/${tasks.length} · ${task.group.name}`, at: new Date().toISOString() });
+    let verdict;
+    try {
+      verdict = await checkOne(cfg, tabId, task);
+    } catch (err) {
+      verdict = { outcome: 'unreachable', detail: `erreur : ${err.message}` };
+    }
+    try {
+      const answer = await api(cfg, `/verify/${task.targetId}/result`, {
+        profileExternalId: cfg.profileExternalId,
+        outcome: verdict.outcome,
+        detail: verdict.detail,
+        deleted: verdict.deleted,
+        postUrl: verdict.postUrl,
+      });
+      await log(
+        verdict.outcome === 'ok' ? 'ok' : answer.result === 'needs_action' ? 'error' : 'warn',
+        `${task.group.name} · ${verdict.detail}`,
+        {
+          result: answer.result,
+          postUrl: verdict.postUrl || task.postUrl,
+          title: task.postTitle,
+          count: [verdict.outcome, ...(verdict.deleted ? ['deleted'] : []), ...(answer.result === 'requeued' ? ['requeued'] : [])],
+        },
+      );
+    } catch (err) {
+      await log('error', `Rapport refusé (${task.group.name}) : ${err.message}`, { count: 'failed' });
+    }
+    done += 1;
+    if (done < tasks.length) {
+      const [min, max] = cfg.pauseSeconds;
+      await sleep((min + Math.random() * (max - min)) * 1000);
+    }
+  }
+  return done;
+}
+
+/** Les missions se suivent, jamais ensemble : une seule file. */
+let round = Promise.resolve();
+const queued = new Set();
+let running = null;
+
+function runRound(kind, reason) {
+  if (queued.has(kind)) return round;
+  queued.add(kind);
+  round = round.then(() => {
+    queued.delete(kind);
+    running = kind;
+    return doRound(kind, reason).catch(async (err) => {
+      await log('error', `Erreur inattendue : ${err.message}`, { cat: kind });
+    });
+  }).finally(() => (running = null));
+  return round;
+}
+
+async function doRound(kind, reason) {
+  currentCat = kind;
+  const cfg = await settings();
+  if (!cfg.apiKey || !cfg.profileExternalId) {
+    await setStatus('system', { state: 'config', message: 'Saisissez la clé d’API et l’identifiant du profil', at: new Date().toISOString() });
+    return;
+  }
+  if (cfg.paused) {
+    await setStatus('system', { state: 'config', message: 'Suspendu par l’administrateur (rubrique Modérateurs)', at: new Date().toISOString() });
+    return;
+  }
+  if (kind === 'members' && cfg.members === false && reason === 'auto') return;
+  if (kind === 'posts' && cfg.posts === false && reason === 'auto') return;
+  await setStatus({ state: 'busy', message: `En cours (${reason})…`, at: new Date().toISOString() });
   const tab = await chrome.tabs.create({ url: 'about:blank', active: true });
   let done = 0;
-  let members = 0;
   try {
-    for (const task of tasks) {
-      const { enabled } = await chrome.storage.local.get('enabled');
-      if (reason === 'auto' && enabled === false) break;
-      await setStatus({ state: 'busy', message: `${done + 1}/${tasks.length} · ${task.group.name}`, at: new Date().toISOString() });
-      let verdict;
-      try {
-        verdict = await checkOne(cfg, tab.id, task);
-      } catch (err) {
-        verdict = { outcome: 'unreachable', detail: `erreur : ${err.message}` };
-      }
-      try {
-        const answer = await api(cfg, `/verify/${task.targetId}/result`, {
-          profileExternalId: cfg.profileExternalId,
-          outcome: verdict.outcome,
-          detail: verdict.detail,
-          deleted: verdict.deleted,
-          postUrl: verdict.postUrl,
-        });
-        await log(
-          verdict.outcome === 'ok' ? 'ok' : answer.result === 'needs_action' ? 'error' : 'warn',
-          `${task.group.name} · ${verdict.detail}`,
-          { result: answer.result, postUrl: verdict.postUrl || task.postUrl, title: task.postTitle },
-        );
-      } catch (err) {
-        await log('error', `Rapport refusé (${task.group.name}) : ${err.message}`);
-      }
-      done += 1;
-      if (done < tasks.length) {
-        const [min, max] = cfg.pauseSeconds;
-        await sleep((min + Math.random() * (max - min)) * 1000);
-      }
+    if (kind === 'posts') {
+      done = await postsRound(cfg, tab.id, reason);
+    } else {
+      // Les contrôles demandés par l'admin passent avant le reste.
+      done += await auditRound(cfg, tab.id, reason);
+      done += await memberRound(cfg, tab.id, reason);
     }
-    // Les contrôles demandés par l'admin passent avant le reste des membres.
-    members += await auditRound(cfg, tab.id, reason);
-    if (cfg.members !== false) members += await memberRound(cfg, tab.id, reason);
   } finally {
     chrome.tabs.remove(tab.id).catch(() => {});
   }
   await setStatus({
     state: 'idle',
-    message: done || members ? `${done} publication(s) vérifiée(s), ${members} adhésion(s)/pré-approbation(s)` : 'Rien à faire pour l’instant',
+    message: done
+      ? kind === 'posts'
+        ? `${done} post(s) vérifié(s)`
+        : `${done} tâche(s) faite(s) (contrôles, adhésions, pré-approbations)`
+      : 'Rien à faire pour l’instant',
     at: new Date().toISOString(),
   });
 }
@@ -342,30 +405,37 @@ async function poll() {
       agent: `checker ${chrome.runtime.getManifest().version}`,
     });
   } catch (err) {
-    await setStatus({ state: 'error', message: `Plateforme : ${err.message}`, at: new Date().toISOString() });
+    await setStatus('system', { state: 'error', message: `Plateforme : ${err.message}`, at: new Date().toISOString() });
     return;
   }
-  const { server: before, lastRunRequest } = await chrome.storage.local.get(['server', 'lastRunRequest']);
+  await setStatus('system', { state: server.paused ? 'config' : 'ok', message: server.paused ? 'Suspendu par l’administrateur (rubrique Modérateurs)' : 'Connecté à la plateforme', at: new Date().toISOString() });
+  const { server: before, lastRunRequest, lastMembersRunRequest } = await chrome.storage.local.get(['server', 'lastRunRequest', 'lastMembersRunRequest']);
   await chrome.storage.local.set({ server });
   if (before?.everyMinutes !== server.everyMinutes) await schedule();
-  if (server.paused) {
-    if (!round) await setStatus({ state: 'config', message: 'Suspendu par l’administrateur (rubrique Modérateurs)', at: new Date().toISOString() });
-    return;
-  }
+  if (server.paused) return;
   // Première relecture : une ancienne demande ne relance rien.
   if (!before) {
-    await chrome.storage.local.set({ lastRunRequest: server.runRequestedAt || null });
+    await chrome.storage.local.set({ lastRunRequest: server.runRequestedAt || null, lastMembersRunRequest: server.membersRunRequestedAt || null });
     return;
   }
   if (server.runRequestedAt && server.runRequestedAt !== lastRunRequest) {
     await chrome.storage.local.set({ lastRunRequest: server.runRequestedAt });
-    await log('ok', 'Passage demandé par l’administrateur');
-    runRound('demande de l’admin');
+    await log('ok', 'Vérification des posts demandée par l’administrateur', { cat: 'posts' });
+    runRound('posts', 'demande de l’admin');
+  }
+  if (server.membersRunRequestedAt && server.membersRunRequestedAt !== lastMembersRunRequest) {
+    await chrome.storage.local.set({ lastMembersRunRequest: server.membersRunRequestedAt });
+    await log('ok', 'Tâches « nos profils » demandées par l’administrateur', { cat: 'members' });
+    runRound('members', 'demande de l’admin');
   }
 }
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM) runRound('auto');
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === ALARM) {
+    const cfg = await settings();
+    if (cfg.posts !== false) runRound('posts', 'auto');
+    if (cfg.members !== false) runRound('members', 'auto');
+  }
   if (alarm.name === CONTROL) poll();
 });
 chrome.runtime.onInstalled.addListener(schedule);
@@ -373,7 +443,7 @@ chrome.runtime.onStartup.addListener(schedule);
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg?.type === 'schedule') schedule().then(() => reply({ ok: true }));
   else if (msg?.type === 'run-now') {
-    runRound('manuel');
+    runRound(msg.kind === 'members' ? 'members' : 'posts', 'manuel');
     reply({ ok: true });
   } else return false;
   return true;

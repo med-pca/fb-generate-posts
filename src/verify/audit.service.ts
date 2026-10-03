@@ -64,7 +64,7 @@ export class AuditService {
     });
     const woken = await this.prisma.profile.updateMany({
       where: { isModerator: true, status: 'ACTIVE', moderatorPaused: false },
-      data: { moderatorRunAt: now },
+      data: { moderatorMembersRunAt: now },
     });
     await this.prisma.activityLog.create({
       data: {

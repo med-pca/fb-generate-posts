@@ -604,7 +604,9 @@ adhésions acceptées, pré-approuvés, échecs), le graphe des 14 jours, ses 40
 dernières actions (avec le lien du post et l'historique), et pour
 l'administrateur :
 
-- **▶ Lancer un passage** : son extension le lance dans la minute ;
+- **▶ Vérifier les posts** et, séparément, **▶ Lancer les tâches profils**
+  (adhésions, pré-approbations, contrôles) : son extension s'y met dans la
+  minute ; chiffres et dernières actions sont présentés séparément ;
 - **Suspendre / Reprendre** : suspendu, il ne reçoit plus aucune tâche ;
 - **Réglages** : publications par passage, fréquence, adhésions et
   pré-approbations oui/non (relus par l'extension chaque minute) ;
@@ -614,7 +616,8 @@ l'administrateur :
 Routes : `GET /moderators`, `GET /moderators/:id`,
 `PATCH /moderators/:id/settings`, `POST /moderators/:id/run|recheck|retry-members`
 (admin), et pour l'extension `POST /verify/control` (relu chaque minute).
-Journaux `MODERATOR_*`. Migration `20261003180000_moderators`. Extension
+Journaux `MODERATOR_*`. Migrations `20261003180000_moderators` et
+`20261004090000_moderator_members_run`. Extension
 « Modérateur · PostFlow » (ex-FB Post Checker) **1.3.0** requise pour les passages demandés et les réglages
 à distance.
 
@@ -645,6 +648,24 @@ ou adhésions désactivées dans ses réglages), c'est dit tout de suite.
 Routes : `GET /moderators/members`, `POST /moderators/members { kind,
 profileGroupIds?, profileId? }` (admin). Migration
 `20261003230000_member_requests`.
+
+### La page « ★ Pré-approbations »
+
+`/pre-approbations` liste chaque groupe où l'un de nos profils est
+**membre**, **les profils les plus récemment ajoutés en premier**, groupés
+par profil (date d'ajout, nombre de groupes).
+
+- **Filtres** : un profil (liste des profils récents d'abord, avec ce qui
+  reste à faire), une recherche (groupe ou profil), et l'état :
+  **✗ À pré-approuver** (par défaut), **⏳ Demandé**, **⚠ En échec** (avec la
+  raison et le nombre d'essais), **✓ Déjà pré-approuvé**, **Compte Facebook
+  inconnu**, **Tous** — chaque onglet avec son compte.
+- **Sélection** : une case par ligne, une case par profil (tous ses
+  groupes), « Tout cocher (visibles) ».
+- **Actions** (administrateur) : **★ Pré-approuver la sélection** ou ligne par
+  ligne, **🔍 Tester** (le modérateur regarde sans rien modifier).
+
+Route : `GET /moderators/preapprovals?profileId&state&search`.
 
 ### Tester la pré-approbation : déjà faite ou pas ?
 

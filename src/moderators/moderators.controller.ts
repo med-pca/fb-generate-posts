@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { AdminRoleGuard } from '../auth/admin-role.guard';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
@@ -19,6 +19,10 @@ export class ModeratorSettingsDto {
   @ApiPropertyOptional() @IsOptional() @IsBoolean() members?: boolean;
 }
 
+export class ModeratorRunDto {
+  @ApiPropertyOptional({ enum: ['posts', 'members'] }) @IsOptional() @IsIn(['posts', 'members']) kind?: 'posts' | 'members';
+}
+
 export class ModeratorControlDto extends VerifyClaimDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200) agent?: string;
 }
@@ -34,6 +38,17 @@ export class ModeratorsController {
     private readonly audit: AuditService,
     private readonly members: MembersService,
   ) {}
+
+  @Get('preapprovals')
+  @ApiOperation({ summary: 'Pré-approbations : nos profils × groupes (profils récents d’abord), filtres profil / état / recherche' })
+  preapprovals(
+    @ActingUser() acting: CurrentUser,
+    @Query('profileId') profileId?: string,
+    @Query('state') state?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.members.preapprovals({ profileId, state, search }, acting);
+  }
 
   @Get('members')
   @ApiOperation({ summary: 'Nos profils dans les groupes : adhésions à accepter, pré-approbations à faire, bloqués' })
@@ -86,8 +101,8 @@ export class ModeratorsController {
   @HttpCode(200)
   @UseGuards(AdminRoleGuard)
   @ApiOperation({ summary: 'Lancer un passage maintenant (admin)' })
-  run(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
-    return this.moderators.run(id, acting);
+  run(@Param('id') id: string, @Body() dto: ModeratorRunDto, @ActingUser() acting: CurrentUser) {
+    return this.moderators.run(id, acting, dto?.kind ?? 'posts');
   }
 
   @Post(':id/recheck')

@@ -254,7 +254,7 @@ export class MembersService {
     });
     const able = moderators.filter((m) => !m.moderatorPaused && m.moderatorMembers);
     if (able.length && ready.count) {
-      await this.prisma.profile.updateMany({ where: { id: { in: able.map((m) => m.id) } }, data: { moderatorRunAt: now } });
+      await this.prisma.profile.updateMany({ where: { id: { in: able.map((m) => m.id) } }, data: { moderatorMembersRunAt: now } });
     }
     const blockedProfiles = [...new Set(blocked.map((b) => b.profile.name))];
     const what = kind === 'approve' ? 'Accepter les adhésions en attente' : 'Pré-approuver nos profils membres';
@@ -275,6 +275,119 @@ export class MembersService {
       blocked: { noFacebookId: blocked.length, profiles: blockedProfiles },
       moderators: able.length,
       moderatorsTotal: moderators.length,
+    };
+  }
+
+  /** La liste des pré-approbations : chaque profil × groupe où nos profils
+   * sont membres, les profils les plus récemment ajoutés d'abord. Filtres :
+   * profil, état, recherche (groupe ou profil). Avec le compte par état et la
+   * liste des profils (récents d'abord) pour le filtre. */
+  async preapprovals(
+    query: { profileId?: string; state?: string; search?: string },
+    acting: CurrentUser | null,
+  ) {
+    const s = scopeOf(acting);
+    const base: Prisma.ProfileGroupWhereInput = {
+      status: 'ACTIVE',
+      joinStatus: JoinStatus.JOINED,
+      profile: { status: 'ACTIVE', isModerator: false, ...profileWhere(s) },
+      group: { status: 'ACTIVE', ...groupWhere(s) },
+    };
+    const STATES: Record<string, Prisma.ProfileGroupWhereInput> = {
+      todo: { preApprovedAt: null, memberRequestedAt: null, memberActionError: null, profile: { facebookUserId: { not: null } } },
+      requested: { preApprovedAt: null, memberRequestedAt: { not: null } },
+      failed: { preApprovedAt: null, memberRequestedAt: null, memberActionError: { not: null } },
+      done: { preApprovedAt: { not: null } },
+      blocked: { preApprovedAt: null, profile: { facebookUserId: null } },
+    };
+    const search = query.search?.trim();
+    const filters: Prisma.ProfileGroupWhereInput[] = [];
+    if (query.profileId) filters.push({ profileId: query.profileId });
+    if (search) {
+      filters.push({
+        OR: [
+          { group: { name: { contains: search, mode: 'insensitive' } } },
+          { group: { url: { contains: search, mode: 'insensitive' } } },
+          { profile: { name: { contains: search, mode: 'insensitive' } } },
+        ],
+      });
+    }
+    const state = query.state && STATES[query.state] ? query.state : query.state === 'all' ? 'all' : 'todo';
+    const where: Prisma.ProfileGroupWhereInput = {
+      AND: [base, ...(state === 'all' ? [] : [STATES[state]]), ...filters],
+    };
+    const scopeForCounts = query.profileId ? [{ profileId: query.profileId }] : [];
+    const [rows, total, counts, profiles] = await Promise.all([
+      this.prisma.profileGroup.findMany({
+        where,
+        orderBy: [{ profile: { createdAt: 'desc' } }, { group: { name: 'asc' } }],
+        take: 1000,
+        select: {
+          id: true,
+          createdAt: true,
+          preApprovedAt: true,
+          memberRequestedAt: true,
+          memberActionError: true,
+          memberActionAt: true,
+          memberAttempts: true,
+          auditRequestedAt: true,
+          preApprovalState: true,
+          preApprovalCheckedAt: true,
+          preApprovalDetail: true,
+          profile: { select: { id: true, name: true, createdAt: true, facebookUserId: true } },
+          group: { select: { id: true, name: true, url: true, category: { select: { id: true, name: true } } } },
+        },
+      }),
+      this.prisma.profileGroup.count({ where }),
+      Promise.all(
+        Object.entries(STATES).map(async ([key, w]) => [key, await this.prisma.profileGroup.count({ where: { AND: [base, w, ...scopeForCounts] } })] as const),
+      ),
+      this.prisma.profile.findMany({
+        where: { status: 'ACTIVE', isModerator: false, ...profileWhere(s), profileGroups: { some: { status: 'ACTIVE', joinStatus: JoinStatus.JOINED } } },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          facebookUserId: true,
+          _count: { select: { profileGroups: { where: { status: 'ACTIVE', joinStatus: JoinStatus.JOINED, preApprovedAt: null } } } },
+        },
+      }),
+    ]);
+    return {
+      state,
+      total,
+      counts: Object.fromEntries(counts),
+      profiles: profiles.map((p) => ({
+        id: p.id,
+        name: p.name,
+        createdAt: p.createdAt,
+        facebookKnown: Boolean(p.facebookUserId),
+        todo: p._count.profileGroups,
+      })),
+      rows: rows.map((r) => ({
+        linkId: r.id,
+        linkedAt: r.createdAt,
+        profile: { id: r.profile.id, name: r.profile.name, createdAt: r.profile.createdAt, facebookKnown: Boolean(r.profile.facebookUserId) },
+        group: r.group,
+        state: r.preApprovedAt
+          ? 'done'
+          : !r.profile.facebookUserId
+            ? 'blocked'
+            : r.memberRequestedAt
+              ? 'requested'
+              : r.memberActionError
+                ? 'failed'
+                : 'todo',
+        preApprovedAt: r.preApprovedAt,
+        requestedAt: r.memberRequestedAt,
+        error: r.memberActionError,
+        errorAt: r.memberActionAt,
+        attempts: r.memberAttempts,
+        auditPending: Boolean(r.auditRequestedAt),
+        audit: r.preApprovalState ? { state: r.preApprovalState, at: r.preApprovalCheckedAt, detail: r.preApprovalDetail } : null,
+      })),
     };
   }
 

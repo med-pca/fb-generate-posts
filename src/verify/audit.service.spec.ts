@@ -32,7 +32,7 @@ describe('AuditService', () => {
     const r = await service.request({ mode: 'check', profileGroupIds: ['pg1'] }, null, NOW);
     expect(prisma.profileGroup.updateMany.mock.calls[0][0].where.id).toEqual({ in: ['pg1'] });
     expect(prisma.profileGroup.updateMany.mock.calls[0][0].data).toMatchObject({ auditRequestedAt: NOW, auditMode: 'check' });
-    expect(prisma.profile.updateMany.mock.calls[0][0].data).toEqual({ moderatorRunAt: NOW });
+    expect(prisma.profile.updateMany.mock.calls[0][0].data).toEqual({ moderatorMembersRunAt: NOW });
     expect(r).toEqual({ requested: 3, moderators: 1 });
     expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('MEMBER_AUDIT_REQUESTED');
   });

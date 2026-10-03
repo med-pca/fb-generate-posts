@@ -16,6 +16,7 @@ export const APP_ROUTES: Record<string, AppRoute> = {
   '/comptes': { view: 'users', title: 'Comptes' },
   '/actions-en-masse': { view: 'bulk', title: 'Actions en masse' },
   '/moderateurs': { view: 'moderators', title: 'Modérateurs' },
+  '/pre-approbations': { view: 'preapprovals', title: 'Pré-approbations' },
 };
 
 /** Les pages qui portent un identifiant : la fiche d'un profil. */

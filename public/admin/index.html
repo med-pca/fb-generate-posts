@@ -33,6 +33,7 @@
           ><button class="nav" data-view="runners">
             ⏻ <span>Pilotage</span></button
           ><button class="nav" data-view="moderators">🛡 <span>Modérateurs</span></button
+          ><button class="nav" data-view="preapprovals">★ <span>Pré-approbations</span></button
           ><button class="nav" data-view="bulk">⧉ <span>Actions en masse</span></button
           ><button class="nav" data-view="settings">⚙ <span>Paramètres</span></button>
         </nav>
@@ -694,10 +695,15 @@
           <div class="queue-stats" id="md-due"></div>
           <div class="pd-two">
             <div class="panel pp-panel">
-              <h3 class="history-h">Ses chiffres</h3>
+              <h3 class="history-h">📰 Posts : ses chiffres</h3>
               <div class="table-wrap"><table class="md-counts">
                 <thead><tr><th></th><th>Aujourd’hui</th><th>7 jours</th><th>30 jours</th><th>Total</th></tr></thead>
                 <tbody id="md-counts"></tbody>
+              </table></div>
+              <h3 class="history-h md-second">👤 Nos profils : ses chiffres</h3>
+              <div class="table-wrap"><table class="md-counts">
+                <thead><tr><th></th><th>Aujourd’hui</th><th>7 jours</th><th>30 jours</th><th>Total</th></tr></thead>
+                <tbody id="md-counts-members"></tbody>
               </table></div>
             </div>
             <div class="panel pp-panel">
@@ -715,10 +721,49 @@
             <h3 class="history-h">14 derniers jours</h3>
             <div id="md-chart" class="pd-chart"></div>
           </div>
-          <div class="panel pp-panel">
-            <h3 class="history-h">Ses dernières actions (30 jours)</h3>
-            <ol id="md-recent" class="history-events"></ol>
+          <div class="pd-two">
+            <div class="panel pp-panel">
+              <h3 class="history-h">📰 Posts : dernières actions (30 jours)</h3>
+              <ol id="md-recent" class="history-events"></ol>
+            </div>
+            <div class="panel pp-panel">
+              <h3 class="history-h">👤 Nos profils : dernières actions (30 jours)</h3>
+              <ol id="md-recent-members" class="history-events"></ol>
+            </div>
           </div>
+        </section>
+
+        <!-- Pré-approbations : nos profils × groupes, profils récents d'abord. -->
+        <section id="preapprovals" class="view">
+          <div class="toolbar">
+            <p>Chaque groupe où l’un de nos profils est <b>membre</b>. Les profils les plus récemment ajoutés sont en haut. Cochez, puis demandez au modérateur de les pré-approuver.</p>
+          </div>
+          <div class="toolbar pa-filters">
+            <div class="toolbar-group">
+              <select id="pa-profile"><option value="">Tous les profils (récents d’abord)</option></select
+              ><input id="pa-search" type="search" placeholder="Groupe ou profil" />
+            </div>
+            <button class="secondary" type="button" id="pa-refresh">Rafraîchir</button>
+          </div>
+          <div class="subtabs pa-states" id="pa-states" role="tablist"></div>
+          <div class="bulk-bar pa-bar" id="pa-bar">
+            <span id="pa-selected">0 sélectionné</span>
+            <button class="link" type="button" id="pa-all">Tout cocher (visibles)</button>
+            <button class="link" type="button" id="pa-none">Tout décocher</button>
+            <span class="pa-spacer"></span>
+            <button class="edit admin-only" type="button" id="pa-audit" disabled title="Le modérateur regarde sur Facebook si c’est fait, sans rien modifier">🔍 Tester la sélection</button>
+            <button class="primary admin-only" type="button" id="pa-go" disabled>★ Pré-approuver la sélection</button>
+          </div>
+          <div id="pa-result" class="bulk-result" hidden></div>
+          <div class="panel table-wrap">
+            <table class="pp-table pa-table">
+              <thead><tr>
+                <th class="w-check"></th><th>Groupe</th><th>Catégorie</th><th>État</th><th>Détail</th><th></th>
+              </tr></thead>
+              <tbody id="pa-rows"></tbody>
+            </table>
+          </div>
+          <p class="form-help" id="pa-count"></p>
         </section>
 
         <section id="runners" class="view">

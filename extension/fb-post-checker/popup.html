@@ -5,28 +5,51 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h1>Vérification des publications</h1>
-  <p class="hint">Ce profil rouvre les posts publiés par les automates. Sans le lien de l’article : il le supprime et la plateforme le republie. Il doit être <b>désigné vérificateur</b> dans le Pilotage et <b>administrateur des groupes</b>.</p>
+  <h1>Modérateur · PostFlow</h1>
+  <p class="hint">Désigné <b>modérateur</b> sur la plateforme, et <b>administrateur ou modérateur des groupes</b> sur Facebook.</p>
 
   <div id="state" class="state">—</div>
-
-  <label class="check"><input type="checkbox" id="members"> Accepter l’adhésion de <b>nos</b> profils et les pré-approuver <small>(uniquement les profils de la plateforme, reconnus par leur identifiant Facebook)</small></label>
-
   <div class="row">
-    <button id="toggle" class="primary">Activer</button>
-    <button id="run" class="secondary">Vérifier maintenant</button>
+    <button id="toggle" class="primary">Activer le mode automatique</button>
   </div>
+
+  <section class="mission" id="m-posts">
+    <header>
+      <h2>📰 Vérifier les posts</h2>
+      <label class="switch"><input type="checkbox" id="auto-posts"><span>auto</span></label>
+    </header>
+    <p class="what">Rouvre les posts publiés par nos profils : en ligne avec le lien de l’article ? Sans lien, il les supprime et la plateforme les republie.</p>
+    <div class="status" id="status-posts">—</div>
+    <div class="counts" id="counts-posts"></div>
+    <button class="secondary run" data-run="posts">Vérifier les posts maintenant</button>
+    <details>
+      <summary>Historique des posts</summary>
+      <ul class="logs" id="logs-posts"></ul>
+    </details>
+  </section>
+
+  <section class="mission" id="m-members">
+    <header>
+      <h2>👤 Nos profils dans les groupes</h2>
+      <label class="switch"><input type="checkbox" id="auto-members"><span>auto</span></label>
+    </header>
+    <p class="what">Accepte l’adhésion de <b>nos</b> profils, les pré-approuve, et fait les contrôles demandés par l’admin. Uniquement les profils de la plateforme, reconnus par leur identifiant Facebook.</p>
+    <div class="status" id="status-members">—</div>
+    <div class="counts" id="counts-members"></div>
+    <button class="secondary run" data-run="members">Lancer les tâches profils maintenant</button>
+    <details>
+      <summary>Historique des profils</summary>
+      <ul class="logs" id="logs-members"></ul>
+    </details>
+  </section>
 
   <details id="setup">
     <summary>Réglages</summary>
     <label>Plateforme <input id="apiBase" type="url" placeholder="https://post.pulserecipe.com"></label>
     <label>Clé d’API <small>(X-API-Key)</small> <input id="apiKey" type="password" autocomplete="off"></label>
-    <label>Identifiant NSTBrowser du profil <small>(colonne Profil du Pilotage)</small> <input id="profileExternalId" type="text" autocomplete="off"></label>
+    <label>Identifiant NSTBrowser de CE profil <small>(sous son nom, rubrique Modérateurs)</small> <input id="profileExternalId" type="text" autocomplete="off"></label>
     <button id="save" class="secondary">Enregistrer</button>
   </details>
-
-  <h2>Derniers contrôles</h2>
-  <ul id="logs"></ul>
   <script src="config.js"></script>
   <script src="popup.js"></script>
 </body>

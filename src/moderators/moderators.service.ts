@@ -42,6 +42,7 @@ export class ModeratorsService {
   private settingsOf(p: {
     moderatorPaused: boolean;
     moderatorRunAt: Date | null;
+    moderatorMembersRunAt: Date | null;
     moderatorBatch: number;
     moderatorEveryMinutes: number;
     moderatorMembers: boolean;
@@ -50,7 +51,10 @@ export class ModeratorsService {
   }, now: Date) {
     return {
       paused: p.moderatorPaused,
+      // Deux déclencheurs : la vérification des posts, et les tâches « nos
+      // profils » (adhésions, pré-approbations, contrôles).
       runRequestedAt: p.moderatorRunAt,
+      membersRunRequestedAt: p.moderatorMembersRunAt,
       batchSize: p.moderatorBatch,
       everyMinutes: p.moderatorEveryMinutes,
       members: p.moderatorMembers,
@@ -234,13 +238,29 @@ export class ModeratorsService {
     return this.settingsOf(updated, new Date());
   }
 
-  /** Lancer un passage : l'extension le voit à sa prochaine relecture. */
-  async run(id: string, acting: CurrentUser, now = new Date()) {
+  /** Lancer un passage : `posts` (vérifier les publications) ou `members`
+   * (adhésions, pré-approbations, contrôles). L'extension le voit à sa
+   * prochaine relecture. */
+  async run(id: string, acting: CurrentUser, kind: 'posts' | 'members' = 'posts', now = new Date()) {
     const m = await this.reachable(id, acting);
     if (m.moderatorPaused) throw new BadRequestException('Ce modérateur est suspendu : reprenez-le d’abord');
-    await this.prisma.profile.update({ where: { id }, data: { moderatorRunAt: now } });
-    await this.log(m, 'MODERATOR_RUN_REQUESTED', `Passage demandé au modérateur « ${m.name} »`, acting);
-    return { requestedAt: now, online: this.settingsOf(m, now).online };
+    if (kind === 'members' && !m.moderatorMembers) {
+      throw new BadRequestException('Les tâches « nos profils » sont désactivées dans ses réglages');
+    }
+    await this.prisma.profile.update({
+      where: { id },
+      data: kind === 'members' ? { moderatorMembersRunAt: now } : { moderatorRunAt: now },
+    });
+    await this.log(
+      m,
+      kind === 'members' ? 'MODERATOR_MEMBERS_RUN_REQUESTED' : 'MODERATOR_RUN_REQUESTED',
+      kind === 'members'
+        ? `Tâches « nos profils » (adhésions, pré-approbations) demandées à « ${m.name} »`
+        : `Vérification des posts demandée à « ${m.name} »`,
+      acting,
+      { kind },
+    );
+    return { kind, requestedAt: now, online: this.settingsOf(m, now).online };
   }
 
   /** Les publications « à traiter » repartent en vérification. */

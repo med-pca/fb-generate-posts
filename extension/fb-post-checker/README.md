@@ -49,6 +49,22 @@ Pilotage montre la raison (avec les entrées de menu vues) et propose
 « Relancer ». La case « Accepter l'adhésion de nos profils… » de la fenêtre
 active ou coupe cette partie.
 
+## Deux missions séparées
+
+La fenêtre a deux blocs, suivis chacun de son côté :
+
+- **📰 Vérifier les posts** : vérification des publications (lien de
+  l'article, suppression, republication) ;
+- **👤 Nos profils dans les groupes** : contrôles demandés par l'admin,
+  adhésions à accepter, pré-approbations.
+
+Chaque bloc a son interrupteur « auto », son bouton « … maintenant », son
+état, ses **compteurs du jour** (ce qui a marché, ce qui a échoué) et son
+**historique**. Sur la plateforme, la page du modérateur sépare de même ses
+chiffres et ses dernières actions, avec deux boutons : « ▶ Vérifier les
+posts » et « ▶ Lancer les tâches profils ». Une demande d'adhésion ou de
+pré-approbation ne lance que la mission « profils ».
+
 ## Piloté depuis la plateforme
 
 Chaque minute, l'extension relit ses réglages dans la rubrique

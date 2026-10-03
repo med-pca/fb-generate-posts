@@ -27,6 +27,7 @@ function setup(profile: Record<string, unknown> = {}) {
     facebookUserId: null,
     moderatorPaused: false,
     moderatorRunAt: null,
+    moderatorMembersRunAt: null,
     moderatorBatch: 5,
     moderatorEveryMinutes: 10,
     moderatorMembers: true,
@@ -62,11 +63,11 @@ describe('ModeratorsService', () => {
 
   it('« Lancer un passage » est noté pour l’extension, et refusé si suspendu', async () => {
     const a = setup();
-    const r = await a.service.run('mod1', ADMIN, NOW);
+    const r = await a.service.run('mod1', ADMIN, 'posts', NOW);
     expect(a.prisma.profile.update.mock.calls[0][0].data).toEqual({ moderatorRunAt: NOW });
     expect(r.online).toBe(true);
     const b = setup({ moderatorPaused: true });
-    await expect(b.service.run('mod1', ADMIN, NOW)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(b.service.run('mod1', ADMIN, 'posts', NOW)).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('l’extension relit ses réglages et se signale en ligne', async () => {
@@ -87,5 +88,15 @@ describe('ModeratorsService', () => {
       'MODERATOR_RECHECK',
       'MODERATOR_RETRY_MEMBERS',
     ]);
+  });
+
+  it('les tâches « nos profils » ont leur propre déclencheur, séparé des posts', async () => {
+    const { service, prisma } = setup();
+    const r = await service.run('mod1', ADMIN, 'members', NOW);
+    expect(prisma.profile.update.mock.calls[0][0].data).toEqual({ moderatorMembersRunAt: NOW });
+    expect(r.kind).toBe('members');
+    expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('MODERATOR_MEMBERS_RUN_REQUESTED');
+    const off = setup({ moderatorMembers: false });
+    await expect(off.service.run('mod1', ADMIN, 'members', NOW)).rejects.toThrow('désactivées');
   });
 });

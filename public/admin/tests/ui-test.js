@@ -533,7 +533,11 @@ setTimeout(async () => {
   check('et ses dernières actions, avec le lien du post', !!$('#md-recent a[href="https://www.facebook.com/groups/1/posts/9"]'), null);
   $('[data-mod-act="run"]').click();
   await new Promise((resolve) => setTimeout(resolve, 60));
-  check('l’admin lance un passage', modCalls.some((c) => c.startsWith('POST /moderators/mod-000001/run')), modCalls);
+  check('l’admin lance la vérification des POSTS', modCalls.some((c) => c.startsWith('POST /moderators/mod-000001/run') && c.includes('"kind":"posts"')), modCalls);
+  $('[data-mod-act="run-members"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  check('… et, séparément, les tâches « nos profils »', modCalls.some((c) => c.startsWith('POST /moderators/mod-000001/run') && c.includes('"kind":"members"')), modCalls);
+  check('chiffres et historiques séparés : posts / profils', /Adhésions acceptées/.test($('#md-counts-members').textContent) && !/Adhésions acceptées/.test($('#md-counts').textContent), null);
   $('[data-mod-act="pause"]').click();
   await new Promise((resolve) => setTimeout(resolve, 60));
   check('l’admin suspend le modérateur', modCalls.some((c) => c.includes('/settings') && c.includes('"paused":true')), modCalls);
@@ -543,6 +547,58 @@ setTimeout(async () => {
   check('et règle ses lots', modCalls.some((c) => c.includes('/settings') && c.includes('"batchSize":8')), modCalls);
   check('la page n’est pas en lecture seule pour un admin', $('#md-lock').hidden === true, null);
   window.fetch = beforeMods;
+
+  // ─── Pré-approbations ──────────────────────────────────────────
+  const paCalls = [];
+  const beforePa = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const full = String(url).replace('/api', '');
+    const path = full.split('?')[0];
+    if (path === '/moderators/preapprovals') {
+      paCalls.push(full);
+      return { ok: true, status: 200, json: async () => ({
+        state: 'todo', total: 3,
+        counts: { todo: 3, requested: 1, failed: 1, done: 9, blocked: 2 },
+        profiles: [
+          { id: 'p-new', name: 'Lina', createdAt: '2026-10-03T08:00:00Z', facebookKnown: true, todo: 2 },
+          { id: 'p-old', name: 'Salim', createdAt: '2026-09-01T08:00:00Z', facebookKnown: true, todo: 1 },
+        ],
+        rows: [
+          { linkId: 'l1', profile: { id: 'p-new', name: 'Lina', createdAt: '2026-10-03T08:00:00Z', facebookKnown: true }, group: { id: 'g1', name: 'Recettes FR', url: 'https://facebook.com/groups/1', category: { id: 'c1', name: 'Recettes' } }, state: 'todo' },
+          { linkId: 'l2', profile: { id: 'p-new', name: 'Lina', createdAt: '2026-10-03T08:00:00Z', facebookKnown: true }, group: { id: 'g2', name: 'Cuisine MA', url: null, category: null }, state: 'failed', error: 'option introuvable', errorAt: '2026-10-03T09:00:00Z', attempts: 2 },
+          { linkId: 'l3', profile: { id: 'p-old', name: 'Salim', createdAt: '2026-09-01T08:00:00Z', facebookKnown: true }, group: { id: 'g3', name: 'Desserts', url: null, category: null }, state: 'todo' },
+        ],
+      }) };
+    }
+    if (path === '/moderators/members') {
+      paCalls.push(`POST ${path} ${options.body}`);
+      return { ok: true, status: 200, json: async () => ({ kind: 'preapprove', requested: 2, moderators: 1, moderatorsTotal: 1, blocked: { noFacebookId: 0, profiles: [] } }) };
+    }
+    return beforePa(url, options);
+  };
+  $('.nav[data-view="preapprovals"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('« Pré-approbations » a sa page : /pre-approbations', window.location.pathname === '/pre-approbations' && $('#preapprovals').classList.contains('active'), window.location.pathname);
+  check('par défaut : ce qui reste à pré-approuver', paCalls[0].includes('state=todo'), paCalls);
+  const paText = $('#pa-rows').textContent;
+  check('les profils les plus récents d’abord, groupés par profil', paText.indexOf('Lina') < paText.indexOf('Salim') && $('#pa-rows').querySelectorAll('tr.pa-profile').length === 2, paText.slice(0, 120));
+  check('chaque état est compté dans les onglets', /En échec\s*1/.test($('#pa-states').textContent.replace(/\s+/g, ' ')), $('#pa-states').textContent);
+  check('le filtre profil propose les profils récents d’abord, avec ce qui reste', /Lina — ajouté le 03\/10\/26 · 2 à faire/.test($('#pa-profile').textContent), $('#pa-profile').textContent);
+  $('[data-pa-profile="p-new"]').checked = true;
+  $('[data-pa-profile="p-new"]').dispatchEvent(new window.Event('change', { bubbles: true }));
+  check('cocher un profil coche tous ses groupes', /2 sélectionné/.test($('#pa-selected').textContent), $('#pa-selected').textContent);
+  $('#pa-go').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const paAsked = paCalls.find((c) => c.startsWith('POST /moderators/members'));
+  check('« Pré-approuver la sélection » envoie exactement ces liaisons', !!paAsked && paAsked.includes('"profileGroupIds":["l1","l2"]') && paAsked.includes('"kind":"preapprove"'), paAsked);
+  $('#pa-profile').value = 'p-old';
+  $('#pa-profile').dispatchEvent(new window.Event('change'));
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  check('filtrer par profil', paCalls.at(-1).includes('profileId=p-old'), paCalls.at(-1));
+  $('[data-pa-state="done"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  check('filtrer par état (déjà pré-approuvé)', paCalls.at(-1).includes('state=done'), paCalls.at(-1));
+  window.fetch = beforePa;
 
   // ─── Filtres du Pilotage ───────────────────────────────────────
   const now = new Date().toISOString();

@@ -1893,3 +1893,25 @@ td.bad { color: #b42318; font-weight: 700; }
 .member-action.info { background: #f3f6fd; }
 #members-actions { margin-top: 18px; }
 .bulk-result small.bad { color: #b42318; }
+
+.md-second { margin-top: 18px; }
+button.primary.violet { background: #7c3aed; }
+
+/* Pré-approbations. */
+.pa-filters .toolbar-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.pa-filters select { min-width: 320px; }
+.pa-filters input { min-width: 220px; }
+.pa-states { flex-wrap: wrap; margin-bottom: 10px; }
+.pa-bar { position: sticky; top: 0; z-index: 2; }
+.pa-spacer { flex: 1; }
+.pa-table tr.pa-profile td { background: #f3f6fd; border-top: 2px solid #dbe4f5; }
+.pa-table tr.pa-profile small { color: var(--muted); font-size: 0.76rem; letter-spacing: 0; text-transform: none; }
+.pa-detail { font-size: 0.8rem; max-width: 360px; }
+.pa-detail small { display: block; color: var(--muted); }
+.pa-filters { align-items: center; }
+.pa-filters .toolbar-group { flex: 1; flex-direction: row; align-items: center; }
+.pa-filters .toolbar-group > * { width: auto; margin: 0; }
+.pa-filters input { flex: 1; max-width: 360px; }
+.pa-table .row-actions { flex-wrap: nowrap; justify-content: flex-end; }
+.pa-table td .chip { white-space: nowrap; }
+.pa-table td, .pa-table th { padding-top: 10px; padding-bottom: 10px; }

@@ -193,6 +193,9 @@ model Profile {
   /// Un passage demandé par l'admin : l'extension le lance à sa prochaine
   /// relecture (dans la minute).
   moderatorRunAt           DateTime?        @map("moderator_run_at")
+  /// Idem pour les tâches « nos profils » (adhésions, pré-approbations,
+  /// contrôles), séparées de la vérification des posts.
+  moderatorMembersRunAt    DateTime?        @map("moderator_members_run_at")
   moderatorBatch           Int              @default(5) @map("moderator_batch")
   moderatorEveryMinutes    Int              @default(10) @map("moderator_every_minutes")
   moderatorMembers         Boolean          @default(true) @map("moderator_members")
