@@ -213,6 +213,40 @@ export class ProfileHealthService {
       return { day: key, published: n(row?.published), failed: n(row?.failed) };
     });
     const preApproved = await this.prisma.profileGroup.count({ where: { profileId: id, preApprovedAt: { not: null } } });
+    // Tous ses groupes, pour les gérer depuis sa page.
+    const links = await this.prisma.profileGroup.findMany({
+      where: { profileId: id },
+      orderBy: { group: { name: 'asc' } },
+      select: {
+        status: true,
+        joinStatus: true,
+        joinCheckedAt: true,
+        preApprovedAt: true,
+        memberActionError: true,
+        group: { select: { id: true, name: true, url: true, status: true, category: { select: { id: true, name: true } } } },
+      },
+    });
+    const stocks = links.length
+      ? await this.prisma.postTarget.groupBy({
+          by: ['groupId'],
+          where: { groupId: { in: links.map((l) => l.group.id) }, status: TargetStatus.AVAILABLE, post: { status: 'AVAILABLE' } },
+          _count: { _all: true },
+        })
+      : [];
+    const stockBy = new Map(stocks.map((s) => [s.groupId, s._count._all]));
+    const memberships = links.map((l) => ({
+      groupId: l.group.id,
+      name: l.group.name,
+      url: l.group.url,
+      groupStatus: l.group.status,
+      category: l.group.category,
+      linkStatus: l.status,
+      joinStatus: l.joinStatus,
+      joinCheckedAt: l.joinCheckedAt,
+      preApproved: Boolean(l.preApprovedAt),
+      memberActionError: l.memberActionError,
+      waiting: stockBy.get(l.group.id) ?? 0,
+    }));
     return {
       profile: {
         id: profile.id,
@@ -247,6 +281,7 @@ export class ProfileHealthService {
       })),
       joins: Object.fromEntries(joins.map((j) => [j.joinStatus, j._count._all])),
       preApproved,
+      memberships,
       transfer: plan,
     };
   }

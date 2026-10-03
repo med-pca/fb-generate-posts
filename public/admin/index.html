@@ -32,6 +32,7 @@
             ⚭ <span>Comptes</span></button
           ><button class="nav" data-view="runners">
             ⏻ <span>Pilotage</span></button
+          ><button class="nav" data-view="bulk">⧉ <span>Actions en masse</span></button
           ><button class="nav" data-view="settings">⚙ <span>Paramètres</span></button>
         </nav>
         <a href="/api/docs" target="_blank">Documentation API ↗</a>
@@ -96,10 +97,13 @@
         </section>
         <section id="profiles" class="view">
           <div class="toolbar">
-            <p>Configurez les profils et la taille de leurs lots. Cliquez sur un profil pour ses statistiques détaillées.</p>
-            <button class="primary" data-open="profile-modal">
-              + Nouveau profil
-            </button>
+            <p>Configurez les profils et la taille de leurs lots. Cliquez sur un profil pour ouvrir sa page.</p>
+            <div class="toolbar-group">
+              <button class="secondary" type="button" data-goto="/actions-en-masse">⧉ Lier des groupes en masse</button>
+              <button class="primary" data-open="profile-modal">
+                + Nouveau profil
+              </button>
+            </div>
           </div>
           <div class="toolbar profile-filters">
             <div class="toolbar-group">
@@ -137,9 +141,12 @@
         <section id="groups" class="view">
           <div class="toolbar">
             <p>Un groupe peut être associé à plusieurs profils.</p>
-            <button class="primary" data-open="group-modal">
-              + Nouveau groupe
-            </button>
+            <div class="toolbar-group">
+              <button class="secondary" type="button" data-goto="/actions-en-masse">⧉ Lier / partager en masse</button>
+              <button class="primary" data-open="group-modal">
+                + Nouveau groupe
+              </button>
+            </div>
           </div>
           <div class="pagination" id="groups-pagination"></div>
           <div class="panel table-wrap">
@@ -462,6 +469,161 @@
           </div>
           <div class="pagination" id="logs-pagination"></div>
         </section>
+        <!-- La page d'un profil : tout sur lui, et ce qu'on peut y faire. -->
+        <section id="profile-page" class="view">
+          <div class="pp-head">
+            <button class="link back-link" type="button" data-goto="/profils">← Tous les profils</button>
+            <div class="pp-title">
+              <span class="avatar" id="pd-avatar">·</span>
+              <div>
+                <small id="pd-sub">PROFIL</small>
+                <h2 id="pd-title">Profil</h2>
+              </div>
+            </div>
+            <div class="row-actions" id="pd-actions"></div>
+          </div>
+          <div class="panel pp-panel">
+            <div id="pd-health" class="pd-health"></div>
+            <div id="pd-stats" class="pd-stats"></div>
+          </div>
+          <div class="panel pp-panel">
+            <h3 class="history-h">14 derniers jours</h3>
+            <div id="pd-chart" class="pd-chart"></div>
+          </div>
+
+          <div class="panel pp-panel" id="pp-groups">
+            <div class="panel-head">
+              <div><small>SES GROUPES</small><h2 id="pp-groups-title">Groupes du profil</h2></div>
+              <div class="toolbar-group">
+                <input id="pp-group-search" type="search" placeholder="Filtrer ses groupes" />
+                <select id="pp-group-join">
+                  <option value="">Toutes les adhésions</option>
+                  <option value="JOINED">Rejoint</option>
+                  <option value="REQUESTED">Demande envoyée</option>
+                  <option value="QUESTIONS">Questions</option>
+                  <option value="NOT_JOINED">À rejoindre</option>
+                  <option value="FAILED">Échec</option>
+                </select>
+              </div>
+            </div>
+            <div class="bulk-bar" id="pp-group-bar" hidden>
+              <span id="pp-group-selected"></span>
+              <button class="edit" type="button" id="pp-mark-joined">✓ Marquer « rejoint »</button>
+              <button class="danger" type="button" id="pp-unlink">Retirer de ces groupes</button>
+            </div>
+            <div class="table-wrap"><table class="pp-table">
+              <thead><tr>
+                <th class="w-check"><input type="checkbox" id="pp-check-all" aria-label="Tout sélectionner" /></th>
+                <th>Groupe</th><th>Catégorie</th><th>Adhésion</th><th>Pré-approuvé</th><th>Posts en attente</th><th></th>
+              </tr></thead>
+              <tbody id="pp-memberships"></tbody>
+            </table></div>
+          </div>
+
+          <div class="panel pp-panel">
+            <div class="panel-head">
+              <div><small>AJOUTER</small><h2>Lier ce profil à d’autres groupes</h2></div>
+            </div>
+            <div class="toolbar-group pp-add-filters">
+              <select id="pp-add-category"><option value="">Toutes les catégories</option></select>
+              <input id="pp-add-search" type="search" placeholder="Nom ou adresse du groupe" />
+              <button class="link" type="button" id="pp-add-all">Tout cocher</button>
+              <button class="link" type="button" id="pp-add-none">Tout décocher</button>
+            </div>
+            <div class="pick-list" id="pp-add-list"></div>
+            <div class="actions">
+              <button class="primary" type="button" id="pp-add" disabled>Lier aux groupes cochés</button>
+            </div>
+          </div>
+
+          <div class="pd-two">
+            <div class="panel pp-panel">
+              <h3 class="history-h">Activité par groupe (30 jours)</h3>
+              <div class="table-wrap"><table class="history-attempts">
+                <thead><tr><th>Groupe</th><th>Publiés</th><th>Échecs</th><th>Dernière erreur</th></tr></thead>
+                <tbody id="pd-groups"></tbody>
+              </table></div>
+            </div>
+            <div class="panel pp-panel">
+              <h3 class="history-h">Erreurs les plus fréquentes (30 jours)</h3>
+              <ol id="pd-errors" class="pd-errors"></ol>
+              <h3 class="history-h">Derniers échecs</h3>
+              <ol id="pd-failures" class="history-events"></ol>
+            </div>
+          </div>
+
+          <div id="pd-transfer" class="pd-transfer"></div>
+        </section>
+
+        <!-- Lier et partager en masse : on travaille sur des dizaines de profils
+             et des centaines de groupes. -->
+        <section id="bulk" class="view">
+          <div class="subtabs" role="tablist">
+            <button class="subtab active" type="button" data-bulk-tab="link" role="tab">Lier profils ↔ groupes</button
+            ><button class="subtab" type="button" data-bulk-tab="share" role="tab">Partager avec des comptes</button>
+          </div>
+
+          <div id="bulk-link" class="bulk-pane">
+            <p class="form-help">Cochez des profils et des groupes : chaque profil coché sera lié à chaque groupe coché (ou délié). Un nouveau lien part « à rejoindre » : l’extension d’adhésion s’en chargera.</p>
+            <div class="bulk-grid">
+              <div class="panel pick-panel">
+                <div class="panel-head"><div><small>PROFILS</small><h2 id="bl-profiles-count">0 coché</h2></div></div>
+                <div class="toolbar-group">
+                  <input id="bl-profile-search" type="search" placeholder="Nom ou identifiant" />
+                  <select id="bl-profile-status"><option value="ACTIVE">Actifs</option><option value="">Tous</option></select>
+                </div>
+                <div class="pick-actions"><button class="link" type="button" data-bl-all="profiles">Tout cocher (visibles)</button><button class="link" type="button" data-bl-none="profiles">Tout décocher</button></div>
+                <div class="pick-list" id="bl-profiles"></div>
+              </div>
+              <div class="panel pick-panel">
+                <div class="panel-head"><div><small>GROUPES</small><h2 id="bl-groups-count">0 coché</h2></div></div>
+                <div class="toolbar-group">
+                  <select id="bl-group-category"><option value="">Toutes les catégories</option></select>
+                  <input id="bl-group-search" type="search" placeholder="Nom ou adresse" />
+                </div>
+                <div class="pick-actions"><button class="link" type="button" data-bl-all="groups">Tout cocher (visibles)</button><button class="link" type="button" data-bl-none="groups">Tout décocher</button></div>
+                <div class="pick-list" id="bl-groups"></div>
+              </div>
+            </div>
+            <div class="bulk-footer">
+              <p id="bl-summary" class="form-help"></p>
+              <div class="row-actions">
+                <button class="danger" type="button" id="bl-unlink" disabled>Délier</button>
+                <button class="primary" type="button" id="bl-link" disabled>Lier</button>
+              </div>
+            </div>
+            <div id="bl-result" class="bulk-result" hidden></div>
+          </div>
+
+          <div id="bulk-share" class="bulk-pane hidden">
+            <p class="form-help">Partager donne à un compte le droit de <b>publier</b> dans un groupe (ou de déposer sur un site), sans pouvoir le modifier. Seul le propriétaire, ou un administrateur, partage.</p>
+            <div class="bulk-grid">
+              <div class="panel pick-panel">
+                <div class="panel-head"><div><small>À PARTAGER</small><h2 id="bs-items-count">0 coché</h2></div></div>
+                <div class="toolbar-group">
+                  <select id="bs-kind"><option value="groups">Groupes</option><option value="sites">Sites</option></select>
+                  <select id="bs-category"><option value="">Toutes les catégories</option></select>
+                  <input id="bs-search" type="search" placeholder="Rechercher" />
+                </div>
+                <div class="pick-actions"><button class="link" type="button" data-bs-all>Tout cocher (visibles)</button><button class="link" type="button" data-bs-none>Tout décocher</button></div>
+                <div class="pick-list" id="bs-items"></div>
+              </div>
+              <div class="panel pick-panel">
+                <div class="panel-head"><div><small>COMPTES</small><h2 id="bs-users-count">0 coché</h2></div></div>
+                <div class="pick-list" id="bs-users"></div>
+              </div>
+            </div>
+            <div class="bulk-footer">
+              <p id="bs-summary" class="form-help"></p>
+              <div class="row-actions">
+                <button class="danger" type="button" id="bs-revoke" disabled>Retirer le partage</button>
+                <button class="primary" type="button" id="bs-grant" disabled>Partager</button>
+              </div>
+            </div>
+            <div id="bs-result" class="bulk-result" hidden></div>
+          </div>
+        </section>
+
         <section id="runners" class="view">
           <!-- L'objectif du jour : où l'on en est, ce qu'il manque, où ça coince. -->
           <div class="panel objective" id="objective">
@@ -612,40 +774,6 @@
         </section>
       </main>
     </div>
-    <dialog id="profile-detail" class="profile-detail">
-      <div class="modal-body">
-        <div class="modal-head">
-          <div>
-            <small id="pd-sub">PROFIL</small>
-            <h2 id="pd-title">Profil</h2>
-          </div>
-          <button class="close" type="button" data-close>×</button>
-        </div>
-        <div id="pd-health" class="pd-health"></div>
-        <div id="pd-stats" class="pd-stats"></div>
-        <div>
-          <h3 class="history-h">14 derniers jours</h3>
-          <div id="pd-chart" class="pd-chart"></div>
-        </div>
-        <div class="pd-two">
-          <div>
-            <h3 class="history-h">Par groupe (30 jours)</h3>
-            <div class="table-wrap"><table class="history-attempts">
-              <thead><tr><th>Groupe</th><th>Publiés</th><th>Échecs</th><th>Dernière erreur</th></tr></thead>
-              <tbody id="pd-groups"></tbody>
-            </table></div>
-          </div>
-          <div>
-            <h3 class="history-h">Erreurs les plus fréquentes (30 jours)</h3>
-            <ol id="pd-errors" class="pd-errors"></ol>
-            <h3 class="history-h">Derniers échecs</h3>
-            <ol id="pd-failures" class="history-events"></ol>
-          </div>
-        </div>
-        <div id="pd-transfer" class="pd-transfer"></div>
-        <div class="actions" id="pd-actions"></div>
-      </div>
-    </dialog>
 
     <dialog id="history-modal" class="history-modal">
       <div class="modal-body">

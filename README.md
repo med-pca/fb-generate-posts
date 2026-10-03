@@ -730,7 +730,14 @@ de liens, échecs d'affilée, réservations perdues, groupes rejoints et
 pré-approuvés, graphe des 14 jours, détail par groupe, erreurs les plus
 fréquentes, derniers échecs (avec leur historique).
 
-**Désactiver** passe par la fiche, qui propose un **repreneur** : actif, qui a
+**La page d'un profil** (`/profils/<id>`, clic sur un profil) remplace la
+fenêtre : santé, statistiques, graphe, activité par groupe, erreurs, et
+**tous ses groupes** (catégorie, adhésion, pré-approbation, posts en
+attente) avec filtres, sélection multiple, « ✓ rejoint », « Retirer », et un
+bloc **Lier ce profil à d'autres groupes** (par catégorie, recherche, tout
+cocher).
+
+**Désactiver** passe par cette page, qui propose un **repreneur** : actif, qui a
 rejoint le plus de groupes concernés, puis le meilleur score (présélectionné).
 À la désactivation : son lot en cours est libéré, ses publications forcées et
 ses propres posts vont en priorité au repreneur dans les groupes qu'il a
@@ -740,6 +747,26 @@ signalés. Journal : `PROFILE_DEACTIVATED`.
 
 Routes : `GET /profiles?search&status&health&activity&categoryId&sort`,
 `GET /profiles/:id/health`, `POST /profiles/:id/deactivate { transferTo }`.
+
+### Actions en masse
+
+Page `/actions-en-masse` (menu, et boutons des pages Profils et Groupes) :
+
+- **Lier profils ↔ groupes** : cocher des profils (recherche, actifs/tous) et
+  des groupes (catégorie, recherche), « Tout cocher (visibles) », puis
+  **Lier** ou **Délier** : chaque profil coché à chaque groupe coché. Une
+  liaison existante n'est pas dupliquée, une liaison désactivée est
+  réactivée, un nouveau lien part « à rejoindre ». 50 000 liaisons au plus
+  d'un coup.
+- **Partager avec des comptes** (administrateurs) : groupes ou sites ×
+  comptes gestionnaires, **Partager** ou **Retirer le partage** ; chaque refus
+  (pas propriétaire, compte désactivé…) est détaillé sans arrêter les autres.
+
+Routes : `GET /bulk/profiles`, `GET /bulk/groups?search&categoryId`,
+`POST /bulk/link { profileIds, groupIds, action }`,
+`POST /bulk/share { kind, ids, userIds, action }`. Journaux
+`GROUP_BULK_LINK`, `GROUP_BULK_UNLINK`, `GROUP_BULK_SHARE`,
+`GROUP_BULK_UNSHARE`.
 
 ### L'objectif du jour
 
@@ -1160,7 +1187,8 @@ adresses `/admin/…` redirigent (301) vers la nouvelle.
 
 **Une adresse par rubrique** : `/` (vue d'ensemble), `/profils`, `/groupes`,
 `/categories`, `/sites`, `/articles`, `/posts` (file d'attente),
-`/posts/tous`, `/journaux`, `/pilotage`, `/parametres`, `/comptes`. Les boutons
+`/posts/tous`, `/journaux`, `/pilotage`, `/parametres`, `/comptes`,
+`/actions-en-masse`, et `/profils/<id>` pour la page d'un profil. Les boutons
 Précédent / Suivant du navigateur fonctionnent, et un lien se partage.
 
 **Connexion** sur une page à part, `/login`. Sans session, toute rubrique y

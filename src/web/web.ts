@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SessionService } from '../auth/session.service';
 import { isSecure, sessionTokenFrom } from '../auth/cookies';
-import { APP_ROUTES, PAGE_CSP, SECURITY_HEADERS, appPath, legacyTarget, safeNext } from './routes';
+import { APP_ROUTES, DYNAMIC_ROUTES, PAGE_CSP, SECURITY_HEADERS, appPath, legacyTarget, safeNext } from './routes';
 
 const PUBLIC = join(process.cwd(), 'public');
 /** L'interface : servie seulement à une session valide. */
@@ -63,8 +63,12 @@ export function registerWeb(app: NestFastifyApplication) {
   }
   // Une adresse par rubrique ; sans session, la page de connexion, qui
   // ramène ensuite exactement ici.
-  for (const path of Object.keys(APP_ROUTES)) {
+  for (const path of [...Object.keys(APP_ROUTES), ...DYNAMIC_ROUTES.map((r) => r.fastify)]) {
     fastify.get(path, async (request, reply) => {
+      const dynamic = DYNAMIC_ROUTES.find((r) => r.fastify === path);
+      if (dynamic && !dynamic.pattern.test(request.url.split('?')[0].replace(/\/+$/, ''))) {
+        return reply.code(404).header('content-type', 'text/plain; charset=utf-8').send('Page introuvable');
+      }
       if (!(await loggedIn(request))) {
         const back = appPath(request.url) === '/' ? '' : `?next=${encodeURIComponent(request.url)}`;
         return reply.redirect(`/login${back}`, 302);

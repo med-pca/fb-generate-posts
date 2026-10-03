@@ -12,6 +12,8 @@ describe('adresses', () => {
     expect(safeNext('https://evil.test')).toBe('/');
     expect(safeNext('/\\evil.test')).toBe('/');
     expect(safeNext('/inconnue')).toBe('/');
+    expect(safeNext('/profils/cmg1AbC234xyz')).toBe('/profils/cmg1AbC234xyz');
+    expect(safeNext('/actions-en-masse')).toBe('/actions-en-masse');
   });
   it('les anciennes adresses /admin vont à la racine', () => {
     expect(legacyTarget('/admin/')).toBe('/');
@@ -58,6 +60,13 @@ describe('pages de la plateforme', () => {
     expect(r.body).toContain('/assets/app.js');
     expect((await get('/assets/app.js', 'bon-jeton')).statusCode).toBe(200);
     expect((await get('/posts', 'faux')).statusCode).toBe(302);
+  });
+
+  it('la fiche d’un profil et les actions en masse ont leur adresse', async () => {
+    expect((await get('/profils/cmg1abc234xyz', 'bon-jeton')).statusCode).toBe(200);
+    expect((await get('/actions-en-masse', 'bon-jeton')).statusCode).toBe(200);
+    expect((await get('/profils/cmg1abc234xyz')).headers.location).toBe('/login?next=%2Fprofils%2Fcmg1abc234xyz');
+    expect((await get('/profils/%3Cscript%3E', 'bon-jeton')).statusCode).toBe(404);
   });
 
   it('la page de connexion est publique ; connecté, elle renvoie à la page demandée', async () => {

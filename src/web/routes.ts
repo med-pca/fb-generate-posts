@@ -14,7 +14,13 @@ export const APP_ROUTES: Record<string, AppRoute> = {
   '/pilotage': { view: 'runners', title: 'Pilotage' },
   '/parametres': { view: 'settings', title: 'Paramètres' },
   '/comptes': { view: 'users', title: 'Comptes' },
+  '/actions-en-masse': { view: 'bulk', title: 'Actions en masse' },
 };
+
+/** Les pages qui portent un identifiant : la fiche d'un profil. */
+export const DYNAMIC_ROUTES: Array<{ pattern: RegExp; fastify: string; view: string }> = [
+  { pattern: /^\/profils\/[a-z0-9_-]{6,64}$/i, fastify: '/profils/:id', view: 'profile-page' },
+];
 
 /** Une adresse de la plateforme, sans barre finale ni paramètres. */
 export function appPath(raw: string) {
@@ -22,7 +28,10 @@ export function appPath(raw: string) {
   return path.toLowerCase();
 }
 
-export const isAppRoute = (raw: string) => Object.prototype.hasOwnProperty.call(APP_ROUTES, appPath(raw));
+export const isAppRoute = (raw: string) => {
+  const path = (raw.split(/[?#]/)[0] || '/').replace(/\/+$/, '') || '/';
+  return Object.prototype.hasOwnProperty.call(APP_ROUTES, path.toLowerCase()) || DYNAMIC_ROUTES.some((r) => r.pattern.test(path));
+};
 
 /** Où revenir après la connexion. Seulement une page de la plateforme :
  * jamais une adresse externe (`//site`, `https://…`), qui ferait de la page
@@ -31,7 +40,11 @@ export function safeNext(raw: unknown) {
   const next = typeof raw === 'string' ? raw : '';
   if (!next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/';
   if (next.startsWith('/api/docs')) return '/api/docs';
-  return isAppRoute(next) ? appPath(next) + (next.includes('?') ? next.slice(next.indexOf('?')) : '') : '/';
+  if (!isAppRoute(next)) return '/';
+  // Un identifiant garde sa casse ; une rubrique se lit en minuscules.
+  const path = (next.split(/[?#]/)[0] || '/').replace(/\/+$/, '') || '/';
+  const clean = DYNAMIC_ROUTES.some((r) => r.pattern.test(path)) ? path : appPath(next);
+  return clean + (next.includes('?') ? next.slice(next.indexOf('?')) : '');
 }
 
 /** Les anciennes adresses `/admin…` : vers la nouvelle page. */

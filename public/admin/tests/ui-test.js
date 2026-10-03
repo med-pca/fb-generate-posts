@@ -324,6 +324,10 @@ setTimeout(async () => {
         errors: [{ error: 'Le composeur ne s’est pas ouvert', count: 6 }],
         failures: [{ at: '2026-10-03T09:00:00Z', error: 'Le composeur ne s’est pas ouvert', postTargetId: 't-f1', post: 'Tajine', group: 'Recettes FR' }],
         joins: { JOINED: 4 }, preApproved: 1,
+        memberships: [
+          { groupId: 'g1', name: 'Recettes FR', url: 'https://facebook.com/groups/1', groupStatus: 'ACTIVE', linkStatus: 'ACTIVE', category: { id: 'c1', name: 'Recettes' }, joinStatus: 'JOINED', preApproved: true, waiting: 4 },
+          { groupId: 'g2', name: 'Cuisine du Maroc', url: 'https://facebook.com/groups/2', groupStatus: 'ACTIVE', linkStatus: 'ACTIVE', category: { id: 'c1', name: 'Recettes' }, joinStatus: 'REQUESTED', preApproved: false, waiting: 1 },
+        ],
         transfer: { forcedTargets: 2, ownedPosts: 0, activeJobs: 1, groupsWaiting: 4,
           orphanGroups: [{ id: 'g9', name: 'Cuisine maison', url: 'https://facebook.com/groups/9' }],
           candidates: [
@@ -331,6 +335,16 @@ setTimeout(async () => {
             { id: 'p-new', name: 'Omar', score: null, label: 'new', running: false, groupsCovered: 1, coverage: 0.25 },
           ], recommendedId: 'p-good' },
       }) };
+    }
+    if (path === '/bulk/groups') {
+      return { ok: true, status: 200, json: async () => ([
+        { id: 'g1', name: 'Recettes FR', url: 'https://facebook.com/groups/1', status: 'ACTIVE', category: { id: 'c1', name: 'Recettes' }, _count: { profiles: 3 } },
+        { id: 'g9', name: 'Cuisine maison', url: 'https://facebook.com/groups/9', status: 'ACTIVE', category: { id: 'c1', name: 'Recettes' }, _count: { profiles: 0 } },
+      ]) };
+    }
+    if (path === '/bulk/link') {
+      profileCalls.push(`POST ${path} ${options.body}`);
+      return { ok: true, status: 200, json: async () => ({ action: 'link', created: 1, reactivated: 0, already: 0, removed: 0, ignored: 0, profiles: 1, groups: 1 }) };
     }
     if (path === '/profiles/p-bad/deactivate') {
       profileCalls.push(`POST ${path} ${options.body}`);
@@ -347,21 +361,82 @@ setTimeout(async () => {
   check('« Effacer les filtres » apparaît sur la page Profils', $('#pf-reset').hidden === false, null);
   $('[data-deactivate-profile="p-bad"]').click();
   await new Promise((resolve) => setTimeout(resolve, 80));
-  check('« Désactiver » ouvre d’abord la fiche détaillée', $('#profile-detail').open === true, null);
-  const detailText = $('#profile-detail').textContent;
-  check('la fiche donne l’indice et ses raisons', /il vaudrait mieux le désactiver/.test(detailText) && /5 échecs d'affilée/.test(detailText), null);
+  check('« Désactiver » ouvre la PAGE du profil, avec son adresse', $('#profile-page').classList.contains('active') && window.location.pathname === '/profils/p-bad', window.location.pathname);
+  const detailText = $('#profile-page').textContent;
+  check('la page donne l’indice et ses raisons', /il vaudrait mieux le désactiver/.test(detailText) && /5 échecs d'affilée/.test(detailText), null);
   check('avec les statistiques détaillées', /échecs \(7 j\)/.test(detailText) && /18 %/.test(detailText) && /Recettes FR/.test($('#pd-groups').textContent), null);
   check('et le graphe des 14 jours', $('#pd-chart').querySelectorAll('.pd-bar').length === 14, null);
+  check('ses groupes sont listés, avec adhésion et pré-approbation', /Recettes FR/.test($('#pp-memberships').textContent) && /Demande envoyée/.test($('#pp-memberships').textContent) && /2 groupe\(s\) lié\(s\)/.test($('#pp-groups-title').textContent), $('#pp-groups-title').textContent);
+  check('on peut lui ajouter les groupes qu’il n’a pas', /Cuisine maison/.test($('#pp-add-list').textContent) && !/Recettes FR/.test($('#pp-add-list').textContent), $('#pp-add-list').textContent);
+  $('[data-pp-add="g9"]').checked = true;
+  $('[data-pp-add="g9"]').dispatchEvent(new window.Event('change', { bubbles: true }));
+  $('#pp-add').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('« Lier aux groupes cochés » lie le profil en une fois', profileCalls.some((c) => c.startsWith('POST /bulk/link') && c.includes('"profileIds":["p-bad"]') && c.includes('"groupIds":["g9"]') && c.includes('"action":"link"')), profileCalls);
   check('le repreneur recommandé est présélectionné (actif, bon score)', $('#pd-heir').value === 'p-good', $('#pd-heir').value);
   check('les groupes où il était seul sont signalés', /Cuisine maison/.test($('#pd-transfer').textContent), null);
   $('#pd-deactivate').click();
   await new Promise((resolve) => setTimeout(resolve, 80));
   check('désactiver transfère au repreneur choisi', profileCalls.some((c) => c.startsWith('POST /profiles/p-bad/deactivate') && c.includes('"transferTo":"p-good"')), profileCalls);
-  check('la fiche se referme', $('#profile-detail').open === false, null);
+  $('[data-goto="/profils"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« ← Tous les profils » revient à la liste', $('#profiles').classList.contains('active') && window.location.pathname === '/profils', window.location.pathname);
   $('#pf-reset').click();
   await new Promise((resolve) => setTimeout(resolve, 80));
   check('« Effacer les filtres » rend tous les profils', !profileCalls.at(-1).includes('health='), profileCalls.at(-1));
   window.fetch = beforeProfiles;
+
+  // ─── Actions en masse : lier profils ↔ groupes, partager ───────────
+  const bulkCalls = [];
+  const beforeBulk = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace('/api', '').split('?')[0];
+    if (path === '/bulk/profiles') {
+      return { ok: true, status: 200, json: async () => ([
+        { id: 'p1', name: 'Salim', status: 'ACTIVE', externalId: 'x1', _count: { profileGroups: 3 } },
+        { id: 'p2', name: 'Nadia', status: 'ACTIVE', externalId: 'x2', _count: { profileGroups: 0 } },
+        { id: 'p3', name: 'Ancien', status: 'INACTIVE', externalId: 'x3', _count: { profileGroups: 1 } },
+      ]) };
+    }
+    if (path === '/bulk/groups') {
+      return { ok: true, status: 200, json: async () => ([
+        { id: 'g1', name: 'Recettes FR', url: 'https://facebook.com/groups/1', status: 'ACTIVE', category: { id: 'c1', name: 'Recettes' }, _count: { profiles: 2 } },
+        { id: 'g2', name: 'Recettes MA', url: 'https://facebook.com/groups/2', status: 'ACTIVE', category: { id: 'c1', name: 'Recettes' }, _count: { profiles: 0 } },
+        { id: 'g3', name: 'Immobilier', url: 'https://facebook.com/groups/3', status: 'ACTIVE', category: null, _count: { profiles: 1 } },
+      ]) };
+    }
+    if (path === '/bulk/link' || path === '/bulk/share') {
+      bulkCalls.push(`${path} ${options.body}`);
+      return { ok: true, status: 200, json: async () => (path === '/bulk/link'
+        ? { action: 'link', created: 4, reactivated: 0, already: 0, removed: 0, ignored: 0, profiles: 2, groups: 2 }
+        : { done: 3, items: 2, users: 2, ignored: 0, failures: [{ item: 'Recettes MA', userId: 'u2', reason: 'Vous n’êtes pas propriétaire' }] }) };
+    }
+    return beforeBulk(url, options);
+  };
+  $('.nav[data-view="bulk"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('« Actions en masse » a sa page : /actions-en-masse', window.location.pathname === '/actions-en-masse' && $('#bulk').classList.contains('active'), window.location.pathname);
+  check('les profils actifs sont listés (les inactifs à part)', /Salim/.test($('#bl-profiles').textContent) && !/Ancien/.test($('#bl-profiles').textContent), $('#bl-profiles').textContent);
+  $('[data-bl-all="profiles"]').click();
+  $('#bl-group-category').value = 'c1';
+  $('#bl-group-category').dispatchEvent(new window.Event('change'));
+  check('filtrer les groupes par catégorie', !/Immobilier/.test($('#bl-groups').textContent) && /Recettes MA/.test($('#bl-groups').textContent), $('#bl-groups').textContent);
+  $('[data-bl-all="groups"]').click();
+  check('le résumé compte les liaisons', /2 profil\(s\) × 2 groupe\(s\) = 4 liaison/.test($('#bl-summary').textContent), $('#bl-summary').textContent);
+  $('#bl-link').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const linked = bulkCalls.find((c) => c.startsWith('/bulk/link'));
+  check('« Lier » envoie tous les profils × groupes cochés', !!linked && linked.includes('"profileIds":["p1","p2"]') && linked.includes('"groupIds":["g1","g2"]') && linked.includes('"action":"link"'), linked);
+  check('et dit ce qui a été fait', /4 liaison\(s\) créée/.test($('#bl-result').textContent), $('#bl-result').textContent);
+  $('[data-bulk-tab="share"]').click();
+  $('[data-bs-all]').click();
+  [...window.document.querySelectorAll('[data-bs-user]')].forEach((u) => { u.checked = true; u.dispatchEvent(new window.Event('change', { bubbles: true })); });
+  $('#bs-grant').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const shared = bulkCalls.find((c) => c.startsWith('/bulk/share'));
+  check('« Partager » envoie les groupes × comptes cochés', !!shared && shared.includes('"kind":"groups"') && shared.includes('"userIds":["u2"]') && shared.includes('"action":"grant"'), shared);
+  check('les refus sont détaillés', /pas propriétaire/.test($('#bs-result').textContent), $('#bs-result').textContent);
+  window.fetch = beforeBulk;
 
   // ─── Filtres du Pilotage ───────────────────────────────────────
   const now = new Date().toISOString();

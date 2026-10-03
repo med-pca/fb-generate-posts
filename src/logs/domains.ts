@@ -32,7 +32,7 @@ export const LOG_DOMAINS = {
   },
   groups: {
     label: 'Groupes & pilotage',
-    prefixes: ['GROUP_JOIN', 'BROWSER_', 'RUNNER_', 'MEMBER_', 'PROFILE_'],
+    prefixes: ['GROUP_JOIN', 'BROWSER_', 'RUNNER_', 'MEMBER_', 'PROFILE_', 'GROUP_BULK'],
     exact: [] as string[],
   },
 } as const;

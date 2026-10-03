@@ -309,7 +309,19 @@ function profileChart(days) {
   return `<div class="pd-legend"><span class="pub">Publiés</span><span class="fail">Échecs</span></div><div class="pd-bars">${bars}</div>`;
 }
 
-async function openProfileDetail(profileId, { focusDeactivate = false } = {}) {
+/** Ouvrir la page d'un profil : son adresse est /profils/<id>. */
+function openProfileDetail(profileId, { focusDeactivate = false } = {}) {
+  history.pushState({}, '', `/profils/${profileId}`);
+  view('profile-page', { fromUrl: true });
+  return renderProfilePage(profileId, { focusDeactivate });
+}
+
+const JOIN_TEXT = { JOINED: 'Rejoint', REQUESTED: 'Demande envoyée', QUESTIONS: 'Questions', NOT_JOINED: 'À rejoindre', FAILED: 'Échec' };
+const JOIN_CLASS = { JOINED: 'join-joined', REQUESTED: 'join-requested', QUESTIONS: 'join-questions', NOT_JOINED: 'join-not_joined', FAILED: 'join-failed' };
+
+async function renderProfilePage(profileId, { focusDeactivate = false } = {}) {
+  state.profilePage = { id: profileId, selected: new Set(), add: new Set() };
+  $('#pd-title').textContent = 'Chargement…';
   let d;
   try {
     d = await api(`/profiles/${profileId}/health`);
@@ -318,7 +330,11 @@ async function openProfileDetail(profileId, { focusDeactivate = false } = {}) {
     return;
   }
   const h = d.health, t = d.totals, p = d.profile, tr = d.transfer;
+  state.profilePage.data = d;
   $('#pd-title').textContent = p.name;
+  $('#pd-avatar').textContent = initials(p.name);
+  $('#title').textContent = p.name;
+  document.title = `PostFlow — ${p.name}`;
   $('#pd-sub').textContent = `PROFIL · ${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}${p.isModerator ? ' · VÉRIFICATEUR' : ''}`;
   $('#pd-health').innerHTML =
     `<div class="pd-score ${h.label}"><strong>${h.score === null ? '—' : h.score}</strong><span>/100</span><small>${esc(h.labelText)}</small></div>` +
@@ -369,9 +385,13 @@ async function openProfileDetail(profileId, { focusDeactivate = false } = {}) {
       `<small>Le repreneur les reçoit en priorité dans les groupes qu’il a rejoints ; ailleurs, ils restent dans la file pour les autres profils.</small>` +
       (tr.orphanGroups.length
         ? `<div class="warn-box">⚠ Dans ${tr.orphanGroups.length} groupe(s), il est le seul profil : ${tr.orphanGroups.map((g) => esc(g.name)).join(', ')}. Personne n’y publiera tant qu’un autre profil ne l’aura pas rejoint.</div>`
-        : '');
+        : '') +
+      `<div class="actions"><button class="danger" type="button" id="pd-deactivate">Désactiver${tr.recommendedId ? ' et transférer' : ''}</button></div>`;
     $('#pd-actions').innerHTML =
-      `<button class="danger" type="button" id="pd-deactivate">Désactiver${tr.recommendedId ? ' et transférer' : ''}</button>`;
+      `<button class="edit" type="button" data-edit-profile="${p.id}">Modifier</button>` +
+      `<button class="edit" type="button" data-goto="/pilotage">Pilotage</button>` +
+      `<button class="danger" type="button" id="pd-goto-deactivate">Désactiver…</button>`;
+    $('#pd-goto-deactivate').onclick = () => $('#pd-transfer').scrollIntoView?.({ behavior: 'smooth', block: 'start' });
     $('#pd-deactivate').onclick = async () => {
       const heir = $('#pd-heir').value || null;
       const heirName = heir ? tr.candidates.find((c) => c.id === heir)?.name : null;
@@ -386,8 +406,8 @@ async function openProfileDetail(profileId, { focusDeactivate = false } = {}) {
             (r.orphanGroups.length ? ` ⚠ ${r.orphanGroups.length} groupe(s) sans autre profil.` : ''),
           r.orphanGroups.length ? 'error' : 'success',
         );
-        $('#profile-detail').close();
         await load();
+        await renderProfilePage(p.id);
       } catch (x) {
         notice(x.message, 'error');
         $('#pd-deactivate').disabled = false;
@@ -396,11 +416,175 @@ async function openProfileDetail(profileId, { focusDeactivate = false } = {}) {
     $('#pd-transfer').hidden = false;
   } else {
     $('#pd-transfer').hidden = true;
-    $('#pd-actions').innerHTML = `<button class="primary" type="button" data-toggle-profile="${p.id}">Activer</button>`;
+    $('#pd-actions').innerHTML =
+      `<button class="edit" type="button" data-edit-profile="${p.id}">Modifier</button>` +
+      `<button class="primary" type="button" data-toggle-profile="${p.id}">Activer</button>`;
   }
-  $('#profile-detail').showModal();
+  renderMemberships();
+  await loadAddableGroups();
   if (focusDeactivate) $('#pd-transfer').scrollIntoView?.({ block: 'start' });
 }
+
+/* ── Page profil : ses groupes ──────────────────────────────────────── */
+function renderMemberships() {
+  const pp = state.profilePage;
+  const all = Array.isArray(pp.data.memberships) ? pp.data.memberships : [];
+  const text = $('#pp-group-search').value.trim().toLowerCase();
+  const join = $('#pp-group-join').value;
+  const rows = all.filter((m) => (!text || m.name.toLowerCase().includes(text) || (m.category?.name || '').toLowerCase().includes(text)) && (!join || m.joinStatus === join));
+  $('#pp-groups-title').textContent = `${all.length} groupe(s) lié(s)` +
+    ` · ${all.filter((m) => m.joinStatus === 'JOINED').length} rejoint(s)` +
+    ` · ${all.filter((m) => m.preApproved).length} pré-approuvé(s)`;
+  $('#pp-memberships').innerHTML =
+    rows
+      .map(
+        (m) =>
+          `<tr class="${m.groupStatus === 'INACTIVE' || m.linkStatus !== 'ACTIVE' ? 'inactive' : ''}">` +
+          `<td class="w-check"><input type="checkbox" data-pp-select="${m.groupId}" ${pp.selected.has(m.groupId) ? 'checked' : ''} aria-label="Sélectionner ${esc(m.name)}"></td>` +
+          `<td><strong>${esc(m.name)}</strong>${m.url ? `<small><a href="${esc(m.url)}" target="_blank" rel="noreferrer">${esc(m.url.replace(/^https:\/\/(www\.)?facebook\.com/, ''))}</a></small>` : ''}</td>` +
+          `<td>${m.category ? `<span class="chip">${esc(m.category.name)}</span>` : '<span class="muted">—</span>'}</td>` +
+          `<td><span class="chip ${JOIN_CLASS[m.joinStatus] || ''}">${JOIN_TEXT[m.joinStatus] || m.joinStatus}</span>` +
+          (m.memberActionError ? `<small class="bad" title="${esc(m.memberActionError)}">⚠ vérificateur</small>` : '') + `</td>` +
+          `<td>${m.preApproved ? '<span class="chip join-joined">oui</span>' : '<span class="muted">non</span>'}</td>` +
+          `<td>${m.waiting}</td>` +
+          `<td><div class="row-actions">` +
+          (m.joinStatus !== 'JOINED' ? `<button class="edit" type="button" data-pp-joined="${m.groupId}" title="Il a bien rejoint ce groupe sur Facebook">✓ rejoint</button>` : '') +
+          `<button class="danger" type="button" data-pp-unlink="${m.groupId}" data-name="${esc(m.name)}">Retirer</button></div></td></tr>`,
+      )
+      .join('') || `<tr><td colspan="7" class="empty">${all.length ? 'Aucun groupe pour ce filtre.' : 'Lié à aucun groupe : ajoutez-en ci-dessous.'}</td></tr>`;
+  $('#pp-check-all').checked = rows.length > 0 && rows.every((m) => pp.selected.has(m.groupId));
+  $('#pp-group-bar').hidden = !pp.selected.size;
+  $('#pp-group-selected').textContent = `${pp.selected.size} groupe(s) sélectionné(s)`;
+}
+['#pp-group-search', '#pp-group-join'].forEach((id) => ($(id).oninput = $(id).onchange = () => state.profilePage && renderMemberships()));
+$('#pp-check-all').onchange = (e) => {
+  const pp = state.profilePage;
+  const text = $('#pp-group-search').value.trim().toLowerCase();
+  const join = $('#pp-group-join').value;
+  for (const m of pp.data.memberships) {
+    if ((!text || m.name.toLowerCase().includes(text)) && (!join || m.joinStatus === join)) {
+      if (e.target.checked) pp.selected.add(m.groupId);
+      else pp.selected.delete(m.groupId);
+    }
+  }
+  renderMemberships();
+};
+$('#pp-memberships').addEventListener('change', (e) => {
+  const id = e.target.dataset.ppSelect;
+  if (!id) return;
+  if (e.target.checked) state.profilePage.selected.add(id);
+  else state.profilePage.selected.delete(id);
+  renderMemberships();
+});
+async function ppUnlink(groupIds, label) {
+  const pp = state.profilePage;
+  if (!confirm(`Retirer « ${pp.data.profile.name} » de ${label} ?\nIl ne publiera plus dans ${groupIds.length > 1 ? 'ces groupes' : 'ce groupe'}.`)) return;
+  try {
+    const r = await api('/bulk/link', { method: 'POST', body: JSON.stringify({ profileIds: [pp.id], groupIds, action: 'unlink' }) });
+    notice(`${r.removed} liaison(s) retirée(s).`);
+    await renderProfilePage(pp.id);
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+}
+async function ppMarkJoined(groupIds) {
+  const pp = state.profilePage;
+  try {
+    for (const g of groupIds) {
+      await api(`/groups/${g}/profiles/${pp.id}/join-status`, { method: 'PATCH', body: JSON.stringify({ joinStatus: 'JOINED' }) });
+    }
+    notice(`${groupIds.length} adhésion(s) marquée(s) « rejoint ».`);
+    await renderProfilePage(pp.id);
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+}
+$('#pp-memberships').addEventListener('click', (e) => {
+  const unlink = e.target.dataset.ppUnlink;
+  if (unlink) return void ppUnlink([unlink], `« ${e.target.dataset.name} »`);
+  const joined = e.target.dataset.ppJoined;
+  if (joined) return void ppMarkJoined([joined]);
+});
+$('#pp-unlink').onclick = () => ppUnlink([...state.profilePage.selected], `${state.profilePage.selected.size} groupe(s)`);
+$('#pp-mark-joined').onclick = () => ppMarkJoined([...state.profilePage.selected]);
+
+/** Les groupes qu'on peut encore lui lier, par catégorie et recherche. */
+async function loadAddableGroups() {
+  const pp = state.profilePage;
+  const category = $('#pp-add-category');
+  category.innerHTML =
+    '<option value="">Toutes les catégories</option>' +
+    (state.categories || []).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('') +
+    '<option value="none">Sans catégorie</option>';
+  category.value = pp.addCategory || '';
+  try {
+    const rows = await api('/bulk/groups');
+    pp.addable = Array.isArray(rows) ? rows : [];
+  } catch (x) {
+    pp.addable = [];
+    notice(x.message, 'error');
+  }
+  renderAddable();
+}
+function addableVisible() {
+  const pp = state.profilePage;
+  const linked = new Set((pp.data.memberships || []).map((m) => m.groupId));
+  const cat = $('#pp-add-category').value;
+  const text = $('#pp-add-search').value.trim().toLowerCase();
+  return (pp.addable || []).filter(
+    (g) =>
+      !linked.has(g.id) &&
+      g.status === 'ACTIVE' &&
+      (!cat || (cat === 'none' ? !g.category : g.category?.id === cat)) &&
+      (!text || g.name.toLowerCase().includes(text) || (g.url || '').toLowerCase().includes(text)),
+  );
+}
+function renderAddable() {
+  const pp = state.profilePage;
+  const list = addableVisible();
+  $('#pp-add-list').innerHTML =
+    list
+      .map(
+        (g) =>
+          `<label class="pick"><input type="checkbox" data-pp-add="${g.id}" ${pp.add.has(g.id) ? 'checked' : ''}>` +
+          `<span><b>${esc(g.name)}</b><small>${g.category ? esc(g.category.name) : 'sans catégorie'} · ${g._count.profiles} profil(s)</small></span></label>`,
+      )
+      .join('') || '<div class="empty">Aucun groupe à ajouter pour ce filtre.</div>';
+  $('#pp-add').disabled = !pp.add.size;
+  $('#pp-add').textContent = pp.add.size ? `Lier aux ${pp.add.size} groupe(s) coché(s)` : 'Lier aux groupes cochés';
+}
+$('#pp-add-category').onchange = () => {
+  state.profilePage.addCategory = $('#pp-add-category').value;
+  renderAddable();
+};
+$('#pp-add-search').oninput = () => renderAddable();
+$('#pp-add-list').addEventListener('change', (e) => {
+  const id = e.target.dataset.ppAdd;
+  if (!id) return;
+  if (e.target.checked) state.profilePage.add.add(id);
+  else state.profilePage.add.delete(id);
+  renderAddable();
+});
+$('#pp-add-all').onclick = () => {
+  for (const g of addableVisible()) state.profilePage.add.add(g.id);
+  renderAddable();
+};
+$('#pp-add-none').onclick = () => {
+  state.profilePage.add.clear();
+  renderAddable();
+};
+$('#pp-add').onclick = async () => {
+  const pp = state.profilePage;
+  $('#pp-add').disabled = true;
+  try {
+    const r = await api('/bulk/link', { method: 'POST', body: JSON.stringify({ profileIds: [pp.id], groupIds: [...pp.add], action: 'link' }) });
+    notice(`${r.created + r.reactivated} groupe(s) lié(s) à ${pp.data.profile.name}${r.already ? ` (${r.already} déjà lié(s))` : ''}. Ils sont « à rejoindre » : l’extension d’adhésion s’en charge.`);
+    await renderProfilePage(pp.id);
+  } catch (x) {
+    notice(x.message, 'error');
+    $('#pp-add').disabled = false;
+  }
+};
 
 /* ── Profils : leurs statistiques ──────────────────────────────────── */
 function profileMetrics(p) {
@@ -454,7 +638,7 @@ function render() {
     state.profiles
       .map(
         (p) =>
-          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${healthBadge(p.health)}</p>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-profile-detail="${p.id}">Détails</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
+          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${healthBadge(p.health)}</p>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
       )
       .join('') || '<div class="empty">Créez votre premier profil.</div>';
   $('#group-rows').innerHTML =
@@ -1649,6 +1833,7 @@ const ROUTES = {
   '/pilotage': { view: 'runners' },
   '/parametres': { view: 'settings' },
   '/comptes': { view: 'users' },
+  '/actions-en-masse': { view: 'bulk' },
 };
 /** L'adresse d'une rubrique (et, pour les posts, de son onglet). */
 function pathOf(id, tab) {
@@ -1658,6 +1843,7 @@ function pathOf(id, tab) {
 /** Mettre l'adresse à jour sans recharger : le bouton Précédent du
  * navigateur ramène à la rubrique d'avant, et un lien se partage. */
 function syncUrl(id) {
+  if (id === 'profile-page') return;
   const path = pathOf(id);
   if (location.pathname.replace(/\/+$/, '') !== path.replace(/\/+$/, '') && path) {
     history.pushState({ view: id }, '', path);
@@ -1666,6 +1852,12 @@ function syncUrl(id) {
 }
 /** La rubrique que l'adresse désigne (au chargement, ou Précédent). */
 function routeFromUrl() {
+  const profile = /^\/profils\/([A-Za-z0-9_-]{6,64})\/?$/.exec(location.pathname);
+  if (profile) {
+    view('profile-page', { fromUrl: true });
+    void renderProfilePage(profile[1]);
+    return;
+  }
   const path = (location.pathname.replace(/\/+$/, '') || '/').toLowerCase();
   const route = ROUTES[path] || ROUTES['/'];
   if (route.view === 'posts') showPostsTab(route.tab, { fromUrl: true });
@@ -1692,7 +1884,10 @@ function view(id, { fromUrl = false } = {}) {
     logs: 'Journaux',
     runners: 'Pilotage',
     settings: 'Paramètres',
+    bulk: 'Actions en masse',
+    'profile-page': 'Profil',
   }[id];
+  if (id === 'bulk') loadBulk();
   // Les journaux se relisent à chaque ouverture : une synthèse périmée
   // conduirait à décider sur l'état d'hier.
   if (id === 'logs') loadLogs();
@@ -2744,11 +2939,16 @@ document.addEventListener('click', (e) => {
     const next = known && known.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     api(`/profiles/${toggleId}`, { method: 'PATCH', body: JSON.stringify({ status: next }) })
       .then(() => {
-        if ($('#profile-detail').open) $('#profile-detail').close();
-        return load();
+        return load().then(() => (state.profilePage && location.pathname.startsWith('/profils/') ? renderProfilePage(toggleId) : null));
       })
       .then(() => notice(next === 'ACTIVE' ? 'Profil activé : il reprend sa place dans la file.' : 'État du profil modifié.'))
       .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  const goto = e.target.closest('[data-goto]');
+  if (goto) {
+    history.pushState({}, '', goto.dataset.goto);
+    routeFromUrl();
     return;
   }
   const detail = e.target.closest('[data-profile-detail]');
@@ -2978,7 +3178,9 @@ document.addEventListener('click', (e) => {
     loadCategoryGroups('', '#article-groups');
     return;
   }
-  let p = state.profiles.find((x) => x.id === e.target.dataset.editProfile);
+  let p =
+    state.profiles.find((x) => x.id === e.target.dataset.editProfile) ||
+    state.profileOptions.find((x) => x.id === e.target.dataset.editProfile);
   if (p) {
     openModal('profile-modal');
     const f = $('#profile-form');
@@ -3237,3 +3439,209 @@ load().then(() => {
   routeFromUrl();
   registerAgentTools();
 });
+
+/* ── Actions en masse : lier profils ↔ groupes, partager ────────────── */
+state.bulk = { profiles: [], groups: [], sites: [], selProfiles: new Set(), selGroups: new Set(), selItems: new Set(), selUsers: new Set(), tab: 'link', loaded: false };
+
+async function loadBulk() {
+  const b = state.bulk;
+  try {
+    const [profiles, groups] = await Promise.all([api('/bulk/profiles'), api('/bulk/groups')]);
+    b.profiles = Array.isArray(profiles) ? profiles : [];
+    b.groups = Array.isArray(groups) ? groups : [];
+    b.sites = state.sites || [];
+    b.loaded = true;
+  } catch (x) {
+    notice(x.message, 'error');
+    return;
+  }
+  const categories =
+    '<option value="">Toutes les catégories</option>' +
+    (state.categories || []).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('') +
+    '<option value="none">Sans catégorie</option>';
+  for (const id of ['#bl-group-category', '#bs-category']) {
+    const keep = $(id).value;
+    $(id).innerHTML = categories;
+    $(id).value = keep;
+  }
+  // Le partage se fait avec des comptes : seuls les administrateurs les voient.
+  $('[data-bulk-tab="share"]').hidden = state.me?.role !== 'ADMIN';
+  renderBulk();
+}
+
+const matches = (text, ...fields) => !text || fields.some((f) => String(f || '').toLowerCase().includes(text));
+const inCategory = (cat, item) => !cat || (cat === 'none' ? !item.category : item.category?.id === cat);
+
+function bulkVisible() {
+  const b = state.bulk;
+  const pText = $('#bl-profile-search').value.trim().toLowerCase();
+  const pStatus = $('#bl-profile-status').value;
+  const gText = $('#bl-group-search').value.trim().toLowerCase();
+  const gCat = $('#bl-group-category').value;
+  return {
+    profiles: b.profiles.filter((p) => (!pStatus || p.status === pStatus) && matches(pText, p.name, p.externalId)),
+    groups: b.groups.filter((g) => inCategory(gCat, g) && matches(gText, g.name, g.url)),
+  };
+}
+function shareVisible() {
+  const b = state.bulk;
+  const kind = $('#bs-kind').value;
+  const text = $('#bs-search').value.trim().toLowerCase();
+  const cat = $('#bs-category').value;
+  const items =
+    kind === 'groups'
+      ? b.groups.filter((g) => inCategory(cat, g) && matches(text, g.name, g.url))
+      : b.sites.filter((s) => (!cat || (cat === 'none' ? !s.categoryId : s.categoryId === cat)) && matches(text, s.name, s.originUrl));
+  return items;
+}
+
+function renderBulk() {
+  const b = state.bulk;
+  $$('[data-bulk-tab]').forEach((t) => t.classList.toggle('active', t.dataset.bulkTab === b.tab));
+  $('#bulk-link').classList.toggle('hidden', b.tab !== 'link');
+  $('#bulk-share').classList.toggle('hidden', b.tab !== 'share');
+
+  const v = bulkVisible();
+  $('#bl-profiles').innerHTML =
+    v.profiles
+      .map(
+        (p) =>
+          `<label class="pick ${p.status === 'INACTIVE' ? 'inactive' : ''}"><input type="checkbox" data-bl-profile="${p.id}" ${b.selProfiles.has(p.id) ? 'checked' : ''}>` +
+          `<span><b>${esc(p.name)}</b><small>${p._count.profileGroups} groupe(s)${p.status === 'INACTIVE' ? ' · inactif' : ''}</small></span></label>`,
+      )
+      .join('') || '<div class="empty">Aucun profil pour ce filtre.</div>';
+  $('#bl-groups').innerHTML =
+    v.groups
+      .map(
+        (g) =>
+          `<label class="pick ${g.status === 'INACTIVE' ? 'inactive' : ''}"><input type="checkbox" data-bl-group="${g.id}" ${b.selGroups.has(g.id) ? 'checked' : ''}>` +
+          `<span><b>${esc(g.name)}</b><small>${g.category ? esc(g.category.name) : 'sans catégorie'} · ${g._count.profiles} profil(s)${g.status === 'INACTIVE' ? ' · inactif' : ''}</small></span></label>`,
+      )
+      .join('') || '<div class="empty">Aucun groupe pour ce filtre.</div>';
+  $('#bl-profiles-count').textContent = `${b.selProfiles.size} profil(s) coché(s)`;
+  $('#bl-groups-count').textContent = `${b.selGroups.size} groupe(s) coché(s)`;
+  const pairs = b.selProfiles.size * b.selGroups.size;
+  $('#bl-summary').textContent = pairs
+    ? `${b.selProfiles.size} profil(s) × ${b.selGroups.size} groupe(s) = ${pairs} liaison(s).`
+    : 'Cochez au moins un profil et un groupe.';
+  $('#bl-link').disabled = $('#bl-unlink').disabled = !pairs;
+  $('#bl-link').textContent = pairs ? `Lier (${pairs})` : 'Lier';
+
+  const items = shareVisible();
+  const kind = $('#bs-kind').value;
+  $('#bs-category').hidden = false;
+  $('#bs-items').innerHTML =
+    items
+      .map(
+        (i) =>
+          `<label class="pick"><input type="checkbox" data-bs-item="${i.id}" ${b.selItems.has(i.id) ? 'checked' : ''}>` +
+          `<span><b>${esc(i.name)}</b><small>${kind === 'groups' ? (i.category ? esc(i.category.name) : 'sans catégorie') : esc(i.originUrl || '')}</small></span></label>`,
+      )
+      .join('') || '<div class="empty">Rien pour ce filtre.</div>';
+  const users = (state.users || []).filter((u) => u.role !== 'ADMIN' && u.status === 'ACTIVE');
+  $('#bs-users').innerHTML =
+    users
+      .map((u) => `<label class="pick"><input type="checkbox" data-bs-user="${u.id}" ${b.selUsers.has(u.id) ? 'checked' : ''}><span><b>${esc(u.username)}</b><small>gestionnaire</small></span></label>`)
+      .join('') || '<div class="empty">Aucun compte gestionnaire actif : créez-en un dans Comptes.</div>';
+  $('#bs-items-count').textContent = `${b.selItems.size} ${kind === 'groups' ? 'groupe(s)' : 'site(s)'} coché(s)`;
+  $('#bs-users-count').textContent = `${b.selUsers.size} compte(s) coché(s)`;
+  const shares = b.selItems.size * b.selUsers.size;
+  $('#bs-summary').textContent = shares ? `${b.selItems.size} × ${b.selUsers.size} = ${shares} partage(s).` : 'Cochez au moins un élément et un compte.';
+  $('#bs-grant').disabled = $('#bs-revoke').disabled = !shares;
+}
+
+$$('[data-bulk-tab]').forEach((t) => (t.onclick = () => {
+  state.bulk.tab = t.dataset.bulkTab;
+  renderBulk();
+}));
+['#bl-profile-search', '#bl-group-search', '#bs-search'].forEach((id) => ($(id).oninput = () => renderBulk()));
+['#bl-profile-status', '#bl-group-category', '#bs-category'].forEach((id) => ($(id).onchange = () => renderBulk()));
+$('#bs-kind').onchange = () => {
+  state.bulk.selItems.clear();
+  renderBulk();
+};
+const toggleIn = (set, id, on) => (on ? set.add(id) : set.delete(id));
+$('#bulk').addEventListener('change', (e) => {
+  const d = e.target.dataset;
+  const b = state.bulk;
+  if (d.blProfile) toggleIn(b.selProfiles, d.blProfile, e.target.checked);
+  else if (d.blGroup) toggleIn(b.selGroups, d.blGroup, e.target.checked);
+  else if (d.bsItem) toggleIn(b.selItems, d.bsItem, e.target.checked);
+  else if (d.bsUser) toggleIn(b.selUsers, d.bsUser, e.target.checked);
+  else return;
+  renderBulk();
+});
+$('#bulk').addEventListener('click', (e) => {
+  const b = state.bulk;
+  const d = e.target.dataset;
+  if (d.blAll) {
+    const v = bulkVisible();
+    for (const x of v[d.blAll]) (d.blAll === 'profiles' ? b.selProfiles : b.selGroups).add(x.id);
+    renderBulk();
+  } else if (d.blNone) {
+    (d.blNone === 'profiles' ? b.selProfiles : b.selGroups).clear();
+    renderBulk();
+  } else if (e.target.hasAttribute('data-bs-all')) {
+    for (const x of shareVisible()) b.selItems.add(x.id);
+    renderBulk();
+  } else if (e.target.hasAttribute('data-bs-none')) {
+    b.selItems.clear();
+    renderBulk();
+  }
+});
+
+async function bulkLink(action) {
+  const b = state.bulk;
+  const pairs = b.selProfiles.size * b.selGroups.size;
+  if (action === 'unlink' && !confirm(`Délier ${b.selProfiles.size} profil(s) de ${b.selGroups.size} groupe(s) (${pairs} liaison(s)) ?\nIls ne publieront plus dans ces groupes.`)) return;
+  $('#bl-link').disabled = $('#bl-unlink').disabled = true;
+  try {
+    const r = await api('/bulk/link', {
+      method: 'POST',
+      body: JSON.stringify({ profileIds: [...b.selProfiles], groupIds: [...b.selGroups], action }),
+    });
+    const box = $('#bl-result');
+    box.hidden = false;
+    box.innerHTML =
+      action === 'link'
+        ? `<b>✓ ${r.created} liaison(s) créée(s)</b>${r.reactivated ? `, ${r.reactivated} réactivée(s)` : ''}, ${r.already} déjà en place.` +
+          `<small>Les nouvelles sont « à rejoindre » : l’extension d’adhésion s’en charge.${r.ignored ? ` ${r.ignored} élément(s) hors de votre portée ignoré(s).` : ''}</small>`
+        : `<b>✓ ${r.removed} liaison(s) retirée(s).</b>`;
+    notice(action === 'link' ? `${r.created + r.reactivated} liaison(s) ajoutée(s).` : `${r.removed} liaison(s) retirée(s).`);
+    await Promise.all([loadBulk(), load()]);
+  } catch (x) {
+    notice(x.message, 'error');
+    renderBulk();
+  }
+}
+$('#bl-link').onclick = () => bulkLink('link');
+$('#bl-unlink').onclick = () => bulkLink('unlink');
+
+async function bulkShare(action) {
+  const b = state.bulk;
+  const kind = $('#bs-kind').value;
+  if (action === 'revoke' && !confirm(`Retirer le partage de ${b.selItems.size} élément(s) pour ${b.selUsers.size} compte(s) ?`)) return;
+  $('#bs-grant').disabled = $('#bs-revoke').disabled = true;
+  try {
+    const r = await api('/bulk/share', {
+      method: 'POST',
+      body: JSON.stringify({ kind, ids: [...b.selItems], userIds: [...b.selUsers], action }),
+    });
+    const names = new Map((state.users || []).map((u) => [u.id, u.username]));
+    const box = $('#bs-result');
+    box.hidden = false;
+    box.innerHTML =
+      `<b>✓ ${r.done} ${action === 'grant' ? 'partage(s) fait(s)' : 'partage(s) retiré(s)'}</b> sur ${r.items * r.users}.` +
+      (r.failures.length
+        ? `<ul>${r.failures.slice(0, 10).map((f) => `<li>${esc(f.item)} → ${esc(names.get(f.userId) || f.userId)} : ${esc(f.reason)}</li>`).join('')}</ul>` +
+          (r.failures.length > 10 ? `<small>… et ${r.failures.length - 10} autre(s) refus.</small>` : '')
+        : '');
+    notice(`${r.done} ${action === 'grant' ? 'partage(s) fait(s)' : 'partage(s) retiré(s)'}${r.failures.length ? `, ${r.failures.length} refus` : ''}.`, r.failures.length ? 'error' : 'success');
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    renderBulk();
+  }
+}
+$('#bs-grant').onclick = () => bulkShare('grant');
+$('#bs-revoke').onclick = () => bulkShare('revoke');

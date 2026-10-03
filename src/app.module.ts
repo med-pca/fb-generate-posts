@@ -22,6 +22,7 @@ import { RunnersModule } from './runners/runners.module';
 import { CategoriesModule } from './categories/categories.module';
 import { InsightsModule } from './insights/insights.module';
 import { VerifyModule } from './verify/verify.module';
+import { BulkModule } from './bulk/bulk.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { VerifyModule } from './verify/verify.module';
     CategoriesModule,
     InsightsModule,
     VerifyModule,
+    BulkModule,
   ],
   controllers: [AppController],
   providers: [AppService],
