@@ -1,4 +1,4 @@
-# FB Post Checker
+# « Modérateur · PostFlow » (ex-FB Post Checker)
 
 Extension du **profil vérificateur**. Elle rouvre les posts publiés par les
 automates et dit à la plateforme ce qu'elle voit :

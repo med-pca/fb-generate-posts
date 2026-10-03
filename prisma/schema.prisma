@@ -286,6 +286,9 @@ model ProfileGroup {
   /// Réservé par un vérificateur jusqu'à cette heure (ou repoussé).
   memberClaimedUntil   DateTime?    @map("member_claimed_until")
   memberAttempts       Int          @default(0) @map("member_attempts")
+  /// L'admin a demandé cette action au modérateur (accepter / pré-approuver) :
+  /// elle passe en tête de sa file. Effacé au rapport.
+  memberRequestedAt    DateTime?    @map("member_requested_at")
   /// Contrôle de la pré-approbation demandé par l'admin : `check` = regarder
   /// sans rien cliquer, `fix` = regarder puis pré-approuver ce qui manque.
   auditRequestedAt     DateTime?    @map("audit_requested_at")

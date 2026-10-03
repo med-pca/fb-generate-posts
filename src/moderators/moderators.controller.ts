@@ -6,7 +6,8 @@ import { AdminRoleGuard } from '../auth/admin-role.guard';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
-import { AuditRequestDto, VerifyClaimDto } from '../verify/dto/verify.dto';
+import { AuditRequestDto, MemberRequestDto, VerifyClaimDto } from '../verify/dto/verify.dto';
+import { MembersService } from '../verify/members.service';
 import { AuditService } from '../verify/audit.service';
 import { Query } from '@nestjs/common';
 import { ModeratorsService } from './moderators.service';
@@ -31,7 +32,22 @@ export class ModeratorsController {
   constructor(
     private readonly moderators: ModeratorsService,
     private readonly audit: AuditService,
+    private readonly members: MembersService,
   ) {}
+
+  @Get('members')
+  @ApiOperation({ summary: 'Nos profils dans les groupes : adhésions à accepter, pré-approbations à faire, bloqués' })
+  membersSummary(@ActingUser() acting: CurrentUser) {
+    return this.members.summary(acting);
+  }
+
+  @Post('members')
+  @HttpCode(200)
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Demander au modérateur d’accepter les adhésions / de pré-approuver (tout, un profil, des liaisons) (admin)' })
+  requestMembers(@Body() dto: MemberRequestDto, @ActingUser() acting: CurrentUser) {
+    return this.members.request(dto.kind, { profileGroupIds: dto.profileGroupIds, profileId: dto.profileId }, acting);
+  }
 
   @Post('audit')
   @HttpCode(200)

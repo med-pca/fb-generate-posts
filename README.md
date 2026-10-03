@@ -557,7 +557,7 @@ Migration : `npx prisma migrate deploy` (`20261002090000_publication_verificatio
 ### Le vérificateur accepte et pré-approuve nos profils
 
 Dans les groupes dont il est admin ou modérateur, le vérificateur (extension
-FB Post Checker) accepte la **demande d'adhésion** de nos profils, puis les
+« Modérateur · PostFlow » (ex-FB Post Checker)) accepte la **demande d'adhésion** de nos profils, puis les
 **pré-approuve** pour que leurs posts paraissent sans validation.
 
 - Seuls les profils de la plateforme sont concernés, désignés par leur
@@ -615,8 +615,36 @@ Routes : `GET /moderators`, `GET /moderators/:id`,
 `PATCH /moderators/:id/settings`, `POST /moderators/:id/run|recheck|retry-members`
 (admin), et pour l'extension `POST /verify/control` (relu chaque minute).
 Journaux `MODERATOR_*`. Migration `20261003180000_moderators`. Extension
-FB Post Checker **1.3.0** requise pour les passages demandés et les réglages
+« Modérateur · PostFlow » (ex-FB Post Checker) **1.3.0** requise pour les passages demandés et les réglages
 à distance.
+
+### Demander au modérateur : accepter les adhésions, pré-approuver
+
+Le modérateur fait ces deux actions à chaque passage, mais on peut aussi les
+**demander** (elles passent alors en tête de sa file, et il s'y met dans la
+minute) :
+
+- rubrique **Modérateurs** → bloc **Demander au modérateur** :
+  - **✓ Accepter les adhésions en attente** : nos profils en « Demande
+    envoyée » / « Questions » ;
+  - **★ Pré-approuver nos profils membres** : nos profils « Rejoint » pas
+    encore pré-approuvés ;
+  chaque bloc dit combien sont à faire, et combien sont **impossibles** (compte
+  Facebook du profil inconnu : l'extension de publication ≥ 1.3 le remonte,
+  ou il se saisit dans le Pilotage) ;
+- **page d'un profil** → sur la ligne du groupe : **★ Pré-approuver** ou
+  **✓ Accepter**, ou plusieurs groupes cochés → « Pré-approuver la
+  sélection ».
+
+La ligne passe à « ⏳ demandé au modérateur », puis au résultat. Journal :
+`MEMBER_ACTION_REQUESTED` (avec les profils bloqués et pourquoi), puis
+`MEMBER_APPROVED`, `MEMBER_PREAPPROVED` ou `MEMBER_ACTION_FAILED` (« Suivre au
+journal → »). Si aucun modérateur ne peut le faire (aucun désigné, suspendu,
+ou adhésions désactivées dans ses réglages), c'est dit tout de suite.
+
+Routes : `GET /moderators/members`, `POST /moderators/members { kind,
+profileGroupIds?, profileId? }` (admin). Migration
+`20261003230000_member_requests`.
 
 ### Tester la pré-approbation : déjà faite ou pas ?
 
@@ -635,7 +663,7 @@ Où le lancer :
   **🔍 Tester** (ou plusieurs groupes cochés → « Tester la pré-approbation ») ;
 - **tout** : rubrique Modérateurs → **Contrôler tout** / **Contrôler et
   corriger**. Les modérateurs actifs sont réveillés et s'y mettent dans la
-  minute (extension FB Post Checker **1.4.0**).
+  minute (extension « Modérateur · PostFlow » (ex-FB Post Checker) **1.4.0**).
 
 Traçabilité : chaque constat est enregistré sur la liaison profil × groupe
 (état, date, ce qui a été vu) et écrit au journal — `MEMBER_AUDIT_REQUESTED`,
@@ -1097,7 +1125,7 @@ d'emblée, sans migration.
 | Domaine | Ce qu'on y lit | Événements |
 | --- | --- | --- |
 | Publication | Les automates : réservations, publications, commentaires, liens ; les gestes de la file ; ce que l'extension de publication écrit | `JOB_*`, `CLAIM_*`, `POST_*`, `COMMENT_*`, `TARGET_*`, `WORKER_*`, `GROUP_POSTS_REMOVED`, `ARTICLE_ARCHIVED` |
-| Captures | Les reprises de FB Catch Post : capture refusée, lecture de la source, réécriture, dépôt | `INGEST_*` (dont `INGEST_REJECTED`) |
+| Captures | Les reprises de « Capture de posts · PostFlow » (ex-FB Catch Post) : capture refusée, lecture de la source, réécriture, dépôt | `INGEST_*` (dont `INGEST_REJECTED`) |
 | Synchronisation | Ce qui entre : articles WordPress reçus, mis à jour, **reçus sans post (et pourquoi)**, refusés ; changements d'état des extensions ; profils NSTBrowser ajoutés | `WORDPRESS_ARTICLE_RECEIVED` / `_UPDATED` / `_NO_POST` / `_REJECTED`, `SITE_PLUGIN_CHANGED`, `PROFILES_SYNCED` |
 | Groupes & pilotage | Adhésions aux groupes, navigateurs | `GROUP_JOIN_*`, `BROWSER_*`, `RUNNER_*` |
 | Autres | Tout événement non classé (un automate qui en invente un) | — |

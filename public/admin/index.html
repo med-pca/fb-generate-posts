@@ -510,6 +510,7 @@
             <div class="bulk-bar" id="pp-group-bar" hidden>
               <span id="pp-group-selected"></span>
               <button class="edit" type="button" id="pp-mark-joined">✓ Marquer « rejoint »</button>
+              <button class="edit admin-only" type="button" id="pp-preapprove-selected">★ Pré-approuver la sélection</button>
               <button class="edit admin-only" type="button" id="pp-audit-selected" title="Le modérateur regarde sur Facebook, sans rien modifier">🔍 Tester la pré-approbation</button>
               <button class="danger" type="button" id="pp-unlink">Retirer de ces groupes</button>
             </div>
@@ -638,6 +639,15 @@
           </div>
           <div class="queue-stats" id="mod-due"></div>
           <div id="mod-cards" class="cards"></div>
+
+          <div class="panel pp-panel" id="members-actions">
+            <div class="panel-head">
+              <div><small>NOS PROFILS DANS LES GROUPES</small><h2>Demander au modérateur</h2></div>
+            </div>
+            <p class="form-help">Le modérateur doit être <b>administrateur ou modérateur</b> des groupes sur Facebook. Il ne touche qu’à nos profils, reconnus par leur identifiant Facebook. Ces demandes passent en tête de sa file : il s’y met dans la minute.</p>
+            <div class="member-actions" id="member-actions"></div>
+            <div id="member-result" class="bulk-result" hidden></div>
+          </div>
 
           <div class="panel pp-panel" id="audit-panel">
             <div class="panel-head">

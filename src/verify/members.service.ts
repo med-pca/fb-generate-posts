@@ -61,6 +61,8 @@ export class MembersService {
       profile: {
         status: 'ACTIVE',
         facebookUserId: { not: null },
+        // Un modérateur ne se pré-approuve pas lui-même, ni un autre.
+        isModerator: false,
         ...(moderatorId ? { id: { not: moderatorId } } : {}),
         ...profileWhere(scope),
       },
@@ -74,7 +76,8 @@ export class MembersService {
     if (moderator.moderatorPaused || moderator.moderatorMembers === false) return { tasks: [] };
     const due = await this.prisma.profileGroup.findMany({
       where: this.dueWhere(acting, moderator.id, now),
-      orderBy: { updatedAt: 'asc' },
+      // Ce que l'admin a demandé passe en premier.
+      orderBy: [{ memberRequestedAt: { sort: 'asc', nulls: 'last' } }, { updatedAt: 'asc' }],
       take: Math.max(1, Math.min(10, limit || 5)),
       select: {
         id: true,
@@ -137,7 +140,7 @@ export class MembersService {
       await this.prisma.$transaction([
         this.prisma.profileGroup.update({
           where: { id: row.id },
-          data: { ...data, memberAttempts: 0, memberActionError: null, memberActionAt: now, memberClaimedUntil: null },
+          data: { ...data, memberAttempts: 0, memberActionError: null, memberActionAt: now, memberClaimedUntil: null, memberRequestedAt: null },
         }),
         this.log(
           row,
@@ -166,6 +169,7 @@ export class MembersService {
         where: { id: row.id },
         data: {
           memberAttempts: attempts,
+          memberRequestedAt: null,
           memberActionError: `${reason}${detail ? ` — ${detail}` : ''}`,
           memberActionAt: now,
           memberClaimedUntil: new Date(now.getTime() + RETRY_MINUTES[input.outcome] * 60_000),
@@ -206,6 +210,91 @@ export class MembersService {
   }
 
   /* ── Côté admin ─────────────────────────────────────────────────────── */
+
+  /** Ce qui relève de chaque action, avant le filtre « compte Facebook connu ». */
+  private kindWhere(kind: MemberKind, acting: CurrentUser | null, scope?: { profileGroupIds?: string[]; profileId?: string }): Prisma.ProfileGroupWhereInput {
+    const s = scopeOf(acting);
+    return {
+      status: 'ACTIVE',
+      ...(kind === 'approve'
+        ? { joinStatus: { in: PENDING_JOIN }, memberApprovedAt: null }
+        : { joinStatus: JoinStatus.JOINED, preApprovedAt: null }),
+      ...(scope?.profileGroupIds?.length ? { id: { in: scope.profileGroupIds } } : {}),
+      ...(scope?.profileId ? { profileId: scope.profileId } : {}),
+      profile: { status: 'ACTIVE', isModerator: false, ...profileWhere(s) },
+      group: { status: 'ACTIVE', ...groupWhere(s) },
+    };
+  }
+
+  /** L'admin demande au modérateur d'accepter les adhésions en attente, ou
+   * de pré-approuver nos profils membres : tout, un profil, ou des liaisons
+   * précises. Ces tâches passent en tête, et les modérateurs sont réveillés.
+   * Ce qui ne peut pas être fait est dit, avec la raison. */
+  async request(
+    kind: MemberKind,
+    scope: { profileGroupIds?: string[]; profileId?: string },
+    acting: CurrentUser | null,
+    now = new Date(),
+  ) {
+    const base = this.kindWhere(kind, acting, scope);
+    const [ready, blocked] = await Promise.all([
+      this.prisma.profileGroup.updateMany({
+        where: { ...base, profile: { ...(base.profile as object), facebookUserId: { not: null } } },
+        data: { memberRequestedAt: now, memberAttempts: 0, memberClaimedUntil: null, memberActionError: null },
+      }),
+      this.prisma.profileGroup.findMany({
+        where: { ...base, profile: { ...(base.profile as object), facebookUserId: null } },
+        select: { profile: { select: { name: true } } },
+        take: 500,
+      }),
+    ]);
+    const moderators = await this.prisma.profile.findMany({
+      where: { isModerator: true, status: 'ACTIVE' },
+      select: { id: true, moderatorPaused: true, moderatorMembers: true },
+    });
+    const able = moderators.filter((m) => !m.moderatorPaused && m.moderatorMembers);
+    if (able.length && ready.count) {
+      await this.prisma.profile.updateMany({ where: { id: { in: able.map((m) => m.id) } }, data: { moderatorRunAt: now } });
+    }
+    const blockedProfiles = [...new Set(blocked.map((b) => b.profile.name))];
+    const what = kind === 'approve' ? 'Accepter les adhésions en attente' : 'Pré-approuver nos profils membres';
+    await this.prisma.activityLog.create({
+      data: {
+        eventType: 'MEMBER_ACTION_REQUESTED',
+        level: blocked.length || !able.length ? 'WARN' : 'INFO',
+        message:
+          `${what} : ${ready.count} demandé(s) au modérateur` +
+          (blocked.length ? `, ${blocked.length} impossible(s) — compte Facebook inconnu (${blockedProfiles.slice(0, 5).join(', ')}${blockedProfiles.length > 5 ? '…' : ''})` : '') +
+          (!able.length ? ' — AUCUN modérateur actif (désigné, non suspendu, adhésions activées)' : ''),
+        metadata: { kind, requested: ready.count, blocked: blocked.length, blockedProfiles, by: acting?.username ?? 'clé globale', scope } as Prisma.InputJsonValue,
+      },
+    });
+    return {
+      kind,
+      requested: ready.count,
+      blocked: { noFacebookId: blocked.length, profiles: blockedProfiles },
+      moderators: able.length,
+      moderatorsTotal: moderators.length,
+    };
+  }
+
+  /** Le point sur nos profils dans les groupes, action par action. */
+  async summary(acting: CurrentUser | null) {
+    const withId = (kind: MemberKind, known: boolean) => {
+      const base = this.kindWhere(kind, acting);
+      return { ...base, profile: { ...(base.profile as object), facebookUserId: known ? { not: null } : null } };
+    };
+    const s = scopeOf(acting);
+    const [approve, approveBlocked, preapprove, preapproveBlocked, requested, preApproved] = await Promise.all([
+      this.prisma.profileGroup.count({ where: withId('approve', true) }),
+      this.prisma.profileGroup.count({ where: withId('approve', false) }),
+      this.prisma.profileGroup.count({ where: withId('preapprove', true) }),
+      this.prisma.profileGroup.count({ where: withId('preapprove', false) }),
+      this.prisma.profileGroup.count({ where: { memberRequestedAt: { not: null }, profile: profileWhere(s) } }),
+      this.prisma.profileGroup.count({ where: { preApprovedAt: { not: null }, status: 'ACTIVE', profile: { isModerator: false, ...profileWhere(s) } } }),
+    ]);
+    return { approve, approveBlocked, preapprove, preapproveBlocked, requested, preApproved };
+  }
 
   async overview(acting: CurrentUser | null, now = new Date()) {
     const scope = scopeOf(acting);

@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "FB Catch Post",
-  "version": "1.2.0",
+  "name": "Capture de posts · PostFlow",
+  "short_name": "Capture de p",
+  "version": "1.3.0",
   "description": "Reprend une publication Facebook d'un clic : son image et son texte partent vers un site WordPress connecté, avec l'URL d'un article à réécrire.",
   "permissions": [
     "activeTab",
@@ -16,9 +17,20 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Reprendre cette publication"
+    "default_title": "Capturer cette publication",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
   },
   "background": {
     "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   }
 }

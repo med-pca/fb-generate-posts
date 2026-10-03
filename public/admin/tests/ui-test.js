@@ -326,7 +326,8 @@ setTimeout(async () => {
         joins: { JOINED: 4 }, preApproved: 1,
         memberships: [
           { linkId: 'pg-link-1', groupId: 'g1', name: 'Recettes FR', url: 'https://facebook.com/groups/1', groupStatus: 'ACTIVE', linkStatus: 'ACTIVE', category: { id: 'c1', name: 'Recettes' }, joinStatus: 'JOINED', preApproved: true, waiting: 4 },
-          { groupId: 'g2', name: 'Cuisine du Maroc', url: 'https://facebook.com/groups/2', groupStatus: 'ACTIVE', linkStatus: 'ACTIVE', category: { id: 'c1', name: 'Recettes' }, joinStatus: 'REQUESTED', preApproved: false, waiting: 1 },
+          { linkId: 'pg-link-2', groupId: 'g2', name: 'Cuisine du Maroc', url: 'https://facebook.com/groups/2', groupStatus: 'ACTIVE', linkStatus: 'ACTIVE', category: { id: 'c1', name: 'Recettes' }, joinStatus: 'REQUESTED', preApproved: false, waiting: 1 },
+          { linkId: 'pg-link-3', groupId: 'g3', name: 'Desserts maison', url: 'https://facebook.com/groups/3', groupStatus: 'ACTIVE', linkStatus: 'ACTIVE', category: { id: 'c1', name: 'Recettes' }, joinStatus: 'JOINED', preApproved: false, waiting: 2 },
         ],
         transfer: { forcedTargets: 2, ownedPosts: 0, activeJobs: 1, groupsWaiting: 4,
           orphanGroups: [{ id: 'g9', name: 'Cuisine maison', url: 'https://facebook.com/groups/9' }],
@@ -345,6 +346,10 @@ setTimeout(async () => {
     if (path === '/bulk/link') {
       profileCalls.push(`POST ${path} ${options.body}`);
       return { ok: true, status: 200, json: async () => ({ action: 'link', created: 1, reactivated: 0, already: 0, removed: 0, ignored: 0, profiles: 1, groups: 1 }) };
+    }
+    if (path === '/moderators/members') {
+      profileCalls.push(`POST ${path} ${options.body}`);
+      return { ok: true, status: 200, json: async () => ({ kind: 'preapprove', requested: 1, moderators: 1, moderatorsTotal: 1, blocked: { noFacebookId: 0, profiles: [] } }) };
     }
     if (path === '/moderators/audit') {
       profileCalls.push(`POST ${path} ${options.body}`);
@@ -370,11 +375,16 @@ setTimeout(async () => {
   check('la page donne l’indice et ses raisons', /il vaudrait mieux le désactiver/.test(detailText) && /5 échecs d'affilée/.test(detailText), null);
   check('avec les statistiques détaillées', /échecs \(7 j\)/.test(detailText) && /18 %/.test(detailText) && /Recettes FR/.test($('#pd-groups').textContent), null);
   check('et le graphe des 14 jours', $('#pd-chart').querySelectorAll('.pd-bar').length === 14, null);
-  check('ses groupes sont listés, avec adhésion et pré-approbation', /Recettes FR/.test($('#pp-memberships').textContent) && /Demande envoyée/.test($('#pp-memberships').textContent) && /2 groupe\(s\) lié\(s\)/.test($('#pp-groups-title').textContent), $('#pp-groups-title').textContent);
+  check('ses groupes sont listés, avec adhésion et pré-approbation', /Recettes FR/.test($('#pp-memberships').textContent) && /Demande envoyée/.test($('#pp-memberships').textContent) && /3 groupe\(s\) lié\(s\)/.test($('#pp-groups-title').textContent), $('#pp-groups-title').textContent);
   check('la pré-approbation montre si elle a été vérifiée sur Facebook', /non vérifié sur Facebook/.test($('#pp-memberships').textContent), $('#pp-memberships').textContent.slice(0, 200));
   $('[data-pp-audit="pg-link-1"]').click();
   await new Promise((resolve) => setTimeout(resolve, 60));
   check('« 🔍 Tester » sur UN groupe demande un contrôle sans rien modifier', profileCalls.some((c) => c.startsWith('POST /moderators/audit') && c.includes('"profileGroupIds":["pg-link-1"]') && c.includes('"mode":"check"')), profileCalls);
+  check('« ★ Pré-approuver » proposé là où il est membre et pas pré-approuvé', !!$('[data-pp-member="preapprove"][data-link="pg-link-3"]') && !$('[data-pp-member="preapprove"][data-link="pg-link-1"]'), null);
+  check('« ✓ Accepter » proposé là où sa demande attend', !!$('[data-pp-member="approve"][data-link="pg-link-2"]'), null);
+  $('[data-pp-member="preapprove"][data-link="pg-link-3"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  check('le clic le demande au modérateur pour CE groupe', profileCalls.some((c) => c.startsWith('POST /moderators/members') && c.includes('"profileGroupIds":["pg-link-3"]') && c.includes('"kind":"preapprove"')), profileCalls);
   check('on peut lui ajouter les groupes qu’il n’a pas', /Cuisine maison/.test($('#pp-add-list').textContent) && !/Recettes FR/.test($('#pp-add-list').textContent), $('#pp-add-list').textContent);
   $('[data-pp-add="g9"]').checked = true;
   $('[data-pp-add="g9"]').dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -466,6 +476,13 @@ setTimeout(async () => {
         recent: [{ at: new Date().toISOString(), level: 'ERROR', eventType: 'VERIFY_MISSING_LINK', message: '« Tajine » dans « Recettes FR » : en ligne SANS le lien', facebookUrl: 'https://www.facebook.com/groups/1/posts/9', postTargetId: 't1' }],
       }) };
     }
+    if (path === '/moderators/members' && options.method === 'POST') {
+      modCalls.push(`POST /moderators/members ${options.body}`);
+      return { ok: true, status: 200, json: async () => ({ kind: 'preapprove', requested: 6, moderators: 1, moderatorsTotal: 1, blocked: { noFacebookId: 2, profiles: ['Nadia'] } }) };
+    }
+    if (path === '/moderators/members') {
+      return { ok: true, status: 200, json: async () => ({ approve: 3, approveBlocked: 0, preapprove: 8, preapproveBlocked: 2, requested: 0, preApproved: 5 }) };
+    }
     if (path === '/moderators/audit' && options.method === 'POST') {
       modCalls.push(`POST /moderators/audit ${options.body}`);
       return { ok: true, status: 200, json: async () => ({ requested: 1, moderators: 1 }) };
@@ -491,6 +508,14 @@ setTimeout(async () => {
   check('les modérateurs ont leur rubrique : /moderateurs', window.location.pathname === '/moderateurs' && /Modo Karim/.test($('#mod-cards').textContent), window.location.pathname);
   check('avec leur état (en ligne) et ce qui attend', /en ligne/.test($('#mod-cards').textContent) && /7/.test($('#mod-due').textContent), null);
   check('« Désigner un modérateur » est réservé aux administrateurs', $('#mod-designate').closest('.admin-only') !== null, null);
+  // Demander au modérateur : accepter les adhésions, pré-approuver.
+  const actionsText = $('#member-actions').textContent;
+  check('les deux actions sont proposées avec leur nombre', /Accepter les adhésions en attente \(3\)/.test(actionsText) && /Pré-approuver nos profils membres \(8\)/.test(actionsText), actionsText);
+  check('et dit ce qui est impossible (compte Facebook inconnu)', /2 impossible\(s\) : compte Facebook inconnu/.test(actionsText), actionsText);
+  $('[data-member-request="preapprove"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  check('« Pré-approuver nos profils membres » le demande au modérateur', modCalls.some((c) => c.startsWith('POST /moderators/members') && c.includes('"kind":"preapprove"')), modCalls);
+  check('le résultat nomme les profils bloqués', /Nadia/.test($('#member-result').textContent) && /6 pré-approbation/.test($('#member-result').textContent), $('#member-result').textContent);
   // Contrôle de la pré-approbation : déjà faite ou pas, avec ce qui a été vu.
   const auditText = $('#audit-rows').textContent;
   check('les constats disent « déjà faite » / « pas faite », avec ce que le modérateur a vu', /déjà faite/.test(auditText) && /pas faite/.test(auditText) && /Retirer la pré-approbation/.test(auditText) && /en attente/.test(auditText), auditText.slice(0, 200));

@@ -1881,3 +1881,15 @@ td.bad { color: #b42318; font-weight: 700; }
 #audit-panel { margin-top: 18px; }
 #audit-panel .panel-head { flex-wrap: wrap; gap: 10px; }
 .pp-table td .chip + small { display: block; margin-top: 3px; color: var(--muted); font-size: 0.72rem; }
+
+/* Demander au modérateur. */
+.member-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.member-action { display: grid; gap: 8px; align-content: space-between; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcfe; }
+.member-action b { display: block; font-size: 0.95rem; }
+.member-action small { display: block; margin-top: 3px; color: var(--muted); font-size: 0.78rem; letter-spacing: 0; text-transform: none; font-weight: 500; }
+.member-action p { margin: 0; font-size: 0.86rem; }
+.member-action strong { font-size: 1.2rem; }
+.member-action .bad { color: #b42318; font-weight: 650; }
+.member-action.info { background: #f3f6fd; }
+#members-actions { margin-top: 18px; }
+.bulk-result small.bad { color: #b42318; }

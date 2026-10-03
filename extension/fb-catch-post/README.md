@@ -1,4 +1,4 @@
-# FB Catch Post
+# « Capture de posts · PostFlow » (ex-FB Catch Post)
 
 Vous êtes devant une publication Facebook qui marche. Un clic, vous collez
 l'adresse d'un article à réécrire, et le serveur s'occupe du reste : il
@@ -31,7 +31,7 @@ liste. Le popup en fait un menu déroulant, et retient votre dernier choix.
 Un site ajouté là-bas apparaît ici sans rien réinstaller.
 
 Après une mise à jour de l'extension : `chrome://extensions` → bouton ↻ de
-FB Catch Post.
+« Capture de posts · PostFlow » (ex-FB Catch Post).
 
 ## Utilisation
 

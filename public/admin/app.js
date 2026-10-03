@@ -446,6 +446,7 @@ const AUDIT_STATES = {
 /** La pré-approbation d'une liaison : ce que le dernier contrôle a vu sur
  * Facebook, sinon ce que la plateforme croit (« non vérifié »). */
 function preApprovalCell(m) {
+  if (m.memberRequested) return '<span class="chip join-requested" title="Le modérateur va s’en charger">⏳ demandé au modérateur</span>';
   if (m.auditPending) return '<span class="chip join-requested" title="Le modérateur va regarder sur Facebook">⏳ test en cours</span>';
   const st = AUDIT_STATES[m.preApprovalState];
   if (st) {
@@ -497,6 +498,12 @@ function renderMemberships() {
           `<td>${m.waiting}</td>` +
           `<td><div class="row-actions">` +
           (m.joinStatus !== 'JOINED' ? `<button class="edit" type="button" data-pp-joined="${m.groupId}" title="Il a bien rejoint ce groupe sur Facebook">✓ rejoint</button>` : '') +
+          (isAdminUser() && m.joinStatus === 'JOINED' && !m.preApproved && !m.memberRequested
+            ? `<button class="edit" type="button" data-pp-member="preapprove" data-link="${m.linkId}" title="Demander au modérateur de le pré-approuver dans ce groupe">★ Pré-approuver</button>`
+            : '') +
+          (isAdminUser() && ['REQUESTED', 'QUESTIONS'].includes(m.joinStatus) && !m.memberRequested
+            ? `<button class="edit" type="button" data-pp-member="approve" data-link="${m.linkId}" title="Demander au modérateur d’accepter sa demande d’adhésion">✓ Accepter</button>`
+            : '') +
           (m.joinStatus === 'JOINED' && isAdminUser()
             ? `<button class="edit" type="button" data-pp-audit="${m.linkId}" ${m.auditPending ? 'disabled' : ''} title="Le modérateur regarde sur Facebook si la pré-approbation est faite, sans rien modifier">🔍 Tester</button>`
             : '') +
@@ -551,6 +558,11 @@ async function ppMarkJoined(groupIds) {
   }
 }
 $('#pp-memberships').addEventListener('click', (e) => {
+  const kind = e.target.dataset.ppMember;
+  if (kind) {
+    void requestMembers({ kind, profileGroupIds: [e.target.dataset.link] }, e.target).then((r) => r && renderProfilePage(state.profilePage.id));
+    return;
+  }
   const audit = e.target.dataset.ppAudit;
   if (audit) {
     void requestAudit({ mode: 'check', profileGroupIds: [audit] }, e.target).then((r) => r && renderProfilePage(state.profilePage.id));
@@ -563,6 +575,12 @@ $('#pp-memberships').addEventListener('click', (e) => {
 });
 $('#pp-unlink').onclick = () => ppUnlink([...state.profilePage.selected], `${state.profilePage.selected.size} groupe(s)`);
 $('#pp-mark-joined').onclick = () => ppMarkJoined([...state.profilePage.selected]);
+$('#pp-preapprove-selected').onclick = (e) => {
+  const pp = state.profilePage;
+  const ids = pp.data.memberships.filter((m) => pp.selected.has(m.groupId) && m.joinStatus === 'JOINED' && !m.preApproved).map((m) => m.linkId);
+  if (!ids.length) return notice('Sélectionnez des groupes où il est membre (« Rejoint ») et pas encore pré-approuvé.', 'error');
+  void requestMembers({ kind: 'preapprove', profileGroupIds: ids }, e.target).then((r) => r && renderProfilePage(pp.id));
+};
 $('#pp-audit-selected').onclick = (e) => {
   const pp = state.profilePage;
   const ids = pp.data.memberships.filter((m) => pp.selected.has(m.groupId) && m.joinStatus === 'JOINED').map((m) => m.linkId);
@@ -1930,9 +1948,11 @@ function routeFromUrl() {
   const path = (location.pathname.replace(/\/+$/, '') || '/').toLowerCase();
   const route = ROUTES[path] || ROUTES['/'];
   // « Voir au journal » depuis les contrôles : les constats MEMBER_AUDIT_*.
-  if (route.view === 'logs' && new URLSearchParams(location.search).get('audit')) {
-    state.logFilters.search = 'MEMBER_AUDIT';
-    $('#log-search').value = 'MEMBER_AUDIT';
+  const q = new URLSearchParams(location.search);
+  if (route.view === 'logs' && (q.get('audit') || q.get('members'))) {
+    const search = q.get('audit') ? 'MEMBER_AUDIT' : 'MEMBER_';
+    state.logFilters.search = search;
+    $('#log-search').value = search;
   }
   if (route.view === 'posts') showPostsTab(route.tab, { fromUrl: true });
   else view(route.view, { fromUrl: true });
@@ -3817,8 +3837,71 @@ $('#audit-panel').addEventListener('click', async (e) => {
   if (r) await loadAudit();
 });
 
+/* ── Demander au modérateur : accepter les adhésions, pré-approuver ── */
+async function loadMemberActions() {
+  let m;
+  try {
+    m = await api('/moderators/members');
+  } catch (x) {
+    return;
+  }
+  if (!m || typeof m.approve !== 'number') return;
+  const admin = isAdminUser();
+  const card = (kind, icon, title, todo, blocked, help) =>
+    `<article class="member-action"><div><b>${icon} ${title}</b><small>${help}</small></div>` +
+    `<p><strong>${todo}</strong> à faire${blocked ? ` · <span class="bad" title="Leur identifiant Facebook n’est pas connu : l’extension de publication ≥ 1.3 le remonte au prochain battement, ou saisissez-le dans le Pilotage">${blocked} impossible(s) : compte Facebook inconnu</span>` : ''}</p>` +
+    (admin ? `<button class="primary" type="button" data-member-request="${kind}" ${todo ? '' : 'disabled'}>${title}${todo ? ` (${todo})` : ''}</button>` : '') +
+    `</article>`;
+  $('#member-actions').innerHTML =
+    card('approve', '✓', 'Accepter les adhésions en attente', m.approve, m.approveBlocked, 'Nos profils qui ont demandé à rejoindre un groupe (« Demande envoyée » / « Questions »).') +
+    card('preapprove', '★', 'Pré-approuver nos profils membres', m.preapprove, m.preapproveBlocked, 'Nos profils déjà membres (« Rejoint ») : leurs posts paraîtront sans validation.') +
+    `<article class="member-action info"><div><b>⏳ En cours</b><small>Demandé au modérateur, pas encore fait.</small></div><p><strong>${m.requested}</strong> en attente · <strong>${m.preApproved}</strong> déjà pré-approuvé(s)</p>` +
+    `<button class="link" type="button" data-goto="/journaux?members=1">Suivre au journal →</button></article>`;
+}
+async function requestMembers(body, button) {
+  if (button) button.disabled = true;
+  try {
+    const r = await api('/moderators/members', { method: 'POST', body: JSON.stringify(body) });
+    const lines = [
+      `<b>${r.requested} ${body.kind === 'approve' ? 'adhésion(s) à accepter' : 'pré-approbation(s)'} demandée(s) au modérateur.</b>`,
+      r.moderators
+        ? '<small>Il s’y met dans la minute ; chaque résultat apparaît au journal et sur la page du profil.</small>'
+        : `<small class="bad">⚠ Aucun modérateur ne peut le faire${r.moderatorsTotal ? ' (suspendu, ou adhésions désactivées dans ses réglages)' : ' : désignez-en un ci-dessus'}.</small>`,
+    ];
+    if (r.blocked.noFacebookId) {
+      lines.push(`<small class="bad">${r.blocked.noFacebookId} impossible(s) : compte Facebook inconnu pour ${r.blocked.profiles.map(esc).join(', ')}. Installez l’extension de publication ≥ 1.3 sur ces profils (elle remonte l’identifiant), ou saisissez-le dans le Pilotage.</small>`);
+    }
+    const box = $('#member-result');
+    if (box && $('#moderators').classList.contains('active')) {
+      box.hidden = false;
+      box.innerHTML = lines.join('');
+    }
+    notice(
+      `${r.requested} demandé(s) au modérateur${r.blocked.noFacebookId ? `, ${r.blocked.noFacebookId} impossible(s)` : ''}.`,
+      r.moderators && !r.blocked.noFacebookId ? 'success' : 'error',
+    );
+    return r;
+  } catch (x) {
+    notice(x.message, 'error');
+    return null;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+$('#member-actions').addEventListener('click', async (e) => {
+  const kind = e.target.dataset.memberRequest;
+  if (!kind) return;
+  const text = kind === 'approve'
+    ? 'Demander au modérateur d’accepter TOUTES les demandes d’adhésion de nos profils ?'
+    : 'Demander au modérateur de PRÉ-APPROUVER tous nos profils membres des groupes ?\nLeurs posts paraîtront sans validation des modérateurs.';
+  if (!confirm(text)) return;
+  await requestMembers({ kind }, e.target);
+  await loadMemberActions();
+});
+
 async function loadModerators() {
   void loadAudit();
+  void loadMemberActions();
   let d;
   try {
     d = await api('/moderators');

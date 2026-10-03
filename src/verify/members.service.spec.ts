@@ -79,3 +79,45 @@ describe('MembersService', () => {
     expect(g.result).toBe('gave_up');
   });
 });
+
+describe('MembersService — actions demandées par l’admin', () => {
+  function req(blocked: any[] = [], moderators: any[] = [{ id: 'mod', moderatorPaused: false, moderatorMembers: true }]) {
+    const prisma: any = {
+      profileGroup: {
+        updateMany: jest.fn(async () => ({ count: 6 })),
+        findMany: jest.fn(async () => blocked),
+        count: jest.fn(async () => 2),
+      },
+      profile: { findMany: jest.fn(async () => moderators), updateMany: jest.fn(async () => ({ count: 1 })) },
+      activityLog: { create: jest.fn(async (a: any) => a) },
+    };
+    return { service: new MembersService(prisma, { moderator: jest.fn() } as any), prisma };
+  }
+  const NOW2 = new Date('2026-10-03T12:00:00Z');
+
+  it('pré-approuver nos profils membres : en tête de file, modérateur réveillé, journalisé', async () => {
+    const { service, prisma } = req();
+    const r = await service.request('preapprove', {}, null, NOW2);
+    const call = prisma.profileGroup.updateMany.mock.calls[0][0];
+    expect(call.where).toMatchObject({ joinStatus: 'JOINED', preApprovedAt: null, profile: { isModerator: false, facebookUserId: { not: null } } });
+    expect(call.data).toMatchObject({ memberRequestedAt: NOW2, memberAttempts: 0, memberActionError: null });
+    expect(prisma.profile.updateMany.mock.calls[0][0].data).toEqual({ moderatorRunAt: NOW2 });
+    expect(r).toMatchObject({ requested: 6, moderators: 1, blocked: { noFacebookId: 0 } });
+    expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('MEMBER_ACTION_REQUESTED');
+  });
+
+  it('dit pourquoi certains profils ne peuvent pas être traités (compte Facebook inconnu)', async () => {
+    const { service, prisma } = req([{ profile: { name: 'Nadia' } }, { profile: { name: 'Nadia' } }, { profile: { name: 'Omar' } }]);
+    const r = await service.request('approve', {}, null, NOW2);
+    expect(r.blocked).toEqual({ noFacebookId: 3, profiles: ['Nadia', 'Omar'] });
+    expect(prisma.activityLog.create.mock.calls[0][0].data.message).toMatch(/compte Facebook inconnu \(Nadia, Omar\)/);
+  });
+
+  it('prévient quand aucun modérateur ne peut le faire', async () => {
+    const { service, prisma } = req([], [{ id: 'mod', moderatorPaused: true, moderatorMembers: true }]);
+    const r = await service.request('preapprove', { profileGroupIds: ['pg1'] }, null, NOW2);
+    expect(r.moderators).toBe(0);
+    expect(prisma.profile.updateMany).not.toHaveBeenCalled();
+    expect(prisma.activityLog.create.mock.calls[0][0].data.message).toMatch(/AUCUN modérateur actif/);
+  });
+});

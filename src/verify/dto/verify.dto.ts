@@ -154,3 +154,20 @@ export class AuditRequestDto {
   @IsString()
   profileId?: string;
 }
+
+/** L'admin demande au modérateur d'accepter les adhésions, ou de pré-approuver. */
+export class MemberRequestDto {
+  @ApiProperty({ enum: MEMBER_KINDS })
+  @IsIn(MEMBER_KINDS as unknown as string[])
+  kind!: MemberKind;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsString({ each: true })
+  profileGroupIds?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  profileId?: string;
+}

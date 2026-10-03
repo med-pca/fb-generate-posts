@@ -226,6 +226,7 @@ export class ProfileHealthService {
         preApprovedAt: true,
         memberActionError: true,
         auditRequestedAt: true,
+        memberRequestedAt: true,
         preApprovalState: true,
         preApprovalCheckedAt: true,
         preApprovalDetail: true,
@@ -243,6 +244,7 @@ export class ProfileHealthService {
     const memberships = links.map((l) => ({
       linkId: l.id,
       auditPending: Boolean(l.auditRequestedAt),
+      memberRequested: Boolean(l.memberRequestedAt),
       preApprovalState: l.preApprovalState,
       preApprovalCheckedAt: l.preApprovalCheckedAt,
       preApprovalDetail: l.preApprovalDetail,
