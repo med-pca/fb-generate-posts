@@ -21,10 +21,23 @@ const current_user_1 = require("../auth/current-user");
 const automation_auth_guard_1 = require("../auth/automation-auth.guard");
 const site_dto_1 = require("./dto/site.dto");
 const sites_service_1 = require("./sites.service");
+const plugin_check_service_1 = require("./plugin-check.service");
 let SitesController = class SitesController {
     sites;
-    constructor(sites) {
+    plugins;
+    constructor(sites, plugins) {
         this.sites = sites;
+        this.plugins = plugins;
+    }
+    async checkAll(acting) {
+        const sites = await this.sites.findAll(acting);
+        await this.plugins.checkAll(sites.map(({ id }) => id));
+        return this.sites.findAll(acting);
+    }
+    async check(id, acting) {
+        await this.sites.findOne(id, acting);
+        await this.plugins.check(id);
+        return this.sites.findOne(id, acting);
     }
     findAll(acting) {
         return this.sites.findAll(acting);
@@ -40,6 +53,29 @@ let SitesController = class SitesController {
     }
 };
 exports.SitesController = SitesController;
+__decorate([
+    (0, common_1.Post)('check'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Vérifier l’extension WordPress de tous ses sites',
+        description: 'Interroge la route `dfb/v1/status` de chaque site : connecté, clé ' +
+            'refusée, extension absente ou site injoignable.',
+    }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], SitesController.prototype, "checkAll", null);
+__decorate([
+    (0, common_1.Post)(':id/check'),
+    (0, swagger_1.ApiOperation)({ summary: 'Vérifier l’extension WordPress d’un site' }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], SitesController.prototype, "check", null);
 __decorate([
     (0, common_1.Get)(),
     (0, swagger_1.ApiOperation)({ summary: 'Les sites WordPress déclarés' }),
@@ -91,7 +127,8 @@ exports.SitesController = SitesController = __decorate([
     (0, swagger_1.ApiBearerAuth)(),
     (0, common_1.UseGuards)(admin_auth_guard_1.AdminAuthGuard),
     (0, common_1.Controller)('sites'),
-    __metadata("design:paramtypes", [sites_service_1.SitesService])
+    __metadata("design:paramtypes", [sites_service_1.SitesService,
+        plugin_check_service_1.PluginCheckService])
 ], SitesController);
 let SiteTargetsController = class SiteTargetsController {
     sites;

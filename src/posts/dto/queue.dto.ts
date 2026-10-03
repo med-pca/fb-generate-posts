@@ -1,10 +1,11 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
   IsOptional,
   IsString,
+  MaxLength,
   Max,
   Min,
   ValidateIf,
@@ -65,4 +66,20 @@ export class ForceTargetDto {
   @ValidateIf((dto: ForceTargetDto) => dto.profileId !== null)
   @IsString()
   profileId!: string | null;
+}
+
+/** L'adresse d'un post Facebook publié. */
+export class FacebookUrlDto {
+  @ApiProperty({ example: 'https://www.facebook.com/groups/123/posts/456' })
+  @IsString()
+  @MaxLength(2000)
+  facebookUrl!: string;
+}
+
+export class OptionalFacebookUrlDto {
+  @ApiPropertyOptional({ example: 'https://www.facebook.com/groups/123/posts/456' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  facebookUrl?: string;
 }

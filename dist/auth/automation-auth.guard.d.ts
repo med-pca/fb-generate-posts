@@ -6,5 +6,6 @@ export declare class AutomationAuthGuard implements CanActivate {
     private readonly prisma;
     constructor(config: ConfigService, prisma: PrismaService);
     canActivate(context: ExecutionContext): Promise<boolean>;
+    private noteBrowserRejected;
     private equal;
 }

@@ -182,6 +182,20 @@ check('page non bloquée', listed.blocked === false, listed.blocked);
   const wall = load('<!doctype html><html><body><div>Connectez-vous pour continuer</div></body></html>');
   check('mur de connexion signalé', wall.listed.blocked === true, wall.listed);
 
+  // Compte arabe connecté : « تسجيل الدخول » peut traîner dans la page, ce
+  // n'est pas un mur ; et « عرض المزيد » écrit avec ses voyelles se déplie.
+  const AR = 'وصفة الطاجين المغربي بالدجاج والليمون، سهلة وسريعة للعائلة';
+  const arabic = load(`<!doctype html><html><body><div>تسجيل الدخول</div><div role="feed">
+    <div class="post-wrapper"><a href="https://www.facebook.com/g/posts/55">أمس</a>
+      <div data-ad-preview="message">${AR}<span role="button" class="more">عرضُ المزيد</span></div>
+      <img alt="photo-ar" src="https://scontent.test/ar.jpg"></div></div></body></html>`);
+  let unfolded = false;
+  arabic.window.document.querySelector('.more').addEventListener('click', () => (unfolded = true));
+  check('compte arabe connecté : pas pris pour un mur de connexion', arabic.listed.blocked === false, arabic.listed);
+  check('compte arabe : le post est proposé', arabic.listed.posts.some((p) => p.preview.includes('الطاجين')), arabic.listed.posts);
+  await arabic.window.__fcpCatch.read(0);
+  check('« عرض المزيد » (avec voyelles) est déplié', unfolded, null);
+
   // ─── Page photo : la visionneuse ouverte en cliquant sur une image.
   // Aucun `data-ad-preview`, la légende est un bloc de texte parmi d'autres.
   const PHOTO = `<!doctype html><html><body>

@@ -13,7 +13,6 @@ exports.GeneratePostsDto = void 0;
 const openapi = require("@nestjs/swagger");
 const class_validator_1 = require("class-validator");
 class GeneratePostsDto {
-    profileId;
     groupIds;
     topic;
     language = 'fr';
@@ -23,14 +22,10 @@ class GeneratePostsDto {
     delayMin;
     delayMax;
     static _OPENAPI_METADATA_FACTORY() {
-        return { profileId: { required: true, type: () => String }, groupIds: { required: true, type: () => [String], minItems: 1 }, topic: { required: true, type: () => String }, language: { required: true, type: () => Object, default: "fr" }, count: { required: true, type: () => Number, minimum: 1, maximum: 50 }, url: { required: false, type: () => String, format: "uri" }, imageUrl: { required: false, type: () => String, format: "uri" }, delayMin: { required: true, type: () => Number, minimum: 0, maximum: 1440 }, delayMax: { required: true, type: () => Number, minimum: 0, maximum: 1440 } };
+        return { groupIds: { required: true, type: () => [String], minItems: 1 }, topic: { required: true, type: () => String }, language: { required: true, type: () => Object, default: "fr" }, count: { required: true, type: () => Number, minimum: 1, maximum: 50 }, url: { required: false, type: () => String, format: "uri" }, imageUrl: { required: false, type: () => String, format: "uri" }, delayMin: { required: true, type: () => Number, minimum: 0, maximum: 1440 }, delayMax: { required: true, type: () => Number, minimum: 0, maximum: 1440 } };
     }
 }
 exports.GeneratePostsDto = GeneratePostsDto;
-__decorate([
-    (0, class_validator_1.IsString)(),
-    __metadata("design:type", String)
-], GeneratePostsDto.prototype, "profileId", void 0);
 __decorate([
     (0, class_validator_1.IsArray)(),
     (0, class_validator_1.ArrayMinSize)(1),

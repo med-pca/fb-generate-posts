@@ -18,6 +18,7 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const scope_1 = require("../auth/scope");
 const scope_2 = require("../auth/scope");
 const window_1 = require("./window");
+const pairing_1 = require("./pairing");
 const STALE_SECONDS = 180;
 const POLL_RUNNING = 60;
 const POLL_IDLE = 120;
@@ -96,7 +97,15 @@ let RunnersService = class RunnersService {
         }
         await this.prisma.profileRunner.update({
             where: { profileId: runner.profileId },
-            data: { pairCode: null, pairCodeExpiresAt: null, pairedAt: new Date() },
+            data: {
+                pairCode: null,
+                pairCodeExpiresAt: null,
+                pairedAt: new Date(),
+                pairedKeyHash: (0, pairing_1.keyHash)(apiKey),
+                pairedExternalId: runner.profile.externalId,
+                keyRejectedAt: null,
+                keyRejectReason: null,
+            },
         });
         this.pairAttempts.delete(from);
         return {
@@ -105,6 +114,66 @@ let RunnersService = class RunnersService {
             profileExternalId: runner.profile.externalId,
             profileName: runner.profile.name,
             profileActive: runner.profile.status === 'ACTIVE',
+        };
+    }
+    async autoPair(rawExternalId, rawName, acting, providedKey) {
+        const externalId = String(rawExternalId || '').trim();
+        if (!externalId)
+            throw new common_1.BadRequestException('Identifiant de profil NSTBrowser manquant');
+        let profile = await this.prisma.profile.findFirst({
+            where: { externalId, ...(0, scope_2.profileWhere)((0, scope_1.scopeOf)(acting)) },
+            select: { id: true, name: true, externalId: true, status: true },
+        });
+        let created = false;
+        if (!profile) {
+            const elsewhere = await this.prisma.profile.findFirst({
+                where: { externalId },
+                select: { id: true },
+            });
+            if (elsewhere) {
+                throw new common_1.NotFoundException('Ce profil appartient à un autre compte : la clé de cette extension ne le voit pas');
+            }
+            profile = await this.prisma.profile.create({
+                data: {
+                    externalId,
+                    name: String(rawName || '').trim().slice(0, 200) || externalId,
+                    ownerId: acting?.id ?? null,
+                },
+                select: { id: true, name: true, externalId: true, status: true },
+            });
+            created = true;
+        }
+        const pairing = {
+            pairedAt: new Date(),
+            pairedExternalId: externalId,
+            ...(providedKey ? { pairedKeyHash: (0, pairing_1.keyHash)(providedKey) } : {}),
+            keyRejectedAt: null,
+            keyRejectReason: null,
+            pairCode: null,
+            pairCodeExpiresAt: null,
+        };
+        await this.prisma.profileRunner.upsert({
+            where: { profileId: profile.id },
+            create: { profileId: profile.id, ...pairing },
+            update: pairing,
+        });
+        await this.prisma.activityLog
+            .create({
+            data: {
+                profileId: profile.id,
+                eventType: 'RUNNER_AUTO_PAIRED',
+                message: created
+                    ? `Profil « ${profile.name} » créé et appairé automatiquement par son navigateur`
+                    : `Navigateur appairé automatiquement au profil « ${profile.name} »`,
+                metadata: { externalId, created, by: acting?.username ?? 'clé globale' },
+            },
+        })
+            .catch(() => undefined);
+        return {
+            profileExternalId: externalId,
+            profileName: profile.name,
+            profileActive: profile.status === 'ACTIVE',
+            created,
         };
     }
     async keyFor(ownerId) {
@@ -178,13 +247,16 @@ let RunnersService = class RunnersService {
         return inside.inside ? go(note) : stop(note);
     }
     async control(profileExternalId, acting = null) {
-        const { profile, settings } = await this.context(profileExternalId, acting);
+        const { profile, settings } = await this.context(profileExternalId, acting, true);
         return this.answer(this.decide(profile.runner, profile.status === 'ACTIVE', settings.publishingEnabled));
     }
-    async heartbeat(profileExternalId, dto, acting = null) {
-        const { profile, settings } = await this.context(profileExternalId, acting);
+    async heartbeat(profileExternalId, dto, acting = null, providedKey) {
+        const { profile, settings } = await this.context(profileExternalId, acting, true);
         const reported = {
             lastSeenAt: new Date(),
+            ...(providedKey ? { pairedKeyHash: (0, pairing_1.keyHash)(providedKey) } : {}),
+            keyRejectedAt: null,
+            keyRejectReason: null,
             running: dto.running ?? false,
             phase: dto.phase ?? null,
             message: dto.message?.slice(0, 1000) ?? null,
@@ -193,12 +265,57 @@ let RunnersService = class RunnersService {
             links: dto.links ?? 0,
             agent: dto.agent?.slice(0, 200) ?? null,
         };
+        if (dto.facebookUserId)
+            await this.noteFacebookIdentity(profile.id, dto.facebookUserId, dto.facebookName);
         const runner = await this.prisma.profileRunner.upsert({
             where: { profileId: profile.id },
             create: { profileId: profile.id, ...reported },
             update: reported,
         });
         return this.answer(this.decide(runner, profile.status === 'ACTIVE', settings.publishingEnabled));
+    }
+    async noteFacebookIdentity(profileId, facebookUserId, facebookName) {
+        const holder = await this.prisma.profile.findUnique({
+            where: { facebookUserId },
+            select: { id: true, name: true },
+        });
+        if (holder && holder.id !== profileId) {
+            await this.prisma.activityLog.create({
+                data: {
+                    profileId,
+                    eventType: 'PROFILE_FACEBOOK_CONFLICT',
+                    level: 'WARN',
+                    message: `Ce navigateur est connecté au compte Facebook ${facebookUserId}, déjà celui du profil « ${holder.name} »`,
+                    metadata: { facebookUserId, holder: holder.id },
+                },
+            });
+            return;
+        }
+        const current = await this.prisma.profile.findUnique({
+            where: { id: profileId },
+            select: { facebookUserId: true, facebookName: true },
+        });
+        const name = facebookName?.trim().slice(0, 200) || current?.facebookName || null;
+        await this.prisma.profile.update({
+            where: { id: profileId },
+            data: { facebookUserId, facebookName: name, facebookSeenAt: new Date() },
+        });
+        if (current?.facebookUserId && current.facebookUserId !== facebookUserId) {
+            await this.prisma.$transaction([
+                this.prisma.profileGroup.updateMany({
+                    where: { profileId },
+                    data: { preApprovedAt: null, memberApprovedAt: null, memberAttempts: 0, memberClaimedUntil: null },
+                }),
+                this.prisma.activityLog.create({
+                    data: {
+                        profileId,
+                        eventType: 'PROFILE_FACEBOOK_CHANGED',
+                        level: 'WARN',
+                        message: `Compte Facebook changé : ${current.facebookUserId} → ${facebookUserId}`,
+                    },
+                }),
+            ]);
+        }
     }
     async launcherPlan(acting = null, now = new Date()) {
         const settings = await this.globalSettings();
@@ -210,6 +327,7 @@ let RunnersService = class RunnersService {
                 externalId: true,
                 status: true,
                 runner: true,
+                owner: { select: { nstApiKey: true, status: true } },
             },
             orderBy: { createdAt: 'asc' },
         });
@@ -227,14 +345,64 @@ let RunnersService = class RunnersService {
                 workerRunning: profile.runner?.running ?? false,
                 workerSeenAt: profile.runner?.lastSeenAt ?? null,
                 browserState: profile.runner?.browserState ?? client_1.BrowserState.STOPPED,
+                nstApiKey: profile.owner?.status === 'ACTIVE'
+                    ? (profile.owner.nstApiKey ?? null)
+                    : null,
             };
         });
         return {
+            nstApiKey: acting ? await this.nstKeyOf(acting.id) : null,
             pollAfterSeconds: profilesOut.some((p) => p.shouldRun)
                 ? POLL_RUNNING
                 : POLL_IDLE,
             serverTime: now.toISOString(),
             profiles: profilesOut,
+        };
+    }
+    async syncProfiles(rows, acting = null) {
+        const wanted = new Map();
+        for (const row of rows) {
+            const externalId = row.externalId.trim();
+            if (externalId && !wanted.has(externalId)) {
+                wanted.set(externalId, row.name.trim() || externalId);
+            }
+        }
+        if (!wanted.size)
+            return { created: [], existing: 0, received: 0 };
+        const known = await this.prisma.profile.findMany({
+            where: { externalId: { in: [...wanted.keys()] } },
+            select: { externalId: true },
+        });
+        const seen = new Set(known.map((p) => p.externalId));
+        const missing = [...wanted].filter(([externalId]) => !seen.has(externalId));
+        if (missing.length) {
+            await this.prisma.activityLog
+                .create({
+                data: {
+                    eventType: 'PROFILES_SYNCED',
+                    message: `${missing.length} profil(s) NSTBrowser ajouté(s) : ${missing
+                        .map(([, name]) => name)
+                        .join(', ')}`,
+                    metadata: {
+                        created: missing.map(([externalId, name]) => ({ externalId, name })),
+                        by: acting?.username ?? 'clé globale',
+                    },
+                },
+            })
+                .catch(() => undefined);
+            await this.prisma.profile.createMany({
+                data: missing.map(([externalId, name]) => ({
+                    externalId,
+                    name,
+                    ownerId: acting?.id ?? null,
+                })),
+                skipDuplicates: true,
+            });
+        }
+        return {
+            created: missing.map(([externalId, name]) => ({ externalId, name })),
+            existing: seen.size,
+            received: wanted.size,
         };
     }
     async reportBrowser(profileExternalId, dto, acting = null) {
@@ -260,10 +428,15 @@ let RunnersService = class RunnersService {
                 name: true,
                 externalId: true,
                 status: true,
+                isModerator: true,
+                facebookUserId: true,
+                facebookName: true,
                 runner: true,
+                owner: { select: { automationKey: true, status: true } },
             },
             orderBy: { createdAt: 'asc' },
         });
+        const currentKeys = this.currentKeyHashes(profiles);
         return {
             publishingEnabled: settings.publishingEnabled,
             serverTime: now.toISOString(),
@@ -275,6 +448,9 @@ let RunnersService = class RunnersService {
                     name: profile.name,
                     externalId: profile.externalId,
                     status: profile.status,
+                    isModerator: profile.isModerator,
+                    facebookUserId: profile.facebookUserId,
+                    facebookName: profile.facebookName,
                     mode: decision.mode,
                     shouldRun: decision.run,
                     reason: decision.reason,
@@ -297,6 +473,7 @@ let RunnersService = class RunnersService {
                     browserSeenAt: runner?.browserSeenAt ?? null,
                     browserMessage: runner?.browserMessage ?? null,
                     pairedAt: runner?.pairedAt ?? null,
+                    pairing: (0, pairing_1.pairingHealth)(runner ?? null, profile, currentKeys.get(profile.id) ?? null, now),
                     pairCodePending: Boolean(runner?.pairCode) &&
                         (runner?.pairCodeExpiresAt?.getTime() ?? 0) > now.getTime(),
                 };
@@ -342,6 +519,13 @@ let RunnersService = class RunnersService {
             await this.update(profile.id, dto, acting);
         return { updated: profiles.length };
     }
+    async nstKeyOf(userId) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { nstApiKey: true },
+        });
+        return user?.nstApiKey ?? null;
+    }
     atWork(runner, now) {
         if (!runner?.running || !runner.lastSeenAt)
             return false;
@@ -357,7 +541,7 @@ let RunnersService = class RunnersService {
             update: {},
         });
     }
-    async context(profileExternalId, acting) {
+    async context(profileExternalId, acting, fromBrowser = false) {
         const profile = await this.prisma.profile.findFirst({
             where: {
                 externalId: profileExternalId,
@@ -365,9 +549,68 @@ let RunnersService = class RunnersService {
             },
             select: { id: true, status: true, runner: true },
         });
-        if (!profile)
+        if (!profile) {
+            if (fromBrowser) {
+                await this.noteRejectedKey(profileExternalId, `clé du compte « ${acting?.username ?? 'global'} », qui ne voit pas ce profil`);
+            }
             throw new common_1.NotFoundException('Profil introuvable');
+        }
         return { profile, settings: await this.globalSettings() };
+    }
+    async noteRejectedKey(profileExternalId, reason) {
+        try {
+            await this.prisma.profileRunner.updateMany({
+                where: { profile: { externalId: profileExternalId } },
+                data: {
+                    keyRejectedAt: new Date(),
+                    keyRejectReason: reason.slice(0, 300),
+                },
+            });
+        }
+        catch {
+        }
+    }
+    currentKeyHashes(profiles) {
+        const global = this.config.get('AUTOMATION_API_KEY') || '';
+        return new Map(profiles.map((profile) => {
+            const key = profile.owner?.status === 'ACTIVE'
+                ? profile.owner.automationKey
+                : global;
+            return [profile.id, key ? (0, pairing_1.keyHash)(key) : null];
+        }));
+    }
+    async checkPairings(acting = null, now = new Date()) {
+        const { profiles } = await this.list(acting, now);
+        const paired = profiles.filter((p) => p.pairing.state !== 'never');
+        const byState = {};
+        for (const p of paired)
+            byState[p.pairing.state] = (byState[p.pairing.state] ?? 0) + 1;
+        const broken = paired.filter((p) => p.pairing.broken);
+        const unconfirmed = paired.filter((p) => ['unconfirmed', 'stale'].includes(p.pairing.state));
+        if (broken.length || unconfirmed.length) {
+            await this.prisma.activityLog
+                .create({
+                data: {
+                    eventType: 'RUNNER_PAIRING_CHECKED',
+                    level: broken.length ? 'WARN' : 'INFO',
+                    message: `Appairages vérifiés : ${paired.length - broken.length - unconfirmed.length} confirmé(s), ` +
+                        `${broken.length} à refaire, ${unconfirmed.length} à confirmer`,
+                    metadata: {
+                        broken: broken.map((p) => ({ name: p.name, state: p.pairing.state, detail: p.pairing.detail })),
+                        unconfirmed: unconfirmed.map((p) => ({ name: p.name, state: p.pairing.state })),
+                        by: acting?.username ?? 'clé globale',
+                    },
+                },
+            })
+                .catch(() => undefined);
+        }
+        return {
+            checkedAt: now.toISOString(),
+            checked: paired.length,
+            byState,
+            broken: broken.map((p) => ({ profileId: p.profileId, name: p.name, ...p.pairing })),
+            unconfirmed: unconfirmed.map((p) => ({ profileId: p.profileId, name: p.name, ...p.pairing })),
+        };
     }
 };
 exports.RunnersService = RunnersService;

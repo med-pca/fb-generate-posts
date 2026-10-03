@@ -6,7 +6,6 @@ import { ClaimBatchDto } from './dto/claim-batch.dto';
 import { CommentJobItemDto } from './dto/comment-job-item.dto';
 import { LinkUpdatedJobItemDto } from './dto/link-updated-job-item.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
-import { SettingsService } from '../settings/settings.service';
 import type { CurrentUser } from '../auth/current-user';
 type ClaimedPost = {
     id: string;
@@ -40,7 +39,10 @@ type EmptyClaim = {
     posts: ClaimedPost[];
     message?: string;
     activeJobId?: string;
+    reason?: EmptyReason;
+    diagnosis?: Record<string, unknown>;
 };
+export type EmptyReason = 'no_group' | 'not_joined' | 'no_post' | 'not_allowed' | 'taken';
 type BatchSkip = {
     status: 'busy' | 'empty' | 'error';
     profileExternalId: string;
@@ -50,14 +52,18 @@ type BatchSkip = {
 type BatchClaim = {
     status: 'claimed';
 } & ClaimedJob;
+export declare function claimablePostWhere(profile: {
+    id: string;
+    ownerId: string | null;
+}): Prisma.PostWhereInput;
+export declare function notForcedElsewhere(profileId: string): Prisma.PostTargetWhereInput;
 export declare class JobsService {
     private readonly prisma;
     private readonly config;
-    private readonly settings;
-    constructor(prisma: PrismaService, config: ConfigService, settings: SettingsService);
+    constructor(prisma: PrismaService, config: ConfigService);
     listAutomationProfiles(acting?: CurrentUser | null): Prisma.PrismaPromise<{
-        name: string;
         id: string;
+        name: string;
         externalId: string | null;
     }[]>;
     private reachableJob;
@@ -77,11 +83,27 @@ export declare class JobsService {
     }>;
     releaseExpiredClaims(tx?: Prisma.TransactionClient): Promise<number>;
     claimByProfileExternalId(profileExternalId: string, groupExternalId?: string, acting?: CurrentUser | null): Promise<ClaimedJob | EmptyClaim>;
+    explainNothingToClaim(profile: {
+        id: string;
+        ownerId: string | null;
+    }, groupExternalId?: string): Promise<{
+        reason: EmptyReason;
+        message: string;
+        diagnosis: Record<string, unknown>;
+    }>;
+    private byTopPriority;
+    private isFinished;
+    release(jobId: string, acting?: CurrentUser | null, reason?: string): Promise<{
+        jobId: string;
+        released: number;
+        inProgress: number;
+        alreadyClosed: boolean;
+    }>;
     markConsumed(jobId: string, postId: string, acting?: CurrentUser | null): Promise<{
         error: string | null;
         id: string;
-        status: import("@prisma/client").$Enums.TargetStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.TargetStatus;
         updatedAt: Date;
         publishedAt: Date | null;
         commentExternalId: string | null;
@@ -95,8 +117,8 @@ export declare class JobsService {
     markPublished(jobId: string, postId: string, dto: PublishJobItemDto, acting?: CurrentUser | null): Promise<{
         error: string | null;
         id: string;
-        status: import("@prisma/client").$Enums.TargetStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.TargetStatus;
         updatedAt: Date;
         publishedAt: Date | null;
         commentExternalId: string | null;
@@ -107,11 +129,12 @@ export declare class JobsService {
         jobId: string;
         externalPostUrl: string | null;
     }>;
+    private archiveArticleOf;
     markFailed(jobId: string, postId: string, error: string, acting?: CurrentUser | null): Promise<{
         error: string | null;
         id: string;
-        status: import("@prisma/client").$Enums.TargetStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.TargetStatus;
         updatedAt: Date;
         publishedAt: Date | null;
         commentExternalId: string | null;
@@ -126,8 +149,8 @@ export declare class JobsService {
         awaitingLink: number;
         missingComments: number;
         id: string;
-        status: import("@prisma/client").$Enums.JobStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.JobStatus;
         updatedAt: Date;
         profileId: string;
         claimedAt: Date;
@@ -136,10 +159,11 @@ export declare class JobsService {
         completedAt: Date | null;
     }>;
     markCommented(jobId: string, postId: string, dto: CommentJobItemDto, acting?: CurrentUser | null): Promise<{
+        url: string | null;
         error: string | null;
         id: string;
-        status: import("@prisma/client").$Enums.TargetStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.TargetStatus;
         updatedAt: Date;
         publishedAt: Date | null;
         commentExternalId: string | null;
@@ -155,13 +179,13 @@ export declare class JobsService {
         status: "FAILED" | "COMPLETED" | "AWAITING_LINK" | "PARTIALLY_COMPLETED" | "EXPIRED";
         completedAt: Date | null;
         profile: {
-            name: string;
             id: string;
+            name: string;
             externalId: string | null;
         };
         group: {
-            name: string;
             id: string;
+            name: string;
             externalId: string | null;
         };
         updates: {
@@ -176,13 +200,13 @@ export declare class JobsService {
         jobId: string;
         completedAt: Date | null;
         profile: {
-            name: string;
             id: string;
+            name: string;
             externalId: string | null;
         };
         group: {
-            name: string;
             id: string;
+            name: string;
             externalId: string | null;
         };
         updates: {
@@ -196,8 +220,8 @@ export declare class JobsService {
         remaining: number;
         error: string | null;
         id: string;
-        status: import("@prisma/client").$Enums.TargetStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.TargetStatus;
         updatedAt: Date;
         publishedAt: Date | null;
         commentExternalId: string | null;

@@ -13,11 +13,13 @@ exports.LogsSummaryDto = void 0;
 const openapi = require("@nestjs/swagger");
 const class_transformer_1 = require("class-transformer");
 const class_validator_1 = require("class-validator");
+const domains_1 = require("../domains");
 class LogsSummaryDto {
     hours = 24;
     profileId;
+    domain;
     static _OPENAPI_METADATA_FACTORY() {
-        return { hours: { required: true, type: () => Object, default: 24, minimum: 1, maximum: 720 }, profileId: { required: false, type: () => String } };
+        return { hours: { required: true, type: () => Object, default: 24, minimum: 1, maximum: 720 }, profileId: { required: false, type: () => String }, domain: { required: false, enum: ["groups", "security", "publication", "capture", "sync", "other"], enum: domains_1.LOG_DOMAIN_KEYS } };
     }
 }
 exports.LogsSummaryDto = LogsSummaryDto;
@@ -34,4 +36,9 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], LogsSummaryDto.prototype, "profileId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsIn)(domains_1.LOG_DOMAIN_KEYS),
+    __metadata("design:type", String)
+], LogsSummaryDto.prototype, "domain", void 0);
 //# sourceMappingURL=logs-summary.dto.js.map

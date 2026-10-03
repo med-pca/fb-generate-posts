@@ -24,7 +24,7 @@ npm run start:dev
 
 L'API écoute par défaut sur `http://localhost:3000/api`.
 
-L'interface d'administration est disponible sur `http://localhost:3000/admin/`.
+L'interface d'administration est disponible sur `http://localhost:3000/`.
 Elle permet de consulter, créer et modifier les profils, groupes et posts, et
 de lire les journaux d'activité remontés par les automates.
 
@@ -527,6 +527,86 @@ GET /api/posts/queue?categoryId=&groupId=&limit=10&publishedLimit=20
 Le tableau **En échec** montre la raison, le profil qui a essayé et le nombre
 de tentatives. Journaux : `TARGET_RETRIED`, `TARGET_FORCED`, `TARGET_REMOVED`.
 
+### La vérification des publications (profil vérificateur)
+
+L'extension de publication peut se croire victorieuse à tort (permission
+refusée, profil déconnecté, commentaire jamais remplacé par l'URL). Un profil
+désigné **Vérificateur** dans le Pilotage rouvre chaque post publié avec
+l'extension `extension/fb-post-checker` (voir son README) :
+
+- en ligne avec le lien → **✓ Vérifié** ;
+- introuvable → remis dans la file, **republié** dans ce groupe ;
+- en ligne **sans** le lien → le vérificateur le **supprime** (il doit être
+  admin du groupe), puis il est republié ; s'il n'a pas pu le supprimer, rien
+  n'est republié (doublon) et il passe **⚠ À traiter** ;
+- en attente de validation ou page illisible → revu plus tard.
+
+Garde-fous : vérification au plus tôt 30 min après publication
+(`VERIFY_AFTER_MINUTES`), 2 republications maximum par groupe, 5 pages
+illisibles → À traiter. Dans **Posts → File d'attente**, la colonne
+« Vérification » montre l'état de chaque publication, et le panneau
+« À traiter » propose **C'est bon** ou **Republier** (sans plafond).
+
+Routes : `POST /verify/claim`, `POST /verify/:targetId/result` (clé d'API,
+profil vérificateur) ; `GET /admin/verify`, `PATCH /admin/verify/profiles/:id`,
+`POST /admin/verify/targets/:id/resolve` (admin). Journaux : `VERIFY_REPUBLISH`,
+`VERIFY_NEEDS_ACTION` (domaine Publication).
+
+Migration : `npx prisma migrate deploy` (`20261002090000_publication_verification`).
+
+### Le vérificateur accepte et pré-approuve nos profils
+
+Dans les groupes dont il est admin ou modérateur, le vérificateur (extension
+FB Post Checker) accepte la **demande d'adhésion** de nos profils, puis les
+**pré-approuve** pour que leurs posts paraissent sans validation.
+
+- Seuls les profils de la plateforme sont concernés, désignés par leur
+  **identifiant Facebook numérique** : l'extension de publication (≥ 1.3.0,
+  permission `cookies`) le remonte à chaque battement ; le Pilotage l'affiche
+  sous le nom du profil (« saisir » / « modifier » à la main). Deux
+  navigateurs sur un même compte Facebook sont signalés
+  (`PROFILE_FACEBOOK_CONFLICT`), et un changement de compte remet ses
+  autorisations à refaire.
+- L'extension n'agit que sur la ligne portant exactement cet identifiant ; le
+  serveur revérifie à chaque rapport (`MEMBER_MISMATCH` sinon).
+- Pilotage → **Adhésions et pré-approbations** : bilan, échecs et leur
+  raison, bouton **Relancer**. Journaux `MEMBER_APPROVED`,
+  `MEMBER_PREAPPROVED`, `MEMBER_ACTION_FAILED` (Groupes & pilotage).
+
+Routes : `POST /verify/members/claim`, `POST /verify/members/:id/result`
+(vérificateur) ; `POST /admin/verify/members/:id/retry`,
+`PATCH /admin/verify/profiles/:id` `{ facebookUserId }` (admin). Migration :
+`20261003090000_member_moderation`.
+
+### Traçabilité : le lien de chaque publication et son historique
+
+Chaque publication (un post dans un groupe) garde **l'adresse de son post
+Facebook** et un **historique** qui ne s'efface pas (table
+`publication_traces`) : publié par quel profil et à quelle adresse, publié
+sans adresse, commentaire posé, lien de l'article posé, échec, relance,
+vérification (en ligne, introuvable, sans lien), suppression par le
+vérificateur, remise en file (avec l'ancienne adresse), validation à la main.
+
+D'où vient l'adresse :
+- l'extension de publication la donne en confirmant la publication ;
+- sinon, le **vérificateur la retrouve** dans le fil du groupe (texte et
+  auteur du post) et la renvoie ;
+- ou l'admin la colle : **Coller le lien** sur la ligne publiée, ou au moment
+  de « Déjà en ligne ».
+
+Dans **Posts → File d'attente** :
+- « Déjà publiés » montre le lien Facebook, ou **⚠ adresse inconnue** ;
+- **Historique** ouvre les tentatives (profil, état, lien) et le fil des
+  événements ;
+- le champ **Coller un lien de post Facebook… → Retrouver** retrouve la
+  publication derrière n'importe quel lien, même un ancien (post supprimé puis
+  republié).
+
+Routes : `GET /posts/targets/:id/history`, `PUT /posts/targets/:id/facebook-url`,
+`GET /posts/targets-by-url?url=`. Migration :
+`20261002120000_publication_traces` (reprend les adresses et les publications
+déjà enregistrées).
+
 ### Un site désactivé ne synchronise plus
 
 Tant qu'un site est **inactif** (page Sites → Modifier → État), ses articles
@@ -624,6 +704,42 @@ L'adresse renvoyée est celle par laquelle la requête est arrivée (`x-forwarde
 derrière un proxy), donc celle qui marche depuis ce navigateur.
 `PUBLIC_API_BASE_URL` la force quand l'adresse vue du serveur n'est pas celle que
 le navigateur doit appeler.
+
+### Santé des profils, fiche détaillée, désactivation avec transfert
+
+**Page Profils** : filtres par recherche (nom, identifiant NSTBrowser ou
+Facebook), statut, **santé** (Bon, À surveiller, Mauvais, Pas assez de
+données, **⚠ À désactiver ?**), pilotage (en marche / arrêté), catégorie, et
+tri (récents, meilleur score, plus d'échecs, plus de publications, nom).
+Chaque carte montre son **score sur 100**.
+
+**Le score** (14 jours) : réussite des publications 50 %, posts vérifiés en
+ligne avec leur lien 30 % (constats du vérificateur imputés au profil qui
+avait publié), lien de l'article posé 20 %, moins 10 points par échec
+d'affilée au-delà du premier. Bon ≥ 80, À surveiller ≥ 50, Mauvais en
+dessous ; moins de 3 tentatives = pas assez de données.
+
+**Indice « À désactiver ? »** quand le profil est mauvais (ou en série
+d'échecs) avec une raison : 3 échecs d'affilée, ≥ 5 échecs et moins de 50 %
+de réussite, ≥ 3 posts introuvables/sans lien au contrôle, lien posé sur
+moins de la moitié des posts, ≥ 3 réservations perdues.
+
+**Fiche détaillée** (clic sur le profil) : score et raisons, publiés
+aujourd'hui / 7 j / 30 j / total, échecs, taux de réussite, de vérification et
+de liens, échecs d'affilée, réservations perdues, groupes rejoints et
+pré-approuvés, graphe des 14 jours, détail par groupe, erreurs les plus
+fréquentes, derniers échecs (avec leur historique).
+
+**Désactiver** passe par la fiche, qui propose un **repreneur** : actif, qui a
+rejoint le plus de groupes concernés, puis le meilleur score (présélectionné).
+À la désactivation : son lot en cours est libéré, ses publications forcées et
+ses propres posts vont en priorité au repreneur dans les groupes qu'il a
+rejoints (ailleurs, ils restent dans la file pour les autres profils), son
+pilotage passe à l'arrêt. Les groupes où il était le seul profil sont
+signalés. Journal : `PROFILE_DEACTIVATED`.
+
+Routes : `GET /profiles?search&status&health&activity&categoryId&sort`,
+`GET /profiles/:id/health`, `POST /profiles/:id/deactivate { transferTo }`.
 
 ### L'objectif du jour
 
@@ -842,6 +958,32 @@ Les automates écrivent dans `activity_logs` (réservations, publications,
 La clé d'automatisation n'a donc pas à circuler dans le navigateur pour
 consulter l'historique.
 
+### Suivre une publication dans le journal
+
+Chaque événement d'une publication porte, quand il y en a un, **le lien de son
+post Facebook** (colonne « Post Facebook », cliquable) ainsi que son profil,
+son groupe, son post et la publication (post × groupe) :
+
+| Étape | Événements |
+|---|---|
+| Publication | `POST_PUBLISHED` (avec le lien, ou WARN « sans adresse »), `POST_FAILED`, `WORKER_PUBLISHED` |
+| Commentaire et lien | `POST_COMMENTED`, `COMMENT_LINK_UPDATED` (avec l'URL de l'article posée) |
+| Vérification | `VERIFY_OK`, `VERIFY_PENDING`, `VERIFY_UNREACHABLE`, `VERIFY_MISSING_POST`, `VERIFY_MISSING_LINK` (avec les liens vus à la place), `VERIFY_DELETED`, `VERIFY_DELETE_FAILED`, `VERIFY_URL_FOUND`, `VERIFY_REPUBLISH`, `VERIFY_NEEDS_ACTION` — l'URL d'article attendue est dans les détails (`expectedLink`) |
+| Gestes de l'admin | `TARGET_MARKED_PUBLISHED`, `TARGET_URL_SET`, `TARGET_RETRIED`… |
+| Nos profils dans les groupes | `MEMBER_APPROVED`, `MEMBER_PREAPPROVED`, `MEMBER_ACTION_FAILED`, `MEMBER_MISMATCH` |
+
+Filtres : domaine, période (ou **dates précises**), niveau, événement, profil,
+**catégorie**, **groupe**, **lien Facebook** (complet ou numéro du post),
+**avec lien seulement**, incidents seulement, recherche (message, événement,
+lien). Un clic sur un profil, un groupe ou un post d'une ligne filtre sur lui ;
+**Tout sur cette publication** suit une publication d'un bout à l'autre ;
+**Historique** ouvre sa chronologie. **Exporter (CSV)** télécharge les lignes
+filtrées (5 000 au plus, lisible par Excel, liens et URL d'article inclus).
+
+Route : `GET /admin/logs` (`groupId`, `categoryId`, `postTargetId`,
+`facebookUrl`, `withUrl`, `since`, `until`…) et `GET /admin/logs/export`.
+Migration : `20261003120000_log_facebook_url` (reprend les liens déjà connus).
+
 ### Les journaux par domaine
 
 Page **Journaux** : un onglet par domaine, chacun avec son nombre d'erreurs
@@ -1011,6 +1153,56 @@ que `link-updates` est refusé avant la clôture, que `complete` bascule en
 `AWAITING_LINK`, que l’URL est bien livrée ensuite, et qu’un profil déjà occupé
 est écarté d’une réservation par lot.
 
+## Accès à la plateforme et sécurité
+
+La plateforme est à la racine : `https://post.pulserecipe.com/`. Les anciennes
+adresses `/admin/…` redirigent (301) vers la nouvelle.
+
+**Une adresse par rubrique** : `/` (vue d'ensemble), `/profils`, `/groupes`,
+`/categories`, `/sites`, `/articles`, `/posts` (file d'attente),
+`/posts/tous`, `/journaux`, `/pilotage`, `/parametres`, `/comptes`. Les boutons
+Précédent / Suivant du navigateur fonctionnent, et un lien se partage.
+
+**Connexion** sur une page à part, `/login`. Sans session, toute rubrique y
+renvoie (`/login?next=/pilotage`) puis ramène à la page demandée. L'interface
+elle-même (HTML, JS, CSS) n'est **jamais servie** sans session ; la
+documentation de l'API (`/api/docs`) non plus.
+
+- **Session** : un jeton aléatoire de 256 bits dans un cookie `HttpOnly`,
+  `SameSite=Strict`, et `Secure` + préfixe `__Host-` en HTTPS. Aucun script
+  ne peut le lire ; la base n'en garde que l'empreinte (table `sessions`).
+  Elle expire après **12 h**, ou **2 h d'inactivité**.
+- **Déconnexion réelle** : « Se déconnecter » révoque la session côté
+  serveur. Changer le mot de passe, désactiver ou changer le rôle d'un compte
+  ferme toutes ses sessions. `POST /api/auth/logout-everywhere` ferme toutes
+  les siennes.
+- **Essais limités** : 5 échecs en 15 min pour un identifiant depuis une même
+  adresse (20 pour une adresse) bloquent 15 min ; chaque échec est ralenti ;
+  le message ne dit jamais si c'est l'identifiant ou le mot de passe.
+- **CSRF** : toute modification doit venir de la plateforme (Origin/Referer
+  du même hôte, ou en-tête `X-Requested-With: PostFlow`), en plus de
+  `SameSite=Strict`.
+- **En-têtes** : CSP stricte (seuls nos scripts s'exécutent), anti-iframe
+  (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), `nosniff`,
+  `Referrer-Policy`, HSTS en HTTPS.
+- **Journal « Sécurité »** : `AUTH_LOGIN`, `AUTH_LOGIN_FAILED`,
+  `AUTH_LOGIN_LOCKED`, `AUTH_LOGOUT`, `AUTH_LOGOUT_ALL`, avec l'adresse IP.
+
+Les extensions et automates ne changent pas : ils utilisent toujours leur clé
+`X-API-Key` sur `/api/…`.
+
+Déploiement : `npx prisma migrate deploy` (`20261003150000_sessions`). Derrière
+nginx, transmettre le protocole et l'adresse du client :
+
+```nginx
+proxy_set_header Host $host;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+```
+
+En production, `NODE_ENV=production` force le cookie `Secure`.
+`AUTH_SECRET` n'est plus utilisé.
+
 ## Comptes et propriété
 
 Un `ADMIN` gère tout. Un `MANAGER` possède ses propres profils, groupes et
@@ -1123,7 +1315,7 @@ Les routes sont déjà protégées par deux clés distinctes : `AdminAuthGuard`
 `/api/posts`, et `AutomationAuthGuard` (en-tête `X-API-Key`, comparaison à
 temps constant) sur `/api/jobs/*` et `/api/logs`.
 
-Renseigner `AUTOMATION_API_KEY`, `ADMIN_PASSWORD` et `AUTH_SECRET` dans `.env`.
+Renseigner `AUTOMATION_API_KEY` et `ADMIN_PASSWORD` dans `.env` (`AUTH_SECRET` n'est plus utilisé : les sessions sont en base).
 Les secrets ne doivent jamais être enregistrés en base ou transmis dans les
 logs.
 
@@ -1135,8 +1327,15 @@ retour du plugin fabrique le nouveau post — image d’origine, texte réécrit
 lien vers le nouvel article.
 
 ```bash
+# 0. Ouvrir une session (cookie HttpOnly gardé dans cookies.txt). Les routes
+#    /api/admin/… n'acceptent plus de jeton Bearer : une session, et
+#    l'en-tête X-Requested-With pour ce qui modifie.
+curl -c cookies.txt -X POST "$API_BASE/auth/login" -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: PostFlow' -d '{"username":"admin","password":"…"}'
+AUTH=(-b cookies.txt -H 'X-Requested-With: PostFlow')
+
 # 1. Enregistrer la reprise. `siteUrl` est facultatif : défaut WORDPRESS_SITE_URL.
-curl -X POST "$API_BASE/admin/ingest" -H "Authorization: Bearer $TOKEN" \
+curl -X POST "$API_BASE/admin/ingest" "${AUTH[@]}" \
   -H 'Content-Type: application/json' -d '{
     "facebookUrl": "https://www.facebook.com/exemple/posts/123",
     "sourceUrl": "https://exemple.com/article",
@@ -1145,17 +1344,36 @@ curl -X POST "$API_BASE/admin/ingest" -H "Authorization: Bearer $TOKEN" \
 
 # 2. La collecte. En temps normal l’extension s’en charge (voir plus bas) ;
 #    à la main, la réponse attend la suite du traitement : compter une minute.
-curl -X POST "$API_BASE/admin/ingest/$ID/scrape-result" -H "Authorization: Bearer $TOKEN" \
+curl -X POST "$API_BASE/admin/ingest/$ID/scrape-result" "${AUTH[@]}" \
   -H 'Content-Type: application/json' \
   -d '{"caption": "Texte du post d’origine", "imageUrl": "https://.../image.jpg"}'
 
 # 3. Suivre, et relancer ce qui a échoué.
-curl "$API_BASE/admin/ingest/$ID" -H "Authorization: Bearer $TOKEN"
-curl -X POST "$API_BASE/admin/ingest/$ID/retry" -H "Authorization: Bearer $TOKEN"
+curl "$API_BASE/admin/ingest/$ID" "${AUTH[@]}"
+curl -X POST "$API_BASE/admin/ingest/$ID/retry" "${AUTH[@]}"
 ```
 
 `profileIds` et `groupIds` restreignent la diffusion ; laissés vides, la
 reprise s’adresse à tous les profils actifs et à leurs groupes.
+
+### Un article source en plusieurs pages
+
+Beaucoup de sites coupent leurs articles en « page suivante ». La plateforme
+lit donc **toutes les pages** de l'article avant de le donner au modèle :
+
+- elle suit les liens de pagination de l'article : `/article/2/`,
+  `/article/page/2`, `?page=2`, `article-page-2.html`, les liens numérotés de
+  WordPress (`.page-links`), et les libellés « Next page », « Page suivante »,
+  « Página siguiente », « الصفحة التالية »… ;
+- elle ne suit **jamais** « article suivant » / « Next post » : seule une page
+  du même article compte ;
+- au plus 20 pages et 60 000 caractères ; elle s'arrête sur une page déjà lue,
+  une page identique (site qui renvoie toujours la page 1) ou une page
+  illisible, en gardant ce qui a été lu ;
+- le modèle reçoit jusqu'à 40 000 caractères de cet article (au lieu de 12 000).
+
+Le journal `INGEST_SOURCE_READ` (domaine Captures) dit combien de pages ont été
+lues, avec leurs adresses.
 
 ### Ce que chaque étape garde
 

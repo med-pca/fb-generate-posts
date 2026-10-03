@@ -5,8 +5,8 @@ import {
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { join } from 'node:path';
 import { AppModule } from './app.module';
+import { registerWeb } from './web/web';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -15,10 +15,9 @@ async function bootstrap() {
   );
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.useStaticAssets({
-    root: join(process.cwd(), 'public'),
-    prefix: '/',
-  });
+  // Plus de dossier public servi tel quel : la page de connexion est seule
+  // publique, l'interface n'est servie qu'à une session valide.
+  registerWeb(app);
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Data FB Posting API')
@@ -26,7 +25,7 @@ async function bootstrap() {
       'API de gestion des profils, groupes, contenus et lots de publication.',
     )
     .setVersion('1.0')
-    .addBearerAuth()
+    .addCookieAuth('pf_session')
     .addTag('profiles', 'Gestion des profils')
     .addTag('groups', 'Groupes liés aux profils')
     .addTag('posts', 'Contenus à publier')

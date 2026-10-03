@@ -1,6 +1,7 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { ArticlesService } from '../articles/articles.service';
 import { WordpressArticleDto } from './wordpress.dto';
+export declare function groupPostExternalId(articleId: string, groupId: string): string;
 export declare function wordpressCaption(dto: WordpressArticleDto): string;
 export declare function wordpressArticleFields(dto: WordpressArticleDto): {
     title: string;
@@ -88,9 +89,16 @@ export declare class WordpressService {
         duplicate: boolean;
         updated: boolean;
         generated: number;
+        groups: number;
+        noPost: "no_group" | "no_category" | null;
         synchronized: number;
         skipped: number;
     }>;
+    private ignoreIfPaused;
+    private trace;
+    private receive;
+    private deliveryState;
+    private audience;
     private ingestFor;
     private closeIngest;
     private synchronize;

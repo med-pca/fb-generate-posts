@@ -10,14 +10,15 @@ exports.SitesModule = void 0;
 const common_1 = require("@nestjs/common");
 const sites_controller_1 = require("./sites.controller");
 const sites_service_1 = require("./sites.service");
+const plugin_check_service_1 = require("./plugin-check.service");
 let SitesModule = class SitesModule {
 };
 exports.SitesModule = SitesModule;
 exports.SitesModule = SitesModule = __decorate([
     (0, common_1.Module)({
         controllers: [sites_controller_1.SitesController, sites_controller_1.SiteTargetsController],
-        providers: [sites_service_1.SitesService],
-        exports: [sites_service_1.SitesService],
+        providers: [sites_service_1.SitesService, plugin_check_service_1.PluginCheckService],
+        exports: [sites_service_1.SitesService, plugin_check_service_1.PluginCheckService],
     })
 ], SitesModule);
 //# sourceMappingURL=sites.module.js.map

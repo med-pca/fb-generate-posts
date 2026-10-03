@@ -15,19 +15,25 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const password_1 = require("../auth/password");
 const prisma_service_1 = require("../prisma/prisma.service");
+const session_service_1 = require("../auth/session.service");
 function publicUser(user) {
     return {
         id: user.id,
         username: user.username,
         role: user.role,
         status: user.status,
+        hasNstApiKey: Boolean(user.nstApiKey),
+        nstApiKeyHint: user.nstApiKey ? `…${user.nstApiKey.slice(-4)}` : null,
         createdAt: user.createdAt,
     };
 }
+const nstKey = (raw) => raw.trim() || null;
 let UsersService = class UsersService {
     prisma;
-    constructor(prisma) {
+    sessions;
+    constructor(prisma, sessions) {
         this.prisma = prisma;
+        this.sessions = sessions;
     }
     async findAll() {
         const users = await this.prisma.user.findMany({
@@ -79,9 +85,25 @@ let UsersService = class UsersService {
                 ...(dto.password ? { passwordHash: (0, password_1.hashPassword)(dto.password) } : {}),
                 ...(dto.role ? { role: dto.role } : {}),
                 ...(dto.status ? { status: dto.status } : {}),
+                ...(dto.nstApiKey !== undefined
+                    ? { nstApiKey: nstKey(dto.nstApiKey) }
+                    : {}),
             },
         });
+        if (dto.password || dto.status === client_1.RecordStatus.INACTIVE || (dto.role && dto.role !== user.role)) {
+            await this.sessions.revokeAll(updated.id);
+        }
         return publicUser(updated);
+    }
+    async me(acting) {
+        return publicUser(await this.load(acting.id));
+    }
+    async setOwnNstKey(acting, raw) {
+        const user = await this.prisma.user.update({
+            where: { id: acting.id },
+            data: { nstApiKey: nstKey(raw) },
+        });
+        return publicUser(user);
     }
     async rotateKey(id) {
         await this.load(id);
@@ -133,6 +155,7 @@ let UsersService = class UsersService {
 exports.UsersService = UsersService;
 exports.UsersService = UsersService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        session_service_1.SessionService])
 ], UsersService);
 //# sourceMappingURL=users.service.js.map

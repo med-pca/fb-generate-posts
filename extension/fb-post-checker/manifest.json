@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "FB Post Checker",
+  "version": "1.2.1",
+  "description": "Profil vérificateur : rouvre les posts publiés par les automates, vérifie qu'ils sont en ligne avec le lien de l'article, supprime ceux qui n'en ont pas et les fait republier.",
+  "permissions": ["storage", "tabs", "scripting", "alarms"],
+  "host_permissions": [
+    "https://*.facebook.com/*",
+    "https://post.pulserecipe.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Vérification des publications"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

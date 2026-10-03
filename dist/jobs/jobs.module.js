@@ -10,15 +10,17 @@ exports.JobsModule = void 0;
 const common_1 = require("@nestjs/common");
 const jobs_controller_1 = require("./jobs.controller");
 const jobs_service_1 = require("./jobs.service");
-const settings_module_1 = require("../settings/settings.module");
+const media_controller_1 = require("./media.controller");
+const admin_jobs_controller_1 = require("./admin-jobs.controller");
+const media_service_1 = require("./media.service");
 let JobsModule = class JobsModule {
 };
 exports.JobsModule = JobsModule;
 exports.JobsModule = JobsModule = __decorate([
     (0, common_1.Module)({
-        imports: [settings_module_1.SettingsModule],
-        controllers: [jobs_controller_1.JobsController],
-        providers: [jobs_service_1.JobsService],
+        controllers: [jobs_controller_1.JobsController, media_controller_1.MediaController, admin_jobs_controller_1.AdminJobsController],
+        providers: [jobs_service_1.JobsService, media_service_1.MediaService],
+        exports: [jobs_service_1.JobsService],
     })
 ], JobsModule);
 //# sourceMappingURL=jobs.module.js.map

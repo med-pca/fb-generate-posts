@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>Vérification des publications</h1>
+  <p class="hint">Ce profil rouvre les posts publiés par les automates. Sans le lien de l’article : il le supprime et la plateforme le republie. Il doit être <b>désigné vérificateur</b> dans le Pilotage et <b>administrateur des groupes</b>.</p>
+
+  <div id="state" class="state">—</div>
+
+  <label class="check"><input type="checkbox" id="members"> Accepter l’adhésion de <b>nos</b> profils et les pré-approuver <small>(uniquement les profils de la plateforme, reconnus par leur identifiant Facebook)</small></label>
+
+  <div class="row">
+    <button id="toggle" class="primary">Activer</button>
+    <button id="run" class="secondary">Vérifier maintenant</button>
+  </div>
+
+  <details id="setup">
+    <summary>Réglages</summary>
+    <label>Plateforme <input id="apiBase" type="url" placeholder="https://post.pulserecipe.com"></label>
+    <label>Clé d’API <small>(X-API-Key)</small> <input id="apiKey" type="password" autocomplete="off"></label>
+    <label>Identifiant NSTBrowser du profil <small>(colonne Profil du Pilotage)</small> <input id="profileExternalId" type="text" autocomplete="off"></label>
+    <button id="save" class="secondary">Enregistrer</button>
+  </details>
+
+  <h2>Derniers contrôles</h2>
+  <ul id="logs"></ul>
+  <script src="config.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

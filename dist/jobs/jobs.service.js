@@ -10,20 +10,38 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.JobsService = void 0;
+exports.claimablePostWhere = claimablePostWhere;
+exports.notForcedElsewhere = notForcedElsewhere;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const client_1 = require("@prisma/client");
+const trace_1 = require("../trace/trace");
 const prisma_service_1 = require("../prisma/prisma.service");
-const settings_service_1 = require("../settings/settings.service");
 const scope_1 = require("../auth/scope");
+function claimablePostWhere(profile) {
+    return {
+        OR: [
+            { profileId: profile.id },
+            {
+                profileId: null,
+                OR: [
+                    { ownerId: null },
+                    { owner: { role: 'ADMIN' } },
+                    ...(profile.ownerId ? [{ ownerId: profile.ownerId }] : []),
+                ],
+            },
+        ],
+    };
+}
+function notForcedElsewhere(profileId) {
+    return { OR: [{ forcedProfileId: null }, { forcedProfileId: profileId }] };
+}
 let JobsService = class JobsService {
     prisma;
     config;
-    settings;
-    constructor(prisma, config, settings) {
+    constructor(prisma, config) {
         this.prisma = prisma;
         this.config = config;
-        this.settings = settings;
     }
     listAutomationProfiles(acting = null) {
         return this.prisma.profile.findMany({
@@ -71,30 +89,52 @@ let JobsService = class JobsService {
         if (!group)
             throw new common_1.NotFoundException('Groupe introuvable ou pas encore rejoint par ce profil');
         const count = this.randomInt(profile.minPostsPerJob, profile.maxPostsPerJob);
-        const ttlMinutes = this.config.get('CLAIM_TTL_MINUTES', 30);
-        const claimExpiresAt = new Date(Date.now() + ttlMinutes * 60_000);
+        const ttlMinutes = Number(this.config.get('CLAIM_TTL_MINUTES', 30));
+        let claimExpiresAt = new Date(Date.now() + ttlMinutes * 60_000);
         const job = await this.prisma.$transaction(async (tx) => {
             await this.releaseExpiredClaims(tx);
             const targets = await tx.$queryRaw(client_1.Prisma.sql `
-        SELECT pt.id, pt.post_id AS "postId"
+        SELECT pt.id, pt.post_id AS "postId", p.delay
         FROM post_targets pt
         INNER JOIN posts p ON p.id = pt.post_id
-        INNER JOIN profiles pr ON pr.id = p.profile_id
+        LEFT JOIN users u ON u.id = p.owner_id
+        INNER JOIN profiles pr ON pr.id = ${dto.profileId}
         INNER JOIN groups g ON g.id = pt.group_id
         LEFT JOIN articles a ON a.id = p.article_id
         WHERE pt.group_id = ${dto.groupId}
           AND pt.status = 'AVAILABLE'::"TargetStatus"
-          AND p.profile_id = ${dto.profileId}
+          -- Une cible forcée vers un autre profil lui est réservée.
+          AND (pt.forced_profile_id IS NULL OR pt.forced_profile_id = ${dto.profileId})
+          -- Ses propres posts, ou un post ouvert de son compte (sans
+          -- propriétaire : de tous). Chaque cible ne part qu'une fois : le
+          -- premier profil qui la réserve publie dans ce groupe.
+          AND (
+            p.profile_id = ${dto.profileId}
+            OR (
+              p.profile_id IS NULL
+              AND (
+                p.owner_id IS NULL
+                OR u.role = 'ADMIN'::"Role"
+                OR p.owner_id = pr.owner_id
+              )
+            )
+          )
           AND p.status = 'AVAILABLE'::"PostStatus"
           AND pr.status = 'ACTIVE'::"RecordStatus"
           AND g.status = 'ACTIVE'::"RecordStatus"
           AND (p.article_id IS NULL OR a.status = 'ACTIVE'::"RecordStatus")
-        ORDER BY RANDOM()
+        -- La file : priorité d'abord, puis le plus ancien. C'est l'ordre que
+        -- la page « File d'attente » affiche ; le hasard le rendait
+        -- impossible à prévoir comme à piloter.
+        ORDER BY (pt.forced_profile_id IS NOT NULL) DESC,
+          p.priority DESC, p.created_at ASC, pt.created_at ASC
         FOR UPDATE OF pt SKIP LOCKED
         LIMIT ${count}
       `);
             if (targets.length === 0)
                 return null;
+            const pacing = targets.reduce((sum, target) => sum + Number(target.delay || 0), 0);
+            claimExpiresAt = new Date(Date.now() + (ttlMinutes + pacing) * 60_000);
             const targetIds = targets.map((target) => target.id);
             await tx.postTarget.updateMany({
                 where: { id: { in: targetIds }, status: client_1.TargetStatus.AVAILABLE },
@@ -266,7 +306,16 @@ let JobsService = class JobsService {
             },
             select: { id: true, claimExpiresAt: true },
         });
-        if (active) {
+        if (active && (await this.isFinished(active.id))) {
+            await this.complete(active.id).catch(() => undefined);
+            await this.log({
+                profileId: profile.id,
+                jobId: active.id,
+                eventType: 'JOB_AUTO_COMPLETED',
+                message: `Lot ${active.id} clos automatiquement : tous ses posts étaient terminés`,
+            });
+        }
+        else if (active) {
             await this.log({
                 profileId: profile.id,
                 jobId: active.id,
@@ -282,7 +331,6 @@ let JobsService = class JobsService {
             };
         }
         await this.releaseExpiredClaims();
-        await this.settings.replenishProfile(profile.id);
         const groups = await this.prisma.group.findMany({
             where: {
                 status: 'ACTIVE',
@@ -297,7 +345,8 @@ let JobsService = class JobsService {
                 targets: {
                     some: {
                         status: client_1.TargetStatus.AVAILABLE,
-                        post: { profileId: profile.id, status: 'AVAILABLE' },
+                        post: { status: 'AVAILABLE', ...claimablePostWhere(profile) },
+                        ...notForcedElsewhere(profile.id),
                     },
                 },
             },
@@ -307,18 +356,204 @@ let JobsService = class JobsService {
             return {
                 job: null,
                 posts: [],
-                message: groupExternalId
-                    ? 'Aucun post disponible pour ce profil et ce groupe (ou groupe pas encore rejoint)'
-                    : 'Aucun post disponible dans les groupes rejoints par ce profil',
+                ...(await this.explainNothingToClaim(profile, groupExternalId)),
             };
         }
-        const shuffled = groups.sort(() => Math.random() - 0.5);
-        for (const group of shuffled) {
+        for (const group of await this.byTopPriority(groups, profile)) {
             const result = await this.claim({ profileId: profile.id, groupId: group.id }, acting);
             if ('jobId' in result)
                 return result;
         }
-        return { job: null, posts: [], message: 'Aucun post disponible' };
+        return {
+            job: null,
+            posts: [],
+            reason: 'taken',
+            message: 'Les posts disponibles viennent d’être réservés par d’autres profils : réessayer au prochain passage',
+        };
+    }
+    async explainNothingToClaim(profile, groupExternalId) {
+        const links = await this.prisma.profileGroup.findMany({
+            where: {
+                profileId: profile.id,
+                status: 'ACTIVE',
+                group: {
+                    status: 'ACTIVE',
+                    ...(groupExternalId ? { externalId: groupExternalId } : {}),
+                },
+            },
+            select: { joinStatus: true, group: { select: { id: true, name: true } } },
+        });
+        const scope = groupExternalId ? ` (groupe imposé : ${groupExternalId})` : '';
+        if (!links.length) {
+            return {
+                reason: 'no_group',
+                message: `Ce profil n’est lié à aucun groupe actif${scope} : liez-le à des groupes (page Groupes).`,
+                diagnosis: { linkedGroups: 0 },
+            };
+        }
+        const waiting = {
+            status: client_1.TargetStatus.AVAILABLE,
+            post: {
+                status: 'AVAILABLE',
+                OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }],
+            },
+        };
+        const joined = links.filter((l) => l.joinStatus === client_1.JoinStatus.JOINED);
+        const notJoined = links.filter((l) => l.joinStatus !== client_1.JoinStatus.JOINED);
+        const pending = notJoined.filter((l) => l.joinStatus === client_1.JoinStatus.REQUESTED || l.joinStatus === client_1.JoinStatus.QUESTIONS);
+        const ids = (list) => list.map((l) => l.group.id);
+        const names = (list) => list.slice(0, 3).map((l) => l.group.name).join(', ') + (list.length > 3 ? '…' : '');
+        const [inJoined, allowedInJoined, inNotJoined] = await Promise.all([
+            joined.length
+                ? this.prisma.postTarget.count({ where: { ...waiting, groupId: { in: ids(joined) } } })
+                : 0,
+            joined.length
+                ? this.prisma.postTarget.count({
+                    where: {
+                        ...waiting,
+                        groupId: { in: ids(joined) },
+                        post: { AND: [waiting.post, claimablePostWhere(profile)] },
+                        ...notForcedElsewhere(profile.id),
+                    },
+                })
+                : 0,
+            notJoined.length
+                ? this.prisma.postTarget.count({ where: { ...waiting, groupId: { in: ids(notJoined) } } })
+                : 0,
+        ]);
+        const diagnosis = {
+            linkedGroups: links.length,
+            joinedGroups: joined.length,
+            pendingRequests: pending.length,
+            postsInJoinedGroups: inJoined,
+            postsAllowed: allowedInJoined,
+            postsInGroupsNotJoined: inNotJoined,
+        };
+        const elsewhere = inNotJoined
+            ? ` ${inNotJoined} post(s) attendent dans des groupes qu’il n’a pas rejoints (${names(notJoined)})` +
+                (pending.length
+                    ? ` — ${pending.length} demande(s) d’adhésion en attente : si elles ont été acceptées, marquez-les « rejoint » (page Groupes).`
+                    : '.')
+            : '';
+        if (!joined.length) {
+            return {
+                reason: 'not_joined',
+                message: `Ce profil n’a rejoint aucun de ses ${links.length} groupe(s)${scope}` +
+                    (pending.length ? ` (${pending.length} demande(s) en attente)` : '') +
+                    '.' +
+                    elsewhere,
+                diagnosis,
+            };
+        }
+        if (!inJoined) {
+            return {
+                reason: 'no_post',
+                message: `Aucun post en attente dans ses ${joined.length} groupe(s) rejoint(s)${scope}.` + elsewhere,
+                diagnosis,
+            };
+        }
+        if (!allowedInJoined) {
+            return {
+                reason: 'not_allowed',
+                message: `${inJoined} post(s) attendent dans ses groupes, mais aucun ne lui est permis : ` +
+                    'ils appartiennent à un autre compte (gestionnaire), ou sont forcés vers un autre profil.',
+                diagnosis,
+            };
+        }
+        return {
+            reason: 'taken',
+            message: 'Les posts disponibles viennent d’être réservés par d’autres profils : réessayer au prochain passage.',
+            diagnosis,
+        };
+    }
+    async byTopPriority(groups, profile) {
+        const tops = await Promise.all(groups.map(async (group) => {
+            const top = await this.prisma.postTarget.findFirst({
+                where: {
+                    groupId: group.id,
+                    status: client_1.TargetStatus.AVAILABLE,
+                    post: { status: 'AVAILABLE', ...claimablePostWhere(profile) },
+                    ...notForcedElsewhere(profile.id),
+                },
+                orderBy: [
+                    { forcedProfileId: { sort: 'asc', nulls: 'last' } },
+                    { post: { priority: 'desc' } },
+                    { post: { createdAt: 'asc' } },
+                ],
+                select: {
+                    forcedProfileId: true,
+                    post: { select: { priority: true } },
+                },
+            });
+            return {
+                group,
+                forced: top?.forcedProfileId === profile.id ? 1 : 0,
+                priority: top?.post.priority ?? 0,
+                tie: Math.random(),
+            };
+        }));
+        return tops
+            .sort((a, b) => b.forced - a.forced || b.priority - a.priority || a.tie - b.tie)
+            .map(({ group }) => group);
+    }
+    async isFinished(jobId) {
+        const open = await this.prisma.publicationJobItem.count({
+            where: {
+                jobId,
+                status: { in: [client_1.TargetStatus.CLAIMED, client_1.TargetStatus.CONSUMED] },
+            },
+        });
+        return open === 0;
+    }
+    async release(jobId, acting = null, reason = 'lot libéré') {
+        await this.reachableJob(jobId, acting);
+        const job = await this.prisma.publicationJob.findUnique({
+            where: { id: jobId },
+            select: {
+                id: true,
+                status: true,
+                profileId: true,
+                groupId: true,
+                items: { select: { id: true, status: true, postTargetId: true } },
+            },
+        });
+        if (!job)
+            throw new common_1.NotFoundException('Job introuvable');
+        if (job.status !== client_1.JobStatus.CLAIMED) {
+            return { jobId, released: 0, inProgress: 0, alreadyClosed: true };
+        }
+        const waiting = job.items.filter((item) => item.status === client_1.TargetStatus.CLAIMED);
+        const inProgress = job.items.filter((item) => item.status === client_1.TargetStatus.CONSUMED).length;
+        await this.prisma.$transaction([
+            this.prisma.postTarget.updateMany({
+                where: {
+                    id: { in: waiting.map((item) => item.postTargetId) },
+                    status: client_1.TargetStatus.CLAIMED,
+                },
+                data: { status: client_1.TargetStatus.AVAILABLE, claimedAt: null, claimExpiresAt: null },
+            }),
+            this.prisma.publicationJobItem.updateMany({
+                where: { id: { in: waiting.map((item) => item.id) } },
+                data: { status: client_1.TargetStatus.FAILED, error: `Rendu à la file : ${reason}` },
+            }),
+            this.prisma.publicationJob.update({
+                where: { id: jobId },
+                data: { status: client_1.JobStatus.EXPIRED, completedAt: new Date() },
+            }),
+            this.prisma.activityLog.create({
+                data: {
+                    jobId,
+                    profileId: job.profileId,
+                    groupId: job.groupId,
+                    eventType: 'JOB_RELEASED',
+                    level: 'WARN',
+                    message: `Lot libéré (${reason}) : ${waiting.length} post(s) rendu(s) à la file` +
+                        (inProgress ? `, ${inProgress} en cours de publication laissé(s) tel(s) quel(s)` : ''),
+                    metadata: { by: acting?.username ?? 'clé globale', reason },
+                },
+            }),
+        ]);
+        return { jobId, released: waiting.length, inProgress, alreadyClosed: false };
     }
     async markConsumed(jobId, postId, acting = null) {
         await this.reachableJob(jobId, acting);
@@ -329,10 +564,22 @@ let JobsService = class JobsService {
         const publishedAt = dto.publishedAt
             ? new Date(dto.publishedAt)
             : new Date();
-        return this.updateItem(jobId, postId, client_1.TargetStatus.PUBLISHED, {
-            publishedAt,
-            externalPostUrl: dto.externalPostUrl,
+        const result = await this.updateItem(jobId, postId, client_1.TargetStatus.PUBLISHED, { publishedAt, externalPostUrl: dto.externalPostUrl });
+        await this.archiveArticleOf(postId, publishedAt);
+        return result;
+    }
+    async archiveArticleOf(postId, publishedAt) {
+        const { count } = await this.prisma.article.updateMany({
+            where: { archivedAt: null, posts: { some: { id: postId } } },
+            data: { archivedAt: publishedAt },
         });
+        if (count) {
+            await this.log({
+                postId,
+                eventType: 'ARTICLE_ARCHIVED',
+                message: 'Article archivé : un de ses posts vient d’être publié',
+            });
+        }
     }
     async markFailed(jobId, postId, error, acting = null) {
         await this.reachableJob(jobId, acting);
@@ -399,7 +646,11 @@ let JobsService = class JobsService {
         await this.reachableJob(jobId, acting);
         const item = await this.prisma.publicationJobItem.findUnique({
             where: { jobId_postId: { jobId, postId } },
-            include: { job: true, postTarget: true },
+            include: {
+                job: true,
+                postTarget: true,
+                post: { select: { url: true } },
+            },
         });
         if (!item)
             throw new common_1.NotFoundException('Post introuvable dans ce job');
@@ -420,7 +671,7 @@ let JobsService = class JobsService {
                     },
                 });
             }
-            return item;
+            return { ...item, url: item.post.url };
         }
         if (!this.stillOwnsTarget(item.job, item.postTarget)) {
             await this.logLostClaim(jobId, postId, item.postTargetId, item.status);
@@ -437,17 +688,30 @@ let JobsService = class JobsService {
                 data,
             });
             await tx.postTarget.update({ where: { id: item.postTargetId }, data });
+            await (0, trace_1.trace)(tx, {
+                postTargetId: item.postTargetId,
+                kind: 'COMMENTED',
+                facebookUrl: item.externalPostUrl
+                    ? `${item.externalPostUrl}${item.externalPostUrl.includes('?') ? '&' : '?'}comment_id=${dto.commentExternalId}`
+                    : null,
+                profileId: item.job.profileId,
+                jobId,
+                detail: `commentaire ${dto.commentExternalId}`,
+            });
             await tx.activityLog.create({
                 data: {
                     jobId,
                     postId,
                     postTargetId: item.postTargetId,
+                    profileId: item.job.profileId,
+                    groupId: item.job.groupId,
+                    facebookUrl: item.externalPostUrl,
                     eventType: 'POST_COMMENTED',
                     message: 'Commentaire posé, en attente de l’URL',
                     metadata: { commentExternalId: dto.commentExternalId },
                 },
             });
-            return updated;
+            return { ...updated, url: item.post.url };
         });
     }
     async linkUpdates(jobId, acting = null) {
@@ -524,9 +788,6 @@ let JobsService = class JobsService {
         });
         if (!item)
             throw new common_1.NotFoundException('Post introuvable dans ce job');
-        if (item.job.status === client_1.JobStatus.CLAIMED) {
-            throw new common_1.BadRequestException('Clôturez le job (complete) avant de basculer les commentaires sur l’URL');
-        }
         if (!item.commentExternalId) {
             throw new common_1.BadRequestException('Aucun commentaire enregistré pour ce post : rien à modifier');
         }
@@ -547,13 +808,24 @@ let JobsService = class JobsService {
                 where: { id: item.postTargetId },
                 data: { linkUpdatedAt },
             });
+            await (0, trace_1.trace)(tx, {
+                postTargetId: item.postTargetId,
+                kind: 'LINK_PLACED',
+                facebookUrl: item.externalPostUrl,
+                profileId: item.job.profileId,
+                jobId,
+                detail: item.post.url,
+            });
             await tx.activityLog.create({
                 data: {
                     jobId,
                     postId,
                     postTargetId: item.postTargetId,
+                    profileId: item.job.profileId,
+                    groupId: item.job.groupId,
+                    facebookUrl: item.externalPostUrl,
                     eventType: 'COMMENT_LINK_UPDATED',
-                    message: 'Commentaire modifié avec l’URL',
+                    message: `Commentaire modifié avec l’URL de l’article : ${item.post.url}`,
                     metadata: {
                         commentExternalId: item.commentExternalId,
                         url: item.post.url,
@@ -605,7 +877,10 @@ let JobsService = class JobsService {
     async updateItem(jobId, postId, status, data) {
         const item = await this.prisma.publicationJobItem.findUnique({
             where: { jobId_postId: { jobId, postId } },
-            include: { job: true, postTarget: true },
+            include: {
+                job: { include: { profile: { select: { name: true } } } },
+                postTarget: true,
+            },
         });
         if (!item)
             throw new common_1.NotFoundException('Post introuvable dans ce job');
@@ -619,10 +894,17 @@ let JobsService = class JobsService {
             throw new common_1.ConflictException('La réservation de ce post a expiré et a été reprise. ' +
                 'Ne republiez pas ce post : signalez-le à un administrateur.');
         }
+        const facebookUrl = status === client_1.TargetStatus.PUBLISHED
+            ? ((0, trace_1.normalizeFacebookUrl)(data.externalPostUrl) ?? data.externalPostUrl ?? null)
+            : undefined;
         return this.prisma.$transaction(async (tx) => {
             const updated = await tx.publicationJobItem.update({
                 where: { id: item.id },
-                data: { status, ...data },
+                data: {
+                    status,
+                    ...data,
+                    ...(facebookUrl !== undefined ? { externalPostUrl: facebookUrl } : {}),
+                },
             });
             await tx.postTarget.update({
                 where: { id: item.postTargetId },
@@ -631,16 +913,44 @@ let JobsService = class JobsService {
                     consumedAt: status === client_1.TargetStatus.CONSUMED ? new Date() : undefined,
                     publishedAt: data.publishedAt,
                     lastError: data.error,
+                    facebookUrl,
                 },
             });
+            if (status === client_1.TargetStatus.PUBLISHED || status === client_1.TargetStatus.FAILED) {
+                await (0, trace_1.trace)(tx, {
+                    postTargetId: item.postTargetId,
+                    kind: status === client_1.TargetStatus.FAILED
+                        ? 'FAILED'
+                        : facebookUrl
+                            ? 'PUBLISHED'
+                            : 'URL_MISSING',
+                    facebookUrl,
+                    actor: item.job.profile?.name ?? null,
+                    profileId: item.job.profileId,
+                    jobId,
+                    detail: status === client_1.TargetStatus.FAILED
+                        ? data.error
+                        : facebookUrl
+                            ? null
+                            : 'l’extension n’a pas retrouvé l’adresse du post : le vérificateur la cherchera dans le groupe',
+                });
+            }
             await tx.activityLog.create({
                 data: {
                     jobId,
                     postId,
                     postTargetId: item.postTargetId,
+                    profileId: item.job.profileId,
+                    groupId: item.job.groupId,
+                    facebookUrl: facebookUrl ?? item.externalPostUrl ?? null,
                     eventType: `POST_${status}`,
-                    level: status === client_1.TargetStatus.FAILED ? 'ERROR' : 'INFO',
-                    message: data.error ?? `Post marqué ${status}`,
+                    level: status === client_1.TargetStatus.FAILED ? 'ERROR' : status === client_1.TargetStatus.PUBLISHED && !facebookUrl ? 'WARN' : 'INFO',
+                    message: data.error ??
+                        (status === client_1.TargetStatus.PUBLISHED
+                            ? facebookUrl
+                                ? `Publié par ${item.job.profile?.name ?? 'le profil'} : ${facebookUrl}`
+                                : `Publié par ${item.job.profile?.name ?? 'le profil'}, SANS adresse Facebook : le vérificateur la cherchera dans le groupe`
+                            : `Post marqué ${status}`),
                 },
             });
             return updated;
@@ -678,7 +988,6 @@ exports.JobsService = JobsService;
 exports.JobsService = JobsService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        config_1.ConfigService,
-        settings_service_1.SettingsService])
+        config_1.ConfigService])
 ], JobsService);
 //# sourceMappingURL=jobs.service.js.map

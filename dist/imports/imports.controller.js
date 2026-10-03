@@ -17,6 +17,7 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
+const current_user_1 = require("../auth/current-user");
 const import_json_dto_1 = require("./dto/import-json.dto");
 const imports_service_1 = require("./imports.service");
 let ImportsController = class ImportsController {
@@ -24,8 +25,8 @@ let ImportsController = class ImportsController {
     constructor(imports) {
         this.imports = imports;
     }
-    importJson(dto) {
-        return this.imports.importJson(dto);
+    importJson(dto, acting) {
+        return this.imports.importJson(dto, acting);
     }
 };
 exports.ImportsController = ImportsController;
@@ -33,8 +34,9 @@ __decorate([
     (0, common_1.Post)('json-data'),
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [import_json_dto_1.ImportJsonDto]),
+    __metadata("design:paramtypes", [import_json_dto_1.ImportJsonDto, Object]),
     __metadata("design:returntype", void 0)
 ], ImportsController.prototype, "importJson", null);
 exports.ImportsController = ImportsController = __decorate([

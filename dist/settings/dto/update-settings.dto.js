@@ -14,19 +14,16 @@ const openapi = require("@nestjs/swagger");
 const swagger_1 = require("@nestjs/swagger");
 const class_validator_1 = require("class-validator");
 class UpdateSettingsDto {
-    autoReplenishEnabled;
     publishingEnabled;
-    minimumAvailablePerProfile;
-    minimumAvailablePerGroup;
+    dailyTarget;
+    objectiveStart;
+    objectiveEnd;
+    objectiveTimezone;
     static _OPENAPI_METADATA_FACTORY() {
-        return { autoReplenishEnabled: { required: true, type: () => Boolean }, publishingEnabled: { required: false, type: () => Boolean }, minimumAvailablePerProfile: { required: true, type: () => Number, minimum: 1, maximum: 1000 }, minimumAvailablePerGroup: { required: false, type: () => Number, minimum: 1, maximum: 1000 } };
+        return { publishingEnabled: { required: false, type: () => Boolean }, dailyTarget: { required: false, type: () => Number, minimum: 0, maximum: 100000 }, objectiveStart: { required: false, type: () => Number, minimum: 0, maximum: 1439 }, objectiveEnd: { required: false, type: () => Number, minimum: 0, maximum: 1439 }, objectiveTimezone: { required: false, type: () => String, maxLength: 60 } };
     }
 }
 exports.UpdateSettingsDto = UpdateSettingsDto;
-__decorate([
-    (0, class_validator_1.IsBoolean)(),
-    __metadata("design:type", Boolean)
-], UpdateSettingsDto.prototype, "autoReplenishEnabled", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)(),
     (0, class_validator_1.IsOptional)(),
@@ -34,17 +31,34 @@ __decorate([
     __metadata("design:type", Boolean)
 ], UpdateSettingsDto.prototype, "publishingEnabled", void 0);
 __decorate([
-    (0, class_validator_1.IsInt)(),
-    (0, class_validator_1.Min)(1),
-    (0, class_validator_1.Max)(1000),
-    __metadata("design:type", Number)
-], UpdateSettingsDto.prototype, "minimumAvailablePerProfile", void 0);
-__decorate([
-    (0, swagger_1.ApiPropertyOptional)({ minimum: 1, maximum: 1000 }),
+    (0, swagger_1.ApiPropertyOptional)({ minimum: 0, maximum: 100000 }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsInt)(),
-    (0, class_validator_1.Min)(1),
-    (0, class_validator_1.Max)(1000),
+    (0, class_validator_1.Min)(0),
+    (0, class_validator_1.Max)(100000),
     __metadata("design:type", Number)
-], UpdateSettingsDto.prototype, "minimumAvailablePerGroup", void 0);
+], UpdateSettingsDto.prototype, "dailyTarget", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ minimum: 0, maximum: 1439 }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(0),
+    (0, class_validator_1.Max)(1439),
+    __metadata("design:type", Number)
+], UpdateSettingsDto.prototype, "objectiveStart", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ minimum: 0, maximum: 1439 }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(0),
+    (0, class_validator_1.Max)(1439),
+    __metadata("design:type", Number)
+], UpdateSettingsDto.prototype, "objectiveEnd", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ example: 'Europe/Paris' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(60),
+    __metadata("design:type", String)
+], UpdateSettingsDto.prototype, "objectiveTimezone", void 0);
 //# sourceMappingURL=update-settings.dto.js.map

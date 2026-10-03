@@ -69,6 +69,9 @@ let LogsAdminController = class LogsAdminController {
     search(query, acting) {
         return this.logs.search(query, acting);
     }
+    exportCsv(query, acting) {
+        return this.logs.exportCsv(query, acting);
+    }
     summary(query, acting) {
         return this.logs.summary(query, acting);
     }
@@ -86,6 +89,18 @@ __decorate([
     __metadata("design:paramtypes", [query_logs_dto_1.QueryLogsDto, Object]),
     __metadata("design:returntype", void 0)
 ], LogsAdminController.prototype, "search", null);
+__decorate([
+    (0, common_1.Get)('export'),
+    (0, common_1.Header)('content-type', 'text/csv; charset=utf-8'),
+    (0, common_1.Header)('content-disposition', 'attachment; filename="journal.csv"'),
+    (0, swagger_1.ApiOperation)({ summary: 'Les journaux filtrés, en CSV (5 000 lignes au plus)' }),
+    openapi.ApiResponse({ status: 200, type: String }),
+    __param(0, (0, common_1.Query)()),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [query_logs_dto_1.QueryLogsDto, Object]),
+    __metadata("design:returntype", void 0)
+], LogsAdminController.prototype, "exportCsv", null);
 __decorate([
     (0, common_1.Get)('summary'),
     (0, swagger_1.ApiOperation)({

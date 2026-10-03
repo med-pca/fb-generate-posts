@@ -20,6 +20,8 @@ const automation_auth_guard_1 = require("../auth/automation-auth.guard");
 const current_user_1 = require("../auth/current-user");
 const browser_report_dto_1 = require("./dto/browser-report.dto");
 const heartbeat_dto_1 = require("./dto/heartbeat.dto");
+const sync_profiles_dto_1 = require("./dto/sync-profiles.dto");
+const auto_pair_dto_1 = require("./dto/auto-pair.dto");
 const runners_service_1 = require("./runners.service");
 let ControlController = class ControlController {
     runners;
@@ -29,11 +31,17 @@ let ControlController = class ControlController {
     control(profileExternalId, acting) {
         return this.runners.control(profileExternalId, acting);
     }
-    heartbeat(profileExternalId, dto, acting) {
-        return this.runners.heartbeat(profileExternalId, dto, acting);
+    heartbeat(profileExternalId, dto, acting, apiKey) {
+        return this.runners.heartbeat(profileExternalId, dto, acting, apiKey);
+    }
+    autoPair(dto, acting, apiKey) {
+        return this.runners.autoPair(dto.profileExternalId, dto.name, acting, apiKey);
     }
     launcher(acting) {
         return this.runners.launcherPlan(acting);
+    }
+    syncProfiles(dto, acting) {
+        return this.runners.syncProfiles(dto.profiles, acting);
     }
     reportBrowser(profileExternalId, dto, acting) {
         return this.runners.reportBrowser(profileExternalId, dto, acting);
@@ -65,10 +73,27 @@ __decorate([
     __param(0, (0, common_1.Param)('profileExternalId')),
     __param(1, (0, common_1.Body)()),
     __param(2, (0, current_user_1.ActingUser)()),
+    __param(3, (0, common_1.Headers)('x-api-key')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, heartbeat_dto_1.HeartbeatDto, Object]),
+    __metadata("design:paramtypes", [String, heartbeat_dto_1.HeartbeatDto, Object, String]),
     __metadata("design:returntype", void 0)
 ], ControlController.prototype, "heartbeat", null);
+__decorate([
+    (0, common_1.Post)('auto-pair'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Appairage automatique d’un navigateur',
+        description: 'L’extension préconfigurée (clé incluse) a détecté seule son profil ' +
+            'NSTBrowser et s’annonce : plus de code à copier par profil. Un profil ' +
+            'absent de la plateforme est créé au nom du compte de la clé.',
+    }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __param(2, (0, common_1.Headers)('x-api-key')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [auto_pair_dto_1.AutoPairDto, Object, String]),
+    __metadata("design:returntype", void 0)
+], ControlController.prototype, "autoPair", null);
 __decorate([
     (0, common_1.Get)('launcher'),
     (0, swagger_1.ApiOperation)({
@@ -83,6 +108,21 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], ControlController.prototype, "launcher", null);
+__decorate([
+    (0, common_1.Post)('profiles/sync'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Créer les profils NSTBrowser que la plateforme ne connaît pas',
+        description: 'L’agent local envoie les profils de son NSTBrowser. Les absents sont ' +
+            'créés au nom du compte de la clé (sans propriétaire avec la clé ' +
+            'globale). Rien n’est renommé ni supprimé.',
+    }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [sync_profiles_dto_1.SyncProfilesDto, Object]),
+    __metadata("design:returntype", void 0)
+], ControlController.prototype, "syncProfiles", null);
 __decorate([
     (0, common_1.Post)('launcher/:profileExternalId'),
     (0, swagger_1.ApiOperation)({ summary: 'L’agent local dit ce qu’il a fait du navigateur' }),

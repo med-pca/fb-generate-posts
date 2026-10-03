@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpdateUserDto = exports.CreateUserDto = void 0;
+exports.UpdateNstKeyDto = exports.UpdateUserDto = exports.CreateUserDto = void 0;
 const openapi = require("@nestjs/swagger");
 const swagger_1 = require("@nestjs/swagger");
 const client_1 = require("@prisma/client");
@@ -48,8 +48,9 @@ __decorate([
 ], CreateUserDto.prototype, "role", void 0);
 class UpdateUserDto extends (0, swagger_1.PartialType)(CreateUserDto) {
     status;
+    nstApiKey;
     static _OPENAPI_METADATA_FACTORY() {
-        return { status: { required: false, enum: ["ACTIVE", "INACTIVE"] } };
+        return { status: { required: false, enum: ["ACTIVE", "INACTIVE"] }, nstApiKey: { required: false, type: () => String, maxLength: 200 } };
     }
 }
 exports.UpdateUserDto = UpdateUserDto;
@@ -59,4 +60,28 @@ __decorate([
     (0, class_validator_1.IsEnum)(client_1.RecordStatus),
     __metadata("design:type", String)
 ], UpdateUserDto.prototype, "status", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Clé NSTBrowser du compte. Chaîne vide = la retirer.',
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(200),
+    __metadata("design:type", String)
+], UpdateUserDto.prototype, "nstApiKey", void 0);
+class UpdateNstKeyDto {
+    nstApiKey;
+    static _OPENAPI_METADATA_FACTORY() {
+        return { nstApiKey: { required: true, type: () => String, maxLength: 200 } };
+    }
+}
+exports.UpdateNstKeyDto = UpdateNstKeyDto;
+__decorate([
+    (0, swagger_1.ApiProperty)({
+        description: 'Clé de l’API locale NSTBrowser (application → API). Chaîne vide = la retirer.',
+    }),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(200),
+    __metadata("design:type", String)
+], UpdateNstKeyDto.prototype, "nstApiKey", void 0);
 //# sourceMappingURL=user.dto.js.map

@@ -21,7 +21,123 @@ export type SourceArticle = {
   /** La langue déclarée par la page, en code à deux lettres. Réécrire n'est
    * pas traduire : c'est elle qui décide de la langue de l'article. */
   language: string | null;
+  /** Les pages lues, dans l'ordre : un article coupé en « page suivante »
+   * est lu en entier, pas seulement sa première page. */
+  pageUrls?: string[];
 };
+
+/** Au-delà, on s'arrête : un article en 30 pages est une galerie, et une
+ * boucle de liens ne doit pas tourner sans fin. */
+const MAX_PAGES = 20;
+/** Le texte gardé, toutes pages comprises : de quoi nourrir le modèle sans
+ * lui envoyer un livre. */
+const MAX_TOTAL_TEXT = 60_000;
+
+/** Les liens qui disent « page suivante » DE CET ARTICLE. « Article
+ * suivant » / « Next post » n'y sont pas : ce serait un autre article. */
+const NEXT_PAGE_LABELS = [
+  'next page', 'continue to next page', 'continue on next page', 'continue reading on the next page', 'go to next page',
+  'page suivante', 'suite page suivante', 'lire la suite page suivante', 'continuer a la page suivante',
+  'pagina siguiente', 'siguiente pagina', 'proxima pagina', 'pagina seguinte', 'naechste seite', 'nachste seite',
+  'pagina successiva', 'pagina dopo', 'sonraki sayfa', 'nastepna strona', 'volgende pagina',
+  'الصفحة التالية', 'الصفحه التاليه',
+];
+/** Libellés courts et ambigus (« Next », « Suivant », « › ») : acceptés
+ * seulement quand le lien mène à la page numérotée suivante du même article. */
+const NEXT_SHORT_LABELS = ['next', 'suivant', 'suivante', 'siguiente', 'proxima', 'weiter', 'avanti', 'التالي', 'التاليه', '›', '»', '→', '>', '>>'];
+/** Les blocs de pagination habituels (WordPress `wp_link_pages`, thèmes). */
+const PAGINATION_LINKS = [
+  '.page-links a', 'a.post-page-numbers', '.post-pagination a', '.pagination a', '.nav-links a',
+  'a.page-numbers', '[class*="paginat"] a', '[class*="pager"] a', '[class*="page-nav"] a',
+  '[class*="next-page"] a', 'a[class*="next-page"]', 'a[class*="nextpage"]',
+].join(', ');
+const PAGE_PARAMS = ['page', 'paged', 'pg', 'p', 'pagina', 'pag', 'seite', 'pagenum'];
+
+const foldLabel = (value: string) =>
+  value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f\u064b-\u065f\u0670\u0640]/g, '')
+    .replace(/\u0629/g, '\u0647')
+    .replace(/ä/g, 'ae')
+    .replace(/[^\p{L}\p{N}›»→>]+/gu, ' ')
+    .trim()
+    .toLowerCase();
+
+/** Une page d'un article : son « socle » (l'adresse sans numéro de page) et
+ * son numéro. `/recette/2/`, `/recette/page/2`, `/recette?page=2`,
+ * `/recette-page-2.html` → socle `/recette`, page 2. */
+export function pageOf(raw: string | URL) {
+  const url = new URL(raw.toString());
+  const path = url.pathname.replace(/\/+$/, '') || '/';
+  for (const name of PAGE_PARAMS) {
+    const value = url.searchParams.get(name);
+    if (value && /^\d{1,3}$/.test(value)) {
+      return { base: `${url.host}${path}`.toLowerCase(), page: Number(value) };
+    }
+  }
+  const patterns: RegExp[] = [
+    /^(.*)\/page\/(\d{1,3})$/i,
+    /^(.*)-page-?(\d{1,3})(?:\.html?)?$/i,
+    // `/recette/2` : seulement un petit nombre, un identifiant d'article
+    // (`/recette/48213`) n'est pas un numéro de page.
+    /^(.*\/[^/]*[a-z][^/]*)\/(\d{1,2})$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(path);
+    if (match) return { base: `${url.host}${match[1]}`.toLowerCase(), page: Number(match[2]) };
+  }
+  return { base: `${url.host}${path.replace(/\.html?$/i, '')}`.toLowerCase(), page: 1 };
+}
+
+/** L'adresse de la page suivante de l'article affiché, ou null.
+ *
+ * Priorité au lien vers la page numérotée qui suit (même socle, numéro + 1,
+ * sinon le plus petit numéro supérieur) ; à défaut, un lien qui dit
+ * explicitement « page suivante » sur le même site. Jamais une page déjà lue. */
+export function findNextPage(document: Document, currentUrl: string, visited: Set<string>) {
+  const current = new URL(currentUrl);
+  const here = pageOf(current);
+  const seen = (url: URL) => visited.has(url.href.replace(/#.*$/, ''));
+  let numbered: { url: URL; page: number } | null = null;
+  let labelled: URL | null = null;
+
+  const consider = (href: string | null, label: string, strong: boolean) => {
+    if (!href || /^(#|javascript:|mailto:)/i.test(href)) return;
+    let url: URL;
+    try {
+      url = new URL(href, current);
+    } catch {
+      return;
+    }
+    url.hash = '';
+    if (url.host !== current.host || !/^https?:$/.test(url.protocol) || seen(url)) return;
+    const there = pageOf(url);
+    const folded = foldLabel(label);
+    if (there.base === here.base && there.page > here.page) {
+      if (!numbered || there.page < numbered.page) numbered = { url, page: there.page };
+      return;
+    }
+    if (labelled) return;
+    if (strong || NEXT_PAGE_LABELS.some((l) => folded.includes(foldLabel(l)))) {
+      if (url.pathname !== current.pathname || url.search !== current.search) labelled = url;
+    }
+  };
+
+  // `rel="next"` dans l'en-tête : sûr seulement s'il reste dans l'article
+  // (de vieux thèmes l'utilisent pour l'article suivant).
+  document.querySelectorAll('link[rel~="next"]').forEach((link) => consider(link.getAttribute('href'), '', false));
+  document.querySelectorAll(`a[rel~="next"], ${PAGINATION_LINKS}`).forEach((a) =>
+    consider(a.getAttribute('href'), `${a.textContent || ''} ${a.getAttribute('aria-label') || ''}`, false),
+  );
+  document.querySelectorAll('a[href]').forEach((a) => {
+    const text = `${a.textContent || ''} ${a.getAttribute('aria-label') || ''} ${a.getAttribute('title') || ''}`;
+    const folded = foldLabel(text);
+    if (NEXT_PAGE_LABELS.some((l) => folded.includes(foldLabel(l)))) consider(a.getAttribute('href'), text, true);
+    else if (NEXT_SHORT_LABELS.includes(folded)) consider(a.getAttribute('href'), '', false);
+  });
+  const best: URL | null = numbered ? (numbered as { url: URL }).url : labelled;
+  return best ? best.toString() : null;
+}
 
 const MAX_BYTES = 2_000_000;
 const MAX_REDIRECTS = 5;
@@ -58,6 +174,8 @@ export class SourceReaderService {
     const language = this.language(document);
     const leadImageUrl = this.leadImage(document, url);
     const siteName = this.meta(document, 'og:site_name');
+    const visited = new Set([url.replace(/#.*$/, ''), sourceUrl.replace(/#.*$/, '')]);
+    let next = findNextPage(document, url, visited);
     // Readability vide le document en l'analysant : tout ce qui vient de
     // `document` doit être lu avant.
     const article = new Readability(document).parse();
@@ -67,15 +185,45 @@ export class SourceReaderService {
         'Aucun article exploitable sur cette page : vérifier que l’URL pointe bien vers le contenu',
       );
     }
+    // Un article coupé en pages (« page suivante ») : on lit la suite, page
+    // après page, tant qu'il y en a une et qu'elle apporte du texte neuf.
+    const parts = [text];
+    const pageUrls = [url];
+    let total = text.length;
+    while (next && !visited.has(next) && pageUrls.length < MAX_PAGES && total < MAX_TOTAL_TEXT) {
+      visited.add(next);
+      const page = await this.readPage(next).catch(() => null);
+      if (!page) break;
+      visited.add(page.url.replace(/#.*$/, ''));
+      // Un site qui renvoie la page 1 pour un numéro inconnu : on s'arrête.
+      if (!page.text || parts.some((part) => part === page.text)) break;
+      parts.push(page.text);
+      pageUrls.push(page.url);
+      total += page.text.length;
+      next = page.next;
+    }
     return {
       url,
       title: this.cleanTitle(article.title || title || '', siteName),
-      text,
+      text: parts.join('\n\n').slice(0, MAX_TOTAL_TEXT),
+      pageUrls,
       excerpt: article.excerpt ? normalizeText(article.excerpt) : null,
       leadImageUrl,
       siteName: siteName || article.siteName || null,
       language,
     };
+  }
+
+  /** Une page suivante : son texte d'article, et le lien vers la suivante.
+   * Une page illisible arrête la lecture sans faire échouer l'article : les
+   * pages déjà lues restent bonnes. */
+  private async readPage(pageUrl: string) {
+    const { html, url } = await this.fetchHtml(pageUrl);
+    const { document } = new JSDOM(html, { url, virtualConsole: new VirtualConsole() }).window;
+    const next = findNextPage(document, url, new Set([url, pageUrl]));
+    const article = new Readability(document).parse();
+    const text = article ? this.textFromHtml(article.content ?? '') : '';
+    return { url, text, next };
   }
 
   /** Suit les redirections à la main : chaque étape repasse par le garde-fou.

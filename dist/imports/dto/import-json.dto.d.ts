@@ -7,7 +7,6 @@ declare class JsonPostDto {
     delay: number;
 }
 export declare class ImportJsonDto {
-    profileId: string;
     groupIds: string[];
     posts: JsonPostDto[];
 }

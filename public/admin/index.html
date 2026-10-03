@@ -3,13 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>PostFlow — Administration</title>
+    <title>PostFlow</title>
+    <meta name="robots" content="noindex, nofollow" />
     <link
       rel="icon"
       type="image/svg+xml"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%232563eb'/%3E%3Cpath d='M18 18h22a9 9 0 010 18H28v11H18V18zm10 9v2h11a1 1 0 000-2H28z' fill='white'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="/admin/styles.css" />
+    <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
     <div class="shell">
@@ -95,11 +96,41 @@
         </section>
         <section id="profiles" class="view">
           <div class="toolbar">
-            <p>Configurez les profils et la taille de leurs lots.</p>
+            <p>Configurez les profils et la taille de leurs lots. Cliquez sur un profil pour ses statistiques détaillées.</p>
             <button class="primary" data-open="profile-modal">
               + Nouveau profil
             </button>
           </div>
+          <div class="toolbar profile-filters">
+            <div class="toolbar-group">
+              <input id="pf-search" type="search" placeholder="Nom, identifiant NSTBrowser ou Facebook"
+              /><select id="pf-status">
+                <option value="">Actifs et inactifs</option>
+                <option value="ACTIVE">Actifs</option>
+                <option value="INACTIVE">Inactifs</option></select
+              ><select id="pf-health">
+                <option value="">Toutes les santés</option>
+                <option value="deactivate">⚠ À désactiver ?</option>
+                <option value="bad">Mauvais</option>
+                <option value="watch">À surveiller</option>
+                <option value="good">Bon</option>
+                <option value="new">Pas assez de données</option></select
+              ><select id="pf-activity">
+                <option value="">En marche ou arrêtés</option>
+                <option value="running">En marche (auto / forcé)</option>
+                <option value="off">Arrêtés</option></select
+              ><select id="pf-category">
+                <option value="">Toutes les catégories</option></select
+              ><select id="pf-sort">
+                <option value="recent">Plus récents</option>
+                <option value="score">Meilleur score</option>
+                <option value="failures">Plus d’échecs</option>
+                <option value="published">Plus de publications</option>
+                <option value="name">Nom</option></select>
+            </div>
+            <button class="link" id="pf-reset" type="button" hidden>Effacer les filtres</button>
+          </div>
+          <p class="runner-count" id="pf-count"></p>
           <div id="profile-cards" class="cards"></div>
           <div class="pagination" id="profiles-pagination"></div>
         </section>
@@ -233,6 +264,10 @@
                 ><select id="queue-group"><option value="">Tous les groupes</option></select
                 ><button class="secondary" id="queue-refresh" type="button">Rafraîchir</button>
               </div>
+              <form class="url-search" id="url-search">
+                <input name="url" type="url" placeholder="Coller un lien de post Facebook…" aria-label="Retrouver une publication par son lien Facebook" required
+                ><button class="secondary" type="submit">Retrouver</button>
+              </form>
               <p class="queue-rule">Ordre de passage : <b>priorité</b>, puis le plus ancien.</p>
             </div>
             <div class="queue-stats">
@@ -248,6 +283,18 @@
                 <colgroup><col /><col class="w-group" /><col class="w-profile" /><col class="w-state" /></colgroup>
                 <thead><tr><th>Post</th><th>Groupe</th><th>Profil</th><th>État</th></tr></thead>
                 <tbody id="queue-running"></tbody>
+              </table></div>
+            </div>
+
+            <div class="panel queue-panel" id="queue-review-panel" hidden>
+              <div class="panel-head">
+                <div><small>VÉRIFICATION · À TRAITER</small><h2>Ce que le vérificateur n’a pas pu régler</h2></div>
+                <span class="verify-summary" id="verify-summary"></span>
+              </div>
+              <div class="table-wrap"><table>
+                <colgroup><col /><col class="w-group" /><col class="w-reason" /><col class="w-actions" /></colgroup>
+                <thead><tr><th>Post</th><th>Groupe</th><th>Constat</th><th>Actions</th></tr></thead>
+                <tbody id="queue-review"></tbody>
               </table></div>
             </div>
 
@@ -278,8 +325,8 @@
                 <button class="link" id="queue-more-published" type="button">Voir 20 de plus</button>
               </div>
               <div class="table-wrap"><table>
-                <colgroup><col class="w-date" /><col /><col class="w-group" /><col class="w-profile" /><col class="w-link" /></colgroup>
-                <thead><tr><th>Publié le</th><th>Post</th><th>Groupe</th><th>Profil</th><th>Lien article</th></tr></thead>
+                <colgroup><col class="w-date" /><col /><col class="w-group" /><col class="w-profile" /><col class="w-link" /><col class="w-link" /></colgroup>
+                <thead><tr><th>Publié le</th><th>Post</th><th>Groupe</th><th>Profil</th><th>Lien article</th><th>Vérification</th></tr></thead>
                 <tbody id="queue-published"></tbody>
               </table></div>
             </div>
@@ -341,7 +388,12 @@
                 <option value="1">Dernière heure</option>
                 <option value="24" selected>Dernières 24 h</option>
                 <option value="168">7 derniers jours</option>
-                <option value="720">30 derniers jours</option></select
+                <option value="720">30 derniers jours</option>
+                <option value="custom">Dates précises…</option></select
+              ><span class="log-dates" id="log-dates" hidden
+                ><input type="datetime-local" id="log-since" aria-label="Depuis"
+                /><input type="datetime-local" id="log-until" aria-label="Jusqu’à"
+              /></span
               ><select id="log-level">
                 <option value="">Tous les niveaux</option>
                 <option value="ERROR">Erreur</option>
@@ -352,17 +404,32 @@
                 <option value="">Tous les événements</option></select
               ><select id="log-profile">
                 <option value="">Tous les profils</option></select
+              ><select id="log-category">
+                <option value="">Toutes les catégories</option></select
+              ><select id="log-group">
+                <option value="">Tous les groupes</option></select
               ><input
                 id="log-search"
                 type="search"
-                placeholder="Rechercher dans les messages"
+                placeholder="Rechercher (message, événement, lien)"
+              /><input
+                id="log-url"
+                type="search"
+                placeholder="Lien Facebook (ou n° du post)"
               /><label class="inline-check"
+                ><input type="checkbox" id="log-with-url" /> Avec lien Facebook</label
+              ><label class="inline-check"
                 ><input type="checkbox" id="log-incidents" /> Incidents
                 seulement</label
               >
             </div>
-            <button class="secondary" id="log-refresh">Actualiser</button>
+            <div class="toolbar-group">
+              <button class="link" id="log-reset" type="button" hidden>Effacer les filtres</button>
+              <button class="secondary" id="log-export" type="button">Exporter (CSV)</button>
+              <button class="secondary" id="log-refresh">Actualiser</button>
+            </div>
           </div>
+          <div class="log-chips" id="log-chips"></div>
           <div class="dashboard-grid">
             <article class="panel">
               <div class="panel-head">
@@ -386,6 +453,7 @@
                   <th>Domaine</th>
                   <th>Événement</th>
                   <th>Message</th>
+                  <th>Post Facebook</th>
                   <th>Contexte</th>
                 </tr>
               </thead>
@@ -500,6 +568,19 @@
             </table>
           </div>
           <p class="form-help" id="runners-note"></p>
+
+          <div class="panel queue-panel members-panel" id="members-panel" hidden>
+            <div class="panel-head">
+              <div><small>VÉRIFICATEUR · NOS PROFILS DANS LES GROUPES</small><h2>Adhésions et pré-approbations</h2></div>
+              <span class="verify-summary" id="members-summary"></span>
+            </div>
+            <p class="form-help">Le vérificateur accepte la demande d’adhésion de <b>nos</b> profils, puis les pré-approuve : leurs posts paraissent sans validation. Il ne touche qu’aux profils de la plateforme, reconnus par leur identifiant Facebook — jamais à une autre personne.</p>
+            <div class="table-wrap"><table>
+              <colgroup><col class="w-profile" /><col class="w-group" /><col /><col class="w-actions" /></colgroup>
+              <thead><tr><th>Profil</th><th>Groupe</th><th>Constat</th><th></th></tr></thead>
+              <tbody id="members-problems"></tbody>
+            </table></div>
+          </div>
         </section>
         <section id="settings" class="view">
           <div class="panel settings-panel">
@@ -531,6 +612,65 @@
         </section>
       </main>
     </div>
+    <dialog id="profile-detail" class="profile-detail">
+      <div class="modal-body">
+        <div class="modal-head">
+          <div>
+            <small id="pd-sub">PROFIL</small>
+            <h2 id="pd-title">Profil</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <div id="pd-health" class="pd-health"></div>
+        <div id="pd-stats" class="pd-stats"></div>
+        <div>
+          <h3 class="history-h">14 derniers jours</h3>
+          <div id="pd-chart" class="pd-chart"></div>
+        </div>
+        <div class="pd-two">
+          <div>
+            <h3 class="history-h">Par groupe (30 jours)</h3>
+            <div class="table-wrap"><table class="history-attempts">
+              <thead><tr><th>Groupe</th><th>Publiés</th><th>Échecs</th><th>Dernière erreur</th></tr></thead>
+              <tbody id="pd-groups"></tbody>
+            </table></div>
+          </div>
+          <div>
+            <h3 class="history-h">Erreurs les plus fréquentes (30 jours)</h3>
+            <ol id="pd-errors" class="pd-errors"></ol>
+            <h3 class="history-h">Derniers échecs</h3>
+            <ol id="pd-failures" class="history-events"></ol>
+          </div>
+        </div>
+        <div id="pd-transfer" class="pd-transfer"></div>
+        <div class="actions" id="pd-actions"></div>
+      </div>
+    </dialog>
+
+    <dialog id="history-modal" class="history-modal">
+      <div class="modal-body">
+        <div class="modal-head">
+          <div>
+            <small>TRAÇABILITÉ</small>
+            <h2 id="history-title">Historique</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <div id="history-summary" class="history-summary"></div>
+        <div>
+          <h3 class="history-h">Tentatives de publication</h3>
+          <div class="table-wrap"><table class="history-attempts">
+            <thead><tr><th>Quand</th><th>Profil</th><th>État</th><th>Post Facebook</th></tr></thead>
+            <tbody id="history-attempts"></tbody>
+          </table></div>
+        </div>
+        <div>
+          <h3 class="history-h">Historique</h3>
+          <ol id="history-events" class="history-events"></ol>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="pair-modal">
       <div class="modal-body">
         <div class="modal-head">
@@ -1013,15 +1153,6 @@
         <div class="actions"><button class="secondary" type="button" data-close>Annuler</button><button class="primary">Enregistrer</button></div>
       </form>
     </dialog>
-    <dialog id="login-modal" class="login-modal">
-      <form id="login-form">
-        <div class="modal-head"><div><small>POSTFLOW</small><h2>Connexion administrateur</h2></div></div>
-        <label>Identifiant<input name="username" autocomplete="username" required /></label>
-        <label>Mot de passe<input name="password" type="password" autocomplete="current-password" minlength="8" required /></label>
-        <p class="form-help">Une session sécurisée est nécessaire pour accéder aux données de gestion.</p>
-        <button class="primary">Se connecter</button>
-      </form>
-    </dialog>
-    <script src="/admin/app.js" defer></script>
+    <script src="/assets/app.js" defer></script>
   </body>
 </html>

@@ -168,6 +168,7 @@ describe('QueueService — actions sur une publication', () => {
       },
       profile: { findFirst: jest.fn(async () => extra.profile ?? null) },
       activityLog: { create: jest.fn((args: any) => args) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
       $transaction: jest.fn(async (ops: any[]) => ops),
     };
     return { service: new QueueService(prisma), prisma };
@@ -189,6 +190,34 @@ describe('QueueService — actions sur une publication', () => {
     expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('TARGET_MARKED_PUBLISHED');
     const live = actions({ status: 'AVAILABLE' });
     await expect(live.service.markPublished('t1', null)).rejects.toThrow('en échec');
+  });
+
+  it('enregistre l’adresse Facebook d’une publication, et la trace', async () => {
+    const { service, prisma } = actions({ status: 'PUBLISHED', facebookUrl: null });
+    const r = await service.setFacebookUrl('t1', 'https://www.facebook.com/groups/1/posts/5/?mibextid=abc', null);
+    expect(r.facebookUrl).toBe('https://www.facebook.com/groups/1/posts/5');
+    expect(prisma.publicationTrace.create.mock.calls[0][0].data).toMatchObject({ kind: 'URL_SET' });
+    await expect(service.setFacebookUrl('t1', 'https://exemple.com/x', null)).rejects.toThrow('adresse de post Facebook');
+    const waiting = actions({ status: 'AVAILABLE' });
+    await expect(waiting.service.setFacebookUrl('t1', 'https://www.facebook.com/groups/1/posts/5', null)).rejects.toThrow('publiée');
+  });
+
+  it('« déjà en ligne » garde l’adresse donnée', async () => {
+    const { service, prisma } = actions({ status: 'FAILED' });
+    await service.markPublished('t1', null, 'https://www.facebook.com/groups/1/posts/8');
+    expect(prisma.postTarget.update.mock.calls[0][0].data.facebookUrl).toBe('https://www.facebook.com/groups/1/posts/8');
+    expect(prisma.publicationTrace.create.mock.calls[0][0].data.kind).toBe('MARKED_PUBLISHED');
+  });
+
+  it('retrouve une publication par son adresse, même ancienne', async () => {
+    const { service, prisma } = actions({});
+    prisma.postTarget.findMany = jest.fn(async () => [
+      { id: 't1', status: 'AVAILABLE', facebookUrl: null, verifyStatus: 'REPUBLISHED', post: { id: 'p', title: 'Gratin' }, group: { id: 'g', name: 'Recettes FR' } },
+    ]);
+    const found = await service.findByUrl('https://facebook.com/groups/1/posts/5', null);
+    const where = prisma.postTarget.findMany.mock.calls[0][0].where;
+    expect(where.OR[1]).toEqual({ traces: { some: { facebookUrl: 'https://www.facebook.com/groups/1/posts/5' } } });
+    expect(found[0]).toMatchObject({ targetId: 't1', current: false });
   });
 
   it('ne relance que ce qui a échoué', async () => {

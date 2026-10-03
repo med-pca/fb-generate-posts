@@ -4,6 +4,7 @@ export declare class CreateLogDto {
     groupId?: string;
     postId?: string;
     jobId?: string;
+    facebookUrl?: string;
     eventType: string;
     level: LogLevel;
     message: string;

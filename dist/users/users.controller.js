@@ -102,23 +102,45 @@ exports.UsersController = UsersController = __decorate([
     __metadata("design:paramtypes", [users_service_1.UsersService])
 ], UsersController);
 let MeController = class MeController {
+    users;
+    constructor(users) {
+        this.users = users;
+    }
     me(acting) {
-        return acting;
+        return this.users.me(acting);
+    }
+    setNstKey(acting, dto) {
+        return this.users.setOwnNstKey(acting, dto.nstApiKey);
     }
 };
 exports.MeController = MeController;
 __decorate([
     (0, common_1.Get)(),
-    openapi.ApiResponse({ status: 200, type: Object }),
+    openapi.ApiResponse({ status: 200 }),
     __param(0, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], MeController.prototype, "me", null);
+__decorate([
+    (0, common_1.Put)('nstbrowser-key'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Régler sa propre clé NSTBrowser',
+        description: 'L’agent local la reçoit avec son plan pour chaque profil du compte : ' +
+            'plus rien à changer dans le `.env` de la machine. Chaîne vide = la retirer.',
+    }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, current_user_1.ActingUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, user_dto_1.UpdateNstKeyDto]),
+    __metadata("design:returntype", void 0)
+], MeController.prototype, "setNstKey", null);
 exports.MeController = MeController = __decorate([
     (0, swagger_1.ApiTags)('auth'),
     (0, swagger_1.ApiBearerAuth)(),
     (0, common_1.UseGuards)(admin_auth_guard_1.AdminAuthGuard),
-    (0, common_1.Controller)('me')
+    (0, common_1.Controller)('me'),
+    __metadata("design:paramtypes", [users_service_1.UsersService])
 ], MeController);
 //# sourceMappingURL=users.controller.js.map

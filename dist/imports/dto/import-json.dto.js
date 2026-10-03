@@ -54,18 +54,13 @@ __decorate([
     __metadata("design:type", Number)
 ], JsonPostDto.prototype, "delay", void 0);
 class ImportJsonDto {
-    profileId;
     groupIds;
     posts;
     static _OPENAPI_METADATA_FACTORY() {
-        return { profileId: { required: true, type: () => String }, groupIds: { required: true, type: () => [String], minItems: 1 }, posts: { required: true, type: () => [JsonPostDto], minItems: 1 } };
+        return { groupIds: { required: true, type: () => [String], minItems: 1 }, posts: { required: true, type: () => [JsonPostDto], minItems: 1 } };
     }
 }
 exports.ImportJsonDto = ImportJsonDto;
-__decorate([
-    (0, class_validator_1.IsString)(),
-    __metadata("design:type", String)
-], ImportJsonDto.prototype, "profileId", void 0);
 __decorate([
     (0, class_validator_1.IsArray)(),
     (0, class_validator_1.ArrayMinSize)(1),

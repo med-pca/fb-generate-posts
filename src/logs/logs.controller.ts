@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiHeader,
@@ -51,6 +51,14 @@ export class LogsAdminController {
   })
   search(@Query() query: QueryLogsDto, @ActingUser() acting: CurrentUser) {
     return this.logs.search(query, acting);
+  }
+
+  @Get('export')
+  @Header('content-type', 'text/csv; charset=utf-8')
+  @Header('content-disposition', 'attachment; filename="journal.csv"')
+  @ApiOperation({ summary: 'Les journaux filtrés, en CSV (5 000 lignes au plus)' })
+  exportCsv(@Query() query: QueryLogsDto, @ActingUser() acting: CurrentUser) {
+    return this.logs.exportCsv(query, acting);
   }
 
   @Get('summary')

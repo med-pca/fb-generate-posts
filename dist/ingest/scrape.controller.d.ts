@@ -30,8 +30,8 @@ export declare class ScrapeController {
     }>;
     failed(id: string, dto: FailScrapeDto, acting: CurrentUser | null): Promise<{
         id: string;
-        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.IngestStatus;
         updatedAt: Date;
         groupIds: string[];
         ownerId: string | null;
@@ -39,15 +39,15 @@ export declare class ScrapeController {
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
         lastError: string | null;
-        siteUrl: string;
         facebookUrl: string;
+        siteUrl: string;
+        generated: import("@prisma/client/runtime/library").JsonValue | null;
         sourceUrl: string;
         language: string;
         fbCaption: string | null;
         fbImageUrl: string | null;
         sourceTitle: string | null;
         sourceText: string | null;
-        generated: import("@prisma/client/runtime/library").JsonValue | null;
         wpPostId: string | null;
         wpPermalink: string | null;
         profileIds: string[];

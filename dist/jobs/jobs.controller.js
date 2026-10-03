@@ -58,6 +58,9 @@ let JobsController = class JobsController {
     commented(jobId, postId, dto, acting) {
         return this.jobs.markCommented(jobId, postId, dto, acting);
     }
+    release(jobId, acting) {
+        return this.jobs.release(jobId, acting, 'repris par l’extension');
+    }
     complete(jobId, acting) {
         return this.jobs.complete(jobId, acting);
     }
@@ -188,6 +191,22 @@ __decorate([
     __metadata("design:paramtypes", [String, String, comment_job_item_dto_1.CommentJobItemDto, Object]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "commented", null);
+__decorate([
+    (0, common_1.Post)(':jobId/release'),
+    (0, common_1.HttpCode)(200),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Libérer un lot que plus personne ne traite',
+        description: 'Ses posts pas encore commencés retournent dans la file ; le profil ' +
+            'peut réserver à nouveau. Utilisé par l’extension quand elle retrouve ' +
+            'un lot qu’elle a oublié (réinstallée en plein lot).',
+    }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('jobId')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "release", null);
 __decorate([
     (0, common_1.Post)(':jobId/complete'),
     (0, swagger_1.ApiOperation)({

@@ -8,6 +8,7 @@ import { RecordStatus, Role, User } from '@prisma/client';
 import { hashPassword, newAutomationKey } from '../auth/password';
 import { CurrentUser } from '../auth/current-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { SessionService } from '../auth/session.service';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
 
 /** Ce qu'on montre d'un compte : ni mot de passe, ni clé. La clé ne se lit
@@ -33,7 +34,10 @@ const nstKey = (raw: string) => raw.trim() || null;
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sessions: SessionService,
+  ) {}
 
   async findAll() {
     const users = await this.prisma.user.findMany({
@@ -101,6 +105,11 @@ export class UsersService {
           : {}),
       },
     });
+    // Un mot de passe changé, un compte coupé ou rétrogradé : ses sessions
+    // ouvertes tombent, il devra se reconnecter.
+    if (dto.password || dto.status === RecordStatus.INACTIVE || (dto.role && dto.role !== user.role)) {
+      await this.sessions.revokeAll(updated.id);
+    }
     return publicUser(updated);
   }
 

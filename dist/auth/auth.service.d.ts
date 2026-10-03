@@ -5,23 +5,17 @@ export declare class AuthService {
     private readonly config;
     private readonly prisma;
     constructor(config: ConfigService, prisma: PrismaService);
-    login(dto: LoginDto): Promise<{
-        accessToken: string;
-        expiresAt: number;
-        user: {
-            id: string;
-            username: string;
-            role: import("@prisma/client").$Enums.Role;
-        };
+    check(dto: LoginDto): Promise<{
+        id: string;
+        createdAt: Date;
+        username: string;
+        passwordHash: string;
+        role: import("@prisma/client").$Enums.Role;
+        status: import("@prisma/client").$Enums.RecordStatus;
+        automationKey: string;
+        nstApiKey: string | null;
+        updatedAt: Date;
     }>;
     private authenticate;
-    read(token: string): {
-        id: string;
-        username: string;
-        role: import("@prisma/client").$Enums.Role | undefined;
-    } | null;
-    verify(token: string): boolean;
-    private sign;
     private equal;
-    private required;
 }

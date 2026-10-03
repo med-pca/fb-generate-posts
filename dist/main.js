@@ -4,21 +4,18 @@ const common_1 = require("@nestjs/common");
 const core_1 = require("@nestjs/core");
 const platform_fastify_1 = require("@nestjs/platform-fastify");
 const swagger_1 = require("@nestjs/swagger");
-const node_path_1 = require("node:path");
 const app_module_1 = require("./app.module");
+const web_1 = require("./web/web");
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule, new platform_fastify_1.FastifyAdapter());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(new common_1.ValidationPipe({ whitelist: true, transform: true }));
-    app.useStaticAssets({
-        root: (0, node_path_1.join)(process.cwd(), 'public'),
-        prefix: '/',
-    });
+    (0, web_1.registerWeb)(app);
     const swaggerConfig = new swagger_1.DocumentBuilder()
         .setTitle('Data FB Posting API')
         .setDescription('API de gestion des profils, groupes, contenus et lots de publication.')
         .setVersion('1.0')
-        .addBearerAuth()
+        .addCookieAuth('pf_session')
         .addTag('profiles', 'Gestion des profils')
         .addTag('groups', 'Groupes liés aux profils')
         .addTag('posts', 'Contenus à publier')

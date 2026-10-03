@@ -12,6 +12,7 @@ const admin_auth_guard_1 = require("./admin-auth.guard");
 const auth_controller_1 = require("./auth.controller");
 const auth_service_1 = require("./auth.service");
 const automation_auth_guard_1 = require("./automation-auth.guard");
+const session_service_1 = require("./session.service");
 let AuthModule = class AuthModule {
 };
 exports.AuthModule = AuthModule;
@@ -19,8 +20,8 @@ exports.AuthModule = AuthModule = __decorate([
     (0, common_1.Global)(),
     (0, common_1.Module)({
         controllers: [auth_controller_1.AuthController],
-        providers: [auth_service_1.AuthService, admin_auth_guard_1.AdminAuthGuard, automation_auth_guard_1.AutomationAuthGuard],
-        exports: [auth_service_1.AuthService, admin_auth_guard_1.AdminAuthGuard, automation_auth_guard_1.AutomationAuthGuard],
+        providers: [auth_service_1.AuthService, session_service_1.SessionService, admin_auth_guard_1.AdminAuthGuard, automation_auth_guard_1.AutomationAuthGuard],
+        exports: [auth_service_1.AuthService, session_service_1.SessionService, admin_auth_guard_1.AdminAuthGuard, automation_auth_guard_1.AutomationAuthGuard],
     })
 ], AuthModule);
 //# sourceMappingURL=auth.module.js.map

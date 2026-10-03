@@ -10,6 +10,7 @@ import type { CurrentUser } from '../auth/current-user';
 import { postWhere, profileWhere, scopeOf } from '../auth/scope';
 import { claimablePostWhere } from '../jobs/jobs.service';
 import { PriorityDto, QueueQueryDto } from './dto/queue.dto';
+import { TRACE_KINDS, normalizeFacebookUrl, trace } from '../trace/trace';
 
 const POST_FIELDS = {
   id: true,
@@ -187,6 +188,11 @@ export class QueueService {
             publishedAt: true,
             commentedAt: true,
             linkUpdatedAt: true,
+            verifyStatus: true,
+            verifiedAt: true,
+            verifyDetail: true,
+            republishCount: true,
+            facebookUrl: true,
             post: { select: { ...POST_FIELDS, url: true } },
             group: { select: GROUP_FIELDS },
             jobItems: {
@@ -263,7 +269,14 @@ export class QueueService {
           post: row.post,
           group: row.group,
           profile: item?.job.profile ?? null,
-          facebookUrl: item?.externalPostUrl ?? null,
+          facebookUrl: row.facebookUrl ?? item?.externalPostUrl ?? null,
+          // Le contrôle du vérificateur : null tant qu'il n'est pas passé.
+          verify: {
+            status: row.verifyStatus,
+            at: row.verifiedAt,
+            detail: row.verifyDetail,
+            republishCount: row.republishCount,
+          },
           // Le lien de l'article, posé en commentaire après la publication.
           link: row.linkUpdatedAt
             ? 'placed'
@@ -287,6 +300,7 @@ export class QueueService {
         claimExpiresAt: true,
         groupId: true,
         postId: true,
+        facebookUrl: true,
         post: { select: { title: true } },
         group: { select: { name: true } },
       },
@@ -336,6 +350,7 @@ export class QueueService {
           metadata: { by: by(acting) },
         },
       }),
+      trace(this.prisma, { postTargetId: target.id, kind: 'RETRIED', actor: by(acting) }),
     ]);
     return { targetId: target.id, status: TargetStatus.AVAILABLE };
   }
@@ -343,22 +358,31 @@ export class QueueService {
   /** Un échec qui n'en est pas un : le post est bien en ligne sur Facebook
    * (l'extension ne l'a simplement pas retrouvé dans le fil). L'enregistrer
    * comme publié évite qu'une relance le publie une seconde fois. */
-  async markPublished(targetId: string, acting: CurrentUser | null) {
+  async markPublished(targetId: string, acting: CurrentUser | null, rawUrl?: string) {
     const target = await this.target(targetId, acting);
     if (target.status !== TargetStatus.FAILED) {
       throw new ConflictException('Seule une publication en échec se marque « déjà en ligne »');
     }
+    const facebookUrl = rawUrl ? this.facebookUrl(rawUrl) : null;
     const now = new Date();
     await this.prisma.$transaction([
       this.prisma.postTarget.update({
         where: { id: target.id },
-        data: { status: TargetStatus.PUBLISHED, publishedAt: now, lastError: null },
+        data: { status: TargetStatus.PUBLISHED, publishedAt: now, lastError: null, facebookUrl },
+      }),
+      trace(this.prisma, {
+        postTargetId: target.id,
+        kind: 'MARKED_PUBLISHED',
+        facebookUrl,
+        actor: by(acting),
+        detail: facebookUrl ? null : 'sans adresse : le vérificateur la cherchera dans le groupe',
       }),
       this.prisma.activityLog.create({
         data: {
           postId: target.postId,
           groupId: target.groupId,
           postTargetId: target.id,
+          facebookUrl,
           eventType: 'TARGET_MARKED_PUBLISHED',
           message: `« ${target.post.title} » marqué déjà en ligne dans « ${target.group.name} » (sans republier)`,
           metadata: { by: acting?.username ?? 'clé globale' },
@@ -366,6 +390,130 @@ export class QueueService {
       }),
     ]);
     return { targetId: target.id, status: TargetStatus.PUBLISHED };
+  }
+
+  /** Une adresse de post Facebook, ou un refus clair. */
+  private facebookUrl(raw: string) {
+    const url = normalizeFacebookUrl(raw);
+    if (!url) throw new BadRequestException('Ce n’est pas une adresse de post Facebook');
+    return url;
+  }
+
+  /** Coller l'adresse d'un post publié : celle que l'extension n'a pas
+   * retrouvée, ou une correction. L'ancienne reste dans l'historique. */
+  async setFacebookUrl(targetId: string, rawUrl: string, acting: CurrentUser | null) {
+    const target = await this.target(targetId, acting);
+    if (target.status !== TargetStatus.PUBLISHED) {
+      throw new ConflictException('Seule une publication publiée a une adresse Facebook');
+    }
+    const facebookUrl = this.facebookUrl(rawUrl);
+    await this.prisma.$transaction([
+      this.prisma.postTarget.update({ where: { id: target.id }, data: { facebookUrl } }),
+      this.prisma.activityLog.create({
+        data: {
+          postId: target.postId,
+          groupId: target.groupId,
+          postTargetId: target.id,
+          facebookUrl,
+          eventType: 'TARGET_URL_SET',
+          message: `Adresse Facebook de « ${target.post.title} » dans « ${target.group.name} » enregistrée à la main : ${facebookUrl}`,
+          metadata: { by: by(acting), previous: target.facebookUrl ?? null },
+        },
+      }),
+      trace(this.prisma, {
+        postTargetId: target.id,
+        kind: 'URL_SET',
+        facebookUrl,
+        actor: by(acting),
+        detail: target.facebookUrl && target.facebookUrl !== facebookUrl ? `remplace ${target.facebookUrl}` : null,
+      }),
+    ]);
+    return { targetId: target.id, facebookUrl };
+  }
+
+  /** Tout ce qui est arrivé à une publication : ses tentatives (quel
+   * profil, quelle adresse) et son historique, du plus ancien au plus récent. */
+  async history(targetId: string, acting: CurrentUser | null) {
+    const target = await this.prisma.postTarget.findFirst({
+      where: { id: targetId, post: postWhere(scopeOf(acting)) },
+      select: {
+        id: true,
+        status: true,
+        facebookUrl: true,
+        publishedAt: true,
+        verifyStatus: true,
+        verifyDetail: true,
+        verifiedAt: true,
+        republishCount: true,
+        attemptsCount: true,
+        post: { select: { id: true, title: true, imageUrl: true, url: true } },
+        group: { select: { id: true, name: true, url: true } },
+        traces: { orderBy: { createdAt: 'asc' } },
+        jobItems: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            status: true,
+            externalPostUrl: true,
+            publishedAt: true,
+            commentExternalId: true,
+            linkUpdatedAt: true,
+            error: true,
+            createdAt: true,
+            job: { select: { id: true, profile: { select: { id: true, name: true } } } },
+          },
+        },
+      },
+    });
+    if (!target) throw new NotFoundException('Publication introuvable');
+    const { traces, jobItems, ...rest } = target;
+    return {
+      ...rest,
+      attempts: jobItems.map((i) => ({
+        at: i.createdAt,
+        status: i.status,
+        profile: i.job.profile,
+        jobId: i.job.id,
+        facebookUrl: i.externalPostUrl,
+        publishedAt: i.publishedAt,
+        commentId: i.commentExternalId,
+        linkPlacedAt: i.linkUpdatedAt,
+        error: i.error,
+      })),
+      events: traces.map((t) => ({
+        at: t.createdAt,
+        kind: t.kind,
+        label: TRACE_KINDS[t.kind as keyof typeof TRACE_KINDS] ?? t.kind,
+        facebookUrl: t.facebookUrl,
+        actor: t.actor,
+        detail: t.detail,
+      })),
+    };
+  }
+
+  /** Retrouver la publication derrière une adresse Facebook : l'actuelle,
+   * une ancienne (post supprimé puis republié), ou celle d'une tentative. */
+  async findByUrl(rawUrl: string, acting: CurrentUser | null) {
+    const url = this.facebookUrl(rawUrl);
+    const rows = await this.prisma.postTarget.findMany({
+      where: {
+        post: postWhere(scopeOf(acting)),
+        OR: [
+          { facebookUrl: url },
+          { traces: { some: { facebookUrl: url } } },
+          { jobItems: { some: { externalPostUrl: url } } },
+        ],
+      },
+      take: 10,
+      select: {
+        id: true,
+        status: true,
+        facebookUrl: true,
+        verifyStatus: true,
+        post: { select: { id: true, title: true } },
+        group: { select: { id: true, name: true } },
+      },
+    });
+    return rows.map((r) => ({ ...r, targetId: r.id, current: r.facebookUrl === url }));
   }
 
   /** Retirer un post d'UN groupe. S'il ne vise plus aucun groupe, il

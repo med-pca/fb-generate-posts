@@ -45,6 +45,7 @@ function makeHarness(item: MutableItem | null, jobItems: any[] = []) {
     postTarget: { update: jest.fn(async () => ({})) },
     publicationJob: { update: jest.fn(async ({ data }: any) => data) },
     activityLog: { create: jest.fn(async () => ({})) },
+    publicationTrace: { create: jest.fn(async (args: any) => args) },
   };
   const prisma: any = {
     publicationJobItem: { findUnique: jest.fn(async () => item) },
@@ -60,6 +61,7 @@ function makeHarness(item: MutableItem | null, jobItems: any[] = []) {
       update: jest.fn(async ({ data }: any) => data),
     },
     activityLog: { create: jest.fn(async () => ({})) },
+    publicationTrace: { create: jest.fn(async (args: any) => args) },
     // L'article d'un post publié est archivé (0 : déjà archivé, ou aucun).
     article: { updateMany: jest.fn(async () => ({ count: 0 })) },
     $transaction: jest.fn(async (cb: any) => cb(tx)),
@@ -116,10 +118,20 @@ describe('JobsService — cycle de vie d’un post', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           status: TargetStatus.PUBLISHED,
-          externalPostUrl: 'https://www.facebook.com/groups/1/posts/2/',
+          externalPostUrl: 'https://www.facebook.com/groups/1/posts/2',
         }),
       }),
     );
+    // Traçabilité : l'adresse est gardée sur la publication, et l'historique
+    // dit qui l'a publiée.
+    expect(tx.postTarget.update.mock.calls.at(-1)[0].data.facebookUrl).toBe(
+      'https://www.facebook.com/groups/1/posts/2',
+    );
+    expect(tx.publicationTrace.create.mock.calls.at(-1)[0].data).toMatchObject({
+      kind: 'PUBLISHED',
+      facebookUrl: 'https://www.facebook.com/groups/1/posts/2',
+      jobId: 'job_1',
+    });
   });
 
   it('accepte published directement depuis CLAIMED', async () => {
@@ -238,6 +250,7 @@ describe('JobsService — groupes rejoints uniquement', () => {
         findMany: jest.fn(async () => []),
       },
       activityLog: { create: jest.fn(async () => ({})) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
     };
     prisma.publicationJob.updateMany = jest.fn(async () => ({ count: 0 }));
     const service = new JobsService(prisma, {} as any);
@@ -380,6 +393,7 @@ describe('JobsService — un lot ne bloque plus un profil pour rien', () => {
       postTarget: { updateMany: record('postTarget.updateMany') },
       publicationJobItem: { updateMany: record('publicationJobItem.updateMany') },
       activityLog: { create: record('activityLog.create') },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
       $transaction: jest.fn(async (list: any[]) => list),
     };
     return { service: new JobsService(prisma, {} as any), ops };
@@ -431,6 +445,7 @@ describe('JobsService — un lot terminé ne bloque pas le profil', () => {
       profileGroup: { findMany: jest.fn(async () => []) },
       group: { findMany: jest.fn(async () => []) },
       activityLog: { create: jest.fn(async ({ data }: any) => logs.push(data)) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
     };
     const service = new JobsService(prisma, {} as any);
     const complete = jest.spyOn(service, 'complete').mockResolvedValue({} as any);

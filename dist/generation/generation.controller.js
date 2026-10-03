@@ -17,6 +17,7 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
+const current_user_1 = require("../auth/current-user");
 const generate_posts_dto_1 = require("./dto/generate-posts.dto");
 const generation_service_1 = require("./generation.service");
 let GenerationController = class GenerationController {
@@ -24,8 +25,8 @@ let GenerationController = class GenerationController {
     constructor(generation) {
         this.generation = generation;
     }
-    generate(dto) {
-        return this.generation.generate(dto);
+    generate(dto, acting) {
+        return this.generation.generate(dto, acting);
     }
 };
 exports.GenerationController = GenerationController;
@@ -33,8 +34,9 @@ __decorate([
     (0, common_1.Post)('generate'),
     openapi.ApiResponse({ status: 201, type: [Object] }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [generate_posts_dto_1.GeneratePostsDto]),
+    __metadata("design:paramtypes", [generate_posts_dto_1.GeneratePostsDto, Object]),
     __metadata("design:returntype", void 0)
 ], GenerationController.prototype, "generate", null);
 exports.GenerationController = GenerationController = __decorate([

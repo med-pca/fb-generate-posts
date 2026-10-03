@@ -1,5 +1,4 @@
 export declare class GeneratePostsDto {
-    profileId: string;
     groupIds: string[];
     topic: string;
     language: string;

@@ -18,12 +18,13 @@ class CreateLogDto {
     groupId;
     postId;
     jobId;
+    facebookUrl;
     eventType;
     level = client_1.LogLevel.INFO;
     message;
     metadata;
     static _OPENAPI_METADATA_FACTORY() {
-        return { profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, postId: { required: false, type: () => String }, jobId: { required: false, type: () => String }, eventType: { required: true, type: () => String }, level: { required: true, default: client_1.LogLevel.INFO, enum: ["DEBUG", "INFO", "WARN", "ERROR"] }, message: { required: true, type: () => String }, metadata: { required: false, type: "object", additionalProperties: true } };
+        return { profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, postId: { required: false, type: () => String }, jobId: { required: false, type: () => String }, facebookUrl: { required: false, type: () => String, maxLength: 2000 }, eventType: { required: true, type: () => String }, level: { required: true, default: client_1.LogLevel.INFO, enum: ["INFO", "WARN", "ERROR", "DEBUG"] }, message: { required: true, type: () => String }, metadata: { required: false, type: "object", additionalProperties: true } };
     }
 }
 exports.CreateLogDto = CreateLogDto;
@@ -47,6 +48,12 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CreateLogDto.prototype, "jobId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(2000),
+    __metadata("design:type", String)
+], CreateLogDto.prototype, "facebookUrl", void 0);
 __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)

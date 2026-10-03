@@ -1,0 +1,36 @@
+:root { color-scheme: light dark; --edge: #d6d9de; --muted: #65676b; --accent: #1b74e4;
+  --ok: #1a7f37; --warn: #9a5b00; --err: #d93025; --soft: rgba(127,127,127,.10); }
+@media (prefers-color-scheme: dark) { :root { --edge: #3a3b3c; --muted: #b0b3b8; --ok: #4ac26b; --warn: #e3b341; --err: #ff6b5f; } }
+body { width: 380px; margin: 0; padding: 14px; font: 13px/1.45 system-ui, sans-serif; }
+h1 { margin: 0 0 6px; font-size: 15px; }
+h2 { margin: 14px 0 6px; font-size: 13px; }
+.hint { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+.state { padding: 8px 10px; border-radius: 6px; background: var(--soft); font-weight: 600; }
+.state.error, .state.config { color: var(--err); }
+.state.busy { color: var(--accent); }
+.row { display: flex; gap: 8px; margin-top: 10px; }
+button { flex: 1; padding: 9px; font: inherit; font-weight: 600; border-radius: 6px; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+.primary { color: #fff; background: var(--accent); border: 0; }
+.primary.on { background: var(--err); }
+.secondary { color: inherit; background: transparent; border: 1px solid var(--edge); }
+details { margin-top: 12px; padding: 8px 10px; border: 1px solid var(--edge); border-radius: 6px; }
+summary { cursor: pointer; font-weight: 600; }
+label { display: block; margin: 10px 0 0; font-weight: 600; }
+label small { font-weight: 400; color: var(--muted); }
+input { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 7px; font: inherit;
+  border: 1px solid var(--edge); border-radius: 6px; background: transparent; color: inherit; }
+details button { width: 100%; margin-top: 10px; }
+#logs { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto;
+  border: 1px solid var(--edge); border-radius: 6px; }
+#logs li { padding: 6px 9px; border-bottom: 1px solid var(--edge); font-size: 12px; }
+#logs li:last-child { border-bottom: 0; }
+#logs li small { display: block; color: var(--muted); }
+#logs li.ok b { color: var(--ok); }
+#logs li.warn b { color: var(--warn); }
+#logs li.error b { color: var(--err); }
+#logs a { color: var(--accent); }
+#logs .empty { color: var(--muted); }
+.check { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 0; font-weight: 400; font-size: 12px; }
+.check input { width: auto; margin: 2px 0 0; }
+.check small { display: block; color: var(--muted); }

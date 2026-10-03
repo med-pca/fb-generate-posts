@@ -41,7 +41,14 @@ const groupManageWhere = (scope) => ownedWhere(scope);
 exports.groupManageWhere = groupManageWhere;
 const siteManageWhere = (scope) => ownedWhere(scope);
 exports.siteManageWhere = siteManageWhere;
-const postWhere = (scope) => scope ? { profile: { ownerId: scope.ownerId } } : {};
+const postWhere = (scope) => scope
+    ? {
+        OR: [
+            { ownerId: scope.ownerId },
+            { profile: { ownerId: scope.ownerId } },
+        ],
+    }
+    : {};
 exports.postWhere = postWhere;
 const articleWhere = (scope) => scope ? { source: { ownerId: scope.ownerId } } : {};
 exports.articleWhere = articleWhere;

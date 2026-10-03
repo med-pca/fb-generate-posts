@@ -21,6 +21,7 @@ const current_user_1 = require("../auth/current-user");
 const create_group_dto_1 = require("./dto/create-group.dto");
 const groups_service_1 = require("./groups.service");
 const update_group_dto_1 = require("./dto/update-group.dto");
+const update_join_status_dto_1 = require("./dto/update-join-status.dto");
 const pagination_dto_1 = require("../common/dto/pagination.dto");
 let GroupsController = class GroupsController {
     groups;
@@ -111,6 +112,12 @@ let GroupsCatalogController = class GroupsCatalogController {
     remove(id, acting) {
         return this.groups.remove(id, acting);
     }
+    setJoinStatus(id, profileId, dto, acting) {
+        return this.groups.setJoinStatus(id, profileId, dto.joinStatus, acting);
+    }
+    removePosts(id, dryRun, acting) {
+        return this.groups.removePosts(id, acting, dryRun === 'true');
+    }
     update(id, dto, acting) {
         return this.groups.update(id, dto, acting);
     }
@@ -134,6 +141,41 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsCatalogController.prototype, "remove", null);
+__decorate([
+    (0, common_1.Patch)(':id/profiles/:profileId/join-status'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Corriger à la main l’adhésion d’un profil à un groupe',
+        description: 'Quand un profil a rejoint le groupe sans que l’extension le remonte ' +
+            '(demande acceptée plus tard, adhésion faite à la main). Seul un profil ' +
+            '« Rejoint » peut publier dans le groupe.',
+    }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Param)('profileId')),
+    __param(2, (0, common_1.Body)()),
+    __param(3, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, update_join_status_dto_1.SetJoinStatusDto, Object]),
+    __metadata("design:returntype", void 0)
+], GroupsCatalogController.prototype, "setJoinStatus", null);
+__decorate([
+    openapi.ApiQuery({ name: "dryRun", required: false }),
+    (0, common_1.Delete)(':id/posts'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Retirer de ce groupe les posts qui y attendent',
+        description: 'Seule la cible de ce groupe part : un post qui vise aussi d’autres ' +
+            'groupes y reste, un post qui ne visait que celui-ci est supprimé. Les ' +
+            'publications faites ou en cours sont conservées. `dryRun=true` compte ' +
+            'sans rien toucher.',
+    }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Query)('dryRun')),
+    __param(2, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", void 0)
+], GroupsCatalogController.prototype, "removePosts", null);
 __decorate([
     (0, common_1.Patch)(':id'),
     openapi.ApiResponse({ status: 200 }),

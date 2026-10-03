@@ -4,6 +4,7 @@ import { CreateLogDto } from './dto/create-log.dto';
 import { QueryLogsDto } from './dto/query-logs.dto';
 import { LogsSummaryDto } from './dto/logs-summary.dto';
 import type { CurrentUser } from '../auth/current-user';
+import type { LogDomain } from './domains';
 export declare class LogsService {
     private readonly prisma;
     constructor(prisma: PrismaService);
@@ -11,11 +12,12 @@ export declare class LogsService {
         id: string;
         createdAt: Date;
         profileId: string | null;
+        facebookUrl: string | null;
         groupId: string | null;
         postId: string | null;
+        message: string;
         eventType: string;
         level: import("@prisma/client").$Enums.LogLevel;
-        message: string;
         metadata: Prisma.JsonValue | null;
         postTargetId: string | null;
         jobId: string | null;
@@ -24,42 +26,50 @@ export declare class LogsService {
         id: string;
         createdAt: Date;
         profileId: string | null;
+        facebookUrl: string | null;
         groupId: string | null;
         postId: string | null;
+        message: string;
         eventType: string;
         level: import("@prisma/client").$Enums.LogLevel;
-        message: string;
         metadata: Prisma.JsonValue | null;
         postTargetId: string | null;
         jobId: string | null;
     }[]>;
     search({ page, limit, ...filters }: QueryLogsDto, acting: CurrentUser | null): Promise<{
-        data: ({
+        data: {
+            domain: LogDomain;
             profile: {
-                name: string;
                 id: string;
+                name: string;
             } | null;
             group: {
-                name: string;
+                category: {
+                    id: string;
+                    name: string;
+                } | null;
                 id: string;
+                name: string;
+                url: string;
             } | null;
             post: {
                 id: string;
                 title: string;
+                url: string | null;
             } | null;
-        } & {
             id: string;
             createdAt: Date;
             profileId: string | null;
+            facebookUrl: string | null;
             groupId: string | null;
             postId: string | null;
+            message: string;
             eventType: string;
             level: import("@prisma/client").$Enums.LogLevel;
-            message: string;
             metadata: Prisma.JsonValue | null;
             postTargetId: string | null;
             jobId: string | null;
-        })[];
+        }[];
         meta: {
             page: number;
             limit: number;
@@ -67,7 +77,8 @@ export declare class LogsService {
             pages: number;
         };
     }>;
-    summary({ hours, profileId }: LogsSummaryDto, acting: CurrentUser | null): Promise<{
+    exportCsv({ page, limit, ...filters }: QueryLogsDto, acting: CurrentUser | null): Promise<string>;
+    summary({ hours, profileId, domain }: LogsSummaryDto, acting: CurrentUser | null): Promise<{
         pendingLinkUpdates: {
             total: number;
             oldestJobId: string | null;
@@ -79,9 +90,18 @@ export declare class LogsService {
         levels: Record<import("@prisma/client").$Enums.LogLevel, number>;
         claimLost: number;
         eventTypes: {
+            domain: LogDomain;
             eventType: string;
             total: number;
             errors: number;
+        }[];
+        domain: LogDomain | null;
+        domains: {
+            domain: LogDomain;
+            label: string;
+            total: number;
+            errors: number;
+            warns: number;
         }[];
         profiles: {
             profileId: string | null;
@@ -92,32 +112,40 @@ export declare class LogsService {
         }[];
         incidents: ({
             profile: {
-                name: string;
                 id: string;
+                name: string;
             } | null;
             group: {
-                name: string;
+                category: {
+                    id: string;
+                    name: string;
+                } | null;
                 id: string;
+                name: string;
+                url: string;
             } | null;
             post: {
                 id: string;
                 title: string;
+                url: string | null;
             } | null;
         } & {
             id: string;
             createdAt: Date;
             profileId: string | null;
+            facebookUrl: string | null;
             groupId: string | null;
             postId: string | null;
+            message: string;
             eventType: string;
             level: import("@prisma/client").$Enums.LogLevel;
-            message: string;
             metadata: Prisma.JsonValue | null;
             postTargetId: string | null;
             jobId: string | null;
         })[];
         incidentsTruncated: boolean;
     }>;
+    private foldDomains;
     private foldEventTypes;
     private foldProfiles;
     private pendingLinkStock;

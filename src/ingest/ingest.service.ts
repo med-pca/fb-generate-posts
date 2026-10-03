@@ -366,6 +366,15 @@ export class IngestService {
     // la page est enregistrée, donc une relance ne la redemande pas et la
     // fiche dit dans quelle langue l'article a été écrit.
     const resolved = this.resolvedLanguage(ingest.language, source.language);
+    const pages = source.pageUrls?.length ?? 1;
+    await this.log(
+      ingest.id,
+      'INGEST_SOURCE_READ',
+      pages > 1
+        ? `Article source lu sur ${pages} pages (${source.text.length} caractères)`
+        : `Article source lu (${source.text.length} caractères)`,
+      { pages: source.pageUrls ?? [source.url] },
+    );
     return this.prisma.sourceIngest.update({
       where: { id: ingest.id },
       data: {

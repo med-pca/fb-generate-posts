@@ -10,44 +10,46 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AdminAuthGuard = void 0;
+exports.sameOrigin = sameOrigin;
 const common_1 = require("@nestjs/common");
-const client_1 = require("@prisma/client");
-const prisma_service_1 = require("../prisma/prisma.service");
-const auth_service_1 = require("./auth.service");
+const session_service_1 = require("./session.service");
+const cookies_1 = require("./cookies");
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+function sameOrigin(headers) {
+    const host = String(headers['x-forwarded-host'] || headers.host || '').split(',')[0].trim().toLowerCase();
+    const source = String(headers.origin || headers.referer || '');
+    if (source) {
+        try {
+            return new URL(source).host.toLowerCase() === host;
+        }
+        catch {
+            return false;
+        }
+    }
+    return headers['x-requested-with'] === 'PostFlow';
+}
 let AdminAuthGuard = class AdminAuthGuard {
-    auth;
-    prisma;
-    constructor(auth, prisma) {
-        this.auth = auth;
-        this.prisma = prisma;
+    sessions;
+    constructor(sessions) {
+        this.sessions = sessions;
     }
     async canActivate(context) {
         const request = context.switchToHttp().getRequest();
-        const header = request.headers.authorization;
-        const token = header?.startsWith('Bearer ') ? header.slice(7) : '';
-        const claims = token ? this.auth.read(token) : null;
-        if (!claims) {
-            throw new common_1.UnauthorizedException('Session administrateur requise');
+        const token = (0, cookies_1.sessionTokenFrom)(request.headers);
+        const session = token ? await this.sessions.validate(token) : null;
+        if (!session)
+            throw new common_1.UnauthorizedException('Session requise : connectez-vous');
+        if (!SAFE_METHODS.has(request.method) && !sameOrigin(request.headers)) {
+            throw new common_1.ForbiddenException('Requête refusée : elle ne vient pas de la plateforme');
         }
-        const user = await this.prisma.user.findUnique({
-            where: { id: claims.id },
-        });
-        if (!user || user.status !== client_1.RecordStatus.ACTIVE) {
-            throw new common_1.UnauthorizedException('Ce compte n’a plus accès');
-        }
-        request.user = {
-            id: user.id,
-            username: user.username,
-            role: user.role,
-            status: user.status,
-        };
+        const { user } = session;
+        request.user = { id: user.id, username: user.username, role: user.role, status: user.status };
         return true;
     }
 };
 exports.AdminAuthGuard = AdminAuthGuard;
 exports.AdminAuthGuard = AdminAuthGuard = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [auth_service_1.AuthService,
-        prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [session_service_1.SessionService])
 ], AdminAuthGuard);
 //# sourceMappingURL=admin-auth.guard.js.map

@@ -133,6 +133,7 @@ describe('JobsService — publication sans URL puis commentaire', () => {
         update: jest.fn(async ({ data }: any) => ({ id: 'job_1', ...data })),
       },
       activityLog: { create: jest.fn(async () => ({})) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
     };
     const prisma: any = {
       publicationJob: {
@@ -166,6 +167,7 @@ describe('JobsService — publication sans URL puis commentaire', () => {
         update: jest.fn(async ({ data }: any) => ({ id: 'job_1', ...data })),
       },
       activityLog: { create: jest.fn(async () => ({})) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
     };
     const prisma: any = {
       publicationJob: {
@@ -258,6 +260,7 @@ describe('JobsService — publication sans URL puis commentaire', () => {
       postTarget: { update: jest.fn(async () => ({})) },
       publicationJob: { update: jest.fn(async () => ({})) },
       activityLog: { create: jest.fn(async () => ({})) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
     };
     const prisma: any = {
       // Le garde de portée interroge le lot avant l'étape.
@@ -299,6 +302,7 @@ describe('JobsService — l’URL post par post', () => {
       },
       postTarget: { update: jest.fn(async () => ({})) },
       activityLog: { create: jest.fn(async () => ({})) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
     };
     const prisma: any = {
       publicationJob: { findFirst: jest.fn(async () => ({ id: 'job_1' })) },
@@ -346,6 +350,7 @@ describe('JobsService — l’URL post par post', () => {
       postTarget: { update: jest.fn(async () => ({})) },
       publicationJob: { update: jest.fn(async () => ({})) },
       activityLog: { create: jest.fn(async () => ({})) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
     };
     const prisma: any = {
       publicationJob: { findFirst: jest.fn(async () => ({ id: 'job_1' })) },
@@ -398,6 +403,7 @@ describe('JobsService — réservation par lot', () => {
       // Un post du lot est encore à publier : le lot travaille vraiment.
       publicationJobItem: { count: jest.fn(async () => 1) },
       activityLog: { create: jest.fn(async () => ({})) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
     };
 
     const result = await service(prisma).claimBatch({ limit: 10 });
@@ -436,6 +442,7 @@ describe('JobsService — réservation par lot', () => {
       profileGroup: { findMany: jest.fn(async () => []) },
       group: { findMany: jest.fn(async () => []) },
       activityLog: { create: jest.fn(async () => ({})) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
     };
 
     const result = await service(prisma).claimBatch({ limit: 10 });

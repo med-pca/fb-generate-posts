@@ -1,5 +1,5 @@
 import { LogLevel } from '@prisma/client';
-import { IsEnum, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateLogDto {
   @IsOptional()
@@ -17,6 +17,12 @@ export class CreateLogDto {
   @IsOptional()
   @IsString()
   jobId?: string;
+
+  /** Le post Facebook concerné : filtrable et cliquable dans le journal. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  facebookUrl?: string;
 
   @IsString()
   eventType!: string;

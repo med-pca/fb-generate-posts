@@ -28,7 +28,9 @@ export type RewriteInput = {
 
 /** Au-delà, la source coûte cher à traiter sans rien apporter : un article
  * tient largement dedans. */
-const MAX_SOURCE_CHARS = 12_000;
+// Un article lu sur plusieurs pages est long : on en garde assez pour que le
+// modèle voie tout le contenu (étapes, ingrédients, conseils de fin).
+const MAX_SOURCE_CHARS = 40_000;
 const MAX_CAPTION_CHARS = 1_200;
 const MAX_HASHTAGS = 10;
 /** Le corps est du texte structuré, rien d'autre : ni lien, ni image, ni

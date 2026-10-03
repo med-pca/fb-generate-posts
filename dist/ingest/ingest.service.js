@@ -48,10 +48,31 @@ let IngestService = IngestService_1 = class IngestService {
         this.wordpress = wordpress;
     }
     async create(dto, owner = null) {
-        const { siteUrl } = await this.resolveSite(dto.siteUrl);
         const profileIds = [...new Set(dto.profileIds ?? [])];
         const groupIds = [...new Set(dto.groupIds ?? [])];
-        await this.assertScope(profileIds, groupIds);
+        let siteUrl;
+        try {
+            ({ siteUrl } = await this.resolveSite(dto.siteUrl));
+            await this.assertScope(profileIds, groupIds);
+        }
+        catch (error) {
+            await this.prisma.activityLog
+                .create({
+                data: {
+                    eventType: 'INGEST_REJECTED',
+                    level: 'WARN',
+                    message: `Capture refusée : ${error instanceof Error ? error.message : String(error)}`,
+                    metadata: {
+                        facebookUrl: dto.facebookUrl,
+                        sourceUrl: dto.sourceUrl,
+                        siteUrl: dto.siteUrl ?? null,
+                        by: owner?.username ?? 'clé globale',
+                    },
+                },
+            })
+                .catch(() => undefined);
+            throw error;
+        }
         const ingest = await this.prisma.sourceIngest.create({
             data: {
                 facebookUrl: dto.facebookUrl,
@@ -258,6 +279,10 @@ let IngestService = IngestService_1 = class IngestService {
     async readSource(ingest) {
         const source = await this.reader.read(ingest.sourceUrl);
         const resolved = this.resolvedLanguage(ingest.language, source.language);
+        const pages = source.pageUrls?.length ?? 1;
+        await this.log(ingest.id, 'INGEST_SOURCE_READ', pages > 1
+            ? `Article source lu sur ${pages} pages (${source.text.length} caractères)`
+            : `Article source lu (${source.text.length} caractères)`, { pages: source.pageUrls ?? [source.url] });
         return this.prisma.sourceIngest.update({
             where: { id: ingest.id },
             data: {
@@ -345,6 +370,10 @@ let IngestService = IngestService_1 = class IngestService {
         }
         if (site.status !== 'ACTIVE') {
             throw new common_1.BadRequestException(`${site.name} est désactivé comme destination`);
+        }
+        const blocker = (0, sites_service_1.pluginBlocker)(site.pluginState);
+        if (blocker) {
+            throw new common_1.BadRequestException(`${site.name} : ${blocker}. Corriger puis cliquer « Vérifier » dans la page Sites.`);
         }
         return { siteUrl, depositKey: site.depositKey };
     }

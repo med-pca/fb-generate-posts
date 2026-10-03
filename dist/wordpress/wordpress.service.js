@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var WordpressService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WordpressService = void 0;
+exports.groupPostExternalId = groupPostExternalId;
 exports.wordpressCaption = wordpressCaption;
 exports.wordpressArticleFields = wordpressArticleFields;
 exports.facebookCaption = facebookCaption;
@@ -19,6 +20,10 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const articles_service_1 = require("../articles/articles.service");
+const scope_1 = require("../auth/scope");
+function groupPostExternalId(articleId, groupId) {
+    return `${articleId}:group:${groupId}`;
+}
 function wordpressCaption(dto) {
     const clean = (value) => value
         .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
@@ -71,6 +76,119 @@ let WordpressService = WordpressService_1 = class WordpressService {
         this.articles = articles;
     }
     async publish(dto) {
+        const ignored = await this.ignoreIfPaused(dto);
+        if (ignored)
+            return ignored;
+        let result;
+        try {
+            result = await this.receive(dto);
+        }
+        catch (error) {
+            await this.trace('WORDPRESS_ARTICLE_REJECTED', 'ERROR', dto, {
+                message: `« ${dto.title} » refusé : ${error instanceof Error ? error.message : String(error)}`,
+            });
+            throw error;
+        }
+        if (!result.duplicate) {
+            const noPost = result.noPost === 'no_category'
+                ? 'le site n’a pas de catégorie'
+                : 'aucun groupe actif dans la catégorie du site';
+            await this.trace(result.generated ? 'WORDPRESS_ARTICLE_RECEIVED' : 'WORDPRESS_ARTICLE_NO_POST', result.generated ? 'INFO' : 'WARN', dto, {
+                message: result.generated
+                    ? `« ${dto.title} » reçu de ${dto.siteName} : ${result.generated} post(s), un par groupe`
+                    : `« ${dto.title} » reçu de ${dto.siteName} sans post : ${noPost}`,
+                articleId: result.articleId,
+            });
+        }
+        else if (result.updated) {
+            await this.trace('WORDPRESS_ARTICLE_UPDATED', 'INFO', dto, {
+                message: `« ${dto.title} » modifié sur ${dto.siteName} : ${result.synchronized} post(s) réalignés`,
+                articleId: result.articleId,
+            });
+        }
+        return result;
+    }
+    async ignoreIfPaused(dto) {
+        let siteUrl;
+        try {
+            const site = new URL(dto.siteUrl);
+            siteUrl = site.origin + site.pathname.replace(/\/+$/, '');
+        }
+        catch {
+            return null;
+        }
+        const source = await this.prisma.contentSource.findUnique({
+            where: { originUrl: siteUrl },
+            select: { id: true, name: true, status: true },
+        });
+        if (!source)
+            return null;
+        const externalId = `wordpress:${dto.postId}`;
+        const key = { sourceId_externalId: { sourceId: source.id, externalId } };
+        const known = await this.prisma.ignoredArticle.findUnique({ where: key });
+        const answer = (articleId, reason) => ({
+            articleId,
+            duplicate: false,
+            updated: false,
+            generated: 0,
+            groups: 0,
+            noPost: null,
+            synchronized: 0,
+            skipped: 0,
+            ignored: true,
+            reason,
+        });
+        if (known) {
+            return answer(`ignored:${known.id}`, 'ignored_while_inactive');
+        }
+        if (source.status !== 'INACTIVE')
+            return null;
+        const existing = await this.prisma.article.findUnique({
+            where: key,
+            select: { id: true },
+        });
+        if (existing) {
+            await this.trace('WORDPRESS_SITE_INACTIVE', 'WARN', dto, {
+                message: `« ${dto.title} » modifié sur ${source.name}, désactivé : modification non reprise`,
+                articleId: existing.id,
+            });
+            return answer(existing.id, 'site_inactive_update_skipped');
+        }
+        const record = await this.prisma.ignoredArticle.upsert({
+            where: key,
+            create: {
+                sourceId: source.id,
+                externalId,
+                title: dto.title.slice(0, 500),
+                reason: 'site_inactive',
+            },
+            update: {},
+        });
+        await this.trace('WORDPRESS_SITE_INACTIVE', 'WARN', dto, {
+            message: `« ${dto.title} » ignoré : ${source.name} est désactivé (il ne sera pas créé, même après réactivation)`,
+        });
+        return answer(`ignored:${record.id}`, 'site_inactive');
+    }
+    trace(eventType, level, dto, { message, ...extra }) {
+        return this.prisma.activityLog
+            .create({
+            data: {
+                eventType,
+                level,
+                message,
+                metadata: {
+                    siteUrl: dto.siteUrl,
+                    siteName: dto.siteName,
+                    wordpressPostId: dto.postId,
+                    articleUrl: dto.articleUrl,
+                    ingestRef: dto.ingestRef ?? null,
+                    ...extra,
+                },
+            },
+        })
+            .catch(() => undefined);
+    }
+    async receive(dto) {
         const site = new URL(dto.siteUrl);
         const articleUrl = new URL(dto.articleUrl);
         if (site.username ||
@@ -91,10 +209,23 @@ let WordpressService = WordpressService_1 = class WordpressService {
         });
         return this.prisma.$transaction(async (tx) => {
             await tx.$executeRaw `SELECT pg_advisory_xact_lock(hashtext(${siteUrl}))`;
+            const received = {
+                lastDeliveryAt: new Date(),
+                pluginMessage: 'Article reçu de l’extension',
+            };
+            const known = await tx.contentSource.findUnique({
+                where: { originUrl: siteUrl },
+                select: { pluginState: true },
+            });
             const source = await tx.contentSource.upsert({
                 where: { originUrl: siteUrl },
-                create: { originUrl: siteUrl, name: dto.siteName },
-                update: {},
+                create: {
+                    originUrl: siteUrl,
+                    name: dto.siteName,
+                    pluginState: client_1.PluginState.CONNECTED,
+                    ...received,
+                },
+                update: this.deliveryState(known?.pluginState, received),
             });
             const existing = await tx.article.findUnique({
                 where: { sourceId_externalId: { sourceId: source.id, externalId } },
@@ -114,40 +245,31 @@ let WordpressService = WordpressService_1 = class WordpressService {
                     ...fields,
                 },
             });
-            const profiles = await tx.profile.findMany({
-                where: {
-                    status: 'ACTIVE',
-                    ...(ingest?.profileIds.length
-                        ? { id: { in: ingest.profileIds } }
-                        : {}),
-                },
-                include: {
-                    profileGroups: {
-                        where: {
-                            status: 'ACTIVE',
-                            group: { status: 'ACTIVE' },
-                            ...(ingest?.groupIds.length
-                                ? { groupId: { in: ingest.groupIds } }
-                                : {}),
+            const groupIds = await this.audience(tx, source, ingest?.groupIds);
+            const noPost = groupIds.length
+                ? null
+                : source.categoryId
+                    ? 'no_group'
+                    : 'no_category';
+            if (groupIds.length) {
+                for (const groupId of groupIds) {
+                    await tx.post.create({
+                        data: {
+                            ...this.articles.postDataForSlot(article, 0, {
+                                profileId: null,
+                                delayMin: 10,
+                                delayMax: 60,
+                            }),
+                            externalId: groupPostExternalId(article.id, groupId),
+                            ownerId: source.ownerId,
+                            targets: { create: { groupId } },
                         },
-                    },
-                },
-            });
-            for (const profile of profiles) {
-                await tx.post.create({
-                    data: {
-                        ...this.articles.postDataForSlot(article, 0, {
-                            profileId: profile.id,
-                            delayMin: 10,
-                            delayMax: 60,
-                        }),
-                        targets: {
-                            create: profile.profileGroups.map(({ groupId }) => ({
-                                groupId,
-                            })),
-                        },
-                    },
-                });
+                    });
+                }
+            }
+            else {
+                this.logger.warn(`${source.name} : aucun groupe actif dans sa catégorie — ` +
+                    `article « ${article.title} » reçu sans post`);
             }
             if (ingest)
                 await this.closeIngest(tx, ingest.id, article.id);
@@ -155,11 +277,55 @@ let WordpressService = WordpressService_1 = class WordpressService {
                 articleId: article.id,
                 duplicate: false,
                 updated: false,
-                generated: profiles.length,
+                generated: groupIds.length,
+                groups: groupIds.length,
+                noPost,
                 synchronized: 0,
                 skipped: 0,
             };
         }, { timeout: 30000 });
+    }
+    deliveryState(known, received) {
+        if (known === client_1.PluginState.BAD_KEY || known === client_1.PluginState.OUTDATED) {
+            return { lastDeliveryAt: received.lastDeliveryAt };
+        }
+        if (known === client_1.PluginState.MISSING) {
+            return {
+                pluginState: client_1.PluginState.OUTDATED,
+                lastDeliveryAt: received.lastDeliveryAt,
+                pluginMessage: 'Ancienne extension : elle envoie ses articles, mais ne se laisse pas ' +
+                    'vérifier et ne reçoit pas les reprises. Installer la version 1.3.0.',
+            };
+        }
+        return { pluginState: client_1.PluginState.CONNECTED, ...received };
+    }
+    async audience(tx, source, chosen) {
+        if (chosen?.length) {
+            const groups = await tx.group.findMany({
+                where: { id: { in: chosen }, status: 'ACTIVE' },
+                select: { id: true },
+            });
+            return groups.map(({ id }) => id);
+        }
+        if (!source.categoryId)
+            return [];
+        const owner = source.ownerId
+            ? await tx.user.findUnique({
+                where: { id: source.ownerId },
+                select: { id: true, role: true },
+            })
+            : null;
+        const groups = await tx.group.findMany({
+            where: {
+                categoryId: source.categoryId,
+                status: 'ACTIVE',
+                ...(owner && owner.role !== client_1.Role.ADMIN
+                    ? (0, scope_1.groupWhere)({ ownerId: owner.id })
+                    : {}),
+            },
+            select: { id: true },
+        });
+        return groups.map(({ id }) => id);
     }
     async ingestFor(dto, siteUrl) {
         if (!dto.ingestRef)
@@ -192,6 +358,8 @@ let WordpressService = WordpressService_1 = class WordpressService {
             duplicate: true,
             updated: false,
             generated: 0,
+            groups: 0,
+            noPost: null,
             synchronized: 0,
             skipped: 0,
         };

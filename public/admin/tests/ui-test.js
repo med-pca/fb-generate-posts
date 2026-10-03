@@ -18,11 +18,10 @@ const html = fs.readFileSync(`${DIR}/index.html`, 'utf8');
 const vc = new VirtualConsole();
 vc.on('jsdomError', (e) => console.error('[jsdom]', e.message));
 vc.on('error', (...a) => console.error('[page]', ...a));
-const dom = new JSDOM(html, { virtualConsole: vc, url: 'http://localhost:3000/admin/', runScripts: 'outside-only', pretendToBeVisual: true });
+const dom = new JSDOM(html, { virtualConsole: vc, url: 'http://localhost:3000/', runScripts: 'outside-only', pretendToBeVisual: true });
 const { window } = dom;
 window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
 window.HTMLDialogElement.prototype.close = function () { this.open = false; };
-window.localStorage.setItem('postflow_token', 'jeton');
 window.confirm = () => true;
 
 const routes = {
@@ -98,10 +97,27 @@ setTimeout(async () => {
   const group = { id: 'g1', name: 'Recettes FR', category: { id: 'c1', name: 'Recettes' } };
   const salim = { id: 'p1', name: 'Salim' };
   const queueCalls = [];
+  const queueBodies = {};
   const beforeQueue = window.fetch;
   window.fetch = async (url, options = {}) => {
     const path = String(url).replace('/api', '');
     queueCalls.push(`${options.method || 'GET'} ${path}`);
+    queueBodies[`${options.method || 'GET'} ${path}`] = options.body;
+    if (path === '/posts/targets/t-p/history') {
+      return { ok: true, status: 200, json: async () => ({
+        id: 't-p', status: 'AVAILABLE', facebookUrl: null, verifyStatus: 'REPUBLISHED', republishCount: 1,
+        post: { id: 'p', title: 'Post p', url: 'https://site.test/p' }, group: { id: 'g1', name: 'Recettes FR', url: 'https://facebook.com/groups/g1' },
+        attempts: [{ at: '2026-09-30T08:00:00Z', status: 'PUBLISHED', profile: salim, facebookUrl: 'https://www.facebook.com/groups/g1/posts/9', commentId: 'c1' }],
+        events: [
+          { at: '2026-09-30T08:00:00Z', kind: 'PUBLISHED', label: 'Publié', actor: 'Salim', facebookUrl: 'https://www.facebook.com/groups/g1/posts/9' },
+          { at: '2026-09-30T09:00:00Z', kind: 'DELETED', label: 'Supprimé par le vérificateur', actor: 'Modo', detail: 'sans son lien' },
+          { at: '2026-09-30T09:00:01Z', kind: 'REQUEUED', label: 'Remis dans la file', actor: 'vérifié par Modo' },
+        ],
+      }) };
+    }
+    if (path.startsWith('/posts/targets-by-url')) {
+      return { ok: true, status: 200, json: async () => ([{ targetId: 't-p', current: false }]) };
+    }
     if (path.startsWith('/posts/queue')) {
       return { ok: true, status: 200, json: async () => ({
         counts: { running: 1, upcoming: 12, published: 1, failed: 1 },
@@ -111,9 +127,15 @@ setTimeout(async () => {
           { rank: 1, targetId: 't-a', post: post('a', 3), group, candidates: [salim], forcedProfile: salim, forcedAt: '2026-09-30T09:00:00Z' },
           { rank: 2, targetId: 't-b', post: post('b'), group: { ...group, pendingJoins: 8 }, candidates: [] },
         ],
-        published: [{ publishedAt: '2026-09-30T08:00:00Z', post: post('p'), group, profile: salim, facebookUrl: 'https://facebook.com/groups/g1/posts/9', link: 'placed' }],
+        published: [{ targetId: 't-p', publishedAt: '2026-09-30T08:00:00Z', post: post('p'), group, profile: salim, facebookUrl: 'https://facebook.com/groups/g1/posts/9', link: 'placed', verify: { status: 'REPUBLISHED', detail: 'post introuvable', republishCount: 1 } }],
       }) };
     }
+    if (path === '/admin/verify') {
+      return { ok: true, status: 200, json: async () => ({ due: 4, verified: 10, republished: 1, needsAction: 1, review: [
+        { targetId: 't-v', detail: 'en ligne sans son lien, non supprimé', since: '2026-09-30T09:00:00Z', post: post('v'), group, facebookUrl: 'https://facebook.com/groups/g1/posts/7' },
+      ] }) };
+    }
+    if (path === '/admin/verify/targets/t-v/resolve') return { ok: true, status: 200, json: async () => ({ result: 'verified' }) };
     if (path.includes('/priority')) return { ok: true, status: 200, json: async () => ({ id: 'b', priority: 4 }) };
     if (path === '/admin/jobs/job-bloque/release') return { ok: true, status: 200, json: async () => ({ jobId: 'job-bloque', released: 3, inProgress: 0 }) };
     if (path.startsWith('/posts/targets/')) return { ok: true, status: 200, json: async () => ({ warning: path.endsWith('/force') && options.body.includes('p1') ? 'Salim est à l’arrêt dans le Pilotage.' : null }) };
@@ -131,6 +153,12 @@ setTimeout(async () => {
   const publishedRows = $('#queue-published').textContent;
   check('un post publié dit par quel profil et dans quel groupe', /Salim/.test(publishedRows) && /Recettes FR/.test(publishedRows), publishedRows);
   check('et le lien Facebook de la publication', !!$('#queue-published a[href="https://facebook.com/groups/g1/posts/9"]'), null);
+  check('la vérification d’un post publié est visible', /Republié/.test(publishedRows), publishedRows);
+  check('« À traiter » liste ce que le vérificateur n’a pas réglé', !$('#queue-review-panel').hidden && /sans son lien/.test($('#queue-review').textContent), null);
+  check('avec le bilan de la vérification', /10 vérifiée/.test($('#verify-summary').textContent), $('#verify-summary').textContent);
+  $('[data-verify-resolve="t-v"][data-action="ok"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« C’est bon » tranche la publication', queueCalls.includes('POST /admin/verify/targets/t-v/resolve'), queueCalls);
   check('« en cours » montre le profil qui tient le lot', /Salim/.test($('#queue-running').textContent) && /Réservé/.test($('#queue-running').textContent), null);
   $('[data-release-job="job-bloque"]').click();
   await new Promise((resolve) => setTimeout(resolve, 50));
@@ -146,9 +174,29 @@ setTimeout(async () => {
   $('[data-retry="t-f"]').click();
   await new Promise((resolve) => setTimeout(resolve, 50));
   check('« Relancer » relance l’échec', queueCalls.includes('POST /posts/targets/t-f/retry'), queueCalls);
+  window.prompt = () => 'https://www.facebook.com/groups/g1/posts/42';
   $('[data-mark-online="t-f"]').click();
   await new Promise((resolve) => setTimeout(resolve, 50));
   check('« Déjà en ligne » l’enregistre publié sans le republier', queueCalls.includes('POST /posts/targets/t-f/published'), queueCalls);
+  check('avec l’adresse du post, pour le vérificateur', /posts\/42/.test(queueBodies['POST /posts/targets/t-f/published'] || ''), queueBodies);
+
+  // ─── Traçabilité ──────────────────────────────────────────────────
+  $('[data-set-url="t-p"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Coller le lien » enregistre l’adresse d’un post publié', queueCalls.includes('PUT /posts/targets/t-p/facebook-url'), queueCalls);
+  $('[data-history="t-p"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const story = $('#history-events').textContent;
+  check('l’historique s’ouvre', $('#history-modal').open === true, null);
+  check('il dit qui a publié, et à quelle adresse', /Publié/.test(story) && /Salim/.test(story) && !!$('#history-events a[href="https://www.facebook.com/groups/g1/posts/9"]'), story);
+  check('le plus récent en premier : supprimé puis remis en file', /Remis dans la file.*Supprimé par le vérificateur.*Publié/s.test(story), story);
+  check('les tentatives disent le profil', /Salim/.test($('#history-attempts').textContent), $('#history-attempts').textContent);
+  $('#history-modal').close();
+  $('#url-search').elements.url.value = 'https://www.facebook.com/groups/g1/posts/9';
+  $('#url-search').dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('un lien Facebook collé retrouve sa publication', queueCalls.some((c) => c.startsWith('GET /posts/targets-by-url')) && $('#history-modal').open, queueCalls);
+  $('#history-modal').close();
 
   check('un envoi forcé est visible dans la file', /→ Salim/.test($('#queue-upcoming').textContent), null);
   const forceSelect = $('select[data-force="t-f"]');
@@ -195,9 +243,17 @@ setTimeout(async () => {
           ],
         }) };
       }
+      if (path.startsWith('/admin/logs/export')) {
+        return { ok: true, status: 200, blob: async () => new window.Blob(['date;niveau']), json: async () => ({}) };
+      }
       return { ok: true, status: 200, json: async () => ({
-        data: [{ id: 'l1', createdAt: '2026-09-30T08:00:00Z', level: 'WARN', eventType: 'WORDPRESS_ARTICLE_NO_POST', domain: 'sync', message: '« Couscous » reçu de Food Time sans post : le site n’a pas de catégorie', metadata: null }],
-        meta: { page: 1, limit: 25, total: 1, pages: 1 },
+        data: [
+          { id: 'l1', createdAt: '2026-09-30T08:00:00Z', level: 'WARN', eventType: 'WORDPRESS_ARTICLE_NO_POST', domain: 'sync', message: '« Couscous » reçu de Food Time sans post : le site n’a pas de catégorie', metadata: null },
+          { id: 'l2', createdAt: '2026-09-30T09:00:00Z', level: 'ERROR', eventType: 'VERIFY_MISSING_LINK', domain: 'publication', message: '« Tajine » dans « Recettes FR » : en ligne SANS le lien de l’article',
+            facebookUrl: 'https://www.facebook.com/groups/1/posts/9', postTargetId: 't-log', metadata: { expectedLink: 'https://site.test/tajine' },
+            profile: { id: 'p-modo', name: 'Modo' }, group: { id: 'g1', name: 'Recettes FR', category: { id: 'c1', name: 'Recettes' } }, post: { id: 'post-t', title: 'Tajine' } },
+        ],
+        meta: { page: 1, limit: 25, total: 2, pages: 1 },
       }) };
     }
     return beforeLogs(url, options);
@@ -214,7 +270,98 @@ setTimeout(async () => {
     logCalls.slice(-2).every((c) => c.includes('domain=sync')), logCalls.slice(-2));
   check('l’onglet explique ce qu’il couvre', /articles reçus de WordPress/.test($('#log-domain-hint').textContent), $('#log-domain-hint').textContent);
   check('chaque ligne porte son domaine', /Synchronisation/.test($('#log-rows').textContent) && !!$('#log-rows .domain-sync'), null);
+
+  // Traçabilité : le lien du post, l'historique, les filtres.
+  check('le lien du post Facebook est dans le journal, cliquable', !!$('#log-rows a[href="https://www.facebook.com/groups/1/posts/9"]'), null);
+  check('avec l’accès à l’historique de la publication', !!$('#log-rows [data-history="t-log"]'), null);
+  $('#log-rows [data-log-filter="groupId"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('un clic sur le groupe filtre le journal', logCalls.at(-2).includes('groupId=g1'), logCalls.slice(-2));
+  $('#log-rows [data-log-filter="postTargetId"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Tout sur cette publication » la suit d’un bout à l’autre', logCalls.at(-2).includes('postTargetId=t-log') && /Publication : Tajine/.test($('#log-chips').textContent), $('#log-chips').textContent);
+  $('#log-url').value = 'https://www.facebook.com/groups/1/posts/9';
+  $('#log-url').dispatchEvent(new window.Event('change'));
+  $('#log-with-url').checked = true;
+  $('#log-with-url').dispatchEvent(new window.Event('change'));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const lastList = logCalls.filter((c) => !c.includes('summary')).at(-1);
+  check('filtre par lien Facebook et « avec lien »', lastList.includes('facebookUrl=') && lastList.includes('withUrl=true'), lastList);
+  check('« Effacer les filtres » apparaît', $('#log-reset').hidden === false, null);
+  window.URL.createObjectURL = () => 'blob:x';
+  window.URL.revokeObjectURL = () => {};
+  $('#log-export').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const exported = logCalls.find((c) => c.startsWith('/admin/logs/export'));
+  check('l’export CSV suit les mêmes filtres', !!exported && exported.includes('postTargetId=t-log') && exported.includes('withUrl=true'), exported);
+  $('#log-reset').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Effacer les filtres » remet tout à zéro', !logCalls.at(-1).includes('postTargetId') && $('#log-chips').textContent === '', logCalls.at(-1));
   window.fetch = beforeLogs;
+
+  // ─── Profils : filtres, santé, fiche, désactivation avec transfert ──
+  const profileCalls = [];
+  const beforeProfiles = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const full = String(url).replace('/api', '');
+    const path = full.split('?')[0];
+    if (path === '/profiles') {
+      profileCalls.push(full);
+      return { ok: true, status: 200, json: async () => ({
+        data: [{ id: 'p-bad', name: 'Rihab', externalId: 'ext-r', status: 'ACTIVE', minPostsPerJob: 1, maxPostsPerJob: 3, _count: { profileGroups: 4, posts: 0 },
+          health: { score: 22, label: 'bad', labelText: 'Mauvais', suggestDeactivate: true, reasons: ['5 échecs d\'affilée sur ses dernières tentatives'], published: 2, failed: 9, failStreak: 5 } }],
+        meta: { page: 1, limit: 12, total: 1, pages: 1 },
+      }) };
+    }
+    if (path === '/profiles/p-bad/health') {
+      return { ok: true, status: 200, json: async () => ({
+        profile: { id: 'p-bad', name: 'Rihab', status: 'ACTIVE', runner: { mode: 'AUTO' } },
+        health: { score: 22, label: 'bad', labelText: 'Mauvais', windowDays: 14, suggestDeactivate: true, successRate: 0.18, verifyRate: null, linkRate: 0.5,
+          reasons: ['5 échecs d\'affilée sur ses dernières tentatives', '9 échecs en 14 jours (18 % de réussite)'], input: { failStreak: 5, claimsLost: 0 } },
+        totals: { today: 0, week: 2, month: 6, total: 40, failedWeek: 7, failedMonth: 9, failedTotal: 12, lastPublishedAt: '2026-10-01T10:00:00Z', lastFailedAt: '2026-10-03T09:00:00Z' },
+        days: Array.from({ length: 14 }, (_, i) => ({ day: `2026-09-${String(20 + i).padStart(2, '0')}`, published: i % 3, failed: i > 10 ? 2 : 0 })),
+        groups: [{ id: 'g1', name: 'Recettes FR', published: 2, failed: 7, lastError: 'Le groupe n’accepte plus les publications' }],
+        errors: [{ error: 'Le composeur ne s’est pas ouvert', count: 6 }],
+        failures: [{ at: '2026-10-03T09:00:00Z', error: 'Le composeur ne s’est pas ouvert', postTargetId: 't-f1', post: 'Tajine', group: 'Recettes FR' }],
+        joins: { JOINED: 4 }, preApproved: 1,
+        transfer: { forcedTargets: 2, ownedPosts: 0, activeJobs: 1, groupsWaiting: 4,
+          orphanGroups: [{ id: 'g9', name: 'Cuisine maison', url: 'https://facebook.com/groups/9' }],
+          candidates: [
+            { id: 'p-good', name: 'Nadia', score: 94, label: 'good', running: true, groupsCovered: 3, coverage: 0.75 },
+            { id: 'p-new', name: 'Omar', score: null, label: 'new', running: false, groupsCovered: 1, coverage: 0.25 },
+          ], recommendedId: 'p-good' },
+      }) };
+    }
+    if (path === '/profiles/p-bad/deactivate') {
+      profileCalls.push(`POST ${path} ${options.body}`);
+      return { ok: true, status: 200, json: async () => ({ released: 2, transferredTo: { id: 'p-good', name: 'Nadia' }, forcedMoved: 2, forcedCleared: 0, postsOpened: 0, prioritised: 0, orphanGroups: [{ id: 'g9', name: 'Cuisine maison' }] }) };
+    }
+    return beforeProfiles(url, options);
+  };
+  $('#pf-health').value = 'deactivate';
+  $('#pf-health').dispatchEvent(new window.Event('change'));
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('le filtre de santé part à l’API', profileCalls.some((c) => c.includes('health=deactivate')), profileCalls);
+  const card = $('#profile-cards').textContent;
+  check('la carte montre le score et l’indice « À désactiver ? »', /22\/100/.test(card) && /À désactiver/.test(card), card);
+  check('« Effacer les filtres » apparaît sur la page Profils', $('#pf-reset').hidden === false, null);
+  $('[data-deactivate-profile="p-bad"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('« Désactiver » ouvre d’abord la fiche détaillée', $('#profile-detail').open === true, null);
+  const detailText = $('#profile-detail').textContent;
+  check('la fiche donne l’indice et ses raisons', /il vaudrait mieux le désactiver/.test(detailText) && /5 échecs d'affilée/.test(detailText), null);
+  check('avec les statistiques détaillées', /échecs \(7 j\)/.test(detailText) && /18 %/.test(detailText) && /Recettes FR/.test($('#pd-groups').textContent), null);
+  check('et le graphe des 14 jours', $('#pd-chart').querySelectorAll('.pd-bar').length === 14, null);
+  check('le repreneur recommandé est présélectionné (actif, bon score)', $('#pd-heir').value === 'p-good', $('#pd-heir').value);
+  check('les groupes où il était seul sont signalés', /Cuisine maison/.test($('#pd-transfer').textContent), null);
+  $('#pd-deactivate').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('désactiver transfère au repreneur choisi', profileCalls.some((c) => c.startsWith('POST /profiles/p-bad/deactivate') && c.includes('"transferTo":"p-good"')), profileCalls);
+  check('la fiche se referme', $('#profile-detail').open === false, null);
+  $('#pf-reset').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('« Effacer les filtres » rend tous les profils', !profileCalls.at(-1).includes('health='), profileCalls.at(-1));
+  window.fetch = beforeProfiles;
 
   // ─── Filtres du Pilotage ───────────────────────────────────────
   const now = new Date().toISOString();
@@ -222,16 +369,27 @@ setTimeout(async () => {
     window: '09:00–18:00', timezone: 'Europe/Paris', atWork: false, running: false, pairedAt: now, browserState: 'STOPPED',
     published: 0, failed: 0, links: 0, lastSeenAt: now, browserSeenAt: now, ...over });
   const patched = [];
+  const memberCalls = [];
   const beforeRunners = window.fetch;
   window.fetch = async (url, options = {}) => {
     const path = String(url).replace('/api', '');
     if (path === '/runners') {
       return { ok: true, status: 200, json: async () => ({ publishingEnabled: true, profiles: [
-        runner({ name: 'Salim', shouldRun: true, atWork: true, running: true, browserState: 'RUNNING' }),
+        runner({ name: 'Salim', shouldRun: true, atWork: true, running: true, browserState: 'RUNNING', facebookUserId: '100011', facebookName: 'Salim B.' }),
         runner({ name: 'Nadia', shouldRun: true }),
         runner({ name: 'Omar', mode: 'OFF', pairedAt: null }),
         runner({ name: 'Yasmine', browserState: 'ERROR' }),
       ] }) };
+    }
+    if (path === '/admin/verify') {
+      return { ok: true, status: 200, json: async () => ({ due: 0, verified: 0, republished: 0, review: [], members: {
+        due: 3, approved: 2, preApproved: 5, unknownIdentity: 3,
+        problems: [{ taskId: 'pg-x', kind: 'preapprove', error: 'le vérificateur n’a pas cette option : il doit y être administrateur ou modérateur', at: '2026-10-03T08:00:00Z', attempts: 6, gaveUp: true, profile: { id: 'Nadia', name: 'Nadia' }, group: { id: 'g1', name: 'Recettes FR', url: 'https://facebook.com/groups/1' } }],
+      } }) };
+    }
+    if (path === '/admin/verify/members/pg-x/retry') {
+      memberCalls.push(path);
+      return { ok: true, status: 200, json: async () => ({ result: 'queued' }) };
     }
     if (path.startsWith('/runners/') && options.method === 'PATCH') {
       patched.push(path);
@@ -243,6 +401,14 @@ setTimeout(async () => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   const runnerNames = () => [...window.document.querySelectorAll('#runner-rows tr td:first-child strong')].map((el) => el.textContent);
   check('le Pilotage liste tous les profils', runnerNames().length === 4, runnerNames());
+  const fbRows = $('#runner-rows').textContent;
+  check('l’identifiant Facebook d’un profil est affiché', /Facebook 100011/.test(fbRows), fbRows);
+  check('un profil sans compte Facebook connu est signalé', /compte Facebook inconnu/.test(fbRows), null);
+  check('le suivi des adhésions et pré-approbations est visible', !$('#members-panel').hidden && /5 pré-approuvé/.test($('#members-summary').textContent), $('#members-summary').textContent);
+  check('avec ce qui a échoué et pourquoi', /administrateur ou modérateur/.test($('#members-problems').textContent), null);
+  $('[data-member-retry="pg-x"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check('« Relancer » remet la tâche en route', memberCalls.includes('/admin/verify/members/pg-x/retry'), memberCalls);
   check('le compteur signale les profils à vérifier', /2 à vérifier/.test($('#runner-count').textContent), $('#runner-count').textContent);
   $('#runner-search').value = 'nad';
   $('#runner-search').dispatchEvent(new window.Event('input'));
@@ -430,6 +596,33 @@ setTimeout(async () => {
 
   check('les sites offrent le partage', $('#site-rows').innerHTML.includes('data-share-site="s1"'), null);
 
+  // ─── Une adresse par rubrique, une session sans jeton ──────────────
+  check('aucun jeton gardé dans le navigateur', window.localStorage.getItem('postflow_token') === null, null);
+  const routeCalls = [];
+  const beforeRoutes = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    routeCalls.push(options);
+    return beforeRoutes(url, options);
+  };
+  $('.nav[data-view="runners"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  check('Pilotage a son adresse : /pilotage', window.location.pathname === '/pilotage', window.location.pathname);
+  check('le titre de l’onglet suit la rubrique', /Pilotage/.test(window.document.title), window.document.title);
+  check('les appels passent par le cookie, sans jeton', routeCalls.length > 0 && routeCalls.every((o) => o.credentials === 'same-origin' && !(o.headers || {}).Authorization), routeCalls[0]);
+  check('et portent l’en-tête anti-CSRF', routeCalls.every((o) => (o.headers || {})['X-Requested-With'] === 'PostFlow'), routeCalls[0]?.headers);
+  window.eval(`showPostsTab('all')`);
+  check('Posts › tous : /posts/tous', window.location.pathname === '/posts/tous', window.location.pathname);
+  $('.nav[data-view="articles"]').click();
+  check('Articles : /articles', window.location.pathname === '/articles', window.location.pathname);
+  window.history.pushState({}, '', '/journaux');
+  window.dispatchEvent(new window.PopStateEvent('popstate'));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  check('une adresse ouvre sa rubrique (Précédent/Suivant, lien partagé)', $('#logs').classList.contains('active'), null);
+  window.history.pushState({}, '', '/');
+  window.dispatchEvent(new window.PopStateEvent('popstate'));
+  check('la racine ouvre la vue d’ensemble', $('#dashboard').classList.contains('active'), null);
+  window.fetch = beforeRoutes;
+
   // Création d'un compte : la clé doit s'afficher une fois, avec l'avertissement.
   const form = $('#user-form');
   form.elements.username.value = 'nouveau';
@@ -449,11 +642,10 @@ setTimeout(async () => {
  * pas lui être offerte, et rien ne doit échouer parce qu'il n'y a pas
  * accès. */
 function manager(failures) {
-  const dom2 = new JSDOM(html, { virtualConsole: vc, url: 'http://localhost:3000/admin/', runScripts: 'outside-only', pretendToBeVisual: true });
+  const dom2 = new JSDOM(html, { virtualConsole: vc, url: 'http://localhost:3000/', runScripts: 'outside-only', pretendToBeVisual: true });
   const w = dom2.window;
   w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   w.HTMLDialogElement.prototype.close = function () { this.open = false; };
-  w.localStorage.setItem('postflow_token', 'jeton');
   w.fetch = async (url) => {
     const p = String(url).replace('/api', '').split('?')[0];
     if (p === '/users') return { ok: false, status: 403, json: async () => ({ message: 'Réservé aux administrateurs' }) };

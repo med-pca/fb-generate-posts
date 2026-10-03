@@ -13,6 +13,7 @@ exports.PostsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const scope_1 = require("../auth/scope");
+const post_groups_1 = require("./post-groups");
 const paginated_1 = require("../common/paginated");
 let PostsService = class PostsService {
     prisma;
@@ -21,27 +22,11 @@ let PostsService = class PostsService {
     }
     async create(dto, acting = null) {
         const { groupIds, ...postData } = dto;
-        const profile = await this.prisma.profile.findFirst({
-            where: { id: dto.profileId, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
-            select: { id: true },
-        });
-        if (!profile)
-            throw new common_1.NotFoundException('Profil introuvable');
-        const uniqueGroupIds = [...new Set(groupIds)];
-        const validGroups = await this.prisma.group.count({
-            where: {
-                id: { in: uniqueGroupIds },
-                profiles: {
-                    some: { profileId: dto.profileId, status: 'ACTIVE' },
-                },
-            },
-        });
-        if (validGroups !== uniqueGroupIds.length) {
-            throw new common_1.BadRequestException('Tous les groupes doivent appartenir au profil du post');
-        }
+        const uniqueGroupIds = await (0, post_groups_1.postGroupIds)(this.prisma, groupIds, acting);
         return this.prisma.post.create({
             data: {
                 ...postData,
+                ownerId: acting?.id ?? null,
                 targets: {
                     create: uniqueGroupIds.map((groupId) => ({ groupId })),
                 },
@@ -141,7 +126,11 @@ let PostsService = class PostsService {
             filters.sourceType);
     }
     buildWhere(filters, acting) {
-        const where = { ...(0, scope_1.postWhere)((0, scope_1.scopeOf)(acting)) };
+        const scope = (0, scope_1.postWhere)((0, scope_1.scopeOf)(acting));
+        const and = Object.keys(scope).length
+            ? [scope]
+            : [];
+        const where = {};
         if (filters.ids?.length)
             where.id = { in: [...new Set(filters.ids)] };
         if (filters.profileId)
@@ -156,11 +145,15 @@ let PostsService = class PostsService {
             where.targets = { some: { groupId: filters.groupId } };
         if (filters.search?.trim()) {
             const contains = filters.search.trim();
-            where.OR = [
-                { title: { contains, mode: 'insensitive' } },
-                { description: { contains, mode: 'insensitive' } },
-            ];
+            and.push({
+                OR: [
+                    { title: { contains, mode: 'insensitive' } },
+                    { description: { contains, mode: 'insensitive' } },
+                ],
+            });
         }
+        if (and.length)
+            where.AND = and;
         return where;
     }
     activeClaimWhere() {

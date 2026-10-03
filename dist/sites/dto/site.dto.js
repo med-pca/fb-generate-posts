@@ -19,8 +19,9 @@ class CreateSiteDto {
     originUrl;
     depositKey;
     status;
+    categoryId;
     static _OPENAPI_METADATA_FACTORY() {
-        return { name: { required: true, type: () => String, maxLength: 200 }, originUrl: { required: true, type: () => String, maxLength: 2000, format: "uri" }, depositKey: { required: false, type: () => String, maxLength: 500 }, status: { required: false, enum: ["ACTIVE", "INACTIVE"] } };
+        return { name: { required: true, type: () => String, maxLength: 200 }, originUrl: { required: true, type: () => String, maxLength: 2000, format: "uri" }, depositKey: { required: false, type: () => String, maxLength: 500 }, status: { required: false, enum: ["ACTIVE", "INACTIVE"] }, categoryId: { required: false, type: () => String, maxLength: 40 } };
     }
 }
 exports.CreateSiteDto = CreateSiteDto;
@@ -54,6 +55,15 @@ __decorate([
     (0, class_validator_1.IsEnum)(client_1.RecordStatus),
     __metadata("design:type", String)
 ], CreateSiteDto.prototype, "status", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Ses articles partent vers les groupes de cette catégorie. Chaîne vide = aucune.',
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(40),
+    __metadata("design:type", String)
+], CreateSiteDto.prototype, "categoryId", void 0);
 class UpdateSiteDto extends (0, swagger_1.PartialType)(CreateSiteDto) {
     ownerId;
     static _OPENAPI_METADATA_FACTORY() {

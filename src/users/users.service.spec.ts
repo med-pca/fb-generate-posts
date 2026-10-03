@@ -45,9 +45,11 @@ function setup(found: User | null = user(), otherAdmins = 1) {
     contentSource: { count: jest.fn(() => Promise.resolve(1)) },
     sourceIngest: { count: jest.fn(() => Promise.resolve(0)) },
   };
+  const sessions = { revokeAll: jest.fn(async () => 1) };
   return {
-    service: new UsersService(prisma as unknown as PrismaService),
+    service: new UsersService(prisma as unknown as PrismaService, sessions as any),
     prisma,
+    sessions,
   };
 }
 
@@ -160,5 +162,13 @@ describe('UsersService.setOwnNstKey', () => {
     const [[args]] = prisma.user.update.mock.calls;
     expect(args.data.nstApiKey).toBeNull();
     expect(saved.hasNstApiKey).toBe(false);
+  });
+});
+
+describe('UsersService — sessions', () => {
+  it('un mot de passe changé ferme toutes les sessions du compte', async () => {
+    const { service, sessions } = setup();
+    await service.update('u2', { password: 'nouveau-mot-de-passe' } as any, { id: 'admin', username: 'admin', role: 'ADMIN', status: 'ACTIVE' } as any);
+    expect(sessions.revokeAll).toHaveBeenCalled();
   });
 });

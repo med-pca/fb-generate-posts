@@ -3,3 +3,6 @@ export declare class UpdateJoinStatusDto {
     joinStatus: JoinStatus;
     error?: string;
 }
+export declare class SetJoinStatusDto {
+    joinStatus: JoinStatus;
+}

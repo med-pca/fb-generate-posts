@@ -1,9 +1,9 @@
 import { CanActivate, ExecutionContext } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { AuthService } from './auth.service';
+import { SessionService } from './session.service';
+import { RequestWithUser } from './current-user';
+export declare function sameOrigin(headers: RequestWithUser['headers']): boolean;
 export declare class AdminAuthGuard implements CanActivate {
-    private readonly auth;
-    private readonly prisma;
-    constructor(auth: AuthService, prisma: PrismaService);
+    private readonly sessions;
+    constructor(sessions: SessionService);
     canActivate(context: ExecutionContext): Promise<boolean>;
 }

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { JobStatus, LogLevel, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizeFacebookUrl } from '../trace/trace';
 import { CreateLogDto } from './dto/create-log.dto';
 import { QueryLogsDto } from './dto/query-logs.dto';
 import { LogsSummaryDto } from './dto/logs-summary.dto';
@@ -24,9 +25,16 @@ const INCIDENT_SAMPLE = 20;
 
 const WITH_CONTEXT = {
   profile: { select: { id: true, name: true } },
-  group: { select: { id: true, name: true } },
-  post: { select: { id: true, title: true } },
+  group: { select: { id: true, name: true, url: true, category: { select: { id: true, name: true } } } },
+  post: { select: { id: true, title: true, url: true } },
 } as const;
+
+/** Au-delà, l'export est coupé : de quoi suivre une semaine chargée. */
+const EXPORT_LIMIT = 5000;
+const csvCell = (value: unknown) => {
+  const text = value === null || value === undefined ? '' : String(value);
+  return /[",;\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
 
 @Injectable()
 export class LogsService {
@@ -34,7 +42,12 @@ export class LogsService {
 
   create(dto: CreateLogDto) {
     return this.prisma.activityLog.create({
-      data: { ...dto, metadata: dto.metadata as Prisma.InputJsonValue },
+      data: {
+        ...dto,
+        // Même forme que partout ailleurs, pour que le filtre par lien trouve.
+        facebookUrl: dto.facebookUrl ? (normalizeFacebookUrl(dto.facebookUrl) ?? dto.facebookUrl) : undefined,
+        metadata: dto.metadata as Prisma.InputJsonValue,
+      },
     });
   }
 
@@ -71,6 +84,41 @@ export class LogsService {
       page,
       limit,
     );
+  }
+
+  /** Les journaux filtrés, en CSV (séparateur « ; », lisible par Excel) :
+   * pour suivre une période, partager un incident, garder une trace. */
+  async exportCsv({ page, limit, ...filters }: QueryLogsDto, acting: CurrentUser | null) {
+    void page;
+    void limit;
+    const rows = await this.prisma.activityLog.findMany({
+      where: this.scoped(this.buildWhere(filters), acting),
+      include: WITH_CONTEXT,
+      orderBy: { createdAt: 'desc' },
+      take: EXPORT_LIMIT,
+    });
+    const header = ['date', 'niveau', 'domaine', 'événement', 'message', 'profil', 'groupe', 'catégorie', 'post', 'lien facebook', 'url article', 'publication', 'lot'];
+    const lines = rows.map((r) =>
+      [
+        r.createdAt.toISOString(),
+        r.level,
+        domainOf(r.eventType),
+        r.eventType,
+        r.message,
+        r.profile?.name,
+        r.group?.name,
+        r.group?.category?.name,
+        r.post?.title,
+        r.facebookUrl,
+        r.post?.url,
+        r.postTargetId,
+        r.jobId,
+      ]
+        .map(csvCell)
+        .join(';'),
+    );
+    // BOM : Excel lit alors les accents et l'arabe correctement.
+    return '\ufeff' + [header.join(';'), ...lines].join('\r\n');
   }
 
   /** Ce qu'il faut regarder avant d'agir : le volume par niveau, les
@@ -320,13 +368,29 @@ export class LogsService {
     filters: Omit<QueryLogsDto, 'page' | 'limit'>,
   ): Prisma.ActivityLogWhereInput {
     const where: Prisma.ActivityLogWhereInput = {};
-    if (filters.domain) where.AND = [domainWhere(filters.domain)];
     if (filters.level) where.level = filters.level;
     if (filters.eventType) where.eventType = filters.eventType;
     if (filters.profileId) where.profileId = filters.profileId;
     if (filters.groupId) where.groupId = filters.groupId;
     if (filters.postId) where.postId = filters.postId;
     if (filters.jobId) where.jobId = filters.jobId;
+    if (filters.postTargetId) where.postTargetId = filters.postTargetId;
+    if (filters.categoryId) where.group = { categoryId: filters.categoryId };
+    const and: Prisma.ActivityLogWhereInput[] = filters.domain ? [domainWhere(filters.domain)] : [];
+    if (filters.facebookUrl?.trim()) {
+      // Un lien collé tel quel, ou un morceau (le numéro du post) : on
+      // compare sur la forme enregistrée, puis par inclusion.
+      const raw = filters.facebookUrl.trim();
+      const normalized = normalizeFacebookUrl(raw);
+      and.push({
+        OR: [
+          ...(normalized ? [{ facebookUrl: normalized }] : []),
+          { facebookUrl: { contains: normalized ?? raw, mode: 'insensitive' } },
+          { message: { contains: raw, mode: 'insensitive' } },
+        ],
+      });
+    }
+    if (filters.withUrl) and.push({ facebookUrl: { not: null } });
     if (filters.since || filters.until) {
       where.createdAt = {
         ...(filters.since ? { gte: new Date(filters.since) } : {}),
@@ -334,14 +398,24 @@ export class LogsService {
       };
     }
     if (filters.search?.trim()) {
-      where.message = { contains: filters.search.trim(), mode: 'insensitive' };
+      const text = filters.search.trim();
+      and.push({
+        OR: [
+          { message: { contains: text, mode: 'insensitive' } },
+          { eventType: { contains: text, mode: 'insensitive' } },
+          { facebookUrl: { contains: text, mode: 'insensitive' } },
+        ],
+      });
     }
     if (filters.onlyIncidents) {
-      where.OR = [
-        { level: LogLevel.ERROR },
-        { eventType: { in: INCIDENT_EVENT_TYPES } },
-      ];
+      and.push({
+        OR: [
+          { level: LogLevel.ERROR },
+          { eventType: { in: INCIDENT_EVENT_TYPES } },
+        ],
+      });
     }
+    if (and.length) where.AND = and;
     return where;
   }
 }

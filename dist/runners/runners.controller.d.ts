@@ -12,6 +12,9 @@ export declare class RunnersController {
             name: string;
             externalId: string | null;
             status: import("@prisma/client").$Enums.RecordStatus;
+            isModerator: boolean;
+            facebookUserId: string | null;
+            facebookName: string | null;
             mode: import("@prisma/client").$Enums.RunnerMode;
             shouldRun: boolean;
             reason: string;
@@ -34,7 +37,27 @@ export declare class RunnersController {
             browserSeenAt: Date | null;
             browserMessage: string | null;
             pairedAt: Date | null;
+            pairing: import("./pairing").PairingHealth;
             pairCodePending: boolean;
+        }[];
+    }>;
+    checkPairings(acting: CurrentUser): Promise<{
+        checkedAt: string;
+        checked: number;
+        byState: Record<string, number>;
+        broken: {
+            state: import("./pairing").PairingState;
+            detail: string;
+            broken: boolean;
+            profileId: string;
+            name: string;
+        }[];
+        unconfirmed: {
+            state: import("./pairing").PairingState;
+            detail: string;
+            broken: boolean;
+            profileId: string;
+            name: string;
         }[];
     }>;
     updateAll(dto: UpdateRunnerDto, acting: CurrentUser): Promise<{

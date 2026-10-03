@@ -15,22 +15,33 @@ const class_transformer_1 = require("class-transformer");
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
 const pagination_dto_1 = require("../../common/dto/pagination.dto");
+const domains_1 = require("../domains");
 class QueryLogsDto extends pagination_dto_1.PaginationDto {
+    domain;
     level;
     eventType;
     profileId;
     groupId;
     postId;
     jobId;
+    postTargetId;
+    categoryId;
+    facebookUrl;
+    withUrl = false;
     search;
     since;
     until;
     onlyIncidents = false;
     static _OPENAPI_METADATA_FACTORY() {
-        return { level: { required: false, enum: ["DEBUG", "INFO", "WARN", "ERROR"] }, eventType: { required: false, type: () => String }, profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, postId: { required: false, type: () => String }, jobId: { required: false, type: () => String }, search: { required: false, type: () => String }, since: { required: false, type: () => String }, until: { required: false, type: () => String }, onlyIncidents: { required: true, type: () => Object, default: false } };
+        return { domain: { required: false, enum: ["groups", "security", "publication", "capture", "sync", "other"], enum: domains_1.LOG_DOMAIN_KEYS }, level: { required: false, enum: ["INFO", "WARN", "ERROR", "DEBUG"] }, eventType: { required: false, type: () => String }, profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, postId: { required: false, type: () => String }, jobId: { required: false, type: () => String }, postTargetId: { required: false, type: () => String }, categoryId: { required: false, type: () => String }, facebookUrl: { required: false, type: () => String }, withUrl: { required: true, type: () => Object, default: false }, search: { required: false, type: () => String }, since: { required: false, type: () => String }, until: { required: false, type: () => String }, onlyIncidents: { required: true, type: () => Object, default: false } };
     }
 }
 exports.QueryLogsDto = QueryLogsDto;
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsIn)(domains_1.LOG_DOMAIN_KEYS),
+    __metadata("design:type", String)
+], QueryLogsDto.prototype, "domain", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsEnum)(client_1.LogLevel),
@@ -61,6 +72,27 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], QueryLogsDto.prototype, "jobId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], QueryLogsDto.prototype, "postTargetId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], QueryLogsDto.prototype, "categoryId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], QueryLogsDto.prototype, "facebookUrl", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => value === true || value === 'true' || value === '1'),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Object)
+], QueryLogsDto.prototype, "withUrl", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),

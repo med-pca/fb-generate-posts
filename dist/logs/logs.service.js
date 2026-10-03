@@ -13,14 +13,21 @@ exports.LogsService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
+const trace_1 = require("../trace/trace");
 const paginated_1 = require("../common/paginated");
 const scope_1 = require("../auth/scope");
+const domains_1 = require("./domains");
 const INCIDENT_EVENT_TYPES = ['CLAIM_LOST', 'COMMENT_MISSING'];
 const INCIDENT_SAMPLE = 20;
 const WITH_CONTEXT = {
     profile: { select: { id: true, name: true } },
-    group: { select: { id: true, name: true } },
-    post: { select: { id: true, title: true } },
+    group: { select: { id: true, name: true, url: true, category: { select: { id: true, name: true } } } },
+    post: { select: { id: true, title: true, url: true } },
+};
+const EXPORT_LIMIT = 5000;
+const csvCell = (value) => {
+    const text = value === null || value === undefined ? '' : String(value);
+    return /[",;\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
 let LogsService = class LogsService {
     prisma;
@@ -29,7 +36,11 @@ let LogsService = class LogsService {
     }
     create(dto) {
         return this.prisma.activityLog.create({
-            data: { ...dto, metadata: dto.metadata },
+            data: {
+                ...dto,
+                facebookUrl: dto.facebookUrl ? ((0, trace_1.normalizeFacebookUrl)(dto.facebookUrl) ?? dto.facebookUrl) : undefined,
+                metadata: dto.metadata,
+            },
         });
     }
     findAll(profileId, acting) {
@@ -51,11 +62,43 @@ let LogsService = class LogsService {
             }),
             this.prisma.activityLog.count({ where }),
         ]);
-        return (0, paginated_1.paginated)(data, total, page, limit);
+        return (0, paginated_1.paginated)(data.map((log) => ({ ...log, domain: (0, domains_1.domainOf)(log.eventType) })), total, page, limit);
     }
-    async summary({ hours, profileId }, acting) {
+    async exportCsv({ page, limit, ...filters }, acting) {
+        void page;
+        void limit;
+        const rows = await this.prisma.activityLog.findMany({
+            where: this.scoped(this.buildWhere(filters), acting),
+            include: WITH_CONTEXT,
+            orderBy: { createdAt: 'desc' },
+            take: EXPORT_LIMIT,
+        });
+        const header = ['date', 'niveau', 'domaine', 'événement', 'message', 'profil', 'groupe', 'catégorie', 'post', 'lien facebook', 'url article', 'publication', 'lot'];
+        const lines = rows.map((r) => [
+            r.createdAt.toISOString(),
+            r.level,
+            (0, domains_1.domainOf)(r.eventType),
+            r.eventType,
+            r.message,
+            r.profile?.name,
+            r.group?.name,
+            r.group?.category?.name,
+            r.post?.title,
+            r.facebookUrl,
+            r.post?.url,
+            r.postTargetId,
+            r.jobId,
+        ]
+            .map(csvCell)
+            .join(';'));
+        return '\ufeff' + [header.join(';'), ...lines].join('\r\n');
+    }
+    async summary({ hours, profileId, domain }, acting) {
         const since = new Date(Date.now() - hours * 3_600_000);
-        const where = this.scoped({ createdAt: { gte: since }, ...(profileId ? { profileId } : {}) }, acting);
+        const window = this.scoped({ createdAt: { gte: since }, ...(profileId ? { profileId } : {}) }, acting);
+        const where = domain
+            ? { AND: [window, (0, domains_1.domainWhere)(domain)] }
+            : window;
         const incidentWhere = {
             AND: [
                 where,
@@ -67,7 +110,12 @@ let LogsService = class LogsService {
                 },
             ],
         };
-        const [byEvent, byProfile, incidents, total] = await Promise.all([
+        const [allEvents, byEvent, byProfile, incidents, total] = await Promise.all([
+            this.prisma.activityLog.groupBy({
+                by: ['eventType', 'level'],
+                where: window,
+                _count: { _all: true },
+            }),
             this.prisma.activityLog.groupBy({
                 by: ['eventType', 'level'],
                 where,
@@ -99,10 +147,33 @@ let LogsService = class LogsService {
                 .filter((row) => INCIDENT_EVENT_TYPES.includes(row.eventType))
                 .reduce((sum, row) => sum + row._count._all, 0),
             eventTypes: this.foldEventTypes(byEvent),
+            domain: domain ?? null,
+            domains: this.foldDomains(allEvents),
             profiles: await this.foldProfiles(byProfile),
             incidents,
             incidentsTruncated: incidents.length === INCIDENT_SAMPLE,
         };
+    }
+    foldDomains(rows) {
+        const totals = new Map(domains_1.LOG_DOMAIN_KEYS.map((key) => [
+            key,
+            {
+                domain: key,
+                label: key === 'other' ? 'Autres' : domains_1.LOG_DOMAINS[key].label,
+                total: 0,
+                errors: 0,
+                warns: 0,
+            },
+        ]));
+        for (const row of rows) {
+            const entry = totals.get((0, domains_1.domainOf)(row.eventType));
+            entry.total += row._count._all;
+            if (row.level === client_1.LogLevel.ERROR)
+                entry.errors += row._count._all;
+            if (row.level === client_1.LogLevel.WARN)
+                entry.warns += row._count._all;
+        }
+        return [...totals.values()];
     }
     foldEventTypes(rows) {
         const byType = new Map();
@@ -117,7 +188,9 @@ let LogsService = class LogsService {
                 entry.errors += row._count._all;
             byType.set(row.eventType, entry);
         }
-        return [...byType.values()].sort((a, b) => b.total - a.total);
+        return [...byType.values()]
+            .map((entry) => ({ ...entry, domain: (0, domains_1.domainOf)(entry.eventType) }))
+            .sort((a, b) => b.total - a.total);
     }
     async foldProfiles(rows) {
         const ids = [
@@ -206,6 +279,24 @@ let LogsService = class LogsService {
             where.postId = filters.postId;
         if (filters.jobId)
             where.jobId = filters.jobId;
+        if (filters.postTargetId)
+            where.postTargetId = filters.postTargetId;
+        if (filters.categoryId)
+            where.group = { categoryId: filters.categoryId };
+        const and = filters.domain ? [(0, domains_1.domainWhere)(filters.domain)] : [];
+        if (filters.facebookUrl?.trim()) {
+            const raw = filters.facebookUrl.trim();
+            const normalized = (0, trace_1.normalizeFacebookUrl)(raw);
+            and.push({
+                OR: [
+                    ...(normalized ? [{ facebookUrl: normalized }] : []),
+                    { facebookUrl: { contains: normalized ?? raw, mode: 'insensitive' } },
+                    { message: { contains: raw, mode: 'insensitive' } },
+                ],
+            });
+        }
+        if (filters.withUrl)
+            and.push({ facebookUrl: { not: null } });
         if (filters.since || filters.until) {
             where.createdAt = {
                 ...(filters.since ? { gte: new Date(filters.since) } : {}),
@@ -213,14 +304,25 @@ let LogsService = class LogsService {
             };
         }
         if (filters.search?.trim()) {
-            where.message = { contains: filters.search.trim(), mode: 'insensitive' };
+            const text = filters.search.trim();
+            and.push({
+                OR: [
+                    { message: { contains: text, mode: 'insensitive' } },
+                    { eventType: { contains: text, mode: 'insensitive' } },
+                    { facebookUrl: { contains: text, mode: 'insensitive' } },
+                ],
+            });
         }
         if (filters.onlyIncidents) {
-            where.OR = [
-                { level: client_1.LogLevel.ERROR },
-                { eventType: { in: INCIDENT_EVENT_TYPES } },
-            ];
+            and.push({
+                OR: [
+                    { level: client_1.LogLevel.ERROR },
+                    { eventType: { in: INCIDENT_EVENT_TYPES } },
+                ],
+            });
         }
+        if (and.length)
+            where.AND = and;
         return where;
     }
 };

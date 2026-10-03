@@ -28,6 +28,9 @@ const sites_module_1 = require("./sites/sites.module");
 const users_module_1 = require("./users/users.module");
 const access_module_1 = require("./access/access.module");
 const runners_module_1 = require("./runners/runners.module");
+const categories_module_1 = require("./categories/categories.module");
+const insights_module_1 = require("./insights/insights.module");
+const verify_module_1 = require("./verify/verify.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -52,6 +55,9 @@ exports.AppModule = AppModule = __decorate([
             users_module_1.UsersModule,
             access_module_1.AccessModule,
             runners_module_1.RunnersModule,
+            categories_module_1.CategoriesModule,
+            insights_module_1.InsightsModule,
+            verify_module_1.VerifyModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],

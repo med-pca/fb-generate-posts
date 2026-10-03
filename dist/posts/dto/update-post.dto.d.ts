@@ -1,5 +1,5 @@
 import { CreatePostDto } from './create-post.dto';
-declare const UpdatePostDto_base: import("@nestjs/common").Type<Partial<Omit<CreatePostDto, "profileId" | "groupIds">>>;
+declare const UpdatePostDto_base: import("@nestjs/common").Type<Partial<Omit<CreatePostDto, "groupIds">>>;
 export declare class UpdatePostDto extends UpdatePostDto_base {
 }
 export {};

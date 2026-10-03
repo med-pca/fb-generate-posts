@@ -24,17 +24,39 @@ const API = '/api',
       profileId: '',
       search: '',
       onlyIncidents: false,
+      // Traçabilité : par groupe, catégorie, publication, post, lien.
+      groupId: '',
+      categoryId: '',
+      postTargetId: '',
+      postId: '',
+      facebookUrl: '',
+      withUrl: false,
+      since: '',
+      until: '',
     },
     // Les filtres sont appliqués par l'API : la sélection « tout » doit porter
     // sur le même ensemble que celui que la suppression en masse vise.
     postFilters: { profileId: '', articleId: '', groupId: '' },
+    // Les filtres de la page Profils (appliqués par l'API).
+    profileFilters: { search: '', status: '', health: '', activity: '', categoryId: '', sort: 'recent' },
     // Les filtres du Pilotage survivent au rafraîchissement automatique.
     runnerFilters: { search: '', mode: '', state: '' },
     // La file de publication : ses filtres et combien on en montre.
     queue: { tab: 'queue', categoryId: '', groupId: '', limit: 10, publishedLimit: 20, data: null },
     selection: new Set(),
   };
-let accessToken = localStorage.getItem('postflow_token') || '';
+// La session vit dans un cookie HttpOnly que ce script ne voit pas : aucun
+// jeton à garder ici. Une ancienne version en avait rangé un : on l'efface.
+try {
+  localStorage.removeItem('postflow_token');
+} catch (_) {
+  /* stockage indisponible */
+}
+/** La session est tombée (expirée, déconnectée ailleurs) : retour à la page
+ * de connexion, qui ramènera ici. */
+function toLogin() {
+  location.assign(`/login?expired=1&next=${encodeURIComponent(location.pathname + location.search)}`);
+}
 const $ = (s, r = document) => r.querySelector(s),
   $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (v = '') =>
@@ -53,21 +75,17 @@ const initials = (n) =>
     .slice(0, 2)
     .toUpperCase();
 async function api(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
+  // L'en-tête dit au serveur que la requête vient de la plateforme (CSRF).
+  const headers = { 'X-Requested-With': 'PostFlow', ...(options.headers || {}) };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
-  if (accessToken && path !== '/auth/login')
-    headers.Authorization = `Bearer ${accessToken}`;
   const r = await fetch(API + path, {
     ...options,
+    credentials: 'same-origin',
     headers,
   });
   if (!r.ok) {
     const b = await r.json().catch(() => ({}));
-    if (r.status === 401 && path !== '/auth/login') {
-      accessToken = '';
-      localStorage.removeItem('postflow_token');
-      showLogin();
-    }
+    if (r.status === 401) toLogin();
     throw new Error(
       Array.isArray(b.message)
         ? b.message.join(', ')
@@ -84,10 +102,6 @@ function notice(message, type = 'success') {
   notice.timer = setTimeout(() => (n.className = ''), 3500);
 }
 async function load() {
-  if (!accessToken) {
-    showLogin();
-    return;
-  }
   try {
     const postQuery = new URLSearchParams({
       page: state.page.posts,
@@ -108,7 +122,7 @@ async function load() {
       me,
       categories,
     ] = await Promise.all([
-      api(`/profiles?page=${state.page.profiles}&limit=12`),
+      api(`/profiles?${profileQuery()}`),
       api(`/groups?page=${state.page.groups}&limit=12`),
       api(`/articles?page=${state.page.articles}&limit=12`),
       api(`/posts?${postQuery}`),
@@ -202,7 +216,7 @@ function renderCounters() {
     title: 'publiés aujourd’hui' + (c.dailyTarget ? ' / objectif' : ''),
   });
 }
-setInterval(() => accessToken && loadCounters(), 60000);
+setInterval(() => loadCounters(), 60000);
 
 /* ── Groupes : les profils liés, en résumé ─────────────────────────── */
 /** Dix-huit pastilles par groupe rendaient la page illisible : un résumé
@@ -233,6 +247,159 @@ function groupProfilesCell(g) {
     )
     .join('');
   return `<div class="chips">${summary}</div><details class="join-details"><summary>Voir les ${g.profiles.length} profils</summary>${detail}</details>`;
+}
+
+/* ── Profils : filtres ──────────────────────────────────────────────── */
+const PROFILE_FILTER_DEFAULTS = { search: '', status: '', health: '', activity: '', categoryId: '', sort: 'recent' };
+function profileQuery() {
+  const q = new URLSearchParams({ page: state.page.profiles, limit: 12 });
+  for (const [k, v] of Object.entries(state.profileFilters)) if (v && !(k === 'sort' && v === 'recent')) q.set(k, v);
+  return q;
+}
+function renderProfileFilters() {
+  const f = state.profileFilters;
+  $('#pf-search').value = f.search;
+  $('#pf-status').value = f.status;
+  $('#pf-health').value = f.health;
+  $('#pf-activity').value = f.activity;
+  $('#pf-sort').value = f.sort;
+  $('#pf-category').innerHTML =
+    '<option value="">Toutes les catégories</option>' +
+    (state.categories || []).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  $('#pf-category').value = f.categoryId;
+  const filtered = Object.entries(PROFILE_FILTER_DEFAULTS).some(([k, v]) => f[k] !== v);
+  $('#pf-reset').hidden = !filtered;
+  $('#pf-count').textContent = filtered ? `${state.meta.profiles.total} profil(s) pour ces filtres` : '';
+}
+[['#pf-search', 'search'], ['#pf-status', 'status'], ['#pf-health', 'health'], ['#pf-activity', 'activity'], ['#pf-category', 'categoryId'], ['#pf-sort', 'sort']].forEach(([id, key]) => {
+  $(id).onchange = (e) => {
+    state.profileFilters[key] = e.target.value.trim();
+    state.page.profiles = 1;
+    load();
+  };
+});
+$('#pf-reset').onclick = () => {
+  state.profileFilters = { ...PROFILE_FILTER_DEFAULTS };
+  state.page.profiles = 1;
+  load();
+};
+
+/* ── Profils : la fiche détaillée ───────────────────────────────────── */
+const HEALTH_TONES = { good: 'join-joined', watch: 'join-requested', bad: 'join-failed', new: 'join-not_joined' };
+const pctOf = (v) => (v === null || v === undefined ? '—' : `${Math.round(v * 100)} %`);
+function healthBadge(h) {
+  if (!h) return '';
+  return `<span class="chip ${HEALTH_TONES[h.label] || ''}" title="Santé sur 14 jours">${h.score === null ? esc(h.labelText) : `${h.score}/100 · ${esc(h.labelText)}`}</span>` +
+    (h.suggestDeactivate ? ` <span class="chip join-failed" title="${esc((h.reasons || []).join(' · '))}">⚠ À désactiver ?</span>` : '');
+}
+
+/** Le graphe des 14 jours : publiés et échecs, barres empilées par jour. */
+function profileChart(days) {
+  const max = Math.max(1, ...days.map((d) => d.published + d.failed));
+  const bars = days
+    .map((d) => {
+      const pub = (d.published / max) * 100;
+      const fail = (d.failed / max) * 100;
+      const label = new Date(`${d.day}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+      return `<div class="pd-bar" title="${esc(label)} : ${d.published} publié(s), ${d.failed} échec(s)">` +
+        `<div class="pd-bar-stack"><span class="fail" style="height:${fail}%"></span><span class="pub" style="height:${pub}%"></span></div>` +
+        `<small>${esc(label.slice(0, 2))}</small></div>`;
+    })
+    .join('');
+  return `<div class="pd-legend"><span class="pub">Publiés</span><span class="fail">Échecs</span></div><div class="pd-bars">${bars}</div>`;
+}
+
+async function openProfileDetail(profileId, { focusDeactivate = false } = {}) {
+  let d;
+  try {
+    d = await api(`/profiles/${profileId}/health`);
+  } catch (x) {
+    notice(x.message, 'error');
+    return;
+  }
+  const h = d.health, t = d.totals, p = d.profile, tr = d.transfer;
+  $('#pd-title').textContent = p.name;
+  $('#pd-sub').textContent = `PROFIL · ${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}${p.isModerator ? ' · VÉRIFICATEUR' : ''}`;
+  $('#pd-health').innerHTML =
+    `<div class="pd-score ${h.label}"><strong>${h.score === null ? '—' : h.score}</strong><span>/100</span><small>${esc(h.labelText)}</small></div>` +
+    `<div class="pd-verdict">` +
+    (h.suggestDeactivate
+      ? `<b>⚠ Indice : il vaudrait mieux le désactiver.</b><ul>${h.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>`
+      : h.reasons.length
+        ? `<b>À surveiller :</b><ul>${h.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>`
+        : `<b>Rien d’inquiétant sur ${h.windowDays} jours.</b>`) +
+    `<small>Score sur ${h.windowDays} jours : réussite des publications (50 %), posts vérifiés en ligne avec leur lien (30 %), lien de l’article posé (20 %), moins les échecs d’affilée.</small></div>`;
+  const stat = (value, label, bad) => `<div class="${bad ? 'bad' : ''}"><strong>${value}</strong><span>${label}</span></div>`;
+  $('#pd-stats').innerHTML =
+    `<div class="metrics profile-stats">` +
+    stat(t.today, 'publiés aujourd’hui') +
+    stat(t.week, 'publiés (7 j)') +
+    stat(t.month, 'publiés (30 j)') +
+    stat(t.total, 'au total') +
+    stat(t.failedWeek, 'échecs (7 j)', t.failedWeek) +
+    stat(t.failedMonth, 'échecs (30 j)', t.failedMonth) +
+    stat(pctOf(h.successRate), 'réussite (14 j)', h.successRate !== null && h.successRate < 0.5) +
+    stat(pctOf(h.verifyRate), 'vérifiés OK (14 j)', h.verifyRate !== null && h.verifyRate < 0.5) +
+    stat(pctOf(h.linkRate), 'liens posés (14 j)', h.linkRate !== null && h.linkRate < 0.5) +
+    stat(h.input.failStreak, 'échecs d’affilée', h.input.failStreak >= 3) +
+    stat(h.input.claimsLost, 'réservations perdues (14 j)', h.input.claimsLost >= 3) +
+    stat(`${d.joins.JOINED || 0}`, `groupes rejoints${d.preApproved ? ` · ${d.preApproved} pré-approuvé(s)` : ''}`) +
+    `</div><p class="profile-line"><small>${t.lastPublishedAt ? `dernière publication ${esc(ago(t.lastPublishedAt))}` : 'aucune publication'}${t.lastFailedAt ? ` · dernier échec ${esc(ago(t.lastFailedAt))}` : ''}${p.runner ? ` · pilotage : ${esc(MODE_LABELS[p.runner.mode] || p.runner.mode)}` : ''}</small></p>`;
+  $('#pd-chart').innerHTML = profileChart(d.days);
+  $('#pd-groups').innerHTML =
+    d.groups.map((g) => `<tr><td>${esc(g.name)}</td><td>${g.published}</td><td class="${g.failed ? 'bad' : ''}">${g.failed}</td><td><small>${esc(g.lastError || '—')}</small></td></tr>`).join('') ||
+    '<tr><td colspan="4" class="empty">Aucune activité sur 30 jours.</td></tr>';
+  $('#pd-errors').innerHTML = d.errors.map((e) => `<li><b>${e.count}×</b> ${esc(e.error)}</li>`).join('') || '<li class="muted">Aucune erreur.</li>';
+  $('#pd-failures').innerHTML =
+    d.failures
+      .map((f) => `<li class="bad"><b>${esc(f.post)} · ${esc(f.group)}</b><small>${esc(when(f.at))}</small><small>${esc(f.error || '')}</small>` +
+        `<div class="link-actions"><button type="button" data-history="${f.postTargetId}">Historique</button></div></li>`)
+      .join('') || '<li>Aucun échec.</li>';
+
+  // Désactiver : ce qui l'attend, et qui le reprend.
+  if (p.status === 'ACTIVE') {
+    const options = tr.candidates
+      .map((c) => `<option value="${c.id}" ${c.id === tr.recommendedId ? 'selected' : ''}>${esc(c.name)} — ${c.score === null ? 'nouveau' : `${c.score}/100`} · ${c.groupsCovered}/${tr.groupsWaiting} groupe(s)${c.running ? '' : ' · arrêté'}${c.id === tr.recommendedId ? ' (recommandé)' : ''}</option>`)
+      .join('');
+    $('#pd-transfer').innerHTML =
+      `<h3 class="history-h">Le désactiver</h3>` +
+      `<p>Ce qui l’attend : <b>${tr.forcedTargets}</b> publication(s) envoyée(s) vers lui, <b>${tr.ownedPosts}</b> post(s) à lui, ` +
+      `posts en file dans <b>${tr.groupsWaiting}</b> groupe(s)${tr.activeJobs ? `, et un lot en cours (libéré)` : ''}.</p>` +
+      `<label>Confier ses posts en attente à <select id="pd-heir"><option value="">Personne : les rendre à la file</option>${options}</select></label>` +
+      `<small>Le repreneur les reçoit en priorité dans les groupes qu’il a rejoints ; ailleurs, ils restent dans la file pour les autres profils.</small>` +
+      (tr.orphanGroups.length
+        ? `<div class="warn-box">⚠ Dans ${tr.orphanGroups.length} groupe(s), il est le seul profil : ${tr.orphanGroups.map((g) => esc(g.name)).join(', ')}. Personne n’y publiera tant qu’un autre profil ne l’aura pas rejoint.</div>`
+        : '');
+    $('#pd-actions').innerHTML =
+      `<button class="danger" type="button" id="pd-deactivate">Désactiver${tr.recommendedId ? ' et transférer' : ''}</button>`;
+    $('#pd-deactivate').onclick = async () => {
+      const heir = $('#pd-heir').value || null;
+      const heirName = heir ? tr.candidates.find((c) => c.id === heir)?.name : null;
+      if (!confirm(`Désactiver « ${p.name} » ?\n${heirName ? `Ses posts en attente iront en priorité à « ${heirName} ».` : 'Ses posts en attente retournent à la file.'}`)) return;
+      $('#pd-deactivate').disabled = true;
+      try {
+        const r = await api(`/profiles/${p.id}/deactivate`, { method: 'POST', body: JSON.stringify({ transferTo: heir }) });
+        notice(
+          `« ${p.name} » désactivé.` +
+            (r.transferredTo ? ` ${r.forcedMoved + r.prioritised} publication(s) confiée(s) à ${r.transferredTo.name}.` : '') +
+            (r.released ? ` ${r.released} post(s) du lot en cours remis en file.` : '') +
+            (r.orphanGroups.length ? ` ⚠ ${r.orphanGroups.length} groupe(s) sans autre profil.` : ''),
+          r.orphanGroups.length ? 'error' : 'success',
+        );
+        $('#profile-detail').close();
+        await load();
+      } catch (x) {
+        notice(x.message, 'error');
+        $('#pd-deactivate').disabled = false;
+      }
+    };
+    $('#pd-transfer').hidden = false;
+  } else {
+    $('#pd-transfer').hidden = true;
+    $('#pd-actions').innerHTML = `<button class="primary" type="button" data-toggle-profile="${p.id}">Activer</button>`;
+  }
+  $('#profile-detail').showModal();
+  if (focusDeactivate) $('#pd-transfer').scrollIntoView?.({ block: 'start' });
 }
 
 /* ── Profils : leurs statistiques ──────────────────────────────────── */
@@ -287,7 +454,7 @@ function render() {
     state.profiles
       .map(
         (p) =>
-          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''}"><div class="card-head"><div class="person"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></div><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-toggle-profile="${p.id}">${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
+          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${healthBadge(p.health)}</p>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-profile-detail="${p.id}">Détails</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
       )
       .join('') || '<div class="empty">Créez votre premier profil.</div>';
   $('#group-rows').innerHTML =
@@ -298,6 +465,7 @@ function render() {
       )
       .join('') ||
     '<tr><td colspan="6"><div class="empty">Aucun groupe</div></td></tr>';
+  renderProfileFilters();
   renderArticles();
   renderSettings();
   fillProfiles();
@@ -417,7 +585,6 @@ const PACE_TEXT = {
   missed: ['bad', 'Objectif manqué'],
 };
 async function loadObjective() {
-  if (!accessToken) return;
   try {
     state.objective = await api('/insights/objective');
     renderObjective();
@@ -658,10 +825,13 @@ $('#reset-form').onsubmit = async (e) => {
 };
 
 async function loadRunners() {
-  if (!accessToken) return;
   try {
-    state.runners = await api('/runners');
+    [state.runners, state.verifyOverview] = await Promise.all([
+      api('/runners'),
+      api('/admin/verify').catch(() => null),
+    ]);
     renderRunners();
+    renderMembers();
   } catch (e) {
     notice(e.message, 'error');
   }
@@ -704,14 +874,18 @@ function renderRunners() {
         // quel que soit son mode. C'est la première chose à regarder.
         const paired = pairingCell(r);
         return `<tr class="${r.status === 'INACTIVE' ? 'inactive' : ''}">
-        <td><strong>${esc(r.name)}</strong><small>${esc(r.externalId || 'sans identifiant NSTBrowser')}</small></td>
+        <td><strong>${esc(r.name)}</strong>${r.isModerator ? ' <span class="chip moderator" title="Ce profil vérifie les publications des autres (extension FB Post Checker)">vérificateur</span>' : ''}<small>${esc(r.externalId || 'sans identifiant NSTBrowser')}</small>` +
+          `<small>${r.facebookUserId
+            ? `<a href="https://www.facebook.com/profile.php?id=${esc(r.facebookUserId)}" target="_blank" rel="noreferrer" title="${esc(r.facebookName || '')}">Facebook ${esc(r.facebookUserId)}</a>`
+            : '<span class="fb-missing" title="Remonté automatiquement par l’extension de publication (≥ 1.3.0) au prochain battement ; sans lui, le vérificateur ne peut ni accepter son adhésion ni le pré-approuver">⚠ compte Facebook inconnu</span>'}` +
+          ` <button class="link inline-link" type="button" data-fb-id="${r.profileId}" data-current="${esc(r.facebookUserId || '')}">${r.facebookUserId ? 'modifier' : 'saisir'}</button></small></td>
         <td>${paired}</td>
         <td><select data-runner-mode="${r.profileId}">${modes}</select><small class="${r.shouldRun ? '' : 'muted'}">${r.shouldRun ? '▶ doit publier' : '■ ' + esc(r.reason)}</small></td>
         <td>${esc(r.window)}<small>${esc(r.timezone)}</small></td>
         <td>${browser}<small>${esc(ago(r.browserSeenAt))}${r.browserMessage ? ' · ' + esc(r.browserMessage) : ''}</small></td>
         <td>${worker}<small>${esc(ago(r.lastSeenAt))}</small></td>
         <td>${r.published} publiés · ${r.failed} échecs · ${r.links} liens${r.message ? `<small>${esc(r.message)}</small>` : ''}</td>
-        <td><div class="row-actions"><button class="edit" data-runner-pair="${r.profileId}">${r.pairedAt ? 'Ré-appairer' : 'Appairer'}</button><button class="edit" data-runner-edit="${r.profileId}">Réglages</button></div></td>
+        <td><div class="row-actions"><button class="edit" data-runner-pair="${r.profileId}">${r.pairedAt ? 'Ré-appairer' : 'Appairer'}</button><button class="edit" data-runner-edit="${r.profileId}">Réglages</button><button class="edit" data-runner-moderator="${r.profileId}" data-on="${r.isModerator ? '1' : ''}" title="Le vérificateur ouvre les posts publiés par les autres profils, vérifie le lien, supprime et fait republier ce qui est en défaut. Il doit être administrateur des groupes.">${r.isModerator ? 'Retirer vérificateur' : 'Vérificateur'}</button></div></td>
       </tr>`;
       })
       .join('') ||
@@ -726,6 +900,82 @@ function renderRunners() {
   );
   $$('[data-runner-pair]').forEach(
     (button) => (button.onclick = () => askPairCode(button.dataset.runnerPair)),
+  );
+  $$('[data-fb-id]').forEach(
+    (button) =>
+      (button.onclick = async () => {
+        const value = prompt(
+          'Identifiant Facebook NUMÉRIQUE de ce profil (vide pour l’effacer).\nNormalement remonté seul par l’extension de publication.',
+          button.dataset.current || '',
+        );
+        if (value === null || value === undefined) return;
+        try {
+          await api(`/admin/verify/profiles/${button.dataset.fbId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ facebookUserId: String(value).trim() }),
+          });
+          notice('Identifiant Facebook enregistré.');
+          await loadRunners();
+        } catch (x) {
+          notice(x.message, 'error');
+        }
+      }),
+  );
+  $$('[data-runner-moderator]').forEach(
+    (button) =>
+      (button.onclick = async () => {
+        const isModerator = !button.dataset.on;
+        button.disabled = true;
+        try {
+          const p = await api(`/admin/verify/profiles/${button.dataset.runnerModerator}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ isModerator }),
+          });
+          notice(isModerator ? `${p.name} vérifie désormais les publications.` : `${p.name} n’est plus vérificateur.`);
+          await loadRunners();
+        } catch (x) {
+          notice(x.message, 'error');
+          button.disabled = false;
+        }
+      }),
+  );
+}
+/** Ce que le vérificateur fait pour nos profils dans les groupes. */
+function renderMembers() {
+  const m = state.verifyOverview?.members;
+  const panel = $('#members-panel');
+  if (!m || !Array.isArray(m.problems)) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  $('#members-summary').textContent =
+    `${m.approved} adhésion(s) acceptée(s) · ${m.preApproved} pré-approuvé(s) · ${m.due} à faire` +
+    (m.unknownIdentity ? ` · ${m.unknownIdentity} profil(s) sans compte Facebook connu` : '');
+  $('#members-problems').innerHTML =
+    m.problems
+      .map(
+        (p) =>
+          `<tr><td><strong>${esc(p.profile.name)}</strong><small>${p.kind === 'approve' ? 'adhésion' : 'pré-approbation'}</small></td>` +
+          `<td>${p.group.url ? `<a href="${esc(p.group.url)}" target="_blank" rel="noreferrer">${esc(p.group.name)}</a>` : esc(p.group.name)}</td>` +
+          `<td><div class="queue-error" title="${esc(p.error || '')}">${esc(p.error || '')}</div>` +
+          `<small>${esc(when(p.at))} · ${p.attempts} essai(s)${p.gaveUp ? ' · abandonné' : ''}</small></td>` +
+          `<td><button class="edit" data-member-retry="${p.taskId}">↻ Relancer</button></td></tr>`,
+      )
+      .join('') || '<tr><td colspan="4" class="empty">Aucun problème.</td></tr>';
+  $$('[data-member-retry]').forEach(
+    (button) =>
+      (button.onclick = async () => {
+        button.disabled = true;
+        try {
+          await api(`/admin/verify/members/${button.dataset.memberRetry}/retry`, { method: 'POST' });
+          notice('Relancé : le vérificateur réessaiera à son prochain passage.');
+          await loadRunners();
+        } catch (x) {
+          notice(x.message, 'error');
+          button.disabled = false;
+        }
+      }),
   );
 }
 async function patchRunner(profileId, patch) {
@@ -943,10 +1193,6 @@ function renderPagination() {
   for (const resource of ['profiles', 'groups', 'articles', 'posts'])
     $(`#${resource}-pagination`).innerHTML = paginationBox(resource);
 }
-function showLogin() {
-  const dialog = $('#login-modal');
-  if (!dialog.open) dialog.showModal();
-}
 /** Les sites où une reprise peut être déposée. La clé n'est jamais relue :
  * l'API ne la rend pas, on affiche seulement si le site en a une. */
 /** Qui est connecté, et à quel titre. Sans ça, un gestionnaire ne comprend
@@ -1115,25 +1361,40 @@ function renderSelection() {
     : 'Supprimer la sélection';
   $('#post-select-all').checked = count > 0 && count === state.posts.length;
 }
+/** Les filtres du journal en paramètres d'URL : la liste et l'export
+ * portent exactement sur le même ensemble. */
+function logQuery() {
+  const f = state.logFilters;
+  const query = new URLSearchParams();
+  if (f.hours === 'custom') {
+    if (f.since) query.set('since', new Date(f.since).toISOString());
+    if (f.until) query.set('until', new Date(f.until).toISOString());
+  } else {
+    query.set('since', new Date(Date.now() - f.hours * 3600000).toISOString());
+  }
+  for (const key of ['domain', 'level', 'eventType', 'search', 'profileId', 'groupId', 'categoryId', 'postTargetId', 'postId', 'facebookUrl']) {
+    if (f[key]) query.set(key, f[key]);
+  }
+  if (f.onlyIncidents) query.set('onlyIncidents', 'true');
+  if (f.withUrl) query.set('withUrl', 'true');
+  return query;
+}
+const LOG_DEFAULTS = { level: '', eventType: '', profileId: '', search: '', onlyIncidents: false, groupId: '', categoryId: '', postTargetId: '', postId: '', facebookUrl: '', withUrl: false };
+const logFiltered = () => Object.entries(LOG_DEFAULTS).some(([k, v]) => state.logFilters[k] !== v);
+
 async function loadLogs() {
   const f = state.logFilters,
-    query = new URLSearchParams({ page: state.page.logs, limit: 25 }),
-    summaryQuery = new URLSearchParams({ hours: f.hours });
-  // La fenêtre de la synthèse et celle de la liste doivent coïncider, sinon
-  // les compteurs annoncent des incidents que le tableau n'affiche pas.
-  query.set('since', new Date(Date.now() - f.hours * 3600000).toISOString());
-  if (f.domain) {
-    query.set('domain', f.domain);
-    summaryQuery.set('domain', f.domain);
-  }
-  if (f.level) query.set('level', f.level);
-  if (f.eventType) query.set('eventType', f.eventType);
-  if (f.search) query.set('search', f.search);
-  if (f.onlyIncidents) query.set('onlyIncidents', 'true');
-  if (f.profileId) {
-    query.set('profileId', f.profileId);
-    summaryQuery.set('profileId', f.profileId);
-  }
+    query = logQuery(),
+    // La synthèse compte sur des heures ; sur des dates précises, elle prend
+    // la fenêtre la plus proche qui les couvre.
+    summaryHours = f.hours === 'custom'
+      ? Math.min(720, Math.max(1, Math.ceil((Date.now() - (f.since ? new Date(f.since).getTime() : Date.now() - 86400000)) / 3600000)))
+      : f.hours,
+    summaryQuery = new URLSearchParams({ hours: summaryHours });
+  query.set('page', state.page.logs);
+  query.set('limit', 25);
+  if (f.domain) summaryQuery.set('domain', f.domain);
+  if (f.profileId) summaryQuery.set('profileId', f.profileId);
   try {
     const [logs, summary] = await Promise.all([
       api(`/admin/logs?${query}`),
@@ -1152,6 +1413,10 @@ const LOG_DOMAINS = {
   publication: {
     label: 'Publication',
     hint: 'Les automates : réservations, publications dans les groupes, commentaires et liens, et les gestes faits depuis la file (relancer, forcer, retirer).',
+  },
+  security: {
+    label: 'Sécurité',
+    hint: 'Les connexions à la plateforme : réussies, échouées, bloquées après trop d’essais, déconnexions — avec l’adresse IP.',
   },
   capture: {
     label: 'Captures',
@@ -1243,23 +1508,35 @@ function renderLogs() {
       )
       .join('') || '<div class="empty">Aucune activité sur la période.</div>';
 
+  renderLogFilters();
   $('#log-rows').innerHTML =
     state.logs
       .map((l) => {
+        // Chaque élément du contexte filtre le journal d'un clic.
+        const filterLink = (key, value, label) =>
+          `<button type="button" class="link inline-link" data-log-filter="${key}" data-value="${esc(value)}" data-label="${esc(label)}" title="Ne voir que celui-ci">${esc(label)}</button>`;
         const context = [
-          l.profile && `Profil : ${esc(l.profile.name)}`,
-          l.group && `Groupe : ${esc(l.group.name)}`,
-          l.post && `Post : ${esc(l.post.title)}`,
+          l.profile && `Profil : ${filterLink('profileId', l.profile.id, l.profile.name)}`,
+          l.group && `Groupe : ${filterLink('groupId', l.group.id, l.group.name)}${l.group.category ? ` <small>(${esc(l.group.category.name)})</small>` : ''}`,
+          l.post && `Post : ${filterLink('postId', l.post.id, l.post.title)}`,
           l.jobId && `Job : ${esc(l.jobId)}`,
         ].filter(Boolean);
+        const fb = l.facebookUrl
+          ? `<a href="${esc(l.facebookUrl)}" target="_blank" rel="noreferrer" title="${esc(l.facebookUrl)}">Ouvrir ↗</a>` +
+            `<small>${esc(l.facebookUrl.replace(/^https:\/\/www\.facebook\.com/, ''))}</small>`
+          : '<span class="muted">—</span>';
+        const history = l.postTargetId
+          ? `<div class="link-actions"><button type="button" data-history="${esc(l.postTargetId)}">Historique</button>` +
+            `<button type="button" data-log-filter="postTargetId" data-value="${esc(l.postTargetId)}" data-label="${esc(`${l.post?.title || 'publication'} · ${l.group?.name || ''}`)}">Tout sur cette publication</button></div>`
+          : '';
         const meta = l.metadata
           ? `<details class="log-meta"><summary>Détails</summary><pre>${esc(JSON.stringify(l.metadata, null, 2))}</pre></details>`
           : '';
         const domain = LOG_DOMAINS[l.domain] ? l.domain : 'other';
-        return `<tr><td>${new Date(l.createdAt).toLocaleString('fr-FR')}</td><td><span class="level ${esc(l.level)}">${esc(l.level)}</span></td><td><span class="domain-tag domain-${domain}">${LOG_DOMAINS[domain].label}</span></td><td class="event-name">${esc(l.eventType)}</td><td class="log-message">${esc(l.message)}${meta}</td><td>${context.join('<br>') || '—'}</td></tr>`;
+        return `<tr><td>${new Date(l.createdAt).toLocaleString('fr-FR')}</td><td><span class="level ${esc(l.level)}">${esc(l.level)}</span></td><td><span class="domain-tag domain-${domain}">${LOG_DOMAINS[domain].label}</span></td><td class="event-name">${esc(l.eventType)}</td><td class="log-message">${esc(l.message)}${meta}</td><td class="log-fb">${fb}${history}</td><td>${context.join('<br>') || '—'}</td></tr>`;
       })
       .join('') ||
-    '<tr><td colspan="6"><div class="empty">Aucun journal pour ce filtre.</div></td></tr>';
+    '<tr><td colspan="7"><div class="empty">Aucun journal pour ce filtre.</div></td></tr>';
 
   $('#logs-pagination').innerHTML = paginationBox('logs');
 }
@@ -1358,7 +1635,47 @@ async function loadGroups(profileId, boxSelector = '#post-groups') {
       )
       .join('') || '<span>Aucun groupe associé.</span>';
 }
-function view(id) {
+/* ── Une adresse par rubrique ──────────────────────────────────────── */
+const ROUTES = {
+  '/': { view: 'dashboard' },
+  '/profils': { view: 'profiles' },
+  '/groupes': { view: 'groups' },
+  '/categories': { view: 'categories' },
+  '/sites': { view: 'sites' },
+  '/articles': { view: 'articles' },
+  '/posts': { view: 'posts', tab: 'queue' },
+  '/posts/tous': { view: 'posts', tab: 'all' },
+  '/journaux': { view: 'logs' },
+  '/pilotage': { view: 'runners' },
+  '/parametres': { view: 'settings' },
+  '/comptes': { view: 'users' },
+};
+/** L'adresse d'une rubrique (et, pour les posts, de son onglet). */
+function pathOf(id, tab) {
+  if (id === 'posts') return (tab || state.queue.tab) === 'all' ? '/posts/tous' : '/posts';
+  return Object.keys(ROUTES).find((p) => ROUTES[p].view === id) || '/';
+}
+/** Mettre l'adresse à jour sans recharger : le bouton Précédent du
+ * navigateur ramène à la rubrique d'avant, et un lien se partage. */
+function syncUrl(id) {
+  const path = pathOf(id);
+  if (location.pathname.replace(/\/+$/, '') !== path.replace(/\/+$/, '') && path) {
+    history.pushState({ view: id }, '', path);
+  }
+  document.title = `PostFlow — ${$('#title').textContent}`;
+}
+/** La rubrique que l'adresse désigne (au chargement, ou Précédent). */
+function routeFromUrl() {
+  const path = (location.pathname.replace(/\/+$/, '') || '/').toLowerCase();
+  const route = ROUTES[path] || ROUTES['/'];
+  if (route.view === 'posts') showPostsTab(route.tab, { fromUrl: true });
+  else view(route.view, { fromUrl: true });
+}
+window.addEventListener('popstate', routeFromUrl);
+
+function view(id, { fromUrl = false } = {}) {
+  // Un gestionnaire n'a pas la rubrique Comptes.
+  if (id === 'users' && state.me && state.me.role !== 'ADMIN') id = 'dashboard';
   $$('.view').forEach((x) => x.classList.toggle('active', x.id === id));
   $$('.nav').forEach((x) =>
     x.classList.toggle('active', x.dataset.view === id),
@@ -1398,6 +1715,8 @@ function view(id) {
     view.objectiveTimer = setInterval(loadObjective, 30000);
   }
   if (id === 'settings' && state.me?.role === 'ADMIN') loadResetCounts();
+  if (!fromUrl) syncUrl(id);
+  else document.title = `PostFlow — ${$('#title').textContent}`;
 }
 function refreshLogs() {
   state.page.logs = 1;
@@ -1413,7 +1732,13 @@ $('#log-domains').addEventListener('click', (e) => {
   refreshLogs();
 });
 $('#log-hours').onchange = (e) => {
-  state.logFilters.hours = Number(e.target.value);
+  state.logFilters.hours = e.target.value === 'custom' ? 'custom' : Number(e.target.value);
+  if (state.logFilters.hours === 'custom' && !state.logFilters.since) {
+    // Par défaut, les dernières 24 h, à ajuster.
+    const local = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    state.logFilters.since = local(new Date(Date.now() - 86400000));
+    $('#log-since').value = state.logFilters.since;
+  }
   refreshLogs();
 };
 $('#log-level').onchange = (e) => {
@@ -1436,6 +1761,106 @@ $('#log-incidents').onchange = (e) => {
   state.logFilters.onlyIncidents = e.target.checked;
   refreshLogs();
 };
+$('#log-with-url').onchange = (e) => {
+  state.logFilters.withUrl = e.target.checked;
+  refreshLogs();
+};
+$('#log-url').onchange = (e) => {
+  state.logFilters.facebookUrl = e.target.value.trim();
+  refreshLogs();
+};
+$('#log-category').onchange = (e) => {
+  state.logFilters.categoryId = e.target.value;
+  // Un groupe d'une autre catégorie viderait la liste.
+  const group = state.groupOptions.find((g) => g.id === state.logFilters.groupId);
+  if (group && e.target.value && group.categoryId !== e.target.value) state.logFilters.groupId = '';
+  refreshLogs();
+};
+$('#log-group').onchange = (e) => {
+  state.logFilters.groupId = e.target.value;
+  refreshLogs();
+};
+['#log-since', '#log-until'].forEach((id) => {
+  $(id).onchange = (e) => {
+    state.logFilters[id === '#log-since' ? 'since' : 'until'] = e.target.value;
+    refreshLogs();
+  };
+});
+$('#log-reset').onclick = () => {
+  Object.assign(state.logFilters, LOG_DEFAULTS);
+  state.logLabels = {};
+  refreshLogs();
+};
+/** Un clic sur un profil, un groupe, un post ou une publication du journal :
+ * ne voir que lui. */
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-log-filter]');
+  if (!chip) return;
+  const key = chip.dataset.logFilter;
+  state.logFilters[key] = chip.dataset.value;
+  state.logLabels = { ...(state.logLabels || {}), [key]: chip.dataset.label };
+  refreshLogs();
+});
+$('#log-chips').addEventListener('click', (e) => {
+  const key = e.target.closest('[data-log-unfilter]')?.dataset.logUnfilter;
+  if (!key) return;
+  state.logFilters[key] = LOG_DEFAULTS[key];
+  refreshLogs();
+});
+/** L'export suit les mêmes filtres que la liste. */
+$('#log-export').onclick = async (e) => {
+  const button = e.target;
+  button.disabled = true;
+  try {
+    const response = await fetch(`${API}/admin/logs/export?${logQuery()}`, {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'PostFlow' },
+    });
+    if (response.status === 401) return toLogin();
+    if (!response.ok) throw new Error(`Export refusé (HTTP ${response.status})`);
+    const blob = await response.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `journal-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+};
+/** Les listes et les pastilles des filtres, d'après l'état. */
+function renderLogFilters() {
+  const f = state.logFilters;
+  $('#log-dates').hidden = f.hours !== 'custom';
+  $('#log-hours').value = String(f.hours);
+  const categories = $('#log-category');
+  categories.innerHTML =
+    '<option value="">Toutes les catégories</option>' +
+    (state.categories || []).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  categories.value = f.categoryId;
+  const groups = (state.groupOptions || []).filter((g) => !f.categoryId || g.categoryId === f.categoryId);
+  const groupSelect = $('#log-group');
+  groupSelect.innerHTML =
+    '<option value="">Tous les groupes</option>' +
+    groups.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  groupSelect.value = f.groupId;
+  $('#log-with-url').checked = f.withUrl;
+  $('#log-url').value = f.facebookUrl;
+  $('#log-reset').hidden = !logFiltered();
+  // Ce qui n'a pas de liste (une publication, un post) se montre en
+  // pastille, avec sa croix.
+  const labels = state.logLabels || {};
+  const chips = [
+    f.postTargetId && ['postTargetId', `Publication : ${labels.postTargetId || f.postTargetId}`],
+    f.postId && ['postId', `Post : ${labels.postId || f.postId}`],
+    f.facebookUrl && ['facebookUrl', `Lien : ${f.facebookUrl}`],
+  ].filter(Boolean);
+  $('#log-chips').innerHTML = chips
+    .map(([key, label]) => `<span class="chip">${esc(label)} <button type="button" data-log-unfilter="${key}" title="Retirer ce filtre">×</button></span>`)
+    .join('');
+}
 function openModal(id) {
   const d = $('#' + id),
     f = $('form', d);
@@ -1536,28 +1961,18 @@ $$('.groups-by-category').forEach(
     (select.onchange = (e) =>
       loadCategoryGroups(e.target.value, e.target.dataset.groups)),
 );
-$('#login-form').onsubmit = async (e) => {
-  e.preventDefault();
-  const data = Object.fromEntries(new FormData(e.target));
+/** Se déconnecter : la session est révoquée côté serveur, pas seulement
+ * oubliée par le navigateur. */
+$('#logout').onclick = async () => {
   try {
-    const session = await api('/auth/login', {
+    await fetch(`${API}/auth/logout`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'PostFlow' },
     });
-    accessToken = session.accessToken;
-    localStorage.setItem('postflow_token', accessToken);
-    e.target.reset();
-    e.target.closest('dialog').close();
-    await load();
-    notice('Connexion réussie.');
-  } catch (x) {
-    notice(x.message, 'error');
+  } finally {
+    location.replace('/login');
   }
-};
-$('#logout').onclick = () => {
-  accessToken = '';
-  localStorage.removeItem('postflow_token');
-  showLogin();
 };
 $('#article-form').onsubmit = async (e) => {
   e.preventDefault();
@@ -1916,7 +2331,12 @@ async function loadQueue() {
   if (q.categoryId) query.set('categoryId', q.categoryId);
   if (q.groupId) query.set('groupId', q.groupId);
   try {
-    q.data = await api(`/posts/queue?${query}`);
+    // La vérification est un plus : son absence (serveur pas encore à jour)
+    // ne doit pas vider la file.
+    [q.data, q.verify] = await Promise.all([
+      api(`/posts/queue?${query}`),
+      api('/admin/verify').catch(() => null),
+    ]);
     renderQueue();
   } catch (x) {
     notice(x.message, 'error');
@@ -1945,6 +2365,19 @@ const profileChips = (profiles, pendingJoins = 0) => {
 };
 const queueProfile = (profile) =>
   profile ? `<strong>${esc(profile.name)}</strong>` : '<span class="muted">—</span>';
+const VERIFY_LABELS = {
+  OK: '✓ Vérifié',
+  REPUBLISHED: '↻ Republié',
+  NEEDS_ACTION: '⚠ À traiter',
+};
+/** Ce que le vérificateur a constaté sur une publication. */
+function verifyCell(v) {
+  if (!v || !v.status) return '<span class="pill verify-none" title="Le vérificateur n’est pas encore passé">Pas encore</span>';
+  const title = [v.detail, v.at && `le ${when(v.at)}`, v.republishCount && `${v.republishCount} republication(s)`]
+    .filter(Boolean)
+    .join(' · ');
+  return `<span class="pill verify-${v.status}" title="${esc(title)}">${VERIFY_LABELS[v.status]}</span>`;
+}
 const LINK_LABELS = {
   placed: 'Posé',
   waiting: 'En attente',
@@ -2015,13 +2448,119 @@ function renderQueue() {
       .map(
         (p) =>
           `<tr><td><strong>${esc(when(p.publishedAt))}</strong>` +
-          (p.facebookUrl ? `<a href="${esc(p.facebookUrl)}" target="_blank" rel="noreferrer">Voir sur Facebook ↗</a>` : '') +
+          (p.facebookUrl
+            ? `<a href="${esc(p.facebookUrl)}" target="_blank" rel="noreferrer" title="${esc(p.facebookUrl)}">Voir sur Facebook ↗</a>`
+            : '<span class="fb-missing" title="L’extension n’a pas retrouvé l’adresse du post : le vérificateur la cherchera dans le groupe, ou collez-la">⚠ adresse inconnue</span>') +
+          `<div class="link-actions"><button type="button" data-history="${p.targetId}">Historique</button>` +
+          `<button type="button" data-set-url="${p.targetId}" data-current="${esc(p.facebookUrl || '')}">${p.facebookUrl ? 'Corriger le lien' : 'Coller le lien'}</button></div>` +
           `</td><td>${queuePost(p.post)}</td><td>${queueGroup(p.group)}</td><td>${queueProfile(p.profile)}</td>` +
-          `<td><span class="pill link-${p.link}">${LINK_LABELS[p.link]}</span></td></tr>`,
+          `<td><span class="pill link-${p.link}">${LINK_LABELS[p.link]}</span></td>` +
+          `<td>${verifyCell(p.verify)}</td></tr>`,
       )
-      .join('') || '<tr><td colspan="5" class="empty">Aucune publication pour ce filtre.</td></tr>';
+      .join('') || '<tr><td colspan="6" class="empty">Aucune publication pour ce filtre.</td></tr>';
   $('#queue-more-published').hidden = d.published.length >= d.counts.published;
+  renderVerifyReview();
 }
+
+/** Ce que le vérificateur n'a pas pu régler seul : post sans lien qu'il n'a
+ * pas pu supprimer, republications épuisées, page toujours injoignable. */
+function renderVerifyReview() {
+  const v = state.queue.verify;
+  const panel = $('#queue-review-panel');
+  if (!v || !Array.isArray(v.review)) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = !v.review.length;
+  $('#verify-summary').textContent =
+    `${v.verified} vérifiée(s) · ${v.republished} republiée(s) · ${v.due} à vérifier`;
+  $('#queue-review').innerHTML = v.review
+    .map(
+      (r) =>
+        `<tr><td>${queuePost(r.post)}</td><td>${queueGroup(r.group)}</td>` +
+        `<td><div class="queue-error" title="${esc(r.detail || '')}">${esc(r.detail || 'À vérifier')}</div>` +
+        `<small>${esc(when(r.since))}` +
+        (r.facebookUrl ? ` · <a href="${esc(r.facebookUrl)}" target="_blank" rel="noreferrer">Voir sur Facebook ↗</a>` : '') +
+        `</small></td>` +
+        `<td><div class="row-actions">` +
+        `<button class="edit" data-history="${r.targetId}">Historique</button>` +
+        `<button class="edit" data-verify-resolve="${r.targetId}" data-action="ok" title="J’ai regardé : le post est correct, le laisser tel quel">✓ C’est bon</button>` +
+        `<button class="edit" data-verify-resolve="${r.targetId}" data-action="republish" title="Le remettre dans la file. Supprimez d’abord le post défectueux sur Facebook, sinon il sera en double">↻ Republier</button>` +
+        `</div></td></tr>`,
+    )
+    .join('');
+}
+
+const TARGET_STATUS_LABELS = {
+  AVAILABLE: 'En attente dans la file',
+  CLAIMED: 'Réservé',
+  CONSUMED: 'Publication en cours',
+  PUBLISHED: 'Publié',
+  FAILED: 'En échec',
+};
+const TRACE_TONES = {
+  PUBLISHED: 'good', LINK_PLACED: 'good', VERIFIED_OK: 'good', RESOLVED_OK: 'good', URL_FOUND: 'good', URL_SET: 'good', MARKED_PUBLISHED: 'good',
+  FAILED: 'bad', VERIFY_MISSING_POST: 'bad', VERIFY_MISSING_LINK: 'bad', DELETE_FAILED: 'bad', NEEDS_ACTION: 'bad',
+  URL_MISSING: 'warn', VERIFY_PENDING: 'warn', VERIFY_UNREACHABLE: 'warn', DELETED: 'warn', REQUEUED: 'warn', RETRIED: 'warn',
+};
+const fbLink = (url) => (url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url.replace(/^https:\/\/www\./, ''))}</a>` : '<span class="muted">—</span>');
+
+/** Tout ce qui est arrivé à une publication, dans l'ordre. */
+async function openHistory(targetId) {
+  let h;
+  try {
+    h = await api(`/posts/targets/${targetId}/history`);
+  } catch (x) {
+    notice(x.message, 'error');
+    return;
+  }
+  $('#history-title').textContent = `${h.post.title} · ${h.group.name}`;
+  $('#history-summary').innerHTML =
+    `<div><b>État :</b> ${esc(TARGET_STATUS_LABELS[h.status] || h.status)}` +
+    (h.verifyStatus ? ` · ${esc(VERIFY_LABELS[h.verifyStatus] || h.verifyStatus)}` : '') +
+    (h.republishCount ? ` · republié ${h.republishCount} fois` : '') +
+    `</div><div><b>Post Facebook actuel :</b> ${fbLink(h.facebookUrl)}</div>` +
+    `<div><b>Lien de l’article :</b> ${h.post.url ? `<a href="${esc(h.post.url)}" target="_blank" rel="noreferrer">${esc(h.post.url)}</a>` : '<span class="muted">aucun</span>'}</div>` +
+    (h.group.url ? `<div><b>Groupe :</b> <a href="${esc(h.group.url)}" target="_blank" rel="noreferrer">${esc(h.group.name)} ↗</a></div>` : '');
+  $('#history-attempts').innerHTML =
+    h.attempts
+      .map(
+        (a) =>
+          `<tr><td>${esc(when(a.publishedAt || a.at))}</td><td>${esc(a.profile?.name || '—')}</td>` +
+          `<td>${esc(TARGET_STATUS_LABELS[a.status] || a.status)}${a.linkPlacedAt ? ' · lien posé' : a.commentId ? ' · commenté' : ''}` +
+          (a.error ? `<small class="muted">${esc(a.error)}</small>` : '') +
+          `</td><td>${fbLink(a.facebookUrl)}</td></tr>`,
+      )
+      .join('') || '<tr><td colspan="4" class="empty">Aucune tentative.</td></tr>';
+  $('#history-events').innerHTML =
+    h.events
+      .slice()
+      .reverse()
+      .map(
+        (ev) =>
+          `<li class="${TRACE_TONES[ev.kind] || ''}"><b>${esc(ev.label)}</b>` +
+          `<small>${esc(when(ev.at))}${ev.actor ? ` · ${esc(ev.actor)}` : ''}</small>` +
+          (ev.detail ? `<small>${esc(ev.detail)}</small>` : '') +
+          (ev.facebookUrl ? `<small>${fbLink(ev.facebookUrl)}</small>` : '') +
+          `</li>`,
+      )
+      .join('') || '<li>Aucun événement enregistré.</li>';
+  $('#history-modal').showModal();
+}
+
+/** Retrouver la publication derrière un lien Facebook (actuel ou ancien). */
+$('#url-search').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const url = e.target.elements.url.value.trim();
+  try {
+    const found = await api(`/posts/targets-by-url?url=${encodeURIComponent(url)}`);
+    if (!found.length) return notice('Aucune publication connue pour ce lien.', 'error');
+    if (found.length > 1) notice(`${found.length} publications pour ce lien : la première est affichée.`);
+    await openHistory(found[0].targetId);
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+});
 
 /** Les gestes sur une publication (un post dans un groupe) : l'envoyer
  * par un profil précis, modifier le post, le retirer de ce groupe — et,
@@ -2091,12 +2630,12 @@ document.addEventListener('change', (e) => {
   );
 });
 
-function showPostsTab(tab) {
+function showPostsTab(tab, { fromUrl = false } = {}) {
   state.queue.tab = tab;
   $$('[data-posts-tab]').forEach((b) => b.classList.toggle('active', b.dataset.postsTab === tab));
   $('#posts-queue').classList.toggle('hidden', tab !== 'queue');
   $('#posts-all').classList.toggle('hidden', tab !== 'all');
-  view('posts');
+  view('posts', { fromUrl });
 }
 $$('[data-posts-tab]').forEach((b) => (b.onclick = () => showPostsTab(b.dataset.postsTab)));
 $('#queue-category').onchange = (e) => {
@@ -2197,19 +2736,29 @@ document.addEventListener('click', (e) => {
     else load();
     return;
   }
-  const toggleProfile = state.profiles.find(
-    (x) => x.id === e.target.dataset.toggleProfile,
-  );
-  if (toggleProfile) {
-    api(`/profiles/${toggleProfile.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        status: toggleProfile.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
-      }),
-    })
-      .then(load)
-      .then(() => notice('État du profil modifié.'))
+  // Activer (la désactivation passe par la fiche, pour le transfert). Le
+  // profil peut venir de la fiche sans être sur la page affichée.
+  const toggleId = e.target.dataset.toggleProfile;
+  if (toggleId) {
+    const known = state.profiles.find((x) => x.id === toggleId);
+    const next = known && known.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    api(`/profiles/${toggleId}`, { method: 'PATCH', body: JSON.stringify({ status: next }) })
+      .then(() => {
+        if ($('#profile-detail').open) $('#profile-detail').close();
+        return load();
+      })
+      .then(() => notice(next === 'ACTIVE' ? 'Profil activé : il reprend sa place dans la file.' : 'État du profil modifié.'))
       .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  const detail = e.target.closest('[data-profile-detail]');
+  if (detail) {
+    void openProfileDetail(detail.dataset.profileDetail);
+    return;
+  }
+  if (e.target.dataset.deactivateProfile) {
+    // Désactiver passe par la fiche : on voit pourquoi, et à qui confier ses posts.
+    void openProfileDetail(e.target.dataset.deactivateProfile, { focusDeactivate: true });
     return;
   }
   if (e.target.dataset.releaseJob) {
@@ -2221,9 +2770,40 @@ document.addEventListener('click', (e) => {
     }, 'Lot libéré : ses posts sont de retour dans la file.', e.target);
     return;
   }
-  if (e.target.dataset.markOnline) {
+  if (e.target.dataset.verifyResolve) {
+    const { verifyResolve, action } = e.target.dataset;
+    if (action === 'republish' && !confirm('Republier dans ce groupe ?\nSi le post défectueux est encore sur Facebook, supprimez-le d’abord : sinon il sera en double.')) return;
     void queueAction(
-      () => api(`/posts/targets/${e.target.dataset.markOnline}/published`, { method: 'POST' }),
+      () => api(`/admin/verify/targets/${verifyResolve}/resolve`, { method: 'POST', body: JSON.stringify({ action }) }),
+      action === 'ok' ? 'Marqué comme vérifié.' : 'Remis dans la file : il sera republié.',
+      e.target,
+    );
+    return;
+  }
+  if (e.target.dataset.history) {
+    void openHistory(e.target.dataset.history);
+    return;
+  }
+  if (e.target.dataset.setUrl) {
+    const url = prompt('Adresse du post sur Facebook (ouvrez le post, copiez le lien de sa date) :', e.target.dataset.current || '');
+    if (!url) return;
+    void queueAction(
+      () => api(`/posts/targets/${e.target.dataset.setUrl}/facebook-url`, { method: 'PUT', body: JSON.stringify({ facebookUrl: url.trim() }) }),
+      'Adresse enregistrée : elle est gardée dans l’historique.',
+      e.target,
+    );
+    return;
+  }
+  if (e.target.dataset.markOnline) {
+    // L'adresse est facultative, mais c'est elle qu'ouvrira le vérificateur.
+    const url = prompt('Il est bien en ligne : collez l’adresse du post Facebook (facultatif, mais utile au vérificateur) :', '');
+    if (url == null) return;
+    void queueAction(
+      () =>
+        api(`/posts/targets/${e.target.dataset.markOnline}/published`, {
+          method: 'POST',
+          body: JSON.stringify(String(url).trim() ? { facebookUrl: String(url).trim() } : {}),
+        }),
       'Enregistré comme publié : il ne sera pas republié.',
       e.target,
     );
@@ -2652,4 +3232,8 @@ function registerAgentTools() {
   });
 }
 
-load().then(registerAgentTools);
+// L'adresse décide de la rubrique ouverte : /posts ouvre les posts, etc.
+load().then(() => {
+  routeFromUrl();
+  registerAgentTools();
+});

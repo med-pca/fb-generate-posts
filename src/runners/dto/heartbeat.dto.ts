@@ -4,6 +4,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -53,4 +54,17 @@ export class HeartbeatDto {
   @IsString()
   @MaxLength(200)
   agent?: string;
+
+  /** L'identifiant numérique du compte Facebook connecté dans ce navigateur
+   * (cookie `c_user`). C'est ce qui désigne nos profils au vérificateur. */
+  @ApiPropertyOptional({ example: '100089123456789' })
+  @IsOptional()
+  @Matches(/^\d{5,20}$/)
+  facebookUserId?: string;
+
+  @ApiPropertyOptional({ example: 'Rihab Nakous' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  facebookName?: string;
 }

@@ -1,5 +1,6 @@
 import { JoinStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../auth/current-user';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
@@ -7,45 +8,54 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import { UpdateJoinStatusDto } from './dto/update-join-status.dto';
 export declare class GroupsService {
     private readonly prisma;
-    constructor(prisma: PrismaService);
+    private readonly categories;
+    constructor(prisma: PrismaService, categories: CategoriesService);
     create(profileId: string, dto: CreateGroupDto, owner: CurrentUser | null): Promise<{
         profiles: {
             id: string;
-            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
+            status: import("@prisma/client").$Enums.RecordStatus;
             updatedAt: Date;
             profileId: string;
             groupId: string;
             joinStatus: import("@prisma/client").$Enums.JoinStatus;
             joinCheckedAt: Date | null;
             joinError: string | null;
+            memberApprovedAt: Date | null;
+            preApprovedAt: Date | null;
+            memberActionError: string | null;
+            memberActionAt: Date | null;
+            memberClaimedUntil: Date | null;
+            memberAttempts: number;
         }[];
     } & {
-        name: string;
         id: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
+        name: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
         ownerId: string | null;
         externalId: string | null;
+        categoryId: string | null;
         url: string;
     }>;
     findAll(profileId: string, acting: CurrentUser | null): Promise<{
-        name: string;
         id: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
+        name: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
         ownerId: string | null;
         externalId: string | null;
+        categoryId: string | null;
         url: string;
     }[]>;
     link(profileId: string, groupId: string, acting: CurrentUser | null): Promise<{
         profile: {
-            name: string;
             id: string;
-            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
+            name: string;
+            status: import("@prisma/client").$Enums.RecordStatus;
             updatedAt: Date;
             ownerId: string | null;
             externalId: string | null;
@@ -54,48 +64,69 @@ export declare class GroupsService {
             maxPostsPerJob: number;
             minimumAvailable: number | null;
             minimumAvailablePerGroup: number | null;
+            isModerator: boolean;
+            facebookUserId: string | null;
+            facebookName: string | null;
+            facebookSeenAt: Date | null;
         };
         group: {
-            name: string;
             id: string;
-            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
+            name: string;
+            status: import("@prisma/client").$Enums.RecordStatus;
             updatedAt: Date;
             ownerId: string | null;
             externalId: string | null;
+            categoryId: string | null;
             url: string;
         };
     } & {
         id: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
         profileId: string;
         groupId: string;
         joinStatus: import("@prisma/client").$Enums.JoinStatus;
         joinCheckedAt: Date | null;
         joinError: string | null;
+        memberApprovedAt: Date | null;
+        preApprovedAt: Date | null;
+        memberActionError: string | null;
+        memberActionAt: Date | null;
+        memberClaimedUntil: Date | null;
+        memberAttempts: number;
     }>;
     unlink(profileId: string, groupId: string, acting: CurrentUser | null): Promise<{
         id: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
         profileId: string;
         groupId: string;
         joinStatus: import("@prisma/client").$Enums.JoinStatus;
         joinCheckedAt: Date | null;
         joinError: string | null;
+        memberApprovedAt: Date | null;
+        preApprovedAt: Date | null;
+        memberActionError: string | null;
+        memberActionAt: Date | null;
+        memberClaimedUntil: Date | null;
+        memberAttempts: number;
     }>;
     findCatalog({ page, limit }: PaginationDto, acting: CurrentUser | null): Promise<{
         data: {
             availablePosts: number;
+            category: {
+                id: string;
+                name: string;
+            } | null;
             profiles: ({
                 profile: {
-                    name: string;
                     id: string;
-                    status: import("@prisma/client").$Enums.RecordStatus;
                     createdAt: Date;
+                    name: string;
+                    status: import("@prisma/client").$Enums.RecordStatus;
                     updatedAt: Date;
                     ownerId: string | null;
                     externalId: string | null;
@@ -104,28 +135,39 @@ export declare class GroupsService {
                     maxPostsPerJob: number;
                     minimumAvailable: number | null;
                     minimumAvailablePerGroup: number | null;
+                    isModerator: boolean;
+                    facebookUserId: string | null;
+                    facebookName: string | null;
+                    facebookSeenAt: Date | null;
                 };
             } & {
                 id: string;
-                status: import("@prisma/client").$Enums.RecordStatus;
                 createdAt: Date;
+                status: import("@prisma/client").$Enums.RecordStatus;
                 updatedAt: Date;
                 profileId: string;
                 groupId: string;
                 joinStatus: import("@prisma/client").$Enums.JoinStatus;
                 joinCheckedAt: Date | null;
                 joinError: string | null;
+                memberApprovedAt: Date | null;
+                preApprovedAt: Date | null;
+                memberActionError: string | null;
+                memberActionAt: Date | null;
+                memberClaimedUntil: Date | null;
+                memberAttempts: number;
             })[];
             _count: {
                 targets: number;
             };
-            name: string;
             id: string;
-            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
+            name: string;
+            status: import("@prisma/client").$Enums.RecordStatus;
             updatedAt: Date;
             ownerId: string | null;
             externalId: string | null;
+            categoryId: string | null;
             url: string;
         }[];
         meta: {
@@ -137,25 +179,40 @@ export declare class GroupsService {
     }>;
     private reachableGroup;
     private ownedGroup;
+    private requiredCategory;
     private reachableProfile;
     update(id: string, dto: UpdateGroupDto, acting: CurrentUser | null): Promise<{
-        name: string;
         id: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
+        name: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
         ownerId: string | null;
         externalId: string | null;
+        categoryId: string | null;
         url: string;
     }>;
+    removePosts(id: string, acting: CurrentUser | null, dryRun?: boolean): Promise<{
+        dryRun: boolean;
+        removedFromGroup: number;
+        deletedPosts: number;
+        stillInOtherGroups: number;
+        kept: number;
+    }>;
+    setJoinStatus(groupId: string, profileId: string, joinStatus: JoinStatus, acting: CurrentUser | null): Promise<{
+        profileId: string;
+        groupId: string;
+        joinStatus: import("@prisma/client").$Enums.JoinStatus;
+    }>;
     remove(id: string, acting: CurrentUser | null): Promise<{
-        name: string;
         id: string;
-        status: import("@prisma/client").$Enums.RecordStatus;
         createdAt: Date;
+        name: string;
+        status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
         ownerId: string | null;
         externalId: string | null;
+        categoryId: string | null;
         url: string;
     }>;
     private findAutomationProfile;

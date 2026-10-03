@@ -4,4 +4,5 @@ export declare class CreateGroupDto {
     name: string;
     externalId?: string;
     url: string;
+    categoryId: string;
 }

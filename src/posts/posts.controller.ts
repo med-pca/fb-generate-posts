@@ -26,7 +26,9 @@ import { UpdatePostDto } from './dto/update-post.dto';
 import { QueryPostsDto } from './dto/query-posts.dto';
 import { BulkDeletePostsDto } from './dto/bulk-delete-posts.dto';
 import {
+  FacebookUrlDto,
   ForceTargetDto,
+  OptionalFacebookUrlDto,
   PriorityDto,
   QueueQueryDto,
 } from './dto/queue.dto';
@@ -77,9 +79,35 @@ export class PostsController {
   })
   markPublished(
     @Param('targetId') targetId: string,
+    @Body() dto: OptionalFacebookUrlDto,
     @ActingUser() acting: CurrentUser,
   ) {
-    return this.queueService.markPublished(targetId, acting);
+    return this.queueService.markPublished(targetId, acting, dto?.facebookUrl);
+  }
+
+  @Put('targets/:targetId/facebook-url')
+  @ApiOperation({
+    summary: 'Enregistrer l’adresse Facebook d’une publication',
+    description: 'Celle que l’extension n’a pas retrouvée, ou une correction. L’ancienne reste dans l’historique.',
+  })
+  setFacebookUrl(
+    @Param('targetId') targetId: string,
+    @Body() dto: FacebookUrlDto,
+    @ActingUser() acting: CurrentUser,
+  ) {
+    return this.queueService.setFacebookUrl(targetId, dto.facebookUrl, acting);
+  }
+
+  @Get('targets/:targetId/history')
+  @ApiOperation({ summary: 'Historique d’une publication : tentatives, adresses, vérifications' })
+  history(@Param('targetId') targetId: string, @ActingUser() acting: CurrentUser) {
+    return this.queueService.history(targetId, acting);
+  }
+
+  @Get('targets-by-url')
+  @ApiOperation({ summary: 'Retrouver une publication à partir de son adresse Facebook' })
+  findByUrl(@Query('url') url: string, @ActingUser() acting: CurrentUser) {
+    return this.queueService.findByUrl(url ?? '', acting);
   }
 
   @Delete('targets/:targetId')

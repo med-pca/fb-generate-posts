@@ -14,20 +14,14 @@ const openapi = require("@nestjs/swagger");
 const swagger_1 = require("@nestjs/swagger");
 const class_validator_1 = require("class-validator");
 class GenerateArticlePostsDto {
-    profileId;
     groupIds;
     delayMin = 10;
     delayMax = 60;
     static _OPENAPI_METADATA_FACTORY() {
-        return { profileId: { required: true, type: () => String }, groupIds: { required: true, type: () => [String], minItems: 1 }, delayMin: { required: true, type: () => Object, default: 10, minimum: 0, maximum: 1440 }, delayMax: { required: true, type: () => Object, default: 60, minimum: 0, maximum: 1440 } };
+        return { groupIds: { required: true, type: () => [String], minItems: 1 }, delayMin: { required: true, type: () => Object, default: 10, minimum: 0, maximum: 1440 }, delayMax: { required: true, type: () => Object, default: 60, minimum: 0, maximum: 1440 } };
     }
 }
 exports.GenerateArticlePostsDto = GenerateArticlePostsDto;
-__decorate([
-    (0, swagger_1.ApiProperty)(),
-    (0, class_validator_1.IsString)(),
-    __metadata("design:type", String)
-], GenerateArticlePostsDto.prototype, "profileId", void 0);
 __decorate([
     (0, swagger_1.ApiProperty)({ type: [String] }),
     (0, class_validator_1.IsArray)(),

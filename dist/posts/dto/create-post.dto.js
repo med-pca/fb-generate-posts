@@ -13,7 +13,6 @@ exports.CreatePostDto = void 0;
 const openapi = require("@nestjs/swagger");
 const class_validator_1 = require("class-validator");
 class CreatePostDto {
-    profileId;
     title;
     description;
     url;
@@ -21,14 +20,10 @@ class CreatePostDto {
     delay;
     groupIds;
     static _OPENAPI_METADATA_FACTORY() {
-        return { profileId: { required: true, type: () => String }, title: { required: true, type: () => String }, description: { required: true, type: () => String }, url: { required: false, type: () => String, format: "uri" }, imageUrl: { required: false, type: () => String, format: "uri" }, delay: { required: true, type: () => Number, minimum: 0, maximum: 1440 }, groupIds: { required: true, type: () => [String], minItems: 1 } };
+        return { title: { required: true, type: () => String }, description: { required: true, type: () => String }, url: { required: false, type: () => String, format: "uri" }, imageUrl: { required: false, type: () => String, format: "uri" }, delay: { required: true, type: () => Number, minimum: 0, maximum: 1440 }, groupIds: { required: true, type: () => [String], minItems: 1 } };
     }
 }
 exports.CreatePostDto = CreatePostDto;
-__decorate([
-    (0, class_validator_1.IsString)(),
-    __metadata("design:type", String)
-], CreatePostDto.prototype, "profileId", void 0);
 __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)

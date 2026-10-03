@@ -1,5 +1,5 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common';
-import { SourceReaderService, normalizeText } from './source-reader.service';
+import { SourceReaderService, normalizeText, pageOf } from './source-reader.service';
 
 jest.mock('node:dns/promises', () => ({
   lookup: jest.fn(() =>
@@ -181,5 +181,73 @@ describe('SourceReaderService', () => {
       ),
     );
     await expect(read()).resolves.toMatchObject({ leadImageUrl: null });
+  });
+});
+
+describe('SourceReaderService — article en plusieurs pages', () => {
+  const part = (n: number, nav: string) => `<!doctype html><html lang="en"><head>
+    <title>Easy lasagna | Food</title></head><body>
+    <article><h1>Easy lasagna</h1>${Array.from(
+      { length: 8 },
+      (_, i) => `<p>Page ${n}, paragraph ${i}: a long enough sentence for the extraction to keep it as real content.</p>`,
+    ).join('')}${nav}</article>
+    <aside><a href="https://food.test/other-recipe/" rel="next">Next post: other recipe</a></aside></body></html>`;
+
+  it('suit « page suivante » jusqu’à la dernière page, sans passer à l’article suivant', async () => {
+    const pages: Record<string, string> = {
+      'https://food.test/lasagna/': part(1, '<div class="page-links"><a class="post-page-numbers" href="https://food.test/lasagna/2/">2</a><a class="post-page-numbers" href="https://food.test/lasagna/3/">3</a></div>'),
+      'https://food.test/lasagna/2/': part(2, '<a href="/lasagna/3/">Next Page »</a>'),
+      'https://food.test/lasagna/3/': part(3, '<a href="/lasagna/2/">Previous page</a>'),
+    };
+    fetchMock.mockImplementation(async (url: URL) => html(pages[url.toString()] ?? '', pages[url.toString()] ? 200 : 404));
+    const article = await read('https://food.test/lasagna/');
+    expect(article.pageUrls).toEqual([
+      'https://food.test/lasagna/',
+      'https://food.test/lasagna/2/',
+      'https://food.test/lasagna/3/',
+    ]);
+    expect(article.text).toContain('Page 1, paragraph 0');
+    expect(article.text).toContain('Page 3, paragraph 7');
+    expect(fetchMock.mock.calls.map((c) => c[0].toString())).not.toContain('https://food.test/other-recipe/');
+  });
+
+  it('reconnaît ?page=2 et un libellé arabe', async () => {
+    const pages: Record<string, string> = {
+      'https://food.test/recette': part(1, '<a href="?page=2">الصفحة التالية</a>'),
+      'https://food.test/recette?page=2': part(2, ''),
+    };
+    fetchMock.mockImplementation(async (url: URL) => html(pages[url.toString()] ?? '', pages[url.toString()] ? 200 : 404));
+    const article = await read('https://food.test/recette');
+    expect(article.pageUrls).toHaveLength(2);
+    expect(article.text).toContain('Page 2, paragraph 0');
+  });
+
+  it('une page suivante illisible n’annule pas les pages déjà lues', async () => {
+    fetchMock.mockImplementation(async (url: URL) =>
+      url.toString().endsWith('/2/')
+        ? html('', 500)
+        : html(part(1, '<a href="https://food.test/lasagna/2/">Page suivante</a>')),
+    );
+    const article = await read('https://food.test/lasagna/');
+    expect(article.pageUrls).toEqual(['https://food.test/lasagna/']);
+    expect(article.text).toContain('Page 1');
+  });
+
+  it('s’arrête quand le site renvoie toujours la même page', async () => {
+    fetchMock.mockImplementation(async () => html(part(1, '<a href="/lasagna/2/">Next page</a>')));
+    const article = await read('https://food.test/lasagna/');
+    expect(article.pageUrls).toHaveLength(1);
+  });
+});
+
+describe('pageOf', () => {
+  it('sépare le socle et le numéro de page', () => {
+    expect(pageOf('https://a.test/recette/2/')).toEqual({ base: 'a.test/recette', page: 2 });
+    expect(pageOf('https://a.test/recette/page/3')).toEqual({ base: 'a.test/recette', page: 3 });
+    expect(pageOf('https://a.test/recette?page=4')).toEqual({ base: 'a.test/recette', page: 4 });
+    expect(pageOf('https://a.test/recette-page-5.html')).toEqual({ base: 'a.test/recette', page: 5 });
+    expect(pageOf('https://a.test/recette/')).toEqual({ base: 'a.test/recette', page: 1 });
+    // Un identifiant d'article n'est pas un numéro de page.
+    expect(pageOf('https://a.test/recipes/48213').page).toBe(1);
   });
 });

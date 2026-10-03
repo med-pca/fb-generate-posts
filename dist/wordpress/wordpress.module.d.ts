@@ -8,6 +8,8 @@ export declare class WordpressController {
         duplicate: boolean;
         updated: boolean;
         generated: number;
+        groups: number;
+        noPost: "no_group" | "no_category" | null;
         synchronized: number;
         skipped: number;
     }>;

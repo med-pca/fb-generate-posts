@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>PostFlow — Connexion</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%232563eb'/%3E%3Cpath d='M18 18h22a9 9 0 010 18H28v11H18V18zm10 9v2h11a1 1 0 000-2H28z' fill='white'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/login.css" />
+  </head>
+  <body>
+    <main class="login">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">P</span>
+        <div><strong>PostFlow</strong><small>Plateforme de publication</small></div>
+      </div>
+      <form id="login-form" novalidate>
+        <h1>Connexion</h1>
+        <p class="lead">Accès réservé aux comptes de la plateforme.</p>
+        <label for="username">Identifiant</label>
+        <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="100" />
+        <label for="password">Mot de passe</label>
+        <div class="password">
+          <input id="password" name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="200" />
+          <button type="button" id="reveal" aria-label="Afficher le mot de passe" aria-pressed="false">Afficher</button>
+        </div>
+        <p id="error" class="error" role="alert" hidden></p>
+        <button id="submit" class="primary" type="submit">Se connecter</button>
+        <p class="hint">Session sécurisée, fermée automatiquement après 2 h d’inactivité. Après 5 essais manqués, l’accès est bloqué 15 minutes.</p>
+      </form>
+    </main>
+    <script src="/login.js" defer></script>
+  </body>
+</html>

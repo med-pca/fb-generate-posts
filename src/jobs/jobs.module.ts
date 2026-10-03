@@ -8,5 +8,6 @@ import { MediaService } from './media.service';
 @Module({
   controllers: [JobsController, MediaController, AdminJobsController],
   providers: [JobsService, MediaService],
+  exports: [JobsService],
 })
 export class JobsModule {}

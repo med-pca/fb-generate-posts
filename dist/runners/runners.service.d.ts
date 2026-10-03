@@ -5,6 +5,7 @@ import type { CurrentUser } from '../auth/current-user';
 import { UpdateRunnerDto } from './dto/update-runner.dto';
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { BrowserReportDto } from './dto/browser-report.dto';
+import { NstProfileDto } from './dto/sync-profiles.dto';
 export type Decision = {
     run: boolean;
     reason: string;
@@ -43,14 +44,22 @@ export declare class RunnersService {
         profileName: string;
         profileActive: boolean;
     }>;
+    autoPair(rawExternalId: string, rawName: string | undefined, acting: CurrentUser | null, providedKey?: string): Promise<{
+        profileExternalId: string;
+        profileName: string;
+        profileActive: boolean;
+        created: boolean;
+    }>;
     private keyFor;
     private readonly pairAttempts;
     private guardPairAttempts;
     private countPairFailure;
     decide(runner: RunnerRow | null, profileActive: boolean, publishingEnabled: boolean, now?: Date): Omit<Decision, 'serverTime'>;
     control(profileExternalId: string, acting?: CurrentUser | null): Promise<Decision>;
-    heartbeat(profileExternalId: string, dto: HeartbeatDto, acting?: CurrentUser | null): Promise<Decision>;
+    heartbeat(profileExternalId: string, dto: HeartbeatDto, acting?: CurrentUser | null, providedKey?: string): Promise<Decision>;
+    private noteFacebookIdentity;
     launcherPlan(acting?: CurrentUser | null, now?: Date): Promise<{
+        nstApiKey: string | null;
         pollAfterSeconds: number;
         serverTime: string;
         profiles: {
@@ -62,7 +71,16 @@ export declare class RunnersService {
             workerRunning: boolean;
             workerSeenAt: Date | null;
             browserState: import("@prisma/client").$Enums.BrowserState;
+            nstApiKey: string | null;
         }[];
+    }>;
+    syncProfiles(rows: NstProfileDto[], acting?: CurrentUser | null): Promise<{
+        created: {
+            externalId: string;
+            name: string;
+        }[];
+        existing: number;
+        received: number;
     }>;
     reportBrowser(profileExternalId: string, dto: BrowserReportDto, acting?: CurrentUser | null): Promise<Decision>;
     list(acting?: CurrentUser | null, now?: Date): Promise<{
@@ -73,6 +91,9 @@ export declare class RunnersService {
             name: string;
             externalId: string | null;
             status: import("@prisma/client").$Enums.RecordStatus;
+            isModerator: boolean;
+            facebookUserId: string | null;
+            facebookName: string | null;
             mode: import("@prisma/client").$Enums.RunnerMode;
             shouldRun: boolean;
             reason: string;
@@ -95,6 +116,7 @@ export declare class RunnersService {
             browserSeenAt: Date | null;
             browserMessage: string | null;
             pairedAt: Date | null;
+            pairing: import("./pairing").PairingHealth;
             pairCodePending: boolean;
         }[];
     }>;
@@ -111,9 +133,31 @@ export declare class RunnersService {
     updateAll(dto: UpdateRunnerDto, acting?: CurrentUser | null): Promise<{
         updated: number;
     }>;
+    private nstKeyOf;
     private atWork;
     private answer;
     private globalSettings;
     private context;
+    noteRejectedKey(profileExternalId: string, reason: string): Promise<void>;
+    private currentKeyHashes;
+    checkPairings(acting?: CurrentUser | null, now?: Date): Promise<{
+        checkedAt: string;
+        checked: number;
+        byState: Record<string, number>;
+        broken: {
+            state: import("./pairing").PairingState;
+            detail: string;
+            broken: boolean;
+            profileId: string;
+            name: string;
+        }[];
+        unconfirmed: {
+            state: import("./pairing").PairingState;
+            detail: string;
+            broken: boolean;
+            profileId: string;
+            name: string;
+        }[];
+    }>;
 }
 export {};

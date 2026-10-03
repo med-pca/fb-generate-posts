@@ -92,6 +92,7 @@ describe('LogsService — synthèse décisionnelle', () => {
     expect(by).toEqual({
       publication: [12, 2, 0],
       capture: [1, 1, 0],
+      security: [0, 0, 0],
       sync: [5, 0, 5],
       groups: [3, 0, 0],
       other: [7, 0, 0],
@@ -181,5 +182,76 @@ describe('LogsService — synthèse décisionnelle', () => {
     expect(prisma.activityLog.count).toHaveBeenCalledWith({
       where: { createdAt: { gte: summary.since } },
     });
+  });
+});
+
+describe('LogsService — filtres de suivi et export', () => {
+  const harness = (rows: any[] = []) => {
+    const prisma: any = {
+      activityLog: {
+        findMany: jest.fn(async () => rows),
+        count: jest.fn(async () => rows.length),
+        create: jest.fn(async (args: any) => args),
+      },
+      $transaction: jest.fn(async (ops: any[]) => Promise.all(ops)),
+    };
+    return { service: new LogsService(prisma), prisma };
+  };
+  const base = { page: 1, limit: 25, onlyIncidents: false, withUrl: false };
+
+  it('filtre par lien Facebook, groupe, catégorie, publication et « avec lien »', async () => {
+    const { service, prisma } = harness();
+    await service.search(
+      {
+        ...base,
+        domain: 'publication',
+        groupId: 'g1',
+        categoryId: 'c1',
+        postTargetId: 't1',
+        withUrl: true,
+        facebookUrl: 'https://m.facebook.com/groups/1/posts/9/?__cft__=x',
+        search: 'introuvable',
+      } as any,
+      null,
+    );
+    const where = prisma.activityLog.findMany.mock.calls[0][0].where;
+    expect(where).toMatchObject({ groupId: 'g1', postTargetId: 't1', group: { categoryId: 'c1' } });
+    const and = JSON.stringify(where.AND);
+    expect(and).toContain('https://www.facebook.com/groups/1/posts/9');
+    expect(and).toContain('"facebookUrl":{"not":null}');
+    expect(and).toContain('introuvable');
+  });
+
+  it('le domaine et les incidents se combinent sans s’écraser', async () => {
+    const { service, prisma } = harness();
+    await service.search({ ...base, domain: 'publication', onlyIncidents: true, search: 'x' } as any, null);
+    const where = prisma.activityLog.findMany.mock.calls[0][0].where;
+    expect(where.AND).toHaveLength(3);
+  });
+
+  it('exporte en CSV lisible par Excel, avec le lien et l’URL de l’article', async () => {
+    const { service } = harness([
+      {
+        createdAt: new Date('2026-10-03T10:00:00Z'),
+        level: 'ERROR',
+        eventType: 'VERIFY_MISSING_LINK',
+        message: 'sans le lien; à supprimer',
+        profile: { name: 'Modo' },
+        group: { name: 'Recettes', category: { name: 'Cuisine' } },
+        post: { title: 'Tajine', url: 'https://site.test/tajine' },
+        facebookUrl: 'https://www.facebook.com/groups/1/posts/9',
+        postTargetId: 't1',
+        jobId: null,
+      },
+    ]);
+    const csv = await service.exportCsv(base as any, null);
+    expect(csv.startsWith('﻿date;niveau')).toBe(true);
+    expect(csv).toContain('VERIFY_MISSING_LINK;"sans le lien; à supprimer";Modo;Recettes;Cuisine;Tajine;https://www.facebook.com/groups/1/posts/9;https://site.test/tajine;t1;');
+  });
+
+  it('un lien écrit par l’extension est enregistré sous sa forme stable', async () => {
+    const { service, prisma } = harness();
+    await service.create({ eventType: 'WORKER_PUBLISHED', level: 'INFO', message: 'ok', facebookUrl: 'https://web.facebook.com/groups/1/posts/9/?mibextid=1' } as any);
+    expect(prisma.activityLog.create.mock.calls[0][0].data.facebookUrl).toBe('https://www.facebook.com/groups/1/posts/9');
   });
 });

@@ -42,6 +42,28 @@ export class QueryLogsDto extends PaginationDto {
   @IsString()
   jobId?: string;
 
+  /** Une publication précise (un post dans un groupe). */
+  @IsOptional()
+  @IsString()
+  postTargetId?: string;
+
+  /** Les groupes d'une catégorie. */
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  /** Un lien Facebook (complet ou en partie : un numéro de post suffit). */
+  @IsOptional()
+  @IsString()
+  facebookUrl?: string;
+
+  /** Seulement les événements qui portent un lien Facebook. */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  withUrl = false;
+
+  /** Cherche dans le message, le type d'événement et le lien. */
   @IsOptional()
   @IsString()
   search?: string;

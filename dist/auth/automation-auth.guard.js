@@ -25,8 +25,10 @@ let AutomationAuthGuard = class AutomationAuthGuard {
     async canActivate(context) {
         const request = context.switchToHttp().getRequest();
         const provided = String(request.headers['x-api-key'] || '');
-        if (!provided)
+        if (!provided) {
+            await this.noteBrowserRejected(request, 'aucune clé présentée');
             throw new common_1.UnauthorizedException('Clé d’automatisation invalide');
+        }
         const global = this.config.get('AUTOMATION_API_KEY');
         if (global && this.equal(provided, global)) {
             request.user = null;
@@ -36,12 +38,14 @@ let AutomationAuthGuard = class AutomationAuthGuard {
             where: { automationKey: provided },
         });
         if (!user) {
+            await this.noteBrowserRejected(request, 'clé inconnue (régénérée depuis l’appairage ?)');
             if (!global) {
                 throw new common_1.ServiceUnavailableException('AUTOMATION_API_KEY doit être configuré, ou une clé de compte présentée');
             }
             throw new common_1.UnauthorizedException('Clé d’automatisation invalide');
         }
         if (user.status !== client_1.RecordStatus.ACTIVE) {
+            await this.noteBrowserRejected(request, `compte « ${user.username} » désactivé`);
             throw new common_1.UnauthorizedException('Ce compte est désactivé');
         }
         request.user = {
@@ -51,6 +55,26 @@ let AutomationAuthGuard = class AutomationAuthGuard {
             status: user.status,
         };
         return true;
+    }
+    async noteBrowserRejected(request, reason) {
+        const match = /\/control\/profile\/([^/?#]+)/.exec(request.url || '');
+        if (!match)
+            return;
+        let externalId;
+        try {
+            externalId = decodeURIComponent(match[1]);
+        }
+        catch {
+            return;
+        }
+        try {
+            await this.prisma.profileRunner.updateMany({
+                where: { profile: { externalId } },
+                data: { keyRejectedAt: new Date(), keyRejectReason: reason },
+            });
+        }
+        catch {
+        }
     }
     equal(left, right) {
         const a = (0, node_crypto_1.createHmac)('sha256', 'automation').update(left).digest();

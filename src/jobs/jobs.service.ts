@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JobStatus, JoinStatus, Prisma, TargetStatus } from '@prisma/client';
+import { normalizeFacebookUrl, trace } from '../trace/trace';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaimJobDto } from './dto/claim-job.dto';
 import { ClaimBatchDto } from './dto/claim-batch.dto';
@@ -936,11 +937,24 @@ export class JobsService {
         data,
       });
       await tx.postTarget.update({ where: { id: item.postTargetId }, data });
+      await trace(tx, {
+        postTargetId: item.postTargetId,
+        kind: 'COMMENTED',
+        facebookUrl: item.externalPostUrl
+          ? `${item.externalPostUrl}${item.externalPostUrl.includes('?') ? '&' : '?'}comment_id=${dto.commentExternalId}`
+          : null,
+        profileId: item.job.profileId,
+        jobId,
+        detail: `commentaire ${dto.commentExternalId}`,
+      });
       await tx.activityLog.create({
         data: {
           jobId,
           postId,
           postTargetId: item.postTargetId,
+          profileId: item.job.profileId,
+          groupId: item.job.groupId,
+          facebookUrl: item.externalPostUrl,
           eventType: 'POST_COMMENTED',
           message: 'Commentaire posé, en attente de l’URL',
           metadata: { commentExternalId: dto.commentExternalId },
@@ -1070,13 +1084,24 @@ export class JobsService {
         where: { id: item.postTargetId },
         data: { linkUpdatedAt },
       });
+      await trace(tx, {
+        postTargetId: item.postTargetId,
+        kind: 'LINK_PLACED',
+        facebookUrl: item.externalPostUrl,
+        profileId: item.job.profileId,
+        jobId,
+        detail: item.post.url,
+      });
       await tx.activityLog.create({
         data: {
           jobId,
           postId,
           postTargetId: item.postTargetId,
+          profileId: item.job.profileId,
+          groupId: item.job.groupId,
+          facebookUrl: item.externalPostUrl,
           eventType: 'COMMENT_LINK_UPDATED',
-          message: 'Commentaire modifié avec l’URL',
+          message: `Commentaire modifié avec l’URL de l’article : ${item.post.url}`,
           metadata: {
             commentExternalId: item.commentExternalId,
             url: item.post.url,
@@ -1144,7 +1169,10 @@ export class JobsService {
   ) {
     const item = await this.prisma.publicationJobItem.findUnique({
       where: { jobId_postId: { jobId, postId } },
-      include: { job: true, postTarget: true },
+      include: {
+        job: { include: { profile: { select: { name: true } } } },
+        postTarget: true,
+      },
     });
     if (!item) throw new NotFoundException('Post introuvable dans ce job');
     if (item.status === status) return item;
@@ -1164,10 +1192,20 @@ export class JobsService {
       );
     }
 
+    // L'adresse du post : gardée telle que Facebook l'a donnée, ramenée à sa
+    // forme stable (sans paramètres de suivi).
+    const facebookUrl =
+      status === TargetStatus.PUBLISHED
+        ? (normalizeFacebookUrl(data.externalPostUrl) ?? data.externalPostUrl ?? null)
+        : undefined;
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.publicationJobItem.update({
         where: { id: item.id },
-        data: { status, ...data },
+        data: {
+          status,
+          ...data,
+          ...(facebookUrl !== undefined ? { externalPostUrl: facebookUrl } : {}),
+        },
       });
       await tx.postTarget.update({
         where: { id: item.postTargetId },
@@ -1176,16 +1214,47 @@ export class JobsService {
           consumedAt: status === TargetStatus.CONSUMED ? new Date() : undefined,
           publishedAt: data.publishedAt,
           lastError: data.error,
+          facebookUrl,
         },
       });
+      if (status === TargetStatus.PUBLISHED || status === TargetStatus.FAILED) {
+        await trace(tx, {
+          postTargetId: item.postTargetId,
+          kind:
+            status === TargetStatus.FAILED
+              ? 'FAILED'
+              : facebookUrl
+                ? 'PUBLISHED'
+                : 'URL_MISSING',
+          facebookUrl,
+          actor: item.job.profile?.name ?? null,
+          profileId: item.job.profileId,
+          jobId,
+          detail:
+            status === TargetStatus.FAILED
+              ? data.error
+              : facebookUrl
+                ? null
+                : 'l’extension n’a pas retrouvé l’adresse du post : le vérificateur la cherchera dans le groupe',
+        });
+      }
       await tx.activityLog.create({
         data: {
           jobId,
           postId,
           postTargetId: item.postTargetId,
+          profileId: item.job.profileId,
+          groupId: item.job.groupId,
+          facebookUrl: facebookUrl ?? item.externalPostUrl ?? null,
           eventType: `POST_${status}`,
-          level: status === TargetStatus.FAILED ? 'ERROR' : 'INFO',
-          message: data.error ?? `Post marqué ${status}`,
+          level: status === TargetStatus.FAILED ? 'ERROR' : status === TargetStatus.PUBLISHED && !facebookUrl ? 'WARN' : 'INFO',
+          message:
+            data.error ??
+            (status === TargetStatus.PUBLISHED
+              ? facebookUrl
+                ? `Publié par ${item.job.profile?.name ?? 'le profil'} : ${facebookUrl}`
+                : `Publié par ${item.job.profile?.name ?? 'le profil'}, SANS adresse Facebook : le vérificateur la cherchera dans le groupe`
+              : `Post marqué ${status}`),
         },
       });
       return updated;

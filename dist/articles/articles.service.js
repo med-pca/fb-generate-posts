@@ -14,6 +14,7 @@ const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const paginated_1 = require("../common/paginated");
 const scope_1 = require("../auth/scope");
+const post_groups_1 = require("../posts/post-groups");
 const safe_fetch_1 = require("../common/safe-fetch");
 let ArticlesService = class ArticlesService {
     prisma;
@@ -102,33 +103,22 @@ let ArticlesService = class ArticlesService {
         const article = await this.prisma.article.findUnique({ where: { id } });
         if (!article)
             throw new common_1.NotFoundException('Article introuvable');
-        const groupIds = [...new Set(dto.groupIds)];
-        const profile = await this.prisma.profile.findFirst({
-            where: { id: dto.profileId, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
-            select: { id: true },
-        });
-        if (!profile)
-            throw new common_1.NotFoundException('Profil introuvable');
-        const validGroups = await this.prisma.group.count({
-            where: {
-                id: { in: groupIds },
-                profiles: { some: { profileId: dto.profileId, status: 'ACTIVE' } },
-            },
-        });
-        if (validGroups !== groupIds.length) {
-            throw new common_1.BadRequestException('Tous les groupes doivent être associés au profil sélectionné');
+        if (article.archivedAt) {
+            throw new common_1.ConflictException('Cet article est archivé : ses posts ont commencé à être publiés, il ne sert plus');
         }
+        const groupIds = await (0, post_groups_1.postGroupIds)(this.prisma, dto.groupIds, acting);
         const captions = this.captionsOf(article);
         if (!captions.length) {
             throw new common_1.BadRequestException('Cet article ne contient aucune légende exploitable');
         }
         return this.prisma.$transaction(captions.map((_, slot) => {
-            const { profileId, sourceType, externalId, ...content } = this.postDataForSlot(article, slot, dto);
+            const { profileId, sourceType, externalId, ...content } = this.postDataForSlot(article, slot, { ...dto, profileId: null });
             return this.prisma.post.upsert({
                 where: { sourceType_externalId: { sourceType, externalId } },
                 create: {
                     ...content,
                     profileId,
+                    ownerId: acting?.id ?? null,
                     sourceType,
                     externalId,
                     targets: { create: groupIds.map((groupId) => ({ groupId })) },
@@ -184,9 +174,10 @@ let ArticlesService = class ArticlesService {
     slotExternalId(articleId, profileId, slot, captionCount) {
         const index = slot % captionCount;
         const variant = Math.floor(slot / captionCount);
+        const owner = profileId ?? 'open';
         return variant === 0
-            ? `${articleId}:${profileId}:${index}`
-            : `${articleId}:${profileId}:${index}:v${variant}`;
+            ? `${articleId}:${owner}:${index}`
+            : `${articleId}:${owner}:${index}:v${variant}`;
     }
     articleData(payload, jsonUrl, coverImageUrl) {
         return {

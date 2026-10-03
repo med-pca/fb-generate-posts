@@ -28,6 +28,9 @@ let RunnersController = class RunnersController {
     list(acting) {
         return this.runners.list(acting);
     }
+    checkPairings(acting) {
+        return this.runners.checkPairings(acting);
+    }
     updateAll(dto, acting) {
         return this.runners.updateAll(dto, acting);
     }
@@ -52,6 +55,20 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], RunnersController.prototype, "list", null);
+__decorate([
+    (0, common_1.Post)('pairing-check'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Vérifier l’état réel de tous les appairages',
+        description: 'Compare la clé que chaque navigateur détient à la clé actuelle de son ' +
+            'compte, l’identifiant NSTBrowser, les battements refusés et les ' +
+            'battements réussis. Rend le compte par état et ce qui est à refaire.',
+    }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], RunnersController.prototype, "checkPairings", null);
 __decorate([
     (0, common_1.Patch)('all'),
     (0, swagger_1.ApiOperation)({

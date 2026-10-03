@@ -16,7 +16,8 @@ const client_1 = require("@prisma/client");
 const node_crypto_1 = require("node:crypto");
 const prisma_service_1 = require("../prisma/prisma.service");
 const password_1 = require("./password");
-const SESSION_HOURS = 12;
+let dummy = '';
+const DUMMY_HASH = () => (dummy ||= (0, password_1.hashPassword)('mot-de-passe-factice'));
 let AuthService = class AuthService {
     config;
     prisma;
@@ -24,26 +25,14 @@ let AuthService = class AuthService {
         this.config = config;
         this.prisma = prisma;
     }
-    async login(dto) {
+    async check(dto) {
         const user = await this.authenticate(dto);
         if (!user)
-            throw new common_1.UnauthorizedException('Identifiants incorrects');
+            throw new common_1.UnauthorizedException('Identifiant ou mot de passe incorrect');
         if (user.status !== client_1.RecordStatus.ACTIVE) {
             throw new common_1.UnauthorizedException('Ce compte est désactivé');
         }
-        const expiresAt = Date.now() + SESSION_HOURS * 60 * 60 * 1000;
-        const payload = Buffer.from(JSON.stringify({
-            sub: user.id,
-            username: user.username,
-            role: user.role,
-            exp: expiresAt,
-            nonce: (0, node_crypto_1.randomBytes)(12).toString('hex'),
-        })).toString('base64url');
-        return {
-            accessToken: `${payload}.${this.sign(payload)}`,
-            expiresAt,
-            user: { id: user.id, username: user.username, role: user.role },
-        };
+        return user;
     }
     async authenticate(dto) {
         const user = await this.prisma.user.findUnique({
@@ -53,8 +42,10 @@ let AuthService = class AuthService {
             return (0, password_1.verifyPassword)(dto.password, user.passwordHash) ? user : null;
         const username = this.config.get('ADMIN_USERNAME');
         const password = this.config.get('ADMIN_PASSWORD');
-        if (!username || !password)
+        if (!username || !password || !this.equal(dto.username, username)) {
+            (0, password_1.verifyPassword)(dto.password, DUMMY_HASH());
             return null;
+        }
         if (!this.equal(dto.username, username) ||
             !this.equal(dto.password, password)) {
             return null;
@@ -68,41 +59,10 @@ let AuthService = class AuthService {
             },
         });
     }
-    read(token) {
-        const [payload, signature] = token.split('.');
-        if (!payload || !signature || !this.equal(signature, this.sign(payload))) {
-            return null;
-        }
-        try {
-            const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
-            if (typeof data.exp !== 'number' || data.exp <= Date.now())
-                return null;
-            return data.sub
-                ? { id: data.sub, username: data.username ?? '', role: data.role }
-                : null;
-        }
-        catch {
-            return null;
-        }
-    }
-    verify(token) {
-        return this.read(token) !== null;
-    }
-    sign(payload) {
-        return (0, node_crypto_1.createHmac)('sha256', this.required('AUTH_SECRET'))
-            .update(payload)
-            .digest('base64url');
-    }
     equal(left, right) {
         const a = (0, node_crypto_1.createHmac)('sha256', 'compare').update(left).digest();
         const b = (0, node_crypto_1.createHmac)('sha256', 'compare').update(right).digest();
         return (0, node_crypto_1.timingSafeEqual)(a, b);
-    }
-    required(name) {
-        const value = this.config.get(name);
-        if (!value)
-            throw new common_1.ServiceUnavailableException(`${name} doit être configuré`);
-        return value;
     }
 };
 exports.AuthService = AuthService;

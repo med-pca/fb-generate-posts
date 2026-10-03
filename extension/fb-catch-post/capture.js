@@ -62,8 +62,36 @@
   // Facebook rend tout texte saisi par un utilisateur avec `dir="auto"`.
   const USER_TEXT = 'div[dir="auto"], span[dir="auto"]';
   const PERMALINK = /\/(posts|permalink|videos|photos|photo)\/|photo\.php|story_fbid=|multi_permalinks=|fbid=/;
-  const IS_COMMENT = /comment|commentaire|تعليق|kommentar|comentario/i;
-  const SEE_MORE = /^(see more|voir plus|afficher la suite|ver más|mehr anzeigen|عرض المزيد)$/i;
+  // Les libellés de Facebook suivent la langue du compte. On les compare
+  // « repliés » : sans accents, sans voyelles arabes ni tatweel, une seule
+  // forme de alef / ya / ta marbuta. Sans ça, « عرض المزيد » écrit avec ses
+  // voyelles, ou un compte en espagnol, n'étaient pas reconnus.
+  const fold = (s) =>
+    String(s || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f\u064b-\u065f\u0670\u0640\u200c-\u200f\u202a-\u202e]/g, '')
+      .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627')
+      .replace(/\u0649/g, '\u064a')
+      .replace(/\u0629/g, '\u0647')
+      .replace(/\u2026/g, '...')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  const phrases = (list, exact = false) => {
+    const folded = list.map(fold);
+    return {
+      test: (value) => {
+        const f = fold(value).replace(/\.+$/, '');
+        return Boolean(f) && (exact ? folded.includes(f) : folded.some((p) => f.includes(p)));
+      },
+    };
+  };
+  const IS_COMMENT = phrases(['comment', 'commentaire', 'comentario', 'kommentar', 'commento', 'yorum', 'komentarz', 'تعليق', 'رد']);
+  const SEE_MORE = phrases(
+    ['see more', 'voir plus', 'afficher la suite', 'en voir plus', 'ver más', 'ver mais', 'mehr anzeigen',
+      'altro', 'mostra altro', 'devamını gör', 'zobacz więcej', 'عرض المزيد', 'رؤية المزيد', 'المزيد'],
+    true,
+  );
   // Au-delà, on remonterait dans la charpente de la page, plus dans le post.
   const MAX_CLIMB = 14;
   // L'élargissement jusqu'au bloc complet du post (texte + photo) : plus
@@ -82,7 +110,8 @@
     '[role="button"], [role="navigation"], [role="menu"], [role="menuitem"],' +
     '[role="banner"], [role="complementary"], [role="listbox"], [role="tablist"],' +
     'nav, header, footer';
-  const NOTIFICATIONS = /notification|notifications|إشعار|benachrichtigung/i;
+  const LOGIN_WORDS = phrases(['log in', 'connectez-vous', "s'identifier", 'se connecter', 'iniciar sesion', 'anmelden', 'تسجيل الدخول']);
+  const NOTIFICATIONS = phrases(['notification', 'notificacion', 'benachrichtigung', 'notifica', 'bildirim', 'powiadomien', 'إشعار', 'اشعار', 'الإشعارات']);
 
   // Sur une page photo, l'identité de la publication est DANS la requête
   // (`?fbid=...&set=...`) : tout couper la ferait disparaître. On ne retire
@@ -209,8 +238,7 @@
       // sont pleins de phrases : sans les écarter, « John McCormick a
       // signalé un contenu… » se retrouve proposé comme légende.
       .filter((el) => !el.closest(CHROME))
-      .filter((el) => !el.closest('[aria-label]')?.getAttribute('aria-label')
-        ?.match(NOTIFICATIONS))
+      .filter((el) => !NOTIFICATIONS.test(el.closest('[aria-label]')?.getAttribute('aria-label') || ''))
       .filter((el) => text(el).length >= MIN_TEXT);
     const innermost = all.filter((el) => !all.some((other) => other !== el && el.contains(other)));
     const seen = new Set();
@@ -274,8 +302,15 @@
       const pageImage = kind === 'text' ? imageIn(document) : '';
       return {
         kind,
-        blocked: /log in|connectez-vous|s.identifier|تسجيل الدخول/i
-          .test(text(document.body).slice(0, 400)),
+        // Le mur de connexion se reconnaît à son formulaire, pas à ses mots :
+        // chercher « تسجيل الدخول » dans le texte de la page bloquait des
+        // comptes arabes pourtant connectés.
+        // Les mots ne comptent que sur une page vide : un compte connecté
+        // voit toujours des publications.
+        blocked:
+          /\/login|\/checkpoint/.test(location.pathname) ||
+          Boolean(document.querySelector('form#login_form, form[action*="/login"], input[name="pass"]')) ||
+          (!elements.length && LOGIN_WORDS.test(text(document.body).slice(0, 400))),
         // De quoi comprendre une page où rien n'est trouvé, sans ouvrir la
         // console.
         seen: {

@@ -13,31 +13,21 @@ exports.ImportsService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
+const post_groups_1 = require("../posts/post-groups");
 let ImportsService = class ImportsService {
     prisma;
     constructor(prisma) {
         this.prisma = prisma;
     }
-    async importJson(dto) {
-        const groupIds = [...new Set(dto.groupIds)];
-        const groupCount = await this.prisma.group.count({
-            where: {
-                id: { in: groupIds },
-                profiles: {
-                    some: { profileId: dto.profileId, status: 'ACTIVE' },
-                },
-            },
-        });
-        if (groupCount !== groupIds.length) {
-            throw new common_1.BadRequestException('Tous les groupes doivent appartenir au profil demandé');
-        }
+    async importJson(dto, acting = null) {
+        const groupIds = await (0, post_groups_1.postGroupIds)(this.prisma, dto.groupIds, acting);
         let imported = 0;
         let duplicates = 0;
         for (const sourcePost of dto.posts) {
             try {
                 await this.prisma.post.create({
                     data: {
-                        profileId: dto.profileId,
+                        ownerId: acting?.id ?? null,
                         title: sourcePost.title,
                         description: sourcePost.description,
                         url: sourcePost.url,

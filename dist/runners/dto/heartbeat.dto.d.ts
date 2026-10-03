@@ -6,4 +6,6 @@ export declare class HeartbeatDto {
     failed?: number;
     links?: number;
     agent?: string;
+    facebookUserId?: string;
+    facebookName?: string;
 }

@@ -21,6 +21,7 @@ import { AccessModule } from './access/access.module';
 import { RunnersModule } from './runners/runners.module';
 import { CategoriesModule } from './categories/categories.module';
 import { InsightsModule } from './insights/insights.module';
+import { VerifyModule } from './verify/verify.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { InsightsModule } from './insights/insights.module';
     RunnersModule,
     CategoriesModule,
     InsightsModule,
+    VerifyModule,
   ],
   controllers: [AppController],
   providers: [AppService],

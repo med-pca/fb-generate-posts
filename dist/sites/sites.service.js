@@ -12,9 +12,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SitesService = void 0;
 exports.normalizeSiteUrl = normalizeSiteUrl;
 exports.publicSite = publicSite;
+exports.pluginBlocker = pluginBlocker;
+exports.siteBlocker = siteBlocker;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
+const categories_service_1 = require("../categories/categories.service");
 const scope_1 = require("../auth/scope");
 function normalizeSiteUrl(value) {
     const url = new URL(value);
@@ -35,22 +38,55 @@ function publicSite(site) {
         ownerId: site.ownerId,
         owner: site.owner?.username ?? null,
         hasOwnKey: Boolean(site.depositKey),
+        categoryId: site.categoryId,
+        category: site.category?.name ?? null,
+        plugin: {
+            state: site.pluginState,
+            version: site.pluginVersion,
+            message: site.pluginMessage,
+            checkedAt: site.pluginCheckedAt,
+            lastDeliveryAt: site.lastDeliveryAt,
+        },
         articles: site._count?.articles ?? 0,
         createdAt: site.createdAt,
     };
 }
+function pluginBlocker(state) {
+    switch (state) {
+        case client_1.PluginState.MISSING:
+            return 'extension WordPress absente';
+        case client_1.PluginState.OUTDATED:
+            return 'extension WordPress à mettre à jour (1.3.0)';
+        case client_1.PluginState.BAD_KEY:
+            return 'l’extension WordPress refuse la clé';
+        default:
+            return null;
+    }
+}
+function siteBlocker(site) {
+    if (site.pluginState !== client_1.PluginState.CONNECTED) {
+        return pluginBlocker(site.pluginState) ?? 'extension WordPress non vérifiée';
+    }
+    if (!site.categoryId)
+        return 'sans catégorie : aucun post';
+    return null;
+}
+const SITE_INCLUDE = {
+    _count: { select: { articles: true } },
+    owner: { select: { username: true } },
+    category: { select: { id: true, name: true } },
+};
 let SitesService = class SitesService {
     prisma;
-    constructor(prisma) {
+    categories;
+    constructor(prisma, categories) {
         this.prisma = prisma;
+        this.categories = categories;
     }
     async findAll(acting) {
         const sites = await this.prisma.contentSource.findMany({
             where: (0, scope_1.siteWhere)((0, scope_1.scopeOf)(acting)),
-            include: {
-                _count: { select: { articles: true } },
-                owner: { select: { username: true } },
-            },
+            include: SITE_INCLUDE,
             orderBy: [{ status: 'asc' }, { name: 'asc' }],
         });
         return sites.map(publicSite);
@@ -58,16 +94,39 @@ let SitesService = class SitesService {
     async targets(acting) {
         const sites = await this.prisma.contentSource.findMany({
             where: { status: client_1.RecordStatus.ACTIVE, ...(0, scope_1.siteWhere)((0, scope_1.scopeOf)(acting)) },
-            select: { id: true, name: true, originUrl: true },
+            select: {
+                id: true,
+                name: true,
+                originUrl: true,
+                pluginState: true,
+                categoryId: true,
+                category: { select: { name: true } },
+            },
             orderBy: { name: 'asc' },
         });
         return {
-            sites: sites.map(({ id, name, originUrl }) => ({
-                id,
-                name,
-                siteUrl: originUrl,
-            })),
+            sites: sites.map((site) => {
+                const blocker = siteBlocker(site);
+                return {
+                    id: site.id,
+                    name: site.name,
+                    siteUrl: site.originUrl,
+                    category: site.category?.name ?? null,
+                    plugin: site.pluginState,
+                    ready: !blocker,
+                    reason: blocker,
+                };
+            }),
         };
+    }
+    async findOne(id, acting) {
+        const site = await this.prisma.contentSource.findFirst({
+            where: { id, ...(0, scope_1.siteWhere)((0, scope_1.scopeOf)(acting)) },
+            include: SITE_INCLUDE,
+        });
+        if (!site)
+            throw new common_1.NotFoundException('Site introuvable');
+        return publicSite(site);
     }
     async create(dto, owner) {
         const originUrl = normalizeSiteUrl(dto.originUrl);
@@ -82,18 +141,17 @@ let SitesService = class SitesService {
                 name: dto.name.trim(),
                 originUrl,
                 depositKey: dto.depositKey?.trim() || null,
+                categoryId: (await this.categories.resolve(dto.categoryId)) ?? null,
                 ownerId: owner?.id ?? null,
                 status: dto.status ?? client_1.RecordStatus.ACTIVE,
             },
-            include: {
-                _count: { select: { articles: true } },
-                owner: { select: { username: true } },
-            },
+            include: SITE_INCLUDE,
         });
         return publicSite(site);
     }
     async update(id, dto, acting) {
         await this.owned(id, acting);
+        const category = await this.categories.resolve(dto.categoryId);
         const site = await this.prisma.contentSource.update({
             where: { id },
             data: {
@@ -103,14 +161,12 @@ let SitesService = class SitesService {
                     : {}),
                 ...(dto.depositKey ? { depositKey: dto.depositKey.trim() } : {}),
                 ...(dto.status !== undefined ? { status: dto.status } : {}),
+                ...(category !== undefined ? { categoryId: category } : {}),
                 ...(dto.ownerId !== undefined && (0, scope_1.seesEverything)((0, scope_1.scopeOf)(acting))
                     ? { ownerId: dto.ownerId || null }
                     : {}),
             },
-            include: {
-                _count: { select: { articles: true } },
-                owner: { select: { username: true } },
-            },
+            include: SITE_INCLUDE,
         });
         return publicSite(site);
     }
@@ -151,6 +207,7 @@ let SitesService = class SitesService {
 exports.SitesService = SitesService;
 exports.SitesService = SitesService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        categories_service_1.CategoriesService])
 ], SitesService);
 //# sourceMappingURL=sites.service.js.map

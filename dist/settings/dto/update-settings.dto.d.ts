@@ -1,6 +1,7 @@
 export declare class UpdateSettingsDto {
-    autoReplenishEnabled: boolean;
     publishingEnabled?: boolean;
-    minimumAvailablePerProfile: number;
-    minimumAvailablePerGroup?: number;
+    dailyTarget?: number;
+    objectiveStart?: number;
+    objectiveEnd?: number;
+    objectiveTimezone?: string;
 }

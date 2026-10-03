@@ -8,8 +8,8 @@ export declare class IngestController {
     constructor(ingest: IngestService);
     create(dto: CreateIngestDto, acting: CurrentUser): Promise<{
         id: string;
-        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.IngestStatus;
         updatedAt: Date;
         groupIds: string[];
         ownerId: string | null;
@@ -17,15 +17,15 @@ export declare class IngestController {
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
         lastError: string | null;
-        siteUrl: string;
         facebookUrl: string;
+        siteUrl: string;
+        generated: import("@prisma/client/runtime/library").JsonValue | null;
         sourceUrl: string;
         language: string;
         fbCaption: string | null;
         fbImageUrl: string | null;
         sourceTitle: string | null;
         sourceText: string | null;
-        generated: import("@prisma/client/runtime/library").JsonValue | null;
         wpPostId: string | null;
         wpPermalink: string | null;
         profileIds: string[];
@@ -40,8 +40,8 @@ export declare class IngestController {
             } | null;
         } & {
             id: string;
-            status: import("@prisma/client").$Enums.IngestStatus;
             createdAt: Date;
+            status: import("@prisma/client").$Enums.IngestStatus;
             updatedAt: Date;
             groupIds: string[];
             ownerId: string | null;
@@ -49,15 +49,15 @@ export declare class IngestController {
             claimedAt: Date | null;
             claimExpiresAt: Date | null;
             lastError: string | null;
-            siteUrl: string;
             facebookUrl: string;
+            siteUrl: string;
+            generated: import("@prisma/client/runtime/library").JsonValue | null;
             sourceUrl: string;
             language: string;
             fbCaption: string | null;
             fbImageUrl: string | null;
             sourceTitle: string | null;
             sourceText: string | null;
-            generated: import("@prisma/client/runtime/library").JsonValue | null;
             wpPostId: string | null;
             wpPermalink: string | null;
             profileIds: string[];
@@ -73,8 +73,8 @@ export declare class IngestController {
     findOne(id: string, acting: CurrentUser): Promise<{
         article: {
             id: string;
-            status: import("@prisma/client").$Enums.RecordStatus;
             createdAt: Date;
+            status: import("@prisma/client").$Enums.RecordStatus;
             updatedAt: Date;
             title: string;
             jsonUrl: string;
@@ -97,12 +97,13 @@ export declare class IngestController {
             hashtags: string[];
             imagePrompt: string | null;
             rawData: import("@prisma/client/runtime/library").JsonValue;
+            archivedAt: Date | null;
             importedAt: Date;
         } | null;
     } & {
         id: string;
-        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.IngestStatus;
         updatedAt: Date;
         groupIds: string[];
         ownerId: string | null;
@@ -110,15 +111,15 @@ export declare class IngestController {
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
         lastError: string | null;
-        siteUrl: string;
         facebookUrl: string;
+        siteUrl: string;
+        generated: import("@prisma/client/runtime/library").JsonValue | null;
         sourceUrl: string;
         language: string;
         fbCaption: string | null;
         fbImageUrl: string | null;
         sourceTitle: string | null;
         sourceText: string | null;
-        generated: import("@prisma/client/runtime/library").JsonValue | null;
         wpPostId: string | null;
         wpPermalink: string | null;
         profileIds: string[];
@@ -126,8 +127,8 @@ export declare class IngestController {
     }>;
     scrapeResult(id: string, dto: ScrapeResultDto, acting: CurrentUser): Promise<{
         id: string;
-        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.IngestStatus;
         updatedAt: Date;
         groupIds: string[];
         ownerId: string | null;
@@ -135,15 +136,15 @@ export declare class IngestController {
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
         lastError: string | null;
-        siteUrl: string;
         facebookUrl: string;
+        siteUrl: string;
+        generated: import("@prisma/client/runtime/library").JsonValue | null;
         sourceUrl: string;
         language: string;
         fbCaption: string | null;
         fbImageUrl: string | null;
         sourceTitle: string | null;
         sourceText: string | null;
-        generated: import("@prisma/client/runtime/library").JsonValue | null;
         wpPostId: string | null;
         wpPermalink: string | null;
         profileIds: string[];
@@ -151,8 +152,8 @@ export declare class IngestController {
     }>;
     retry(id: string, acting: CurrentUser): Promise<{
         id: string;
-        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.IngestStatus;
         updatedAt: Date;
         groupIds: string[];
         ownerId: string | null;
@@ -160,15 +161,15 @@ export declare class IngestController {
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
         lastError: string | null;
-        siteUrl: string;
         facebookUrl: string;
+        siteUrl: string;
+        generated: import("@prisma/client/runtime/library").JsonValue | null;
         sourceUrl: string;
         language: string;
         fbCaption: string | null;
         fbImageUrl: string | null;
         sourceTitle: string | null;
         sourceText: string | null;
-        generated: import("@prisma/client/runtime/library").JsonValue | null;
         wpPostId: string | null;
         wpPermalink: string | null;
         profileIds: string[];
@@ -176,8 +177,8 @@ export declare class IngestController {
     }>;
     remove(id: string, acting: CurrentUser): Promise<{
         id: string;
-        status: import("@prisma/client").$Enums.IngestStatus;
         createdAt: Date;
+        status: import("@prisma/client").$Enums.IngestStatus;
         updatedAt: Date;
         groupIds: string[];
         ownerId: string | null;
@@ -185,15 +186,15 @@ export declare class IngestController {
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
         lastError: string | null;
-        siteUrl: string;
         facebookUrl: string;
+        siteUrl: string;
+        generated: import("@prisma/client/runtime/library").JsonValue | null;
         sourceUrl: string;
         language: string;
         fbCaption: string | null;
         fbImageUrl: string | null;
         sourceTitle: string | null;
         sourceText: string | null;
-        generated: import("@prisma/client/runtime/library").JsonValue | null;
         wpPostId: string | null;
         wpPermalink: string | null;
         profileIds: string[];

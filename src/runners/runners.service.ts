@@ -411,6 +411,7 @@ export class RunnersService {
       links: dto.links ?? 0,
       agent: dto.agent?.slice(0, 200) ?? null,
     };
+    if (dto.facebookUserId) await this.noteFacebookIdentity(profile.id, dto.facebookUserId, dto.facebookName);
     const runner = await this.prisma.profileRunner.upsert({
       where: { profileId: profile.id },
       // Premier contact d'un profil qu'on n'a jamais piloté : il reste à
@@ -425,6 +426,56 @@ export class RunnersService {
         settings.publishingEnabled,
       ),
     );
+  }
+
+  /** Le compte Facebook connecté dans ce navigateur. Un même compte ne peut
+   * désigner qu'UN profil : si un autre l'a déjà, on ne l'écrase pas (deux
+   * navigateurs sur un même compte Facebook est une erreur à corriger, pas à
+   * deviner), on le signale. */
+  private async noteFacebookIdentity(profileId: string, facebookUserId: string, facebookName?: string) {
+    const holder = await this.prisma.profile.findUnique({
+      where: { facebookUserId },
+      select: { id: true, name: true },
+    });
+    if (holder && holder.id !== profileId) {
+      await this.prisma.activityLog.create({
+        data: {
+          profileId,
+          eventType: 'PROFILE_FACEBOOK_CONFLICT',
+          level: 'WARN',
+          message: `Ce navigateur est connecté au compte Facebook ${facebookUserId}, déjà celui du profil « ${holder.name} »`,
+          metadata: { facebookUserId, holder: holder.id },
+        },
+      });
+      return;
+    }
+    const current = await this.prisma.profile.findUnique({
+      where: { id: profileId },
+      select: { facebookUserId: true, facebookName: true },
+    });
+    const name = facebookName?.trim().slice(0, 200) || current?.facebookName || null;
+    await this.prisma.profile.update({
+      where: { id: profileId },
+      data: { facebookUserId, facebookName: name, facebookSeenAt: new Date() },
+    });
+    if (current?.facebookUserId && current.facebookUserId !== facebookUserId) {
+      // Un autre compte Facebook dans ce navigateur : ses autorisations dans
+      // les groupes ne valent plus, le vérificateur repassera.
+      await this.prisma.$transaction([
+        this.prisma.profileGroup.updateMany({
+          where: { profileId },
+          data: { preApprovedAt: null, memberApprovedAt: null, memberAttempts: 0, memberClaimedUntil: null },
+        }),
+        this.prisma.activityLog.create({
+          data: {
+            profileId,
+            eventType: 'PROFILE_FACEBOOK_CHANGED',
+            level: 'WARN',
+            message: `Compte Facebook changé : ${current.facebookUserId} → ${facebookUserId}`,
+          },
+        }),
+      ]);
+    }
   }
 
   // ── Ce que l'agent local demande ──────────────────────────────────────
@@ -598,6 +649,9 @@ export class RunnersService {
         name: true,
         externalId: true,
         status: true,
+        isModerator: true,
+        facebookUserId: true,
+        facebookName: true,
         runner: true,
         owner: { select: { automationKey: true, status: true } },
       },
@@ -620,6 +674,11 @@ export class RunnersService {
           name: profile.name,
           externalId: profile.externalId,
           status: profile.status,
+          // Le vérificateur contrôle les publications des autres (extension
+          // « FB Post Checker »).
+          isModerator: profile.isModerator,
+          facebookUserId: profile.facebookUserId,
+          facebookName: profile.facebookName,
           mode: decision.mode,
           shouldRun: decision.run,
           reason: decision.reason,

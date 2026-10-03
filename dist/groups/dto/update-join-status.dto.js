@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpdateJoinStatusDto = void 0;
+exports.SetJoinStatusDto = exports.UpdateJoinStatusDto = void 0;
 const openapi = require("@nestjs/swagger");
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
@@ -30,4 +30,15 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], UpdateJoinStatusDto.prototype, "error", void 0);
+class SetJoinStatusDto {
+    joinStatus;
+    static _OPENAPI_METADATA_FACTORY() {
+        return { joinStatus: { required: true, enum: ["FAILED", "NOT_JOINED", "REQUESTED", "JOINED", "QUESTIONS"] } };
+    }
+}
+exports.SetJoinStatusDto = SetJoinStatusDto;
+__decorate([
+    (0, class_validator_1.IsEnum)(client_1.JoinStatus),
+    __metadata("design:type", String)
+], SetJoinStatusDto.prototype, "joinStatus", void 0);
 //# sourceMappingURL=update-join-status.dto.js.map

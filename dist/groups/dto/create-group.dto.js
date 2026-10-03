@@ -18,8 +18,9 @@ class CreateGroupDto {
     name;
     externalId;
     url;
+    categoryId;
     static _OPENAPI_METADATA_FACTORY() {
-        return { status: { required: false, enum: ["ACTIVE", "INACTIVE"] }, name: { required: true, type: () => String }, externalId: { required: false, type: () => String }, url: { required: true, type: () => String, format: "uri" } };
+        return { status: { required: false, enum: ["ACTIVE", "INACTIVE"] }, name: { required: true, type: () => String }, externalId: { required: false, type: () => String }, url: { required: true, type: () => String, format: "uri" }, categoryId: { required: true, type: () => String } };
     }
 }
 exports.CreateGroupDto = CreateGroupDto;
@@ -41,4 +42,9 @@ __decorate([
     (0, class_validator_1.IsUrl)({ require_tld: false }),
     __metadata("design:type", String)
 ], CreateGroupDto.prototype, "url", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)({ message: 'Choisissez la catégorie du groupe' }),
+    __metadata("design:type", String)
+], CreateGroupDto.prototype, "categoryId", void 0);
 //# sourceMappingURL=create-group.dto.js.map

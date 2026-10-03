@@ -9,8 +9,9 @@ export const LOG_DOMAINS = {
   publication: {
     label: 'Publication',
     // `WORKER_*` : ce que l'extension de publication écrit elle-même
-    // (publié, échec, rien à publier, lien non posé…).
-    prefixes: ['JOB_', 'JOBS_', 'CLAIM_', 'POST_', 'COMMENT_', 'TARGET_', 'WORKER_'],
+    // (publié, échec, rien à publier, lien non posé…). `VERIFY_*` : le
+    // contrôle des publications par le vérificateur.
+    prefixes: ['JOB_', 'JOBS_', 'CLAIM_', 'POST_', 'COMMENT_', 'TARGET_', 'WORKER_', 'VERIFY_'],
     exact: ['GROUP_POSTS_REMOVED', 'ARTICLE_ARCHIVED'],
   },
   capture: {
@@ -23,9 +24,15 @@ export const LOG_DOMAINS = {
     prefixes: ['WORDPRESS_', 'SITE_', 'PLUGIN_', 'PROFILES_', 'NST_'],
     exact: [] as string[],
   },
+  security: {
+    label: 'Sécurité',
+    // Connexions, échecs, blocages, déconnexions.
+    prefixes: ['AUTH_'],
+    exact: [] as string[],
+  },
   groups: {
     label: 'Groupes & pilotage',
-    prefixes: ['GROUP_JOIN', 'BROWSER_', 'RUNNER_'],
+    prefixes: ['GROUP_JOIN', 'BROWSER_', 'RUNNER_', 'MEMBER_', 'PROFILE_'],
     exact: [] as string[],
   },
 } as const;

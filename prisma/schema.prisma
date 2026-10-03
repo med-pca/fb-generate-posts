@@ -101,6 +101,13 @@ enum BrowserState {
 /// Un compte de la plateforme. Le premier ADMIN naît des identifiants du
 /// `.env` à la première connexion : une installation existante n'a rien à
 /// faire pour continuer à fonctionner.
+/// Le contrôle d'une publication par le profil vérificateur.
+enum VerifyStatus {
+  OK // le post est en ligne, avec son commentaire et son lien
+  REPUBLISHED // introuvable ou sans lien : remis dans la file pour republication
+  NEEDS_ACTION // à régler à la main (suppression refusée, republications épuisées…)
+}
+
 /// L'état de l'extension WordPress d'un site, vu depuis la plateforme.
 enum PluginState {
   UNKNOWN // jamais vérifié
@@ -144,6 +151,7 @@ model User {
   /// Ce que ce compte possède. Supprimer un compte ne détruit rien : ses
   /// ressources deviennent sans propriétaire, donc réservées aux ADMIN, qui
   /// peuvent les réattribuer.
+  sessions      Session[]
   profiles      Profile[]
   groups        Group[]
   posts         Post[]
@@ -175,6 +183,16 @@ model Profile {
   ownerId                  String?          @map("owner_id")
   owner                    User?            @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   status                   RecordStatus     @default(ACTIVE)
+  /// Le profil vérificateur : il ouvre les posts publiés pour contrôler
+  /// qu'ils sont en ligne avec leur lien, et supprime ceux qui ne l'ont pas.
+  /// Il doit être administrateur ou modérateur des groupes contrôlés.
+  isModerator              Boolean          @default(false) @map("is_moderator")
+  /// L'identifiant numérique du compte Facebook de ce profil (cookie
+  /// `c_user`), remonté par l'extension de publication. C'est LUI, jamais le
+  /// nom, qui désigne nos profils au vérificateur : un nom se partage.
+  facebookUserId           String?          @unique @map("facebook_user_id")
+  facebookName             String?          @map("facebook_name")
+  facebookSeenAt           DateTime?        @map("facebook_seen_at")
   /// Son pilotage : marche/arret, fenetre horaire, et ce que son navigateur
   /// rapporte. Absent = jamais pilote (donc a l'arret).
   runner                   ProfileRunner?
@@ -235,17 +253,29 @@ model GroupAccess {
 }
 
 model ProfileGroup {
-  id            String       @id @default(cuid())
-  profileId     String       @map("profile_id")
-  profile       Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  groupId       String       @map("group_id")
-  group         Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  status        RecordStatus @default(ACTIVE)
-  joinStatus    JoinStatus   @default(NOT_JOINED) @map("join_status")
-  joinCheckedAt DateTime?    @map("join_checked_at")
-  joinError     String?      @map("join_error") @db.Text
-  createdAt     DateTime     @default(now()) @map("created_at")
-  updatedAt     DateTime     @updatedAt @map("updated_at")
+  id                 String       @id @default(cuid())
+  profileId          String       @map("profile_id")
+  profile            Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  groupId            String       @map("group_id")
+  group              Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status             RecordStatus @default(ACTIVE)
+  joinStatus         JoinStatus   @default(NOT_JOINED) @map("join_status")
+  joinCheckedAt      DateTime?    @map("join_checked_at")
+  joinError          String?      @map("join_error") @db.Text
+  /// Le vérificateur (admin/modérateur du groupe) a accepté la demande
+  /// d'adhésion de ce profil.
+  memberApprovedAt   DateTime?    @map("member_approved_at")
+  /// Le vérificateur a « pré-approuvé » ce profil : ses posts paraissent sans
+  /// passer par la validation des modérateurs.
+  preApprovedAt      DateTime?    @map("pre_approved_at")
+  /// Le dernier essai du vérificateur, et pourquoi il a échoué.
+  memberActionError  String?      @map("member_action_error") @db.Text
+  memberActionAt     DateTime?    @map("member_action_at")
+  /// Réservé par un vérificateur jusqu'à cette heure (ou repoussé).
+  memberClaimedUntil DateTime?    @map("member_claimed_until")
+  memberAttempts     Int          @default(0) @map("member_attempts")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
 
   @@unique([profileId, groupId])
   @@index([groupId, status])
@@ -476,34 +506,53 @@ model AutomationSetting {
 }
 
 model PostTarget {
-  id                String               @id @default(cuid())
-  postId            String               @map("post_id")
-  post              Post                 @relation(fields: [postId], references: [id], onDelete: Cascade)
-  groupId           String               @map("group_id")
-  group             Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  status            TargetStatus         @default(AVAILABLE)
-  claimedAt         DateTime?            @map("claimed_at")
-  claimExpiresAt    DateTime?            @map("claim_expires_at")
-  consumedAt        DateTime?            @map("consumed_at")
-  publishedAt       DateTime?            @map("published_at")
-  commentExternalId String?              @map("comment_external_id")
-  commentedAt       DateTime?            @map("commented_at")
-  linkUpdatedAt     DateTime?            @map("link_updated_at")
-  attemptsCount     Int                  @default(0) @map("attempts_count")
-  lastError         String?              @map("last_error") @db.Text
+  id                 String               @id @default(cuid())
+  postId             String               @map("post_id")
+  post               Post                 @relation(fields: [postId], references: [id], onDelete: Cascade)
+  groupId            String               @map("group_id")
+  group              Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status             TargetStatus         @default(AVAILABLE)
+  claimedAt          DateTime?            @map("claimed_at")
+  claimExpiresAt     DateTime?            @map("claim_expires_at")
+  consumedAt         DateTime?            @map("consumed_at")
+  publishedAt        DateTime?            @map("published_at")
+  commentExternalId  String?              @map("comment_external_id")
+  commentedAt        DateTime?            @map("commented_at")
+  linkUpdatedAt      DateTime?            @map("link_updated_at")
+  attemptsCount      Int                  @default(0) @map("attempts_count")
+  lastError          String?              @map("last_error") @db.Text
   /// Envoi forcé : ce profil prend cette cible en premier à son prochain
   /// passage, et aucun autre ne la prend entre-temps. NULL = file normale.
-  forcedProfileId   String?              @map("forced_profile_id")
-  forcedProfile     Profile?             @relation("ForcedTargets", fields: [forcedProfileId], references: [id], onDelete: SetNull)
-  forcedAt          DateTime?            @map("forced_at")
-  jobItems          PublicationJobItem[]
-  logs              ActivityLog[]
-  createdAt         DateTime             @default(now()) @map("created_at")
-  updatedAt         DateTime             @updatedAt @map("updated_at")
+  forcedProfileId    String?              @map("forced_profile_id")
+  forcedProfile      Profile?             @relation("ForcedTargets", fields: [forcedProfileId], references: [id], onDelete: SetNull)
+  forcedAt           DateTime?            @map("forced_at")
+  /// La vérification par le profil vérificateur : NULL = pas encore vérifié.
+  /// Un post republié (REPUBLISHED) repasse en vérification une fois publié.
+  verifyStatus       VerifyStatus?        @map("verify_status")
+  verifiedAt         DateTime?            @map("verified_at")
+  verifyDetail       String?              @map("verify_detail") @db.Text
+  /// Réservé par un vérificateur jusqu'à cette heure (ou repoussé : en
+  /// attente de modération, page injoignable).
+  verifyClaimedUntil DateTime?            @map("verify_claimed_until")
+  verifyAttempts     Int                  @default(0) @map("verify_attempts")
+  /// Combien de fois la vérification l'a remis dans la file : plafonné, pour
+  /// ne pas republier sans fin dans un groupe qui refuse.
+  republishCount     Int                  @default(0) @map("republish_count")
+  /// L'adresse Facebook de la publication en ligne : donnée par l'extension
+  /// de publication, retrouvée par le vérificateur, ou collée par l'admin.
+  /// Effacée quand la publication est remise dans la file ; l'ancienne reste
+  /// dans l'historique (`traces`).
+  facebookUrl        String?              @map("facebook_url") @db.Text
+  jobItems           PublicationJobItem[]
+  logs               ActivityLog[]
+  traces             PublicationTrace[]
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
 
   @@unique([postId, groupId])
   @@index([groupId, status])
   @@index([forcedProfileId])
+  @@index([status, verifyStatus])
   @@map("post_targets")
 }
 
@@ -524,6 +573,29 @@ model PublicationJob {
 
   @@index([profileId, groupId, status])
   @@map("publication_jobs")
+}
+
+/// L'historique d'une publication (un post dans un groupe), dans l'ordre :
+/// publiée par qui et à quelle adresse, commentée, lien posé, vérifiée,
+/// supprimée, republiée… Jamais modifié, jamais effacé avec un échec : c'est
+/// ce qui permet de dire après coup ce qui s'est passé.
+model PublicationTrace {
+  id           String     @id @default(cuid())
+  postTargetId String     @map("post_target_id")
+  postTarget   PostTarget @relation(fields: [postTargetId], references: [id], onDelete: Cascade)
+  kind         String
+  /// L'adresse du post Facebook concerné, quand il y en a une.
+  facebookUrl  String?    @map("facebook_url") @db.Text
+  /// Qui : le nom du profil (publication, vérification) ou du compte admin.
+  actor        String?
+  profileId    String?    @map("profile_id")
+  jobId        String?    @map("job_id")
+  detail       String?    @db.Text
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@index([postTargetId, createdAt])
+  @@index([facebookUrl])
+  @@map("publication_traces")
 }
 
 model PublicationJobItem {
@@ -631,6 +703,9 @@ model ActivityLog {
   postTarget   PostTarget?     @relation(fields: [postTargetId], references: [id], onDelete: SetNull)
   jobId        String?         @map("job_id")
   job          PublicationJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  /// Le post Facebook concerné, quand il y en a un : filtrer et retrouver
+  /// un événement par son lien, et l'ouvrir d'un clic.
+  facebookUrl  String?         @map("facebook_url") @db.Text
   eventType    String          @map("event_type")
   level        LogLevel        @default(INFO)
   message      String
@@ -638,6 +713,30 @@ model ActivityLog {
   createdAt    DateTime        @default(now()) @map("created_at")
 
   @@index([eventType, createdAt])
+  @@index([postTargetId, createdAt])
+  @@index([groupId, createdAt])
+  @@index([facebookUrl])
   @@index([profileId, createdAt])
   @@map("activity_logs")
+}
+
+/// Une session de connexion à la plateforme. Le navigateur ne détient qu'un
+/// jeton aléatoire, dans un cookie HttpOnly ; la base n'en garde que
+/// l'empreinte. La déconnexion la révoque vraiment, et elle expire seule
+/// (durée absolue et inactivité).
+model Session {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// sha256 du jeton : un vol de la base ne donne aucune session utilisable.
+  tokenHash  String    @unique @map("token_hash")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  expiresAt  DateTime  @map("expires_at")
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at")
+  revokedAt  DateTime? @map("revoked_at")
+  ip         String?
+  userAgent  String?   @map("user_agent")
+
+  @@index([userId])
+  @@map("sessions")
 }

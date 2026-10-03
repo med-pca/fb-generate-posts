@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const openai_1 = __importDefault(require("openai"));
 const prisma_service_1 = require("../prisma/prisma.service");
+const post_groups_1 = require("../posts/post-groups");
 let GenerationService = class GenerationService {
     prisma;
     config;
@@ -24,7 +25,7 @@ let GenerationService = class GenerationService {
         this.prisma = prisma;
         this.config = config;
     }
-    async generate(dto) {
+    async generate(dto, acting = null) {
         if (dto.delayMin > dto.delayMax) {
             throw new common_1.BadRequestException('delayMin doit être inférieur ou égal à delayMax');
         }
@@ -33,18 +34,7 @@ let GenerationService = class GenerationService {
         if (!apiKey || !model) {
             throw new common_1.ServiceUnavailableException('OPENAI_API_KEY et OPENAI_MODEL doivent être configurés');
         }
-        const uniqueGroupIds = [...new Set(dto.groupIds)];
-        const groupCount = await this.prisma.group.count({
-            where: {
-                id: { in: uniqueGroupIds },
-                profiles: {
-                    some: { profileId: dto.profileId, status: 'ACTIVE' },
-                },
-            },
-        });
-        if (groupCount !== uniqueGroupIds.length) {
-            throw new common_1.BadRequestException('Tous les groupes doivent appartenir au profil demandé');
-        }
+        const uniqueGroupIds = await (0, post_groups_1.postGroupIds)(this.prisma, dto.groupIds, acting);
         const openai = new openai_1.default({ apiKey });
         const response = await openai.responses.create({
             model,
@@ -88,7 +78,7 @@ let GenerationService = class GenerationService {
         }
         return this.prisma.$transaction(payload.posts.map((generated) => this.prisma.post.create({
             data: {
-                profileId: dto.profileId,
+                ownerId: acting?.id ?? null,
                 title: generated.title,
                 description: generated.description,
                 url: dto.url,
