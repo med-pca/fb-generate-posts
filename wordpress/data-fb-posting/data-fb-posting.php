@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Data FB Posting
  * Description: Envoie les articles publiés vers Data FB Posting, resynchronise leurs modifications (titre, contenu, image), et reçoit les articles réécrits que l'API dépose.
- * Version: 1.3.0
+ * Version: 1.4.0
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
 if (!defined('ABSPATH')) { exit; }
 
 final class DFB_Posting {
-    const VERSION = '1.3.0';
+    const VERSION = '1.4.0';
     const OPTION = 'dfb_posting_settings';
     const HOOK = 'dfb_posting_deliver';
     const INGEST_META = '_dfb_ingest';
@@ -161,6 +161,13 @@ final class DFB_Posting {
             'callback' => array(__CLASS__, 'receive'),
             'permission_callback' => array(__CLASS__, 'authorized'),
         ));
+        // Relire un article tel qu'il serait envoyé : le serveur s'en sert quand
+        // le renvoi tarde (WP-Cron qui ne passe pas sur un site peu visité).
+        register_rest_route('dfb/v1', '/articles/(?P<id>\d+)', array(
+            'methods' => 'GET',
+            'callback' => array(__CLASS__, 'read_route'),
+            'permission_callback' => array(__CLASS__, 'authorized'),
+        ));
         // De quoi vérifier, sans rien publier, que l'extension est bien la
         // bonne version et que la clé passe le verrou du site.
         register_rest_route('dfb/v1', '/status', array(
@@ -181,6 +188,17 @@ final class DFB_Posting {
             return new WP_Error('dfb_forbidden', 'Clé invalide.', array('status' => 401));
         }
         return true;
+    }
+
+    /** Un article public, dans la forme exacte de l'envoi (référence de
+     * reprise comprise). Un brouillon ou un article protégé n'existe pas. */
+    public static function read_route($request) {
+        $id = (int) $request['id'];
+        $post = $id ? get_post($id) : null;
+        if (!$post || $post->post_type !== 'post' || $post->post_status !== 'publish' || $post->post_password !== '') {
+            return new WP_Error('dfb_not_found', 'Article introuvable ou non public.', array('status' => 404));
+        }
+        return self::payload($id, $post);
     }
 
     public static function status_route() {
@@ -256,6 +274,9 @@ final class DFB_Posting {
         $warning = self::attach_image($id, isset($body['image']) ? $body['image'] : null);
         $published = wp_update_post(array('ID' => $id, 'post_status' => 'publish'), true);
         if (is_wp_error($published)) { return $published; }
+        // Le renvoi vient d'être planifié : réveiller WP-Cron tout de suite
+        // plutôt qu'à la prochaine visite du site (requête non bloquante).
+        if (function_exists('spawn_cron')) { spawn_cron(); }
         return array(
             'postId' => (string) $id,
             'permalink' => get_permalink($id),

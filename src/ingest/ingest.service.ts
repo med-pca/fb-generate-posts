@@ -3,6 +3,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -47,13 +49,21 @@ export function resumeStatus(ingest: {
   return IngestStatus.PENDING_SCRAPE;
 }
 
+/** Le renvoi du plugin attendu au plus ce temps après le dépôt ; ensuite le
+ * serveur va chercher l'article lui-même. */
+const ECHO_GRACE_MS = 2 * 60_000;
+/** Au-delà, on cesse de relire tout seul (le bouton « Relancer » le refait). */
+const MAX_PULLS = 10;
+
 @Injectable()
-export class IngestService {
+export class IngestService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(IngestService.name);
   /** Deux avancées simultanées sur la même reprise paieraient deux fois la
    * réécriture. Le verrou ne vaut que dans ce processus, comme le minuteur
    * d'alimentation. */
   private readonly running = new Set<string>();
+  private pullTimer?: NodeJS.Timeout;
+  private pulling = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -269,8 +279,98 @@ export class IngestService {
 
   /** Remet une reprise abandonnée à l'étape que ses données permettent, puis
    * la relance. Le compteur repart de zéro : c'est une décision humaine. */
+  onModuleInit() {
+    const raw = Number(this.config.get<string>('ECHO_PULL_INTERVAL_MINUTES') ?? 2);
+    const minutes = Number.isFinite(raw) && raw >= 0 ? raw : 2;
+    if (!minutes || !this.site) return;
+    this.pullTimer = setInterval(() => void this.pullStaleEchoes().catch(() => undefined), minutes * 60_000);
+    this.pullTimer.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.pullTimer) clearInterval(this.pullTimer);
+  }
+
+  /** Les reprises déposées dont WordPress n'a pas renvoyé l'article : le
+   * plugin compte sur WP-Cron, qui ne passe qu'à la visite du site — un site
+   * peu visité, ou WP-Cron désactivé, laissait l'article sans post. Chaque
+   * essai raté espace le suivant (2, 4, 8… min, au plus 1 h). */
+  async pullStaleEchoes(now = new Date()) {
+    if (this.pulling || !this.site) return [];
+    this.pulling = true;
+    try {
+      const waiting = await this.prisma.sourceIngest.findMany({
+        where: {
+          status: IngestStatus.AWAITING_ECHO,
+          articleId: null,
+          OR: [{ wpPostId: { not: null } }, { wpPermalink: { not: null } }],
+          updatedAt: { lt: new Date(now.getTime() - ECHO_GRACE_MS) },
+        },
+        orderBy: { updatedAt: 'asc' },
+        take: 20,
+      });
+      const done: string[] = [];
+      for (const ingest of waiting) {
+        const pulls = Number((ingest.lastError || '').match(/\[essai (\d+)\]/)?.[1] ?? 0);
+        if (pulls >= MAX_PULLS) continue;
+        const wait = Math.min(60, 2 * 2 ** pulls) * 60_000;
+        if (now.getTime() - ingest.updatedAt.getTime() < wait) continue;
+        if (await this.pullEcho(ingest, pulls)) done.push(ingest.id);
+      }
+      return done;
+    } finally {
+      this.pulling = false;
+    }
+  }
+
+  /** Va chercher l'article sur le site et le reçoit comme si le plugin
+   * l'avait envoyé : article, posts, description Facebook, reprise refermée.
+   * Si le plugin l'envoie plus tard, ce renvoi ne change rien (même article). */
+  private async pullEcho(ingest: SourceIngest, pulls = 0) {
+    if (!this.site) return false;
+    try {
+      const source = await this.prisma.contentSource.findUnique({ where: { originUrl: ingest.siteUrl } });
+      if (!source) throw new Error(`Site inconnu : ${ingest.siteUrl}`);
+      const slug = !ingest.wpPostId && ingest.wpPermalink
+        ? new URL(ingest.wpPermalink).pathname.split('/').filter(Boolean).pop() ?? null
+        : null;
+      const article = await this.wordpress.fetchArticle({
+        siteUrl: ingest.siteUrl,
+        siteName: source.name,
+        apiKey: source.depositKey,
+        postId: ingest.wpPostId,
+        slug,
+      });
+      const result = await this.site.publish({ ...article, ingestRef: ingest.id } as never);
+      await this.log(
+        ingest.id,
+        'INGEST_PULLED',
+        `Article « ${article.title} » relu directement sur WordPress : le plugin ne l’avait pas renvoyé ` +
+          '(WP-Cron qui ne passe pas, ou URL/clé de réception à vérifier dans Réglages → Data FB Posting)',
+        { result: result as unknown as Record<string, unknown> },
+      );
+      return true;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await this.prisma.sourceIngest.update({
+        where: { id: ingest.id },
+        data: { lastError: `[essai ${pulls + 1}] Renvoi WordPress attendu, relecture impossible : ${reason}` },
+      });
+      await this.log(ingest.id, 'INGEST_ECHO_MISSING', `L’article n’est pas revenu de WordPress, et le serveur n’a pas pu le relire : ${reason}`, {
+        attempt: pulls + 1,
+      });
+      return false;
+    }
+  }
+
   async retry(id: string, acting: CurrentUser | null) {
     const ingest = await this.load(id, acting);
+    // Déjà déposé sur WordPress : relancer, c'est aller relire l'article —
+    // surtout pas le redéposer (doublon sur le site).
+    if (ingest.status === IngestStatus.AWAITING_ECHO && (ingest.wpPostId || ingest.wpPermalink)) {
+      await this.pullEcho(ingest);
+      return this.load(id);
+    }
     await this.prisma.sourceIngest.update({
       where: { id },
       data: {
@@ -484,15 +584,17 @@ export class IngestService {
       // L'article est en ligne : le signaler suffit, l'arrêter serait pire.
       await this.log(ingest.id, 'INGEST_IMAGE_SKIPPED', deposit.imageWarning);
     }
-    return this.prisma.sourceIngest.update({
+    // Le renvoi du plugin a pu arriver AVANT cette ligne (WP-Cron rapide) et
+    // refermer déjà la reprise : on ne la repasse pas « en attente ».
+    await this.prisma.sourceIngest.update({
       where: { id: ingest.id },
-      data: {
-        wpPostId: deposit.postId,
-        wpPermalink: deposit.permalink,
-        status: IngestStatus.AWAITING_ECHO,
-        lastError: null,
-      },
+      data: { wpPostId: deposit.postId, wpPermalink: deposit.permalink, lastError: null },
     });
+    await this.prisma.sourceIngest.updateMany({
+      where: { id: ingest.id, articleId: null },
+      data: { status: IngestStatus.AWAITING_ECHO },
+    });
+    return this.load(ingest.id);
   }
 
   /** Le site de destination, qui doit être déclaré dans la plateforme.

@@ -82,6 +82,12 @@ function setup(initial: SourceIngest) {
         row = { ...row, ...data };
         return Promise.resolve(row);
       }),
+      // Comme en base : la condition `articleId: null` est respectée.
+      updateMany: jest.fn(({ where, data }: { where: { articleId?: null }; data: Partial<SourceIngest> }) => {
+        if ('articleId' in where && row.articleId !== null) return Promise.resolve({ count: 0 });
+        row = { ...row, ...data };
+        return Promise.resolve({ count: 1 });
+      }),
     },
     // Le site de destination, déclaré et actif sauf mention contraire.
     contentSource: {
@@ -176,7 +182,81 @@ describe('resumeStatus', () => {
   });
 });
 
+describe('Renvoi WordPress manquant : le serveur relit l’article', () => {
+  const PULLED = {
+    siteUrl: 'https://site.test',
+    siteName: 'Site de test',
+    postId: '77',
+    title: 'Le couscous',
+    content: 'Corps',
+    articleUrl: 'https://site.test/le-couscous',
+    publishedAt: '2026-10-04T20:00:00.000Z',
+  };
+  function withSite(initial: SourceIngest, fetchArticle: jest.Mock) {
+    const t = setup(initial);
+    (t.prisma.sourceIngest as any).findMany = jest.fn(() => Promise.resolve([t.current()]));
+    const writer = { ...t.wordpress, fetchArticle };
+    const site = { publish: jest.fn(() => Promise.resolve({ articleId: 'a1', generated: 2 })) };
+    const service = new IngestService(
+      t.prisma as unknown as PrismaService,
+      t.config as unknown as ConfigService,
+      t.reader as unknown as SourceReaderService,
+      t.rewriter as unknown as RewriterService,
+      writer as unknown as WordpressWriterService,
+      site as never,
+    );
+    return { ...t, service, site, writer };
+  }
+  const deposited = (over: Partial<SourceIngest> = {}) =>
+    ingest({
+      status: IngestStatus.AWAITING_ECHO,
+      generated: GENERATED,
+      wpPostId: '77',
+      wpPermalink: 'https://site.test/le-couscous',
+      updatedAt: new Date(Date.now() - 10 * 60_000),
+      ...over,
+    });
+
+  it('passé le délai, l’article est relu et reçu comme un renvoi du plugin, rattaché à la capture', async () => {
+    const t = withSite(deposited(), jest.fn(() => Promise.resolve(PULLED)));
+    expect(await t.service.pullStaleEchoes()).toEqual(['ing_1']);
+    expect(t.writer.fetchArticle).toHaveBeenCalledWith(expect.objectContaining({ postId: '77', siteUrl: 'https://site.test' }));
+    expect(t.site.publish).toHaveBeenCalledWith(expect.objectContaining({ postId: '77', ingestRef: 'ing_1' }));
+    expect(t.prisma.activityLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ eventType: 'INGEST_PULLED' }) }),
+    );
+  });
+
+  it('relecture impossible : la raison est notée, et l’essai suivant attend plus longtemps', async () => {
+    const t = withSite(deposited(), jest.fn(() => Promise.reject(new Error('Le site ferme son API publique'))));
+    expect(await t.service.pullStaleEchoes()).toEqual([]);
+    expect(t.current().lastError).toMatch(/\[essai 1\].*ferme son API publique/);
+    // Juste après : pas de nouvel essai (attente de 4 min).
+    t.writer.fetchArticle.mockClear();
+    await t.service.pullStaleEchoes(new Date(t.current().updatedAt.getTime() + 60_000));
+    expect(t.writer.fetchArticle).not.toHaveBeenCalled();
+  });
+
+  it('« Relancer » une capture déposée relit l’article — sans jamais le redéposer', async () => {
+    const t = withSite(deposited(), jest.fn(() => Promise.resolve(PULLED)));
+    await t.service.retry('ing_1', null);
+    expect(t.wordpress.deposit).not.toHaveBeenCalled();
+    expect(t.site.publish).toHaveBeenCalled();
+  });
+});
+
 describe('IngestService.advance', () => {
+  it('un renvoi du plugin arrivé avant la fin du dépôt n’est pas défait', async () => {
+    const t = setup(ingest({ status: IngestStatus.REWRITTEN, generated: GENERATED, fbCaption: 'x' }));
+    t.wordpress.deposit.mockImplementationOnce(async () => {
+      // Pendant le dépôt, WP-Cron a déjà renvoyé l'article : reprise refermée.
+      await t.prisma.sourceIngest.update({ where: { id: 'ing_1' }, data: { articleId: 'a1', status: IngestStatus.COMPLETED } } as never);
+      return { postId: '77', permalink: 'https://site.test/le-couscous', imageWarning: null };
+    });
+    await t.service.advance('ing_1');
+    expect(t.current()).toMatchObject({ status: IngestStatus.COMPLETED, articleId: 'a1', wpPostId: '77' });
+  });
+
   // L'URL donnée est celle de NOTRE article : rien à lire ni à réécrire,
   // seule sa description devient celle du post Facebook.
   describe('URL d’un article de notre site', () => {

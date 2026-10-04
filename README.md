@@ -1599,6 +1599,27 @@ Le **plugin WordPress** est sur la page 🧩 Extensions (carte « Plugin
 WordPress », ZIP prêt à téléverser, anciennes versions en archives). Jamais
 préconfiguré : sa clé est `WORDPRESS_API_KEY` du serveur.
 
+## Quand WordPress ne renvoie pas l'article
+
+Après un dépôt, c'est le plugin qui renvoie l'article (et c'est ce renvoi qui
+crée l'article et ses posts). Il passe par **WP-Cron**, qui ne tourne qu'à la
+visite du site : sur un site peu visité, ou avec `DISABLE_WP_CRON`, le renvoi
+peut ne jamais partir. Plusieurs filets :
+
+- le plugin **1.4.0** réveille WP-Cron dès la mise en ligne (`spawn_cron`) ;
+- passé **2 min** sans renvoi, le serveur **relit l'article lui-même**
+  (`INGEST_PULLED`) : route `GET dfb/v1/articles/<id>` du plugin ≥ 1.4.0
+  (protégée par la clé), sinon l'API publique `wp/v2/posts`. Il le reçoit
+  comme un renvoi : article, posts, description Facebook. Échec → raison au
+  journal (`INGEST_ECHO_MISSING`), nouvel essai à 4, 8… min (au plus 1 h,
+  10 essais) ;
+- **« Relancer »** une capture déjà déposée relit l'article — elle ne le
+  redépose jamais (c'était un doublon sur le site).
+
+Côté WordPress, la colonne « Facebook » de la liste des articles dit où en est
+le renvoi (« En attente », « Réponse API invalide (HTTP …) », etc.).
+`ECHO_PULL_INTERVAL_MINUTES` (défaut 2, 0 = jamais) règle la relecture.
+
 ## Duplication des contenus
 
 Par défaut, un post part **une seule fois** dans chaque groupe. **Posts → 🔁

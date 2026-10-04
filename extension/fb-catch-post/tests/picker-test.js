@@ -25,9 +25,10 @@ function fakeChrome(store = {}) {
     sent,
     storage: {
       local: {
-        get: async (key) => ({ [key]: store[key] }),
+        // Comme chrome.storage : une clé ou une liste de clés.
+        get: async (keys) => Object.fromEntries([].concat(keys).filter((k) => k in store).map((k) => [k, store[k]])),
         set: async (items) => Object.assign(store, items),
-        remove: async (key) => delete store[key],
+        remove: async (keys) => [].concat(keys).forEach((k) => delete store[k]),
       },
     },
     runtime: { sendMessage: async (message) => sent.push(message) },
@@ -97,6 +98,8 @@ function fakeChrome(store = {}) {
     }),
   });
   pw.eval(read('config.js'));
+  // Le paquet préconfiguré porte la clé ; le dossier du dépôt, non.
+  pw.FCP_CONFIG.apiKey = 'cle-de-test';
   pw.eval(read('popup.js'));
   await wait(50);
   const $ = (id) => pw.document.getElementById(id);
@@ -114,6 +117,30 @@ function fakeChrome(store = {}) {
   $('source').value = 'https://exemple.com/gateau';
   $('source').dispatchEvent(new pw.Event('input'));
   check('puis s’active', $('send').disabled === false, null);
+
+  // ─── Le brouillon survit à la fermeture du popup ──────────────────
+  // On corrige le texte, on colle l'URL, on change de site… puis le popup se
+  // ferme (clic dans un autre onglet pour copier). À la réouverture, tout est là.
+  $('caption').value = 'Gâteau au chocolat fondant — texte corrigé à la main';
+  $('caption').dispatchEvent(new pw.Event('input'));
+  await wait(10);
+  const reopened = new JSDOM(read('popup.html').replace(/<script[^>]*><\/script>/g, ''), {
+    url: 'chrome-extension://fcp/popup.html',
+    runScripts: 'outside-only',
+  });
+  const rw = reopened.window;
+  rw.chrome = fakeChrome(pw.chrome.store);
+  rw.chrome.tabs = { query: async () => [] };
+  rw.fetch = pw.fetch;
+  rw.eval(read('config.js'));
+  rw.FCP_CONFIG.apiKey = 'cle-de-test';
+  rw.eval(read('popup.js'));
+  await wait(50);
+  const r = (id) => rw.document.getElementById(id);
+  check('réouverture : le texte corrigé est gardé', r('caption').value === 'Gâteau au chocolat fondant — texte corrigé à la main', r('caption').value);
+  check('réouverture : l’URL collée est gardée', r('source').value === 'https://exemple.com/gateau', r('source').value);
+  check('réouverture : le site choisi est gardé, l’envoi prêt', r('site').value === 'https://tera.test' && r('send').disabled === false, [r('site').value, r('send').disabled]);
+  check('réouverture : le brouillon est signalé', /Brouillon retrouvé/.test(r('status').textContent), r('status').textContent);
 
   process.exit(ko ? 1 : 0);
 })();

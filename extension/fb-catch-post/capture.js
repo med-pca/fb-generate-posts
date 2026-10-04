@@ -282,6 +282,13 @@
   /** Le texte d'un post : le PREMIER message du conteneur. Les commentaires
    * viennent après dans l'ordre du document, et un commentaire bavard ne
    * doit pas l'emporter sur un post bref. */
+  /** Les textes saisis par l'auteur dans un bloc : ni l'interface, ni un
+   * commentaire, ni un nom, ni l'en-tête d'un groupe. */
+  const authorBlocks = (scope) =>
+    Array.from(scope.querySelectorAll(USER_TEXT))
+      .filter((el) => !el.closest(CHROME) && !inComment(el))
+      .filter((el) => text(el).length >= MIN_TEXT && !isGroupMeta(text(el)));
+
   const inComment = (el) => {
     const article = el.closest('div[role="article"]');
     return Boolean(article && IS_COMMENT.test(article.getAttribute('aria-label') || ''));
@@ -291,11 +298,32 @@
    * saisi par l'auteur : ni l'interface, ni un commentaire, ni un nom. Le
    * texte brut du conteneur ramenait « J'aime · Commenter · Partager ». */
   const authorTextIn = (post) => {
-    const blocks = Array.from(post.querySelectorAll(USER_TEXT))
-      .filter((el) => !el.closest(CHROME) && !inComment(el))
-      .filter((el) => text(el).length >= MIN_TEXT);
+    const blocks = authorBlocks(post);
     const innermost = blocks.filter((el) => !blocks.some((other) => other !== el && el.contains(other)));
     return innermost.length ? text(innermost[0]) : '';
+  };
+
+  /** Sans aucun marqueur de post (page d'un membre dans un groupe, page
+   * d'un post seul…) : le plus petit bloc autour du clic qui réunit une
+   * grande photo et un texte d'auteur. Les vignettes « Photos récentes » sont
+   * trop petites et sans texte : elles ne font jamais un post. Un bloc qui
+   * ressemble à une page entière (plusieurs grandes photos ET plusieurs
+   * textes) est refusé plutôt que deviné. */
+  const postAround = (target) => {
+    let el = target;
+    for (let climbed = 0; el && climbed < MAX_EXPAND + MAX_CLIMB; climbed += 1) {
+      if (el.nodeType === 1 && isBoundary(el)) return null;
+      if (el.nodeType === 1) {
+        const big = imagesIn(el).filter((image) => image.side >= MIN_IMAGE_SIDE).length;
+        const texts = big ? authorBlocks(el) : [];
+        if (big && texts.length) {
+          const innermost = texts.filter((t) => !texts.some((o) => o !== t && t.contains(o)));
+          return big > 2 && innermost.length > 2 ? null : el;
+        }
+      }
+      el = el.parentElement;
+    }
+    return null;
   };
 
   const messageOf = (post) => text(post.querySelector(MESSAGES)) || authorTextIn(post);
@@ -363,6 +391,9 @@
       if (article && article.getBoundingClientRect().height >= 120) {
         return { kind: 'post', el: article };
       }
+      // Ni marqueur ni role="article" : la photo et le texte qui vont ensemble.
+      const around = postAround(target);
+      if (around) return { kind: 'post', el: around };
       // Page photo : le bloc de texte cliqué, sinon le premier de la page —
       // on a cliqué sur la photo, la légende reste à vérifier dans le popup.
       const block = target.closest(USER_TEXT);

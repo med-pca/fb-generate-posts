@@ -44,6 +44,7 @@ const SIZES = {
   'avatar-potroast': { w: 40, h: 40 }, 'avatar-pool': { w: 40, h: 40 },
   'reaction-potroast': { w: 18, h: 18 }, 'reaction-pool': { w: 18, h: 18 },
   'grande-photo': { w: 700, h: 900 },
+  vignette: { w: 115, h: 115 },
   '👇': { w: 16, h: 16 }, '💬': { w: 16, h: 16 },
   _default: { w: 600, h: 500 },
 };
@@ -313,6 +314,32 @@ check('page non bloquée', listed.blocked === false, listed.blocked);
     <img alt="grande-photo" src="https://scontent.test/x.jpg"></body></html>`, 'https://www.facebook.com/photo/?fbid=1');
   const picked = metaOnly.window.__fcpCatch.pickAt(metaOnly.window.document.querySelector('img'));
   check('page photo : l’en-tête d’un groupe n’est jamais une légende', !picked, picked && picked.el.textContent);
+
+  // La page d'un membre dans un groupe : aucun marqueur de post, aucun
+  // role="article". Le clic sur la photo du post prend ce post ; un clic sur
+  // une vignette de « Recent photos » ne prend rien.
+  const member = load(`<!doctype html><html><body><div role="main">
+    <div class="left">
+      <h2>Recent photos</h2>
+      <img alt="vignette" src="https://scontent.test/thumb.jpg">
+      <div><span dir="auto">Fati Mahbola commented on her own post: "https://foodtime.test/blood-type/"</span></div>
+    </div>
+    <div class="post">
+      <div><a href="https://www.facebook.com/fati">Fati Mahbola</a></div>
+      <div><span dir="auto">What Do You Notice First? A Fun Optical Illusion That May Reveal Your Thinking Style....👇👇</span></div>
+      <img alt="grande-photo" src="https://scontent.test/pigeons.jpg">
+      <div role="button"><span dir="auto">View insights · 4.4K post reach</span></div>
+    </div>
+    </div></body></html>`, 'https://web.facebook.com/groups/1099633345041916/user/100035653099358/');
+  const onPost = await member.window.__fcpCatch.readAt(
+    member.window.document.querySelector('img[alt="grande-photo"]'), { x: 10, y: 10 });
+  check('page d’un membre : la photo du post donne ce post',
+    onPost.caption && onPost.caption.startsWith('What Do You Notice First?') && onPost.imageUrl === 'https://scontent.test/pigeons.jpg', onPost);
+  const onMemberText = await member.window.__fcpCatch.readAt(
+    member.window.document.querySelector('.post span[dir="auto"]'), null);
+  check("page d’un membre : le texte du post aussi", onMemberText.caption && onMemberText.caption.startsWith("What Do You Notice"), onMemberText);
+  const onThumb = member.window.__fcpCatch.pickAt(member.window.document.querySelector('img[alt="vignette"]'));
+  check('page d’un membre : une vignette de « Recent photos » ne désigne rien', !onThumb, onThumb && onThumb.el.className);
 
   process.exit(ko ? 1 : 0);
 })();

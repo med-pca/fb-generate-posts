@@ -254,7 +254,7 @@ check(DFB_Posting::unlock(true) === true, 'An already authenticated request is l
 $_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/status';
 $_SERVER['HTTP_X_API_KEY'] = 'secret';
 check(DFB_Posting::unlock($locked) === true, 'The status route is unlocked too');
-check(DFB_Posting::status_route()['version'] === '1.3.0', 'The status route reports the version');
+check(DFB_Posting::status_route()['version'] === '1.4.0', 'The status route reports the version');
 check(isset($GLOBALS['routes']['dfb/v1/status']), 'The status route is registered');
 
 
@@ -282,3 +282,15 @@ $body = $GLOBALS['posts'][(int) $paged['postId']]['post_content'];
 check(substr_count($body, DFB_Posting::NEXT_PAGE) === 1, 'The page break survives the body filter');
 check(strpos($body, '<script') === false, 'Each page is still filtered');
 check(strpos($body, '<h2>Deux</h2>') !== false, 'Nothing after the break is lost');
+
+// 1.4.0 : le serveur relit un article quand le renvoi tarde.
+check(isset($GLOBALS['routes']['dfb/v1/articles/(?P<id>\\d+)']) || DFB_Posting::routes() === null && isset($GLOBALS['routes']['dfb/v1/articles/(?P<id>\\d+)']), 'A read route exists for the server');
+$read = $GLOBALS['routes']['dfb/v1/articles/(?P<id>\\d+)'];
+check($read['methods'] === 'GET' && $read['permission_callback'] === array('DFB_Posting', 'authorized'), 'The read route is protected by the key');
+$GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'publish', 'post_password' => '', 'post_title' => 'Tarte', 'post_content' => 'Corps', 'post_excerpt' => '');
+update_post_meta(77, DFB_Posting::INGEST_META, 'ing_42');
+$article = DFB_Posting::read_route(array('id' => '77'));
+check(is_array($article) && $article['postId'] === '77' && $article['ingestRef'] === 'ing_42', 'It returns the delivery payload, capture reference included');
+$GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'draft', 'post_password' => '', 'post_title' => 'x', 'post_content' => 'x', 'post_excerpt' => '');
+check(is_wp_error(DFB_Posting::read_route(array('id' => '78'))), 'A draft is never readable');
+check(DFB_Posting::VERSION === '1.4.0', 'Version 1.4.0');

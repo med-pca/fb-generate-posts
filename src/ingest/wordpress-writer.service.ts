@@ -37,6 +37,49 @@ const IMAGE_TYPES = new Set([
   'image/gif',
 ]);
 const TIMEOUT_MS = 60_000;
+
+/** Un article tel que le plugin l'envoie (même forme que sa route
+ * `POST /api/wordpress/articles`), relu par le serveur lui-même. */
+export type PulledArticle = {
+  siteUrl: string;
+  siteName: string;
+  postId: string;
+  title: string;
+  content: string;
+  excerpt?: string;
+  articleUrl: string;
+  imageUrl?: string;
+  publishedAt: string;
+};
+
+/** Les entités nommées qu'on croise dans un titre français ou anglais. */
+const NAMED_ENTITIES: Record<string, string> = {
+  eacute: 'é', egrave: 'è', ecirc: 'ê', euml: 'ë', agrave: 'à', acirc: 'â', ccedil: 'ç',
+  icirc: 'î', iuml: 'ï', ocirc: 'ô', ugrave: 'ù', ucirc: 'û', uuml: 'ü', oelig: 'œ',
+  Eacute: 'É', Egrave: 'È', Agrave: 'À', Ccedil: 'Ç',
+  rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', laquo: '«', raquo: '»', ndash: '–', mdash: '—',
+};
+
+/** Le texte d'un champ « rendered » de WordPress : sans balises ni entités. */
+export function plainText(html: string | undefined | null, max = 100_000) {
+  const text = String(html ?? '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&#(\d+);/g, (_m, n: string) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, n: string) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&hellip;/g, '…')
+    .replace(/&([a-z]+);/gi, (m, name: string) => NAMED_ENTITIES[name] ?? m)
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.slice(0, max);
+}
 /** Pages par article. Chaque page vue en est une de plus pour la régie
  * publicitaire ; 1 rend l'article d'un seul tenant. */
 const DEFAULT_PAGES = 3;
@@ -107,6 +150,85 @@ export class WordpressWriterService {
       postId: parsed.postId,
       permalink: parsed.permalink,
       imageWarning: parsed.imageWarning ?? null,
+    };
+  }
+
+  /** Relire un article sur le site, sans attendre que le plugin le renvoie
+   * (WP-Cron qui ne passe pas, réglage manquant…). D'abord la route du
+   * plugin (≥ 1.4.0, protégée par la clé, exactement ce qu'il enverrait) ;
+   * sinon l'API publique de WordPress. Par identifiant, ou par slug pour un
+   * article de notre site désigné par son adresse. */
+  async fetchArticle(input: {
+    siteUrl: string;
+    siteName: string;
+    apiKey?: string | null;
+    postId?: string | null;
+    slug?: string | null;
+  }): Promise<PulledArticle> {
+    const key = input.apiKey || this.config.get<string>('WORDPRESS_API_KEY') || '';
+    const get = async (url: string, withKey: boolean) => {
+      try {
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+          headers: { accept: 'application/json', ...(withKey && key ? { 'x-api-key': key } : {}) },
+        });
+        const text = await response.text();
+        let json: unknown = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = null;
+        }
+        return { status: response.status, json };
+      } catch {
+        throw new BadGatewayException(`Site WordPress injoignable (${url})`);
+      }
+    };
+    if (input.postId) {
+      const own = await get(`${input.siteUrl}/wp-json/dfb/v1/articles/${encodeURIComponent(input.postId)}`, true);
+      const body = own.json as Partial<PulledArticle> | null;
+      if (own.status >= 200 && own.status < 300 && body?.postId && body.articleUrl) {
+        return { ...(body as PulledArticle), siteUrl: input.siteUrl, siteName: body.siteName || input.siteName };
+      }
+      if (own.status !== 404) {
+        throw new BadGatewayException(`Le plugin a refusé la lecture de l’article (HTTP ${own.status})`);
+      }
+    }
+    // Plugin plus ancien : l'API publique de WordPress.
+    const embed = '_embed=wp:featuredmedia';
+    const url = input.postId
+      ? `${input.siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(input.postId)}?${embed}`
+      : `${input.siteUrl}/wp-json/wp/v2/posts?slug=${encodeURIComponent(input.slug || '')}&${embed}`;
+    const pub = await get(url, false);
+    type WpPost = {
+      id: number;
+      link: string;
+      date_gmt: string;
+      status?: string;
+      title?: { rendered?: string };
+      content?: { rendered?: string };
+      excerpt?: { rendered?: string };
+      _embedded?: { 'wp:featuredmedia'?: Array<{ source_url?: string }> };
+    };
+    const post = (Array.isArray(pub.json) ? pub.json[0] : pub.json) as WpPost | undefined;
+    if (pub.status < 200 || pub.status >= 300 || !post?.id || !post.link) {
+      throw new BadGatewayException(
+        pub.status === 401 || pub.status === 403
+          ? 'Le site ferme son API publique : installer le plugin 1.4.0 (page Extensions) pour que le serveur puisse relire ses articles'
+          : `Article introuvable sur le site (HTTP ${pub.status})`,
+      );
+    }
+    const image = post._embedded?.['wp:featuredmedia']?.[0]?.source_url;
+    return {
+      siteUrl: input.siteUrl,
+      siteName: input.siteName,
+      postId: String(post.id),
+      title: plainText(post.title?.rendered, 1000) || `Article ${post.id}`,
+      content: plainText(post.content?.rendered),
+      excerpt: plainText(post.excerpt?.rendered, 5000) || undefined,
+      articleUrl: post.link,
+      imageUrl: image && image.startsWith('https://') ? image : undefined,
+      publishedAt: new Date(`${post.date_gmt.replace(/Z?$/, '')}Z`).toISOString(),
     };
   }
 

@@ -36,6 +36,21 @@ const els = {
 const CAPTURE_KEY = 'fcp.capture';
 /** Le dernier site choisi, retenu d'une fois sur l'autre. */
 const LAST_SITE = 'fcp.lastSite';
+/** Le brouillon : ce qu'on a saisi ou corrigé dans le popup. Le popup se
+ * ferme dès qu'on clique ailleurs — pour aller copier l'URL de l'article ou
+ * un bout de texte — et sans cela tout était perdu. Gardé jusqu'à l'envoi.
+ * `capturedAt` relie le texte corrigé à SA capture : une nouvelle capture
+ * repart de son propre texte, l'URL déjà collée, elle, reste. */
+const DRAFT_KEY = 'fcp.draft';
+let draft = { caption: null, capturedAt: null, source: '' };
+function saveDraft() {
+  draft = {
+    caption: chosen ? els.caption.value : draft.caption,
+    capturedAt: chosen ? chosen.capturedAt || null : draft.capturedAt,
+    source: els.source.value,
+  };
+  void chrome.storage.local.set({ [DRAFT_KEY]: draft });
+}
 let tabId = null;
 let chosen = null;
 let sites = [];
@@ -300,7 +315,6 @@ function sameSite(articleUrl, siteUrl) {
 async function send() {
   els.send.disabled = true;
   say('Envoi…');
-  await chrome.storage.local.set({ [LAST_SITE]: els.site.value });
   const body = {
     facebookUrl: chosen.facebookUrl || chosen.pageUrl,
     siteUrl: els.site.value,
@@ -333,7 +347,8 @@ async function send() {
     return;
   }
   // Envoyée : la capture a servi, la prochaine ouverture repart de zéro.
-  await chrome.storage.local.remove(CAPTURE_KEY);
+  await chrome.storage.local.remove([CAPTURE_KEY, DRAFT_KEY]);
+  draft = { caption: null, capturedAt: null, source: '' };
   chrome.action.setBadgeText({ text: '' });
   const { ingestId } = JSON.parse(text);
   const own = sameSite(body.sourceUrl, body.siteUrl);
@@ -353,16 +368,31 @@ async function send() {
 
 async function start() {
   chrome.action.setBadgeText({ text: '' });
-  const { [CAPTURE_KEY]: captured } = await chrome.storage.local.get(CAPTURE_KEY);
-  if (captured?.caption) showCapture(captured);
+  const { [CAPTURE_KEY]: captured, [DRAFT_KEY]: saved } = await chrome.storage.local.get([CAPTURE_KEY, DRAFT_KEY]);
+  if (saved) draft = { ...draft, ...saved };
+  // L'URL collée revient toujours, même avant toute capture.
+  if (draft.source) els.source.value = draft.source;
+  if (captured?.caption) {
+    showCapture(captured);
+    // Le texte corrigé revient s'il appartient à cette capture.
+    if (draft.caption !== null && draft.capturedAt === (captured.capturedAt || null)) {
+      els.caption.value = draft.caption;
+    }
+    if (draft.caption !== null || draft.source) say('Brouillon retrouvé : vérifiez, puis envoyez.');
+  }
+  refresh();
 }
 
 els.pick.addEventListener('click', () => void startPicking());
 els.repick.addEventListener('click', () => void startPicking());
 els.list.addEventListener('click', () => void startList());
-els.site.addEventListener('change', describeSite);
-els.source.addEventListener('input', refresh);
-els.caption.addEventListener('input', refresh);
+// Retenu dès qu'il change, pas seulement à l'envoi.
+els.site.addEventListener('change', () => {
+  void chrome.storage.local.set({ [LAST_SITE]: els.site.value });
+  describeSite();
+});
+els.source.addEventListener('input', () => { saveDraft(); refresh(); });
+els.caption.addEventListener('input', () => { saveDraft(); refresh(); });
 els.send.addEventListener('click', () => void send());
 void loadSites();
 void start();

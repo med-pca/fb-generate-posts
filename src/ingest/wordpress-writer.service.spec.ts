@@ -164,3 +164,56 @@ describe('WordpressWriterService', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('fetchArticle : relire un article sans attendre le plugin', () => {
+  const read = (over: Record<string, unknown> = {}) =>
+    writer('cle-wp').fetchArticle({ siteUrl: 'https://site.test', siteName: 'Site', postId: '77', ...over });
+
+  it('plugin ≥ 1.4.0 : sa route, avec la clé, rend exactement ce qu’il enverrait', async () => {
+    fetchMock.mockResolvedValueOnce(ok({ postId: '77', title: 'Tarte', content: 'x', articleUrl: 'https://site.test/tarte', publishedAt: '2026-10-04T10:00:00+00:00', ingestRef: 'ing_1' }));
+    const article = await read();
+    expect(fetchMock.mock.calls[0][0]).toBe('https://site.test/wp-json/dfb/v1/articles/77');
+    expect(fetchMock.mock.calls[0][1].headers['x-api-key']).toBe('cle-wp');
+    expect(article).toMatchObject({ postId: '77', title: 'Tarte', siteUrl: 'https://site.test', siteName: 'Site' });
+  });
+
+  it('plugin plus ancien (route absente) : l’API publique, texte nettoyé, image à la une', async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response('{"code":"rest_no_route"}', { status: 404 }))
+      .mockResolvedValueOnce(ok({
+        id: 77,
+        link: 'https://site.test/tarte/',
+        date_gmt: '2026-10-04T10:00:00',
+        title: { rendered: 'Tarte &amp; cr&egrave;me &#8211; facile' },
+        content: { rendered: '<p>Une <b>tarte</b>.</p>' },
+        excerpt: { rendered: '<p>Court</p>' },
+        _embedded: { 'wp:featuredmedia': [{ source_url: 'https://site.test/img.jpg' }] },
+      }));
+    const article = await read();
+    expect(fetchMock.mock.calls[1][0]).toBe('https://site.test/wp-json/wp/v2/posts/77?_embed=wp:featuredmedia');
+    expect(fetchMock.mock.calls[1][1].headers['x-api-key']).toBeUndefined();
+    expect(article).toMatchObject({
+      postId: '77',
+      title: 'Tarte & crème – facile',
+      content: 'Une tarte .',
+      excerpt: 'Court',
+      articleUrl: 'https://site.test/tarte/',
+      imageUrl: 'https://site.test/img.jpg',
+      publishedAt: '2026-10-04T10:00:00.000Z',
+    });
+  });
+
+  it('API publique fermée : la raison dit quoi faire', async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response('{}', { status: 404 }))
+      .mockResolvedValueOnce(new Response('{"code":"rest_login_required"}', { status: 401 }));
+    await expect(read()).rejects.toThrow(/plugin 1\.4\.0/);
+  });
+
+  it('article de notre site désigné par son adresse : recherche par slug', async () => {
+    fetchMock.mockResolvedValueOnce(ok([{ id: 5, link: 'https://site.test/ma-recette/', date_gmt: '2026-10-01T08:00:00', title: { rendered: 'Ma recette' }, content: { rendered: '' } }]));
+    const article = await read({ postId: null, slug: 'ma-recette' });
+    expect(fetchMock.mock.calls[0][0]).toBe('https://site.test/wp-json/wp/v2/posts?slug=ma-recette&_embed=wp:featuredmedia');
+    expect(article.postId).toBe('5');
+  });
+});
