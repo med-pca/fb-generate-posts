@@ -24,6 +24,9 @@ COPY prisma ./prisma
 RUN npm ci --omit=dev && npx prisma generate
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
+# Les extensions (dossiers + archives) : le serveur les relit au démarrage
+# pour la page « Extensions » (release actuelle + anciennes versions).
+COPY extension ./extension
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \

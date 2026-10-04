@@ -7,3 +7,7 @@ dist
 coverage
 npm-debug.log*
 .DS_Store
+**/node_modules
+**/.DS_Store
+extension/*.zip
+extension/**/dist
