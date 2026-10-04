@@ -880,9 +880,13 @@ setTimeout(async () => {
       if (body.dryRun) return { ok: true, status: 200, json: async () => ({ dryRun: true, posts: 143, postsFromArticles: 98, standalonePosts: 45, articles: 42, archivedArticles: 12, jobs: 64, published: 211, activeJobs: 0, plan }) };
       return { ok: true, status: 200, json: async () => ({ dryRun: false, deleted: plan }) };
     }
-    if (path === '/settings') return { ok: true, status: 200, json: async () => ({}) };
+    if (path === '/settings') {
+      if (options.method === 'PATCH') objectiveBody = JSON.parse(options.body || '{}');
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
     return beforeExtra(url, options);
   };
+  let objectiveBody = null;
   window.eval(`loadCounters()`);
   await new Promise((resolve) => setTimeout(resolve, 50));
   const badge = (v) => window.document.querySelector(`.nav[data-view="${v}"] .nav-count`);
@@ -902,9 +906,12 @@ setTimeout(async () => {
   of.elements.dailyTarget.value = '250';
   of.elements.objectiveStart.value = '09:00';
   of.elements.objectiveEnd.value = '21:30';
+  check('le fuseau de la plage est affiché (Paris par défaut), avec l’heure qu’il y est', of.elements.objectiveTimezone.value === 'Europe/Paris' && /il y est \d\d:\d\d/.test($('#objective-tz-now').textContent), [of.elements.objectiveTimezone.value, $('#objective-tz-now').textContent]);
+  of.elements.objectiveTimezone.value = 'Africa/Casablanca';
   of.dispatchEvent(new window.Event('submit', { cancelable: true }));
   await new Promise((resolve) => setTimeout(resolve, 50));
   check('régler l’objectif l’enregistre', extraCalls.includes('PATCH /settings'), extraCalls.slice(-5));
+  check('avec le pays choisi pour la plage horaire', objectiveBody && objectiveBody.objectiveTimezone === 'Africa/Casablanca', objectiveBody);
 
   window.eval(`view('settings')`);
   await new Promise((resolve) => setTimeout(resolve, 50));

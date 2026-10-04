@@ -898,6 +898,25 @@
                 <label>Objectif<input name="dailyTarget" type="number" min="0" max="100000" placeholder="200" /><span>posts / jour</span></label>
                 <label>De<input name="objectiveStart" type="time" /></label>
                 <label>à<input name="objectiveEnd" type="time" /></label>
+                <label title="Les heures « De » et « à » sont celles de ce pays"
+                  >Heure de<select name="objectiveTimezone" id="objective-tz">
+                    <option value="Europe/Paris">France (Paris)</option>
+                    <option value="Africa/Casablanca">Maroc (Casablanca)</option>
+                    <option value="Europe/London">Royaume-Uni (Londres)</option>
+                    <option value="Europe/Brussels">Belgique (Bruxelles)</option>
+                    <option value="Europe/Berlin">Allemagne (Berlin)</option>
+                    <option value="Europe/Madrid">Espagne (Madrid)</option>
+                    <option value="America/New_York">USA Est (New York)</option>
+                    <option value="America/Chicago">USA Centre (Chicago)</option>
+                    <option value="America/Denver">USA Montagnes (Denver)</option>
+                    <option value="America/Los_Angeles">USA Ouest (Los Angeles)</option>
+                    <option value="America/Toronto">Canada Est (Toronto)</option>
+                    <option value="America/Vancouver">Canada Ouest (Vancouver)</option>
+                    <option value="Australia/Sydney">Australie (Sydney)</option>
+                    <option value="Asia/Dubai">Émirats (Dubaï)</option>
+                    <option value="UTC">UTC</option>
+                  </select></label
+                ><small class="obj-tz-now" id="objective-tz-now"></small>
                 <button class="secondary" type="submit">Enregistrer</button>
               </form>
             </div>

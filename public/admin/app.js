@@ -1037,6 +1037,7 @@ function renderObjective() {
     f.elements.dailyTarget.value = o.settings.dailyTarget || '';
     f.elements.objectiveStart.value = minutesToTime(o.settings.objectiveStart);
     f.elements.objectiveEnd.value = minutesToTime(o.settings.objectiveEnd);
+    setObjectiveZone(o.settings.objectiveTimezone || 'Europe/Paris');
   }
   const [tone, label] = PACE_TEXT[p.status] || ['neutral', p.status];
   const window_ = `${minutesToTime(o.settings.objectiveStart)} → ${minutesToTime(o.settings.objectiveEnd)}`;
@@ -1122,6 +1123,24 @@ function renderObjective() {
     'Aucun groupe actif.',
   );
 }
+/** Le fuseau de la plage : choisi dans la liste (un fuseau réglé ailleurs y
+ * est ajouté), avec l'heure qu'il est là-bas — de quoi lever le doute. */
+function setObjectiveZone(zone) {
+  const select = $('#objective-tz');
+  if (![...select.options].some((o) => o.value === zone)) select.append(new Option(zone, zone));
+  select.value = zone;
+  showObjectiveZoneNow();
+}
+function showObjectiveZoneNow() {
+  const zone = $('#objective-tz').value;
+  try {
+    const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: zone });
+    $('#objective-tz-now').textContent = `il y est ${now}`;
+  } catch {
+    $('#objective-tz-now').textContent = '';
+  }
+}
+$('#objective-tz').addEventListener('change', showObjectiveZoneNow);
 $('#objective-form').onsubmit = async (e) => {
   e.preventDefault();
   const f = e.target.elements;
@@ -1132,6 +1151,7 @@ $('#objective-form').onsubmit = async (e) => {
         dailyTarget: Number(f.dailyTarget.value || 0),
         objectiveStart: timeToMinutes(f.objectiveStart.value) ?? 480,
         objectiveEnd: timeToMinutes(f.objectiveEnd.value) ?? 1320,
+        objectiveTimezone: f.objectiveTimezone.value,
       }),
     });
     notice('Objectif enregistré.');

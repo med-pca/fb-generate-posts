@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 
@@ -20,6 +20,14 @@ export class SettingsService {
   }
 
   update(dto: UpdateSettingsDto) {
+    // Un fuseau inconnu ferait échouer tous les calculs de l'objectif.
+    if (dto.objectiveTimezone !== undefined) {
+      try {
+        new Intl.DateTimeFormat('fr-FR', { timeZone: dto.objectiveTimezone });
+      } catch {
+        throw new BadRequestException(`Fuseau horaire inconnu : ${dto.objectiveTimezone}`);
+      }
+    }
     return this.prisma.automationSetting.upsert({
       where: { id: 'global' },
       create: { id: 'global', ...dto },
