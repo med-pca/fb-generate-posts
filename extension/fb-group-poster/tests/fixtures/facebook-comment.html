@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Un commentaire Facebook, en modèle réduit</title>
+<!--
+  Ce que la page reproduit du vrai Facebook, et rien d'autre :
+
+   - le commentaire est un div[role="article"] dont l'aria-label commence par
+     "Comment by", ce qui le distingue du post ;
+   - son identifiant ne vit que dans le lien de son horodatage (comment_id=) ;
+   - le bouton "..." est masqué par `display:none` tant que la souris n'est pas
+     sur le commentaire -- et c'est du CSS `:hover` pur, que des événements de
+     synthèse ne déclenchent pas. C'est le cas qui cassait l'édition ;
+   - "Modifier" remplace le texte par un champ pré-rempli, comme l'éditeur en
+     ligne de Facebook ;
+   - Entrée enregistre et referme le champ ;
+   - le bouton "...", l'entrée "Modifier" et Entrée ignorent les événements de
+     synthèse (isTrusted = false), comme le vrai Facebook. Sans cela, ce test
+     passait alors que la page réelle refusait l'édition.
+-->
+<style>
+  body { font: 14px system-ui; margin: 24px; }
+  .options { display: none; }
+  .comment:hover .options { display: inline-block; }
+  .menu { position: absolute; background: #fff; border: 1px solid #ccc; }
+  [contenteditable] { border: 1px solid #1877f2; padding: 6px; min-width: 300px; }
+</style>
+</head>
+<body>
+  <div role="feed">
+    <div class="post">
+      <div dir="auto">Le texte du post, qui porte les mêmes mots que son commentaire.</div>
+    </div>
+
+    <div class="comment" role="article" aria-label="Comment by Lina Cherifa">
+      <strong>Lina Cherifa</strong>
+      <div class="body"><div dir="auto">Le texte du post, qui porte les mêmes mots que son commentaire.</div></div>
+      <a href="/groups/422151397276363/posts/999/?comment_id=123456">il y a 2 min</a>
+      <div role="article" aria-label="Comment by Lina Cherifa" style="display:none">
+        <a href="/groups/422151397276363/posts/999/?comment_id=123456">doublon sans boîte</a>
+      </div>
+      <div role="button" class="options" aria-label="Comment options" tabindex="0">···</div>
+    </div>
+  </div>
+
+<script>
+  // Le menu du commentaire, et l'éditeur en ligne. Volontairement minimal :
+  // ce qui est testé est l'extension, pas cette page.
+  const comment = document.querySelector('.comment');
+  const options = comment.querySelector('.options');
+  const body = comment.querySelector('.body');
+  window.__saved = null;
+
+  options.addEventListener('click', (event) => {
+    if (!event.isTrusted) return;
+    if (document.querySelector('.menu')) return;
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    menu.className = 'menu';
+    const edit = document.createElement('div');
+    edit.setAttribute('role', 'menuitem');
+    edit.textContent = 'Modifier';
+    edit.addEventListener('click', (event) => {
+      if (!event.isTrusted) return;
+      menu.remove();
+      const box = document.createElement('div');
+      box.setAttribute('role', 'textbox');
+      box.setAttribute('contenteditable', 'true');
+      box.setAttribute('aria-label', 'Modifier le commentaire');
+      box.textContent = body.textContent;   // l'éditeur arrive pré-rempli
+      // Comme Facebook : une URL tapée fait apparaître, un peu plus tard, la
+      // carte d'aperçu du site avec son image.
+      const PREVIEW = 'data:image/svg+xml,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#fa0"/></svg>');
+      const card = () => {
+        const c = document.createElement('div');
+        c.className = 'preview';
+        const im = document.createElement('img');
+        im.src = PREVIEW;
+        im.width = 200;
+        im.height = 100;
+        c.appendChild(im);
+        return c;
+      };
+      box.addEventListener('input', () => {
+        if (!/https?:\/\/\S+/.test(box.innerText) || comment.querySelector('.preview')) return;
+        setTimeout(() => { if (box.isConnected) comment.appendChild(card()); }, 1500);
+      });
+      box.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' || !event.isTrusted) return;
+        event.preventDefault();
+        window.__saved = box.innerText.trim();
+        body.innerHTML = '<div dir="auto"></div>';
+        if (/^https?:\/\//.test(window.__saved)) {
+          // Comme Facebook : l.php, sans schéma, le milieu coupé par « … ».
+          const a = document.createElement('a');
+          a.href = 'https://l.facebook.com/l.php?u=' + encodeURIComponent(window.__saved) + '&h=AT0';
+          const shown = window.__saved.replace(/^https?:\/\//, '');
+          a.textContent = shown.length > 40 ? shown.slice(0, 32) + '…' : shown;
+          body.firstChild.appendChild(a);
+          body.appendChild(card());
+        } else {
+          body.firstChild.textContent = window.__saved;
+        }
+        box.remove();                        // enregistrer referme le champ
+        comment.querySelectorAll(':scope > .preview').forEach((c) => c.remove());
+      });
+      body.replaceChildren();
+      comment.appendChild(box);
+      box.focus();
+    });
+    menu.appendChild(edit);
+    document.body.appendChild(menu);
+  });
+</script>
+</body>
+</html>

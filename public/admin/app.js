@@ -1983,6 +1983,7 @@ const ROUTES = {
   '/comptes': { view: 'users' },
   '/actions-en-masse': { view: 'bulk' },
   '/moderateurs': { view: 'moderators' },
+  '/extensions': { view: 'extensions' },
   '/pre-approbations': { view: 'preapprovals' },
 };
 /** L'adresse d'une rubrique (et, pour les posts, de son onglet). */
@@ -2063,12 +2064,14 @@ function view(id, { fromUrl = false } = {}) {
     settings: 'Paramètres',
     bulk: 'Actions en masse',
     moderators: 'Modérateurs',
+    extensions: 'Extensions',
     preapprovals: 'Pré-approbations',
     'profile-page': 'Profil',
     'moderator-page': 'Modérateur',
   }[id];
   if (id === 'bulk') loadBulk();
   if (id === 'moderators') loadModerators();
+  if (id === 'extensions') loadExtensions();
   if (id === 'runners' && !fromUrl) showPilotTab('profiles', { fromUrl: true });
   if (id === 'preapprovals') loadPreapprovals();
   // Les journaux se relisent à chaque ouverture : une synthèse périmée
@@ -4466,3 +4469,118 @@ document.querySelector('aside nav').addEventListener('click', (e) => {
   applyNavGroups();
 });
 applyNavGroups();
+
+/* ── Extensions : téléchargement et historique (sauvegarde) ────────── */
+const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`);
+
+async function loadExtensions() {
+  let list;
+  try {
+    list = await api('/extensions');
+  } catch (x) {
+    notice(x.message, 'error');
+    return;
+  }
+  if (!Array.isArray(list)) return;
+  state.extensions = list;
+  const admin = isAdminUser();
+  const dl = (key, version, preset, label, cls) =>
+    `<button type="button" class="${cls}" data-ext-download="${esc(key)}" data-version="${esc(version)}" data-preset="${preset ? '1' : ''}">${label}</button>`;
+  $('#ext-cards').innerHTML = list
+    .map((e) => {
+      const c = e.current;
+      // La release actuelle en haut ; tout le reste, ce sont les archives.
+      const archives = e.releases.filter((r) => !c || r.id !== c.id);
+      const history = archives
+        .map(
+          (r) =>
+            `<tr><td><b title="empreinte ${esc(r.sha256)}">${esc(r.version)}</b>` +
+            (r.pinned ? ' <span class="tag warn">épinglée</span>' : '') +
+            (r.notes ? `<small title="${esc(r.notes)}">${esc(r.notes)}</small>` : '') +
+            `</td><td><small>${esc(when(r.createdAt))}<br>${kb(r.size)} · ${r.fileCount} fichiers</small></td>` +
+            `<td><div class="row-actions">${dl(e.key, r.version, e.preconfigurable, '⬇', 'edit')}` +
+            (admin ? `<button type="button" class="edit" data-ext-pin="${esc(e.key)}" data-version="${esc(r.version)}" title="Remettre cette version en release (retour arrière)">↩︎</button>` : '') +
+            `</div></td></tr>`,
+        )
+        .join('');
+      return (
+        `<article class="ext-card">` +
+        `<header><span class="ext-icon" style="background:${esc(e.color)}">${esc(e.letter)}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.role)}</p></div></header>` +
+        `<p class="ext-where"><b>À installer sur :</b> ${esc(e.installOn)}</p>` +
+        (c
+          ? `<div class="ext-current"><div><small>Release actuelle</small><strong>${esc(c.version)}</strong><small>${esc(when(c.createdAt))} · ${kb(c.size)}${c.notes ? ` · ${esc(c.notes)}` : ''}</small></div>` +
+            (e.pinned ? '<span class="chip join-requested" title="Un administrateur a choisi cette version">épinglée</span>' : '') +
+            `</div>` +
+            `<div class="ext-actions">${e.preconfigurable ? dl(e.key, c.version, true, '⬇ Télécharger (préconfigurée)', 'primary') : ''}${dl(e.key, c.version, false, '⬇ Sans clé', 'secondary')}</div>`
+          : '<p class="empty">Aucune version enregistrée : « Relire les versions ».</p>') +
+        (archives.length
+          ? `<details class="ext-history"><summary>🗄 Archives · ${archives.length} ancienne(s) version(s)</summary>` +
+            `<table class="ext-table"><colgroup><col /><col class="w-when" /><col class="w-act" /></colgroup><thead><tr><th>Version</th><th>Date · taille</th><th></th></tr></thead><tbody>${history}</tbody></table>` +
+            (admin && e.pinned ? `<button type="button" class="link" data-ext-unpin="${esc(e.key)}">Suivre à nouveau la plus récente</button>` : '') +
+            `</details>`
+          : '<p class="ext-noarchive">Aucune ancienne version archivée.</p>') +
+        `</article>`
+      );
+    })
+    .join('');
+}
+
+/** Télécharger : le fichier part du serveur (session), sans exposer la clé à
+ * la page. */
+async function downloadExtension(button) {
+  const { extDownload: key, version, preset } = button.dataset;
+  if (preset && !confirm('Ce fichier contiendra la clé d’API de votre compte.\nNe le partagez pas, ne l’envoyez à personne.')) return;
+  button.disabled = true;
+  try {
+    const response = await fetch(`${API}/extensions/${encodeURIComponent(key)}/${encodeURIComponent(version)}/download${preset ? '?preset=1' : ''}`, {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'PostFlow' },
+    });
+    if (response.status === 401) return toLogin();
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || `Téléchargement refusé (HTTP ${response.status})`);
+    }
+    const name = (response.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)?.[1] || `${key}-${version}.zip`;
+    const blob = await response.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    notice(`${name} téléchargé.`);
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+$('#ext-cards').addEventListener('click', async (e) => {
+  const dl = e.target.closest('[data-ext-download]');
+  if (dl) return void downloadExtension(dl);
+  const pin = e.target.closest('[data-ext-pin]');
+  const unpin = e.target.closest('[data-ext-unpin]');
+  if (!pin && !unpin) return;
+  const key = (pin || unpin).dataset.extPin || (pin || unpin).dataset.extUnpin;
+  const version = pin ? pin.dataset.version : null;
+  if (pin && !confirm(`Remettre la version ${version} en release ?\nC’est elle qui sera proposée au téléchargement ; la version actuelle passe aux archives.`)) return;
+  try {
+    await api(`/extensions/${encodeURIComponent(key)}/pin`, { method: 'POST', body: JSON.stringify({ version }) });
+    notice(version ? `Version ${version} remise en release.` : 'La plus récente redevient la release.');
+    await loadExtensions();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+});
+$('#ext-sync').onclick = async (e) => {
+  e.target.disabled = true;
+  try {
+    const created = await api('/extensions/sync', { method: 'POST' });
+    notice(created.length ? `Nouvelle(s) version(s) : ${created.join(', ')}` : 'Aucune nouvelle version.');
+    await loadExtensions();
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    e.target.disabled = false;
+  }
+};

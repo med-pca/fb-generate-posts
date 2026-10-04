@@ -731,6 +731,41 @@ Routes : `GET /posts/targets/:id/history`, `PUT /posts/targets/:id/facebook-url`
 `20261002120000_publication_traces` (reprend les adresses et les publications
 déjà enregistrées).
 
+### Nos extensions : téléchargement et historique
+
+Les quatre extensions Chrome sont dans ce projet, dossier `extension/` :
+
+| Extension | Dossier |
+|---|---|
+| Publication · PostFlow | `extension/fb-group-poster` (ex-`fb-lyazidi/extension`) |
+| Adhésion aux groupes · PostFlow | `extension/fb-group-joiner` (ex-`fb-extention-join`) |
+| Capture de posts · PostFlow | `extension/fb-catch-post` |
+| Modérateur · PostFlow | `extension/fb-post-checker` |
+
+**Aucune clé dans le code** : les fichiers de configuration sont vides dans
+le dépôt. La rubrique **Extensions** (`/extensions`, menu « Suivi &
+réglages ») fabrique le paquet ZIP à la demande :
+
+- **Télécharger (préconfigurée)** : la clé d'API du compte connecté (et sa clé
+  NSTBrowser) est écrite dans le fichier de configuration — rien à saisir à
+  l'installation ; ne pas partager ce fichier ;
+- **Sans clé** : le paquet tel quel.
+
+**Historique = sauvegarde** : au démarrage du serveur (ou « ↻ Relire les
+versions »), chaque extension est relue ; toute nouvelle version — ou un
+contenu changé sans changer de numéro (`1.9.0+abc1234`) — est enregistrée en
+base (table `extension_releases`) et **jamais effacée**. Chaque version
+reste téléchargeable ; un administrateur peut **revenir** à une version
+(« ↩︎ », elle devient la version proposée) puis « Suivre à nouveau la plus
+récente ». Journal (domaine Sécurité) : `EXTENSION_RELEASED`,
+`EXTENSION_DOWNLOADED` (qui, quelle version, préconfigurée ou non),
+`EXTENSION_PINNED`.
+
+Pour publier une nouvelle version : modifier le code, **monter la version**
+dans son `manifest.json`, déployer. Migration :
+`20261004120000_extension_releases`. Les ZIP ne sont plus suivis par git
+(`extension/*.zip`).
+
 ### Le menu et le Pilotage : organisation
 
 **Menu** groupé par tâche, en sections repliables (l'état est retenu ; la
@@ -1512,6 +1547,35 @@ avec un `ADMIN` (qui voit déjà tout, et croirait tenir l'accès de là), et
 avec un compte désactivé. Repartager ce qui l'est déjà ne fait rien plutôt
 que d'échouer. Supprimer un compte emporte ses partages — `CASCADE` ici,
 contrairement à la propriété qui est en `SET NULL`.
+
+## Extensions : release et archives
+
+Les quatre extensions vivent dans `extension/` (`fb-group-poster` =
+Publication, `fb-group-joiner` = Adhésion, `fb-catch-post` = Capture,
+`fb-post-checker` = Modérateur). La page **🧩 Extensions** (`/extensions`)
+montre pour chacune :
+
+- la **release actuelle** — la version épinglée, sinon la plus récente ;
+  téléchargeable « préconfigurée » (clé d'automatisation et clé NSTBrowser de
+  l'utilisateur injectées dans le zip, à ne pas partager) ou « sans clé » ;
+- les **archives** — toutes les anciennes versions, gardées pour toujours en
+  base (`ExtensionRelease`, fichiers + sha256). En cas de problème, un admin
+  remet une ancienne version en release avec « ↩︎ ».
+
+Au démarrage (ou via « ↻ Relire les versions »), le serveur :
+
+1. importe `extension/archive/index.json` (anciennes versions, avec leur date
+   d'origine et leur source) ;
+2. relit les dossiers `extension/*` : tout contenu nouveau devient une nouvelle
+   version (un contenu déjà connu n'est jamais dupliqué).
+
+Pour publier une nouvelle version : modifier l'extension, monter `version`
+dans son `manifest.json`, déployer. L'ancienne passe d'elle-même en archive.
+
+Pour reconstituer l'archive depuis l'historique git (et y ajouter des zips
+anciens) : `node scripts/collect-extension-history.mjs [--zip <clé> <fichier.zip>]`.
+Les clés (`apiKey`, `nstApiKey`) sont vidées avant d'archiver ; aucun dossier
+d'extension ne doit en contenir — elles sont injectées au téléchargement.
 
 ## Sécurité
 

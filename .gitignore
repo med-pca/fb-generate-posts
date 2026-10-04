@@ -8,3 +8,8 @@
 # Caches locaux
 coverage/
 dist/tsconfig.tsbuildinfo
+
+# Paquets d’extensions : fabriqués par la plateforme (rubrique Extensions),
+# jamais suivis — un paquet préconfiguré contient une clé d’API.
+extension/*.zip
+extension/**/dist/

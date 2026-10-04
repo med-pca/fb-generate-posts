@@ -84,7 +84,7 @@ describe('LogsService — synthèse décisionnelle', () => {
         row('WORDPRESS_ARTICLE_NO_POST', LogLevel.WARN, 4),
         row('SITE_PLUGIN_CHANGED', LogLevel.WARN, 1),
         row('GROUP_JOIN_UPDATED', LogLevel.INFO, 3),
-        row('EXTENSION_PING', LogLevel.INFO, 7),
+        row('UNKNOWN_PING', LogLevel.INFO, 7),
       ],
     });
     const { domains } = await service.summary({ hours: 24 }, null);

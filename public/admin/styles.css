@@ -2025,3 +2025,39 @@ aside .brand { padding-bottom: 22px; }
 .runner-filters select { width: 170px; }
 .runner-filters .toolbar-group:last-child button { white-space: nowrap; }
 @media (max-width: 1200px) { .runner-filters { flex-wrap: wrap; } }
+
+/* ── Extensions ────────────────────────────────────────────────────── */
+.ext-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
+@media (max-width: 520px) { .ext-grid { grid-template-columns: 1fr; } }
+.ext-card { display: grid; gap: 12px; align-content: start; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 6px 20px #0b142b0d; }
+.ext-card header { display: flex; gap: 12px; align-items: flex-start; }
+.ext-card h3 { margin: 0; font-size: 1.02rem; }
+.ext-card header p { margin: 2px 0 0; color: var(--muted); font-size: 0.84rem; }
+.ext-icon { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 11px; color: #fff; font-weight: 800; font-size: 1.25rem; }
+.ext-where { margin: 0; font-size: 0.82rem; color: #475467; }
+.ext-current { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #f6f8fc; }
+.ext-current small { display: block; color: var(--muted); font-size: 0.74rem; }
+.ext-current strong { font-size: 1.3rem; }
+.ext-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ext-actions button { flex: 1; }
+.ext-history summary { cursor: pointer; font-weight: 650; font-size: 0.86rem; }
+.ext-history table { width: 100%; margin-top: 8px; font-size: 0.82rem; }
+.ext-history td small { display: block; color: var(--muted); }
+.ext-history tr.current td { background: #f3fbf5; }
+.ext-history code { font-size: 0.74rem; }
+.ext-howto { margin-top: 16px; }
+.ext-howto summary { cursor: pointer; font-weight: 700; }
+.ext-howto ol { margin: 10px 0 0; padding-inline-start: 20px; font-size: 0.88rem; line-height: 1.6; }
+
+.ext-table { width: 100%; table-layout: fixed; margin-top: 8px; font-size: 0.82rem; }
+.ext-table col.w-when { width: 150px; }
+.ext-table col.w-act { width: 96px; }
+.ext-table th, .ext-table td { padding: 8px 6px; vertical-align: middle; }
+.ext-table .row-actions { flex-wrap: nowrap; justify-content: flex-end; gap: 4px; }
+.ext-table .row-actions button { min-width: 34px; padding: 6px 8px; }
+.tag { display: inline-block; margin-left: 4px; padding: 1px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 750; vertical-align: 1px; }
+.tag.good { color: #17803d; background: #e3f7ea; }
+.tag.warn { color: #9a5b00; background: #fff1d6; }
+
+.ext-table td small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-noarchive { margin: 0; color: var(--muted); font-size: 0.82rem; }

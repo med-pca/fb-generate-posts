@@ -768,3 +768,27 @@ model Session {
   @@index([userId])
   @@map("sessions")
 }
+
+/// Une version d'une de nos extensions Chrome, gardée pour toujours : c'est
+/// l'historique et la sauvegarde. Les fichiers sont stockés tels quels (sans
+/// clé) ; la clé du compte est injectée au téléchargement.
+model ExtensionRelease {
+  id        String   @id @default(cuid())
+  /// publication | adhesion | capture | moderateur
+  key       String
+  version   String
+  /// sha256 du contenu : deux versions identiques ne sont pas doublées.
+  sha256    String
+  size      Int
+  fileCount Int      @map("file_count")
+  /// [{ path, b64 }]
+  files     Json
+  notes     String?  @db.Text
+  /// Épinglée par un admin : servie comme version courante (retour arrière).
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([key, version])
+  @@index([key, createdAt])
+  @@map("extension_releases")
+}

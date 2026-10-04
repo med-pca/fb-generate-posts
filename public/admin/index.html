@@ -51,6 +51,7 @@
             <button class="nav-head" type="button" aria-expanded="true">Suivi & réglages<i>▾</i></button>
             <div class="nav-items">
               <button class="nav" data-view="logs">≡ <span>Journaux</span></button>
+              <button class="nav" data-view="extensions">🧩 <span>Extensions</span></button>
               <button class="nav admin-only" data-view="users">⚭ <span>Comptes</span></button>
               <button class="nav" data-view="settings">⚙ <span>Paramètres</span></button>
             </div>
@@ -784,6 +785,26 @@
             </table>
           </div>
           <p class="form-help" id="pa-count"></p>
+        </section>
+
+        <!-- Nos extensions Chrome : télécharger la bonne version, préconfigurée,
+             et garder toutes les anciennes en sauvegarde. -->
+        <section id="extensions" class="view">
+          <div class="toolbar">
+            <p>Téléchargez nos extensions Chrome. <b>Préconfigurée</b> : la clé d’API de votre compte (et votre clé NSTBrowser) y est déjà — rien à saisir, mais <b>ne partagez pas ce fichier</b>. La <b>release actuelle</b> est proposée en haut ; toutes les anciennes versions sont gardées dans les <b>archives</b> — en cas de problème, téléchargez-en une ou remettez-la en release.</p>
+            <button class="secondary admin-only" type="button" id="ext-sync" title="Relire le dossier extension/ du serveur et enregistrer les nouvelles versions">↻ Relire les versions</button>
+          </div>
+          <div class="ext-grid" id="ext-cards"></div>
+          <details class="panel pp-panel ext-howto">
+            <summary>Installer ou mettre à jour une extension</summary>
+            <ol>
+              <li>Téléchargez le fichier ZIP, puis décompressez-le dans un dossier qui ne bougera plus (un dossier par extension).</li>
+              <li>Dans le navigateur NSTBrowser du profil : <code>chrome://extensions</code> → activez le <b>mode développeur</b>.</li>
+              <li><b>Première installation</b> : « Charger l’extension non empaquetée » → le dossier décompressé.</li>
+              <li><b>Mise à jour</b> : remplacez le contenu du dossier par la nouvelle version, puis cliquez sur <b>↻</b> sur la carte de l’extension. Les réglages déjà saisis sont conservés.</li>
+              <li><b>Retour arrière</b> : téléchargez une version de l’historique et faites pareil.</li>
+            </ol>
+          </details>
         </section>
 
         <section id="runners" class="view">

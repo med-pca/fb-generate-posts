@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Adhésion aux groupes · PostFlow",
+  "short_name": "Adhésion aux",
+  "version": "1.4.1",
+  "description": "Récupère une liste de groupes depuis une API et envoie les demandes pour les rejoindre.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://*.facebook.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://post.pulserecipe.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Adhésion aux groupes",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

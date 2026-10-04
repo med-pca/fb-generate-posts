@@ -27,7 +27,7 @@ export const LOG_DOMAINS = {
   security: {
     label: 'Sécurité',
     // Connexions, échecs, blocages, déconnexions.
-    prefixes: ['AUTH_'],
+    prefixes: ['AUTH_', 'EXTENSION_'],
     exact: [] as string[],
   },
   groups: {

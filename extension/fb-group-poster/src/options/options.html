@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Options · Publication · PostFlow</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+<main>
+  <h1>Publication · PostFlow</h1>
+  <p class="lead">
+    Ce navigateur est <b>un</b> profil : la session Facebook ouverte ici est le compte qui publiera.
+    Renseigne le profil correspondant dans l'API data-fb-posting, puis pilote la boucle depuis l'icone de l'extension.
+  </p>
+
+  <fieldset class="pair">
+    <legend>Appairage</legend>
+    <p class="lead">
+      Dans l'admin : <b>Pilotage</b> &rarr; la ligne de ce profil &rarr;
+      <b>Appairer</b>. Colle le code ici : ce navigateur apprend l'adresse du
+      serveur, sa cle et lequel des profils il est. Rien d'autre a saisir.
+    </p>
+    <label>Code d'appairage
+      <span class="inline">
+        <input id="pairCode" type="text" maxlength="16" autocomplete="off"
+               spellcheck="false" placeholder="K7F2QMJH">
+        <button id="pair" type="button" class="primary">Connecter</button>
+      </span>
+    </label>
+    <p class="note" id="pairNote"></p>
+    <p class="form-help" id="pairState"></p>
+    <p class="lead">
+      <b>Sans code</b> : une extension preconfiguree (<code>npm run pack:preset</code>)
+      detecte seule son profil NSTBrowser et s'appaire au demarrage.
+    </p>
+    <button id="autoPair" type="button">Detecter le profil et s'appairer</button>
+    <p class="note" id="autoPairNote"></p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Pilotage depuis l'admin</legend>
+    <label class="check">
+      <input id="controlEnabled" type="checkbox">
+      Obeir a post.pulserecipe.com
+      <small>
+        Ce navigateur demande chaque minute &laquo; est-ce mon tour ? &raquo; et
+        demarre ou s'arrete sur cet ordre, avec les reglages pousses depuis
+        l'admin. Decoche, il ne marche qu'avec les boutons du popup.
+      </small>
+    </label>
+    <p class="form-help">
+      L'adresse de l'API, la cle et l'identifiant de profil ne sont jamais
+      pousses par le serveur : ce sont eux qui font que ce navigateur est bien
+      celui-la.
+    </p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Parcours de publication</legend>
+    <label class="check">
+      <input id="addFirstComment" type="checkbox">
+      Ecrire un premier commentaire sous chaque post
+      <small>Il est remplace par l'URL du post juste apres sa publication.</small>
+    </label>
+    <label>Texte du premier commentaire
+      <input id="firstCommentText" type="text" placeholder=".">
+      <small>Par defaut « . ». Vide = la description du post.</small>
+    </label>
+    <label>Attente minimale de l'apercu du site (secondes)
+      <input id="linkPreviewMinSeconds" type="number" min="0" step="1">
+      <small>Apres avoir mis l'URL dans le commentaire, le temps que Facebook charge l'image du site.</small>
+    </label>
+    <label>Attente maximale de l'apercu du site (secondes)
+      <input id="linkPreviewWaitSeconds" type="number" min="0" step="1">
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Rythme</legend>
+    <label>Unite du delai des posts (secondes)
+      <input id="delayUnitSeconds" type="number" min="1" step="1">
+      <small>L'API compte en minutes : 60 = tel quel, 1 = en secondes pour un essai rapide.</small>
+    </label>
+    <label>Pause minimale entre deux lots (secondes)
+      <input id="staggerSeconds" type="number" min="0" step="10">
+    </label>
+    <label>Retour sur un profil occupe (secondes)
+      <input id="busyRetrySeconds" type="number" min="30" step="30">
+    </label>
+    <label>Nouvelle tentative quand il n'y a rien a publier (secondes)
+      <input id="idlePollSeconds" type="number" min="30" step="30">
+    </label>
+    <label>Plafond de posts par run (0 = aucun)
+      <input id="maxPostsPerRun" type="number" min="0" step="1">
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Navigateur</legend>
+    <label>Delai par etape (secondes)
+      <input id="stepTimeoutSeconds" type="number" min="10" step="5">
+      <small>Chaque etape interroge la page pendant ce temps avant d'abandonner.</small>
+    </label>
+    <label>Delai de chargement d'une page (secondes)
+      <input id="navigationTimeoutSeconds" type="number" min="10" step="5">
+    </label>
+    <label class="check">
+      <input id="focusWorkTab" type="checkbox">
+      Mettre l'onglet de travail au premier plan
+      <small>Chrome n'insere du texte que dans un document ayant le focus : a garder actif.</small>
+    </label>
+    <label class="check">
+      <input id="reuseWorkTab" type="checkbox">
+      Reutiliser le meme onglet
+      <small>L'extension ne ferme jamais l'onglet Facebook.</small>
+    </label>
+  </fieldset>
+
+  <details>
+    <summary>Reglages avances : serveur et profil</summary>
+    <p class="form-help">
+      Normalement remplis par l'appairage. A ne toucher que pour un serveur de
+      test, ou si l'appairage n'est pas disponible.
+    </p>
+    <label>Adresse de l'API
+      <input id="apiBaseUrl" type="url" placeholder="https://post.pulserecipe.com/api">
+    </label>
+    <label>Cle d'API (X-API-Key)
+      <input id="apiKey" type="password" autocomplete="off">
+    </label>
+    <label>Profil (Profile.externalId)
+      <span class="inline">
+        <input id="profileExternalId" type="text" list="profiles">
+        <button id="load" type="button">Charger la liste</button>
+      </span>
+      <datalist id="profiles"></datalist>
+      <small id="profilesNote"></small>
+    </label>
+    <label>Groupe impose (Group.externalId, optionnel)
+      <input id="groupExternalId" type="text" placeholder="vide = l'API choisit">
+      <small>L'ID numerique du groupe, jamais son URL.</small>
+    </label>
+    <p class="buttons">
+      <button id="grant" type="button">Autoriser un autre domaine</button
+      ><button id="test" type="button">Tester la connexion</button>
+      <span id="testNote" class="note"></span>
+    </p>
+  </details>
+
+  <p class="buttons">
+    <button id="save" type="button" class="primary">Enregistrer</button>
+    <span id="saved" class="note"></span>
+  </p>
+</main>
+<script type="module" src="options.js"></script>
+</body>
+</html>

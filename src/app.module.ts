@@ -24,6 +24,7 @@ import { InsightsModule } from './insights/insights.module';
 import { VerifyModule } from './verify/verify.module';
 import { BulkModule } from './bulk/bulk.module';
 import { ModeratorsModule } from './moderators/moderators.module';
+import { ExtensionsModule } from './extensions/extensions.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { ModeratorsModule } from './moderators/moderators.module';
     VerifyModule,
     BulkModule,
     ModeratorsModule,
+    ExtensionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

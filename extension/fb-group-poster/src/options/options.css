@@ -1,0 +1,60 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff; --fg: #1c1e21; --muted: #65676b; --line: #dddfe2;
+  --card: #f5f6f7; --accent: #1877f2; --ok: #31a24c; --err: #d93025;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #18191a; --fg: #e4e6eb; --muted: #b0b3b8; --line: #3a3b3c; --card: #242526; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+main { max-width: 640px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 6px; }
+.lead { color: var(--muted); margin: 0 0 20px; }
+fieldset {
+  border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px 4px; margin: 0 0 16px;
+}
+legend { padding: 0 6px; font-weight: 600; font-size: 13px; }
+label { display: block; margin-bottom: 14px; font-weight: 500; }
+label.check { font-weight: 500; }
+input[type="text"], input[type="url"], input[type="password"], input[type="number"] {
+  display: block; width: 100%; margin-top: 4px; padding: 7px 9px; font: inherit;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+}
+input[type="checkbox"] { margin-right: 6px; }
+small { display: block; margin-top: 4px; color: var(--muted); font-weight: 400; }
+code { background: var(--card); padding: 1px 4px; border-radius: 4px; font-size: 12px; }
+.inline { display: flex; gap: 8px; align-items: stretch; }
+.inline input { margin-top: 4px; }
+.buttons { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+button {
+  font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--fg); cursor: pointer; white-space: nowrap;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.note { font-size: 13px; color: var(--muted); }
+.note.ok { color: var(--ok); }
+.note.err { color: var(--err); }
+
+/* L'appairage est la seule chose a faire ici : il passe devant. */
+fieldset.pair { border-color: var(--accent); }
+fieldset.pair legend { color: var(--accent); }
+fieldset.pair .lead { margin: 0 0 14px; color: var(--muted); }
+#pairCode {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+details { margin: 0 0 16px; }
+details summary {
+  cursor: pointer;
+  padding: 10px 0;
+  font-weight: 600;
+  color: var(--muted);
+}
+details[open] summary { color: var(--fg); }

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Publication · PostFlow</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Publication · PostFlow</h1>
+    <span id="badge" class="badge">...</span>
+  </header>
+
+  <p id="problems" class="problems" hidden></p>
+
+  <section class="card">
+    <div class="row"><span>Profil</span><b id="profile">-</b></div>
+    <div class="row"><span>Etape</span><b id="phase">-</b></div>
+    <div class="row"><span>Prochaine action</span><b id="due">-</b></div>
+    <div class="row"><span>Groupe du lot</span><b id="group">-</b></div>
+    <div class="row"><span>Admin</span><b id="remote">-</b></div>
+    <p id="message" class="message"></p>
+  </section>
+
+  <section class="stats">
+    <div><b id="published">0</b><span>publies</span></div>
+    <div><b id="failed">0</b><span>echecs</span></div>
+    <div><b id="links">0</b><span>liens</span></div>
+    <div><b id="empty">0</b><span>vides</span></div>
+  </section>
+
+  <section class="actions">
+    <button id="start" class="primary">Demarrer</button>
+    <button id="stop">Arreter</button>
+    <button id="once">Un seul lot</button>
+    <button id="links-btn">Poser les liens</button>
+    <button id="sync">Demander a l'admin</button>
+    <button id="tab">Ouvrir l'onglet</button>
+    <button id="options">Options</button>
+  </section>
+
+  <section class="logs">
+    <div class="logs-head">
+      <h2>Journal</h2>
+      <button id="clear" class="link">vider</button>
+    </div>
+    <ul id="log"></ul>
+  </section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

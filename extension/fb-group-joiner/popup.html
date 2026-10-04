@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Adhésion aux groupes · PostFlow</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>Adhésion aux groupes <small id="version"></small></h1>
+    <span id="runState" class="badge">Arrêté</span>
+  </header>
+
+  <p class="profile">Profil Nstbrowser : <strong id="profileId">détection…</strong></p>
+
+  <div class="actions">
+    <button id="fetchBtn">Recharger</button>
+    <button id="startBtn" class="primary">Démarrer</button>
+    <button id="stopBtn" class="danger">Stop</button>
+  </div>
+
+  <p id="info" class="info"></p>
+
+  <div class="stats" id="stats"></div>
+
+  <ul id="groupList"></ul>
+
+  <details id="settingsBox">
+    <summary>Réglages</summary>
+    <div class="row">
+      <label>Délai min (s)<input id="minDelay" type="number" min="30" /></label>
+      <label>Délai max (s)<input id="maxDelay" type="number" min="30" /></label>
+      <label>Max / session<input id="maxPerRun" type="number" min="1" /></label>
+    </div>
+    <button id="saveBtn">Enregistrer</button>
+  </details>
+
+  <script src="popup.js"></script>
+</body>
+</html>

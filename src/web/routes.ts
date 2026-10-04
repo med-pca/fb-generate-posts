@@ -22,6 +22,7 @@ export const APP_ROUTES: Record<string, AppRoute> = {
   '/comptes': { view: 'users', title: 'Comptes' },
   '/actions-en-masse': { view: 'bulk', title: 'Actions en masse' },
   '/moderateurs': { view: 'moderators', title: 'Modérateurs' },
+  '/extensions': { view: 'extensions', title: 'Extensions' },
   '/pre-approbations': { view: 'preapprovals', title: 'Pré-approbations' },
 };
 

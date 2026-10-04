@@ -619,6 +619,41 @@ setTimeout(async () => {
   check('filtrer par état (déjà pré-approuvé)', paCalls.at(-1).includes('state=done'), paCalls.at(-1));
   window.fetch = beforePa;
 
+  // ─── Extensions : téléchargement et historique ───────────────────
+  const extCalls = [];
+  const beforeExt = window.fetch;
+  const rel = (v, extra = {}) => ({ id: v, version: v, sha256: 'abcdef0123456789', size: 50000, fileCount: 12, notes: null, pinned: false, createdAt: '2026-10-03T10:00:00Z', ...extra });
+  window.fetch = async (url, options = {}) => {
+    const full = String(url).replace('/api', '');
+    const path = full.split('?')[0];
+    if (path === '/extensions') {
+      const releases = [rel('1.9.0'), rel('1.8.0')];
+      return { ok: true, status: 200, json: async () => ([
+        { key: 'moderateur', name: 'Modérateur · PostFlow', letter: 'M', color: '#7c3aed', role: 'Vérifie', installOn: 'Le profil modérateur', preconfigurable: true, pinned: false, current: releases[0], releases },
+      ]) };
+    }
+    if (path.startsWith('/extensions/')) {
+      extCalls.push(`${options.method || 'GET'} ${full} ${options.body || ''}`);
+      if (path.endsWith('/download')) return { ok: true, status: 200, headers: { get: () => 'attachment; filename="moderateur-1.9.0-preconfiguree.zip"' }, blob: async () => new window.Blob(['PK']) };
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    return beforeExt(url, options);
+  };
+  window.URL.createObjectURL = () => 'blob:x';
+  window.URL.revokeObjectURL = () => {};
+  $('.nav[data-view="extensions"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('les extensions ont leur page : /extensions', window.location.pathname === '/extensions' && /Modérateur · PostFlow/.test($('#ext-cards').textContent), window.location.pathname);
+  check('dans le menu « Suivi & réglages »', $('.nav[data-view="extensions"]').closest('.nav-group').dataset.group === 'admin', null);
+  check('la release actuelle en haut, les anciennes versions dans les archives', /Release actuelle/.test($('.ext-current').textContent) && /1\.9\.0/.test($('.ext-current').textContent) && $$q('.ext-table tbody tr').length === 1 && /Archives · 1/.test($('.ext-history summary').textContent), null);
+  $('.ext-actions [data-preset="1"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  check('« Télécharger (préconfigurée) » demande la version avec la clé du compte', extCalls.some((c) => c.startsWith('GET /extensions/moderateur/1.9.0/download?preset=1')), extCalls);
+  $('[data-ext-pin="moderateur"][data-version="1.8.0"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  check('« ↩︎ » revient à une ancienne version (admin)', extCalls.some((c) => c.startsWith('POST /extensions/moderateur/pin') && c.includes('"version":"1.8.0"')), extCalls);
+  window.fetch = beforeExt;
+
   // ─── Filtres du Pilotage ───────────────────────────────────────
   const now = new Date().toISOString();
   const runner = (over) => ({ profileId: over.name, externalId: `ext-${over.name}`, status: 'ACTIVE', mode: 'AUTO', shouldRun: false, reason: 'hors fenêtre',
