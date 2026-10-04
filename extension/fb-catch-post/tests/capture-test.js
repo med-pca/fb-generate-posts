@@ -297,5 +297,22 @@ check('page non bloquée', listed.blocked === false, listed.blocked);
   check('post sans texte marqué : pas les libellés des boutons',
     !plain.caption.includes('Commenter'), plain.caption);
 
+  // Un clic sur la couverture du groupe : ni l'en-tête « Private group ·
+  // 311.1K members » ni rien d'autre n'est pris pour une légende.
+  const header = load(`<!doctype html><html><body>
+    <div class="cover"><img alt="grande-photo" src="https://scontent.test/cover.jpg"></div>
+    <div><span dir="auto">Private group</span> · <span dir="auto">311.1K members are here today</span></div>
+    <div dir="auto">Private group · 311.1K members</div>
+    </body></html>`);
+  const onCover = await header.window.__fcpCatch.readAt(
+    header.window.document.querySelector('img'), { x: 10, y: 10 });
+  check('clic sur la couverture du groupe : refusé, avec la raison',
+    Boolean(onCover.error) && /couverture/.test(onCover.error), onCover);
+  const metaOnly = load(`<!doctype html><html><body>
+    <div dir="auto">Private group · 311.1K members</div>
+    <img alt="grande-photo" src="https://scontent.test/x.jpg"></body></html>`, 'https://www.facebook.com/photo/?fbid=1');
+  const picked = metaOnly.window.__fcpCatch.pickAt(metaOnly.window.document.querySelector('img'));
+  check('page photo : l’en-tête d’un groupe n’est jamais une légende', !picked, picked && picked.el.textContent);
+
   process.exit(ko ? 1 : 0);
 })();

@@ -210,11 +210,22 @@ async function choose(index) {
  * prêtes — extension WordPress connectée, catégorie choisie — se
  * sélectionnent ; les autres restent visibles avec leur raison, pour savoir
  * quoi corriger dans la page Sites. */
+// Le remède, dit à l'utilisateur : une clé absente ou refusée ne se répare
+// pas ici, mais en reprenant l'extension préconfigurée sur la plateforme.
+const KEY_FIX = 'Sur la plateforme : 🧩 Extensions → Capture de posts → « Télécharger (préconfigurée) », ' +
+  'puis remplacez le dossier de l’extension et cliquez ↻ dans chrome://extensions.';
+
 async function loadSites() {
   try {
+    if (!config.apiKey) {
+      throw new Error(`clé d’API absente de cette extension (version « sans clé »).\n${KEY_FIX}`);
+    }
     const response = await fetch(`${config.apiBase}/api/jobs/sites`, {
       headers: { 'X-API-Key': config.apiKey },
     });
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(`la plateforme refuse la clé de cette extension (clé changée ou compte désactivé).\n${KEY_FIX}`);
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     ({ sites } = await response.json());
     // Une API pas encore mise à jour ne dit pas si un site est prêt : on le

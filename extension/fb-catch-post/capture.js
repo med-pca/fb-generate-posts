@@ -92,6 +92,14 @@
       'altro', 'mostra altro', 'devamını gör', 'zobacz więcej', 'عرض المزيد', 'رؤية المزيد', 'المزيد'],
     true,
   );
+  // L'en-tête d'un groupe (« Private group · 311.1K members ») : jamais une
+  // légende, même quand c'est le seul texte proche du clic.
+  const GROUP_META = /\b(private|public) group\b|\bgroupe (privé|public)\b|\bgrupo (privado|público)\b|\d[\d.,\s]*[kKmM]?\s*(members|membres|miembros|membros|Mitglieder)\b|مجموعة (خاصة|عامة)|[\d.,]+\s*(ألف\s*)?عضو/i;
+  const isGroupMeta = (value) => GROUP_META.test(String(value || '')) && String(value || '').length < 160;
+  // La page d'une photo seule (visionneuse) : là, sans post reconnu, le texte
+  // le plus proche est bien sa légende. Ailleurs (fil d'un groupe), cliquer
+  // hors d'un post ne doit rien désigner.
+  const PHOTO_PAGE = /\/photo(\.php|s?\/)|[?&]fbid=/;
   // Au-delà, on remonterait dans la charpente de la page, plus dans le post.
   const MAX_CLIMB = 14;
   // L'élargissement jusqu'au bloc complet du post (texte + photo) : plus
@@ -239,7 +247,8 @@
       // signalé un contenu… » se retrouve proposé comme légende.
       .filter((el) => !el.closest(CHROME))
       .filter((el) => !NOTIFICATIONS.test(el.closest('[aria-label]')?.getAttribute('aria-label') || ''))
-      .filter((el) => text(el).length >= MIN_TEXT);
+      .filter((el) => text(el).length >= MIN_TEXT)
+      .filter((el) => !isGroupMeta(text(el)));
     const innermost = all.filter((el) => !all.some((other) => other !== el && el.contains(other)));
     const seen = new Set();
     const kept = [];
@@ -357,7 +366,13 @@
       // Page photo : le bloc de texte cliqué, sinon le premier de la page —
       // on a cliqué sur la photo, la légende reste à vérifier dans le popup.
       const block = target.closest(USER_TEXT);
-      if (block && text(block).length >= 15) return { kind: 'text', el: block };
+      if (!PHOTO_PAGE.test(location.href)) {
+        // Fil d'un groupe ou d'une page : un clic hors d'une publication
+        // (couverture, en-tête, menu) ne désigne rien. Prendre le premier
+        // texte venu donnait « Private group · 311.1K members ».
+        return null;
+      }
+      if (block && text(block).length >= 15 && !isGroupMeta(text(block))) return { kind: 'text', el: block };
       const [first] = textBlocks();
       return first ? { kind: 'text', el: first } : null;
     },
@@ -367,7 +382,7 @@
      * prend celle-là. */
     async readAt(target, point) {
       const picked = api.pickAt(target);
-      if (!picked) return { error: 'Rien de lisible à cet endroit : cliquez sur le texte ou la photo du post' };
+      if (!picked) return { error: 'Ce n’est pas une publication : cliquez sur le texte ou la photo d’un post (pas sur la couverture ni l’en-tête du groupe)' };
       return readElement(picked.kind, picked.el, point);
     },
 
