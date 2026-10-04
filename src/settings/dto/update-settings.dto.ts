@@ -8,6 +8,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { REPEAT_LIMITS } from '../../posts/repeat.service';
 
 export class UpdateSettingsDto {
   /** Le coupe-circuit de la publication : à false, aucun profil ne publie. */
@@ -44,4 +45,20 @@ export class UpdateSettingsDto {
   @IsString()
   @MaxLength(60)
   objectiveTimezone?: string;
+
+  /** La duplication par défaut : combien de fois chaque post part dans un
+   * même groupe (1 = une seule fois), et l'écart entre deux, en heures. */
+  @ApiPropertyOptional({ minimum: 1, maximum: REPEAT_LIMITS.maxTimes })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(REPEAT_LIMITS.maxTimes)
+  repeatTimes?: number;
+
+  @ApiPropertyOptional({ minimum: REPEAT_LIMITS.minHours, maximum: REPEAT_LIMITS.maxHours })
+  @IsOptional()
+  @IsInt()
+  @Min(REPEAT_LIMITS.minHours)
+  @Max(REPEAT_LIMITS.maxHours)
+  repeatEveryHours?: number;
 }

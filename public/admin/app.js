@@ -1166,7 +1166,9 @@ function renderRunners() {
   $('#runner-rows').innerHTML =
     shown
       .map((r) => {
-        const worker = r.atWork
+        const worker = r.sleepUntil
+          ? `<span class="chip sleep" title="Navigateur fermé pour libérer la mémoire ; l’agent local le rouvre à l’heure">💤 en veille jusqu’à ${esc(new Date(r.sleepUntil).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</span>`
+          : r.atWork
           ? `<span class="chip join-joined">au travail · ${esc(PHASE_LABELS[r.phase] || r.phase || '—')}</span>`
           : r.running
             ? `<span class="chip join-failed">muet · dit travailler</span>`
@@ -1337,8 +1339,12 @@ function openRunnerModal(profileId) {
   form.elements.windowStart.value = minutesToTime(runner.windowStart);
   form.elements.windowEnd.value = minutesToTime(runner.windowEnd);
   form.elements.timezone.value = runner.timezone || '';
-  form.elements.settings.value = runner.settings
-    ? JSON.stringify(runner.settings, null, 2)
+  // La veille a sa case ; le reste des réglages poussés reste en JSON.
+  const { closeWhenIdle, closeIfWaitMinutes, ...otherSettings } = runner.settings || {};
+  form.elements.closeWhenIdle.checked = Boolean(closeWhenIdle);
+  form.elements.closeIfWaitMinutes.value = closeIfWaitMinutes || 15;
+  form.elements.settings.value = Object.keys(otherSettings).length
+    ? JSON.stringify(otherSettings, null, 2)
     : '';
   const days = String(runner.days || '')
     .split(',')
@@ -1372,6 +1378,17 @@ $('#runner-form').onsubmit = async (e) => {
       notice('Les réglages poussés ne sont pas du JSON valide', 'error');
       return;
     }
+  }
+  // Poussée quand elle est cochée, ou pour l'éteindre si elle l'était :
+  // décocher doit couper la veille dans le navigateur. Jamais sinon — une
+  // extension plus ancienne signalerait à chaque battement un réglage inconnu.
+  const before = state.runners?.profiles.find((r) => r.profileId === form.elements.profileId.value)?.settings || {};
+  if (form.elements.closeWhenIdle.checked || before.closeWhenIdle !== undefined) {
+    settings = {
+      ...(settings || {}),
+      closeWhenIdle: form.elements.closeWhenIdle.checked,
+      closeIfWaitMinutes: Math.max(5, Number(form.elements.closeIfWaitMinutes.value) || 15),
+    };
   }
   const days = $$('#runner-days input:checked')
     .map((input) => input.value)
@@ -1668,7 +1685,7 @@ function renderPosts() {
           `<td>${queuePost(p)}</td>` +
           `<td><div class="chips">${groups || '<span class="muted">aucun</span>'}</div></td>` +
           `<td><div class="pub-progress" title="${done} publié(s) sur ${targets.length} groupe(s)${failed ? `, ${failed} échec(s)` : ''}">` +
-          `<span class="bar"><i style="width:${progress}%"></i></span><small>${done}/${targets.length} publié(s)${failed ? ` · <b class="bad">${failed} échec(s)</b>` : ''}</small></div></td>` +
+          `<span class="bar"><i style="width:${progress}%"></i></span><small>${done}/${targets.length} publié(s)${failed ? ` · <b class="bad">${failed} échec(s)</b>` : ''}</small>${repeatChip(p)}</div></td>` +
           `<td><small>${p.createdAt ? esc(new Date(p.createdAt).toLocaleDateString('fr-FR')) : '—'}${p.delay ? `<br>délai ${p.delay} min` : ''}</small></td>` +
           `<td><div class="row-actions"><button class="edit" data-edit-post="${p.id}">Modifier</button>` +
           rowMenu([menuItem(`data-delete-post="${p.id}"`, '🗑 Supprimer le post', 'danger')]) +
@@ -1682,6 +1699,8 @@ function renderSelection() {
   const count = state.selection.size,
     button = $('#post-bulk-delete');
   button.disabled = !count;
+  $('#post-bulk-repeat').disabled = !count;
+  $('#post-bulk-repeat').textContent = count ? `🔁 Duplication (${count})` : '🔁 Duplication';
   button.textContent = count
     ? `Supprimer la sélection (${count})`
     : 'Supprimer la sélection';
@@ -1975,6 +1994,7 @@ const ROUTES = {
   '/posts/echecs': { view: 'posts', tab: 'queue', section: 'failed' },
   '/posts/a-traiter': { view: 'posts', tab: 'queue', section: 'review' },
   '/posts/tous': { view: 'posts', tab: 'all' },
+  '/posts/duplication': { view: 'posts', tab: 'repeat' },
   '/journaux': { view: 'logs' },
   '/pilotage': { view: 'runners', pil: 'profiles' },
   '/pilotage/objectif': { view: 'runners', pil: 'objective' },
@@ -1990,6 +2010,7 @@ const ROUTES = {
 function pathOf(id, tab) {
   if (id === 'posts') {
     if ((tab || state.queue.tab) === 'all') return '/posts/tous';
+    if ((tab || state.queue.tab) === 'repeat') return '/posts/duplication';
     return Q_SECTIONS[state.queue.section]?.path || '/posts';
   }
   return Object.keys(ROUTES).find((p) => ROUTES[p].view === id) || '/';
@@ -2263,6 +2284,7 @@ function openModal(id) {
   if (id === 'post-modal') {
     loadCategoryGroups('');
     $('#post-image-preview').hidden = true;
+    updatePostRepeatHelp();
   }
   d.showModal();
 }
@@ -2665,6 +2687,10 @@ $('#post-form').onsubmit = async (e) => {
     id = d.id;
   delete d.id;
   d.delay = +d.delay;
+  // Duplication : vide = le réglage global.
+  d.repeatTimes = d.repeatTimes ? Number(d.repeatTimes) : null;
+  d.repeatEveryHours = d.repeatEveryDays ? daysToHours(d.repeatEveryDays) : null;
+  delete d.repeatEveryDays;
   if (!d.url) delete d.url;
   if (!d.imageUrl) delete d.imageUrl;
   if (id) {
@@ -2808,6 +2834,9 @@ function showQueueSection(section, { fromUrl = false } = {}) {
   if (!fromUrl && state.queue.tab === 'queue') syncUrl('posts');
 }
 
+/** Une republication (duplication) : la combientième dans ce groupe. */
+const roundChip = (round) =>
+  round ? `<span class="chip repeat" title="Republication programmée par la duplication">🔁 ${round + 1}e publication</span>` : '';
 function renderQueue() {
   const d = state.queue.data;
   if (!d) return;
@@ -2855,7 +2884,7 @@ function renderQueue() {
         const candidates = profileChips(u.candidates, u.group.pendingJoins);
         return (
           `<tr><td><span class="rank ${u.rank === 1 ? 'next' : ''}">${u.rank}</span></td>` +
-          `<td>${queuePost(u.post)}</td><td>${queueGroup(u.group)}</td><td>` +
+          `<td>${queuePost(u.post)}${roundChip(u.repeatRound)}</td><td>${queueGroup(u.group)}</td><td>` +
           (u.forcedProfile
             ? `<div class="forced" title="${esc(u.forcedProfile.name)} le publiera à son prochain passage (forcé le ${esc(when(u.forcedAt))})">→ ${esc(u.forcedProfile.name)}` +
               `<button data-unforce="${u.targetId}" title="Rendre à la file normale">annuler</button></div>`
@@ -2882,7 +2911,7 @@ function renderQueue() {
           (p.facebookUrl
             ? `<a href="${esc(p.facebookUrl)}" target="_blank" rel="noreferrer" title="${esc(p.facebookUrl)}">Voir sur Facebook ↗</a>`
             : '<span class="fb-missing" title="L’extension n’a pas retrouvé l’adresse du post : le modérateur la cherchera dans le groupe, ou collez-la">⚠ adresse inconnue</span>') +
-          `</td><td>${queuePost(p.post)}</td><td>${queueGroup(p.group)}</td><td>${queueProfile(p.profile)}</td>` +
+          `</td><td>${queuePost(p.post)}${roundChip(p.repeatRound)}</td><td>${queueGroup(p.group)}</td><td>${queueProfile(p.profile)}</td>` +
           `<td><span class="pill link-${p.link}">${LINK_LABELS[p.link]}</span></td>` +
           `<td>${verifyCell(p.verify)}</td>` +
           `<td>${rowMenu([
@@ -3107,8 +3136,137 @@ function showPostsTab(tab, { fromUrl = false } = {}) {
   $$('[data-posts-tab]').forEach((b) => b.classList.toggle('active', b.dataset.postsTab === tab));
   $('#posts-queue').classList.toggle('hidden', tab !== 'queue');
   $('#posts-all').classList.toggle('hidden', tab !== 'all');
+  $('#posts-repeat').classList.toggle('hidden', tab !== 'repeat');
+  if (tab === 'repeat') renderRepeatPanel();
   view('posts', { fromUrl });
 }
+
+/* ── Duplication des contenus ─────────────────────────────────────── */
+/** « 2 jours », « 36 h ». */
+function repeatDur(hours) {
+  if (hours % 24 === 0) return `${hours / 24} jour${hours / 24 > 1 ? 's' : ''}`;
+  return hours > 48 ? `${Math.round((hours / 24) * 10) / 10} jours` : `${hours} h`;
+}
+/** La règle en une phrase. */
+function repeatText(times, hours) {
+  if (!times || times <= 1) return 'Une seule publication par groupe.';
+  return `${times} publications dans chaque groupe, une tous les ${repeatDur(hours)} — la dernière ${repeatDur((times - 1) * hours)} après la première.`;
+}
+/** La règle globale (1 fois / 48 h tant que rien n'est réglé). */
+function globalRepeat() {
+  return { times: state.settings?.repeatTimes || 1, hours: state.settings?.repeatEveryHours || 48 };
+}
+/** La règle propre à un post, en court : « 🔁 3× · 2 jours ». */
+function repeatChip(post) {
+  if (!post.repeatTimes && !post.repeatEveryHours) return '';
+  const g = globalRepeat();
+  const times = post.repeatTimes ?? g.times,
+    hours = post.repeatEveryHours ?? g.hours;
+  return `<span class="chip repeat" title="Règle propre à ce post : ${esc(repeatText(times, hours))}">🔁 ${times}×${times > 1 ? ` · ${esc(repeatDur(hours))}` : ''}</span>`;
+}
+const daysToHours = (v) => Math.max(1, Math.round(Number(v) * 24));
+const hoursToDays = (h) => Math.round((h / 24) * 100) / 100;
+function renderRepeatPanel() {
+  const f = $('#repeat-form');
+  const g = globalRepeat();
+  if (!f.contains(document.activeElement)) {
+    f.elements.times.value = g.times;
+    const inDays = g.hours % 24 === 0;
+    f.elements.unit.value = inDays ? '24' : '1';
+    f.elements.every.value = inDays ? g.hours / 24 : g.hours;
+  }
+  updateRepeatSummary();
+}
+function repeatFormRule() {
+  const f = $('#repeat-form').elements;
+  return { times: Number(f.times.value || 1), hours: Number(f.every.value || 0) * Number(f.unit.value) };
+}
+function updateRepeatSummary() {
+  const r = repeatFormRule();
+  $('#repeat-summary').textContent = repeatText(r.times, r.hours);
+  $$('[data-repeat-preset]').forEach((b) => {
+    const [t, h] = b.dataset.repeatPreset.split(',').map(Number);
+    const g = globalRepeat();
+    b.classList.toggle('active', t === g.times && (t === 1 || h === g.hours));
+  });
+}
+$('#repeat-form').addEventListener('input', updateRepeatSummary);
+$$('[data-repeat-preset]').forEach(
+  (b) =>
+    (b.onclick = () => {
+      const [times, hours] = b.dataset.repeatPreset.split(',').map(Number);
+      const f = $('#repeat-form').elements;
+      f.times.value = times;
+      f.unit.value = '24';
+      f.every.value = hours / 24;
+      updateRepeatSummary();
+    }),
+);
+$('#repeat-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const r = repeatFormRule();
+  if (r.hours < 1) return notice('L’écart doit être d’au moins une heure.', 'error');
+  try {
+    state.settings = await api('/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ repeatTimes: r.times, repeatEveryHours: Math.round(r.hours) }),
+    });
+    document.activeElement?.blur?.();
+    renderRepeatPanel();
+    notice(r.times > 1 ? `Duplication enregistrée : ${repeatText(r.times, r.hours)}` : 'Retour à une seule publication par groupe.');
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+/** L'aide sous les champs du post : ce que donne le vide (le global). */
+function updatePostRepeatHelp() {
+  const f = $('#post-form').elements;
+  const g = globalRepeat();
+  const times = f.repeatTimes.value ? Number(f.repeatTimes.value) : null;
+  const days = f.repeatEveryDays.value ? Number(f.repeatEveryDays.value) : null;
+  f.repeatTimes.placeholder = `global : ${g.times}`;
+  f.repeatEveryDays.placeholder = `global : ${hoursToDays(g.hours)}`;
+  $('#post-repeat-help').textContent =
+    times === null && days === null
+      ? `Vide = le réglage global (${repeatText(g.times, g.hours).replace(/\.$/, '')}).`
+      : repeatText(times ?? g.times, days !== null ? daysToHours(days) : g.hours);
+}
+$('#post-form').addEventListener('input', (e) => {
+  if (e.target.name === 'repeatTimes' || e.target.name === 'repeatEveryDays') updatePostRepeatHelp();
+});
+$('#post-bulk-repeat').onclick = () => {
+  const ids = [...state.selection];
+  if (!ids.length) return;
+  openModal('repeat-modal');
+  const f = $('#repeat-bulk-form');
+  const g = globalRepeat();
+  f.elements.repeatTimes.value = g.times > 1 ? g.times : 3;
+  f.elements.repeatEveryDays.value = hoursToDays(g.hours);
+  $('#repeat-bulk-title').textContent = `${ids.length} post(s) sélectionné(s)`;
+  updateBulkRepeatSummary();
+};
+function updateBulkRepeatSummary() {
+  const f = $('#repeat-bulk-form').elements;
+  $('#repeat-bulk-summary').textContent = repeatText(Number(f.repeatTimes.value || 1), daysToHours(f.repeatEveryDays.value || 0));
+}
+$('#repeat-bulk-form').addEventListener('input', updateBulkRepeatSummary);
+async function applyBulkRepeat(rule) {
+  const ids = [...state.selection];
+  try {
+    const r = await api('/posts/bulk-repeat', { method: 'POST', body: JSON.stringify({ ids, ...rule }) });
+    $('#repeat-modal').close();
+    notice(rule.repeatTimes === null ? `${r.updated} post(s) revenus au réglage global.` : `Duplication appliquée à ${r.updated} post(s).`);
+    await load();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+}
+$('#repeat-bulk-form').onsubmit = (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  void applyBulkRepeat({ repeatTimes: Number(f.repeatTimes.value), repeatEveryHours: daysToHours(f.repeatEveryDays.value) });
+};
+$('#repeat-bulk-reset').onclick = () => void applyBulkRepeat({ repeatTimes: null, repeatEveryHours: null });
 $$('[data-posts-tab]').forEach((b) => (b.onclick = () => showPostsTab(b.dataset.postsTab)));
 $('#queue-category').onchange = (e) => {
   state.queue.categoryId = e.target.value;
@@ -3628,8 +3786,11 @@ document.addEventListener('click', (e) => {
       'url',
       'imageUrl',
       'delay',
+      'repeatTimes',
     ])
       f.elements[k].value = post[k] ?? '';
+    f.elements.repeatEveryDays.value = post.repeatEveryHours ? hoursToDays(post.repeatEveryHours) : '';
+    updatePostRepeatHelp();
     $('#post-category-label').hidden = true;
     $('#target-field').hidden = true;
     $('h2', $('#post-modal')).textContent = 'Modifier le post';
@@ -4507,11 +4668,12 @@ async function loadExtensions() {
         `<article class="ext-card">` +
         `<header><span class="ext-icon" style="background:${esc(e.color)}">${esc(e.letter)}</span><div><h3>${esc(e.name)}</h3><p>${esc(e.role)}</p></div></header>` +
         `<p class="ext-where"><b>À installer sur :</b> ${esc(e.installOn)}</p>` +
+        (e.installHint ? `<p class="ext-hint">${esc(e.installHint)}</p>` : '') +
         (c
           ? `<div class="ext-current"><div><small>Release actuelle</small><strong>${esc(c.version)}</strong><small>${esc(when(c.createdAt))} · ${kb(c.size)}${c.notes ? ` · ${esc(c.notes)}` : ''}</small></div>` +
             (e.pinned ? '<span class="chip join-requested" title="Un administrateur a choisi cette version">épinglée</span>' : '') +
             `</div>` +
-            `<div class="ext-actions">${e.preconfigurable ? dl(e.key, c.version, true, '⬇ Télécharger (préconfigurée)', 'primary') : ''}${dl(e.key, c.version, false, '⬇ Sans clé', 'secondary')}</div>`
+            `<div class="ext-actions">${e.preconfigurable ? dl(e.key, c.version, true, '⬇ Télécharger (préconfigurée)', 'primary') : ''}${dl(e.key, c.version, false, e.kind === 'wordpress' ? '⬇ Télécharger le plugin' : '⬇ Sans clé', e.preconfigurable ? 'secondary' : 'primary')}</div>`
           : '<p class="empty">Aucune version enregistrée : « Relire les versions ».</p>') +
         (archives.length
           ? `<details class="ext-history"><summary>🗄 Archives · ${archives.length} ancienne(s) version(s)</summary>` +

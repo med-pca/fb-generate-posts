@@ -25,6 +25,7 @@ import { PostsService } from './posts.service';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { QueryPostsDto } from './dto/query-posts.dto';
 import { BulkDeletePostsDto } from './dto/bulk-delete-posts.dto';
+import { BulkRepeatDto } from './dto/repeat.dto';
 import {
   FacebookUrlDto,
   ForceTargetDto,
@@ -175,6 +176,13 @@ export class PostsController {
     @ActingUser() acting: CurrentUser,
   ) {
     return this.posts.bulkRemove(dto, acting);
+  }
+
+  @Post('bulk-repeat')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Règle de duplication pour plusieurs posts (null = réglage global)' })
+  bulkRepeat(@Body() dto: BulkRepeatDto, @ActingUser() acting: CurrentUser) {
+    return this.posts.bulkRepeat(dto, acting);
   }
 
   @Get(':id')

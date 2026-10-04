@@ -312,35 +312,38 @@ model ProfileGroup {
 }
 
 model Post {
-  id          String               @id @default(cuid())
+  id               String               @id @default(cuid())
   /// NULL = post ouvert : n'importe quel profil qui a rejoint l'un de ses
   /// groupes peut le publier, et chaque groupe ne le reçoit qu'une fois.
-  profileId   String?              @map("profile_id")
-  profile     Profile?             @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId        String?              @map("profile_id")
+  profile          Profile?             @relation(fields: [profileId], references: [id], onDelete: Cascade)
   /// À qui appartient un post ouvert (il n'a pas de profil pour le dire).
   /// Seuls les profils de ce compte le publient. NULL = tous.
-  ownerId     String?              @map("owner_id")
-  owner       User?                @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  title       String
-  description String               @db.Text
-  url         String?
-  imageUrl    String?              @map("image_url")
-  delay       Int
-  sourceType  SourceType           @default(MANUAL) @map("source_type")
-  externalId  String?              @map("external_id")
-  status      PostStatus           @default(AVAILABLE)
-  rawData     Json?                @map("raw_data")
-  articleId   String?              @map("article_id")
-  article     Article?             @relation(fields: [articleId], references: [id], onDelete: SetNull)
-  socialAngle String?              @map("social_angle")
+  ownerId          String?              @map("owner_id")
+  owner            User?                @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  title            String
+  description      String               @db.Text
+  url              String?
+  imageUrl         String?              @map("image_url")
+  delay            Int
+  sourceType       SourceType           @default(MANUAL) @map("source_type")
+  externalId       String?              @map("external_id")
+  status           PostStatus           @default(AVAILABLE)
+  rawData          Json?                @map("raw_data")
+  articleId        String?              @map("article_id")
+  article          Article?             @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  socialAngle      String?              @map("social_angle")
   /// Ordre de passage : plus haut = publié plus tôt. À égalité, le plus
   /// ancien d'abord. 0 = normal.
-  priority    Int                  @default(0)
-  targets     PostTarget[]
-  jobItems    PublicationJobItem[]
-  logs        ActivityLog[]
-  createdAt   DateTime             @default(now()) @map("created_at")
-  updatedAt   DateTime             @updatedAt @map("updated_at")
+  priority         Int                  @default(0)
+  /// Ses propres règles de duplication. NULL = le réglage global.
+  repeatTimes      Int?                 @map("repeat_times")
+  repeatEveryHours Int?                 @map("repeat_every_hours")
+  targets          PostTarget[]
+  jobItems         PublicationJobItem[]
+  logs             ActivityLog[]
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
 
   @@unique([sourceType, externalId])
   @@index([profileId, status])
@@ -527,6 +530,11 @@ model AutomationSetting {
   objectiveStart             Int      @default(480) @map("objective_start")
   objectiveEnd               Int      @default(1320) @map("objective_end")
   objectiveTimezone          String   @default("Europe/Paris") @map("objective_timezone")
+  /// La duplication des contenus : combien de fois chaque post part dans un
+  /// même groupe (1 = une seule fois, le cas par défaut), et l'écart entre
+  /// deux publications. Un post peut avoir les siens (`Post.repeatTimes`).
+  repeatTimes                Int      @default(1) @map("repeat_times")
+  repeatEveryHours           Int      @default(48) @map("repeat_every_hours")
   createdAt                  DateTime @default(now()) @map("created_at")
   updatedAt                  DateTime @updatedAt @map("updated_at")
 
@@ -566,6 +574,9 @@ model PostTarget {
   /// Combien de fois la vérification l'a remis dans la file : plafonné, pour
   /// ne pas republier sans fin dans un groupe qui refuse.
   republishCount     Int                  @default(0) @map("republish_count")
+  /// Combien de fois la duplication l'a remis dans la file, une fois l'écart
+  /// écoulé : publications faites dans ce groupe = repeatRound + 1.
+  repeatRound        Int                  @default(0) @map("repeat_round")
   /// L'adresse Facebook de la publication en ligne : donnée par l'extension
   /// de publication, retrouvée par le vérificateur, ou collée par l'admin.
   /// Effacée quand la publication est remise dans la file ; l'ancienne reste
@@ -699,6 +710,9 @@ model ProfileRunner {
 
   /// Ce que l'extension rapporte a chaque battement.
   lastSeenAt DateTime? @map("last_seen_at")
+  /// L'extension a fermé son navigateur pour rendre la mémoire entre deux
+  /// lots : l'agent local ne le rouvre qu'à cette heure-là. NULL = éveillé.
+  sleepUntil DateTime? @map("sleep_until")
   running    Boolean   @default(false)
   phase      String?
   message    String?   @db.Text

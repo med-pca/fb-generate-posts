@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IngestStatus, Prisma, SourceIngest } from '@prisma/client';
@@ -18,6 +19,8 @@ import { ScrapeResultDto } from './dto/scrape-result.dto';
 import { GeneratedArticle, RewriterService } from './rewriter.service';
 import { SourceReaderService } from './source-reader.service';
 import { WordpressWriterService } from './wordpress-writer.service';
+import { WordpressService } from '../wordpress/wordpress.service';
+import { isOnSite } from '../wordpress/article-url';
 
 /** Passé ce nombre d'échecs, la reprise cesse de se relancer seule : une
  * erreur qui revient cinq fois demande qu'on la regarde. */
@@ -58,6 +61,9 @@ export class IngestService {
     private readonly reader: SourceReaderService,
     private readonly rewriter: RewriterService,
     private readonly wordpress: WordpressWriterService,
+    /** La réception WordPress : pour appliquer une capture à un article de
+     * notre site déjà présent. Absente dans les tests qui ne s'en servent pas. */
+    @Optional() private readonly site?: WordpressService,
   ) {}
 
   async create(dto: CreateIngestDto, owner: CurrentUser | null = null) {
@@ -302,6 +308,13 @@ export class IngestService {
   private async step(ingest: SourceIngest): Promise<SourceIngest | null> {
     switch (ingest.status) {
       case IngestStatus.SCRAPED:
+        // L'URL donnée est celle d'un article de NOTRE site : il existe déjà,
+        // rien à lire ni à réécrire — seule sa description change.
+        if (isOnSite(ingest.sourceUrl, ingest.siteUrl)) {
+          return this.guard(ingest, 'INGEST_OWN_ARTICLE', 'Article de notre site : pas de réécriture', () =>
+            this.useOwnArticle(ingest),
+          );
+        }
         return this.guard(ingest, 'INGEST_SOURCE_READ', 'Page source lue', () =>
           this.readSource(ingest),
         );
@@ -417,6 +430,38 @@ export class IngestService {
         status: IngestStatus.REWRITTEN,
         lastError: null,
       },
+    });
+  }
+
+  /** La description du post Facebook devient celle de l'article de notre
+   * site, et de ses posts. Déjà reçu de WordPress : c'est fait tout de suite.
+   * Pas encore : la capture attend sa réception (AWAITING_ECHO), qui la
+   * retrouvera par son adresse. */
+  private async useOwnArticle(ingest: SourceIngest) {
+    const result = this.site ? await this.site.attachCapture(ingest.id) : { attached: false as const };
+    if (result.attached) {
+      await this.log(
+        ingest.id,
+        'INGEST_CAPTION_APPLIED',
+        `Description du post Facebook appliquée à « ${result.title} » (${result.synchronized} post(s) à publier mis à jour)`,
+        { articleId: result.articleId },
+      );
+      // Le statut est posé ici, pas déduit : une capture restée « SCRAPED »
+      // repasserait sans fin dans cette étape.
+      return this.prisma.sourceIngest.update({
+        where: { id: ingest.id },
+        data: { status: IngestStatus.COMPLETED, lastError: null },
+      });
+    }
+    await this.log(
+      ingest.id,
+      'INGEST_WAITING_ARTICLE',
+      'Article pas encore reçu de WordPress : la description lui sera appliquée à sa réception ' +
+        '(le réenregistrer dans WordPress pour l’envoyer tout de suite)',
+    );
+    return this.prisma.sourceIngest.update({
+      where: { id: ingest.id },
+      data: { status: IngestStatus.AWAITING_ECHO, wpPermalink: ingest.sourceUrl, lastError: null },
     });
   }
 

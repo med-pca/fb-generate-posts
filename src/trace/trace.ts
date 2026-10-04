@@ -19,6 +19,7 @@ export const TRACE_KINDS = {
   DELETED: 'Supprimé par le vérificateur',
   DELETE_FAILED: 'Suppression impossible',
   REQUEUED: 'Remis dans la file',
+  REPEAT_QUEUED: 'Republication programmée (duplication)',
   NEEDS_ACTION: 'À traiter',
   RESOLVED_OK: 'Validé à la main',
 } as const;

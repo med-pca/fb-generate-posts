@@ -1,5 +1,5 @@
 import { BrowserState, RunnerMode } from '@prisma/client';
-import { RunnersService } from './runners.service';
+import { RunnersService, sleepUntilOf } from './runners.service';
 import { keyHash } from './pairing';
 
 /** Un faux Prisma réduit à ce que le service touche : un profil, sa ligne de
@@ -266,6 +266,50 @@ describe('launcherPlan', () => {
       ['ext-4', null],
       ['ext-5', null],
     ]);
+  });
+});
+
+describe('veille du navigateur entre deux lots', () => {
+  const now = new Date('2026-09-27T12:00:00Z');
+
+  it('le battement note l’heure de réveil et l’accuse en retour', async () => {
+    const { service, upserts } = harness({
+      profiles: [{ id: 'p1', name: 'A', externalId: 'ext-1', runner: runner({ mode: RunnerMode.ON }) }],
+    });
+    const wake = new Date(Date.now() + 20 * 60_000).toISOString();
+    const answer = await service.heartbeat('ext-1', { running: true, sleepUntil: wake });
+    expect(upserts[0].update.sleepUntil.toISOString()).toBe(wake);
+    expect(answer.sleepUntil).toBe(wake);
+  });
+
+  it('un battement sans veille l’efface (navigateur rouvert)', async () => {
+    const { service, upserts } = harness({
+      profiles: [{ id: 'p1', name: 'A', externalId: 'ext-1', runner: runner({ mode: RunnerMode.ON, sleepUntil: new Date(Date.now() + 600_000) }) }],
+    });
+    const answer = await service.heartbeat('ext-1', { running: true });
+    expect(upserts[0].update.sleepUntil).toBeNull();
+    expect(answer.sleepUntil).toBeNull();
+  });
+
+  it('l’agent ne rouvre pas un navigateur en veille avant l’heure, et ne le referme pas non plus', async () => {
+    const { service } = harness({
+      profiles: [
+        { id: 'p1', name: 'Endormi', externalId: 'ext-1', runner: runner({ mode: RunnerMode.ON, running: true, lastSeenAt: new Date(now.getTime() - 3600_000), sleepUntil: new Date(now.getTime() + 600_000) }) },
+        { id: 'p2', name: 'Réveillé', externalId: 'ext-2', runner: runner({ mode: RunnerMode.ON, running: true, lastSeenAt: new Date(now.getTime() - 3600_000), sleepUntil: new Date(now.getTime() - 60_000) }) },
+      ],
+    });
+    const plan = await service.launcherPlan(null, now);
+    const [asleep, awake] = plan.profiles;
+    expect([asleep.shouldRun, asleep.mayClose]).toEqual([false, false]);
+    expect(asleep.reason).toMatch(/en veille jusqu'à 14:10/);
+    expect(awake.shouldRun).toBe(true);
+    expect(awake.sleepUntil).toBeNull();
+  });
+
+  it('une heure de réveil passée ou aberrante est ramenée à du raisonnable', () => {
+    expect(sleepUntilOf(undefined, now)).toBeNull();
+    expect(sleepUntilOf('2026-09-27T11:00:00Z', now)).toBeNull();
+    expect(sleepUntilOf('2026-10-30T11:00:00Z', now)?.toISOString()).toBe('2026-09-28T12:00:00.000Z');
   });
 });
 

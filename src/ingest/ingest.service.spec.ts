@@ -177,6 +177,50 @@ describe('resumeStatus', () => {
 });
 
 describe('IngestService.advance', () => {
+  // L'URL donnée est celle de NOTRE article : rien à lire ni à réécrire,
+  // seule sa description devient celle du post Facebook.
+  describe('URL d’un article de notre site', () => {
+    const own = () =>
+      ingest({ status: IngestStatus.SCRAPED, fbCaption: 'Légende d’origine', sourceUrl: 'https://site.test/ma-recette/' });
+
+    it('déjà reçu : la description est appliquée tout de suite, sans réécriture', async () => {
+      const t = setup(own());
+      const site = { attachCapture: jest.fn(() => Promise.resolve({ attached: true, articleId: 'a1', title: 'Ma recette', synchronized: 2 })) };
+      const service = new IngestService(
+        t.prisma as unknown as PrismaService,
+        t.config as unknown as ConfigService,
+        t.reader as unknown as SourceReaderService,
+        t.rewriter as unknown as RewriterService,
+        t.wordpress as unknown as WordpressWriterService,
+        site as never,
+      );
+      await service.advance('ing_1');
+      expect(site.attachCapture).toHaveBeenCalledWith('ing_1');
+      expect(t.reader.read).not.toHaveBeenCalled();
+      expect(t.rewriter.rewrite).not.toHaveBeenCalled();
+      expect(t.wordpress.deposit).not.toHaveBeenCalled();
+      expect(t.prisma.activityLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ eventType: 'INGEST_CAPTION_APPLIED' }) }),
+      );
+    });
+
+    it('pas encore reçu : la capture attend l’article, sans dépôt', async () => {
+      const t = setup(own());
+      const site = { attachCapture: jest.fn(() => Promise.resolve({ attached: false })) };
+      const service = new IngestService(
+        t.prisma as unknown as PrismaService,
+        t.config as unknown as ConfigService,
+        t.reader as unknown as SourceReaderService,
+        t.rewriter as unknown as RewriterService,
+        t.wordpress as unknown as WordpressWriterService,
+        site as never,
+      );
+      await service.advance('ing_1');
+      expect(t.current()).toMatchObject({ status: IngestStatus.AWAITING_ECHO, wpPermalink: 'https://site.test/ma-recette/' });
+      expect(t.wordpress.deposit).not.toHaveBeenCalled();
+    });
+  });
+
   it('enchaîne lecture, réécriture puis dépôt depuis la collecte', async () => {
     const { service, reader, rewriter, current } = setup(
       ingest({ status: IngestStatus.SCRAPED, fbCaption: 'Légende d’origine' }),

@@ -11,6 +11,7 @@ import { postWhere, scopeOf } from '../auth/scope';
 import { postGroupIds } from './post-groups';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
+import { BulkRepeatDto } from './dto/repeat.dto';
 import { QueryPostsDto } from './dto/query-posts.dto';
 import { BulkDeletePostsDto } from './dto/bulk-delete-posts.dto';
 import { paginated } from '../common/paginated';
@@ -69,6 +70,16 @@ export class PostsService {
   async update(id: string, dto: UpdatePostDto, acting: CurrentUser | null) {
     await this.reachable(id, acting);
     return this.prisma.post.update({ where: { id }, data: dto });
+  }
+
+  /** La même règle de duplication pour toute une sélection. Les posts hors
+   * de portée sont simplement ignorés. */
+  async bulkRepeat({ ids, repeatTimes, repeatEveryHours }: BulkRepeatDto, acting: CurrentUser | null) {
+    const { count } = await this.prisma.post.updateMany({
+      where: { id: { in: ids }, ...postWhere(scopeOf(acting)) },
+      data: { repeatTimes: repeatTimes ?? null, repeatEveryHours: repeatEveryHours ?? null },
+    });
+    return { updated: count };
   }
 
   /** Un post qu'on n'a pas le droit de voir est introuvable, pas interdit :

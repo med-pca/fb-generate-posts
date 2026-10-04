@@ -274,6 +274,18 @@ function describeSite() {
 
 /* ── Envoi ─────────────────────────────────────────────────────────── */
 
+/** L'article est-il sur le site de destination ? (même hôte, www ou non) */
+function sameSite(articleUrl, siteUrl) {
+  try {
+    const a = new URL(articleUrl), s = new URL(siteUrl);
+    const host = (u) => u.hostname.toLowerCase().replace(/^www\./, '');
+    const base = s.pathname.replace(/\/+$/, '');
+    return host(a) === host(s) && a.pathname.replace(/\/+$/, '') !== base && a.pathname.startsWith(base + '/');
+  } catch {
+    return false;
+  }
+}
+
 async function send() {
   els.send.disabled = true;
   say('Envoi…');
@@ -313,11 +325,16 @@ async function send() {
   await chrome.storage.local.remove(CAPTURE_KEY);
   chrome.action.setBadgeText({ text: '' });
   const { ingestId } = JSON.parse(text);
-  say('Envoyé. La réécriture et la publication suivent côté serveur.', 'ok');
+  const own = sameSite(body.sourceUrl, body.siteUrl);
+  say(own ? 'Envoyé. La description sera reprise par les posts de cet article.' : 'Envoyé. La réécriture et la publication suivent côté serveur.', 'ok');
   els.done.classList.remove('hidden');
-  els.done.innerHTML =
-    'Reprise <code></code><br>Le post Facebook apparaîtra une fois que WordPress ' +
-    'aura renvoyé l’article au serveur (WP-Cron), pour les groupes de la catégorie du site.';
+  els.done.innerHTML = own
+    ? 'Reprise <code></code><br>Article de notre site : pas de réécriture. Ses posts encore à publier prennent ' +
+      'la description du post Facebook — tout de suite s’il est déjà dans la plateforme, sinon à sa prochaine ' +
+      'synchronisation WordPress (le réenregistrer dans WordPress pour l’envoyer).'
+    : 'Reprise <code></code><br>Le post Facebook apparaîtra une fois que WordPress ' +
+      'aura renvoyé l’article au serveur (WP-Cron), pour les groupes de la catégorie du site. ' +
+      'Il reprendra la description du post Facebook, mot pour mot.';
   els.done.querySelector('code').textContent = ingestId;
 }
 

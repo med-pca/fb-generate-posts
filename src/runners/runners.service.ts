@@ -56,7 +56,29 @@ type RunnerRow = {
   settings: Prisma.JsonValue | null;
   running: boolean;
   lastSeenAt: Date | null;
+  sleepUntil?: Date | null;
 };
+
+/** Une veille ne dure pas plus d'un jour : une heure aberrante (horloge
+ * déréglée) ne doit pas laisser un profil fermé indéfiniment. */
+const MAX_SLEEP_MS = 24 * 3600 * 1000;
+export function sleepUntilOf(raw: string | undefined, now = new Date()): Date | null {
+  if (!raw) return null;
+  const at = new Date(raw);
+  if (Number.isNaN(at.getTime()) || at <= now) return null;
+  return at.getTime() - now.getTime() > MAX_SLEEP_MS ? new Date(now.getTime() + MAX_SLEEP_MS) : at;
+}
+function sleeping(runner: { sleepUntil?: Date | null } | null | undefined, now: Date) {
+  return Boolean(runner?.sleepUntil && runner.sleepUntil.getTime() > now.getTime());
+}
+/** « 14:05 », à l'heure du profil. */
+function clock(at: Date, timezone: string) {
+  try {
+    return at.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: timezone });
+  } catch {
+    return at.toISOString().slice(11, 16);
+  }
+}
 
 /** Le pilotage des profils : l'admin dit ce qu'il veut, le terrain dit où il
  * en est, et ce service tranche.
@@ -411,6 +433,9 @@ export class RunnersService {
       failed: dto.failed ?? 0,
       links: dto.links ?? 0,
       agent: dto.agent?.slice(0, 200) ?? null,
+      // Chaque battement redit s'il dort : un navigateur rouvert (ou une
+      // ancienne extension) n'envoie rien, et la veille s'efface.
+      sleepUntil: sleepUntilOf(dto.sleepUntil),
     };
     if (dto.facebookUserId) await this.noteFacebookIdentity(profile.id, dto.facebookUserId, dto.facebookName);
     const runner = await this.prisma.profileRunner.upsert({
@@ -420,13 +445,18 @@ export class RunnersService {
       create: { profileId: profile.id, ...reported },
       update: reported,
     });
-    return this.answer(
-      this.decide(
-        runner,
-        profile.status === 'ACTIVE',
-        settings.publishingEnabled,
+    return {
+      ...this.answer(
+        this.decide(
+          runner,
+          profile.status === 'ACTIVE',
+          settings.publishingEnabled,
+        ),
       ),
-    );
+      // L'accusé de réception de la veille : l'extension ne ferme son
+      // navigateur que si le serveur a bien noté quand le rouvrir.
+      sleepUntil: runner.sleepUntil?.toISOString() ?? null,
+    };
   }
 
   /** Le compte Facebook connecté dans ce navigateur. Un même compte ne peut
@@ -517,12 +547,17 @@ export class RunnersService {
           now,
         );
         const busy = this.atWork(profile.runner, now);
+        // En veille : l'extension a fermé son navigateur entre deux lots ;
+        // l'agent ne le rouvre qu'à l'heure dite.
+        const asleep = sleeping(profile.runner, now);
+        const run = decision.run && !asleep;
         return {
           externalId: profile.externalId,
           name: profile.name,
-          shouldRun: decision.run,
-          reason: decision.reason,
-          mayClose: !decision.run && !busy,
+          shouldRun: run,
+          reason: asleep ? `en veille jusqu'à ${clock(profile.runner!.sleepUntil!, profile.runner!.timezone)}` : decision.reason,
+          sleepUntil: asleep ? profile.runner!.sleepUntil : null,
+          mayClose: !run && !busy,
           workerRunning: profile.runner?.running ?? false,
           workerSeenAt: profile.runner?.lastSeenAt ?? null,
           browserState: profile.runner?.browserState ?? BrowserState.STOPPED,
@@ -700,6 +735,7 @@ export class RunnersService {
           links: runner?.links ?? 0,
           agent: runner?.agent ?? null,
           lastSeenAt: runner?.lastSeenAt ?? null,
+          sleepUntil: sleeping(runner, now) ? runner!.sleepUntil : null,
           browserState: runner?.browserState ?? BrowserState.STOPPED,
           browserSeenAt: runner?.browserSeenAt ?? null,
           browserMessage: runner?.browserMessage ?? null,
@@ -787,9 +823,11 @@ export class RunnersService {
     return user?.nstApiKey ?? null;
   }
 
-  /** Un worker au travail : il l'a dit, et il l'a dit récemment. */
+  /** Un worker au travail : il l'a dit, et il l'a dit récemment. Un
+   * navigateur en veille compte comme au travail : il s'est tu exprès. */
   private atWork(runner: RunnerRow | null, now: Date) {
     if (!runner?.running || !runner.lastSeenAt) return false;
+    if (sleeping(runner, now)) return true;
     return now.getTime() - runner.lastSeenAt.getTime() < STALE_SECONDS * 1000;
   }
 

@@ -654,6 +654,35 @@ setTimeout(async () => {
   check('« ↩︎ » revient à une ancienne version (admin)', extCalls.some((c) => c.startsWith('POST /extensions/moderateur/pin') && c.includes('"version":"1.8.0"')), extCalls);
   window.fetch = beforeExt;
 
+  // ─── Duplication des contenus ──────────────────────────────────
+  const repCalls = [];
+  const beforeRep = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const full = String(url).replace('/api', '');
+    const path = full.split('?')[0];
+    if ((path === '/settings' && options.method === 'PATCH') || path === '/posts/bulk-repeat') {
+      repCalls.push(`${options.method || 'GET'} ${path} ${options.body || ''}`);
+      const body = JSON.parse(options.body || '{}');
+      return { ok: true, status: 200, json: async () => (path === '/settings' ? { publishingEnabled: true, ...body } : { updated: 1 }) };
+    }
+    return beforeRep(url, options);
+  };
+  $('[data-posts-tab="repeat"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  check('la duplication a son onglet : /posts/duplication', window.location.pathname === '/posts/duplication' && !$('#posts-repeat').classList.contains('hidden'), window.location.pathname);
+  check('par défaut : une seule publication par groupe', /Une seule publication/.test($('#repeat-summary').textContent) && $('#repeat-form').elements.times.value === '1', $('#repeat-summary').textContent);
+  $('[data-repeat-preset="3,72"]').click();
+  check('« 3 fois en une semaine » se lit en clair', /3 publications .* tous les 3 jours .* 6 jours après/.test($('#repeat-summary').textContent), $('#repeat-summary').textContent);
+  $('#repeat-form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  check('enregistrer envoie N fois et l’écart en heures', repCalls.some((c) => c.startsWith('PATCH /settings') && c.includes('"repeatTimes":3') && c.includes('"repeatEveryHours":72')), repCalls);
+  const postForm = $('#post-form');
+  postForm.elements.repeatTimes.value = '';
+  postForm.elements.repeatEveryDays.value = '';
+  postForm.elements.repeatTimes.dispatchEvent(new window.Event('input', { bubbles: true }));
+  check('le post sans règle suit le réglage global', /global/.test($('#post-repeat-help').textContent) && /3 publications/.test($('#post-repeat-help').textContent), $('#post-repeat-help').textContent);
+  window.fetch = beforeRep;
+
   // ─── Filtres du Pilotage ───────────────────────────────────────
   const now = new Date().toISOString();
   const runner = (over) => ({ profileId: over.name, externalId: `ext-${over.name}`, status: 'ACTIVE', mode: 'AUTO', shouldRun: false, reason: 'hors fenêtre',

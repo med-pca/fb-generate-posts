@@ -21,5 +21,6 @@ export class WordpressController {
   imports: [ArticlesModule],
   controllers: [WordpressController],
   providers: [WordpressService, WordpressGuard],
+  exports: [WordpressService],
 })
 export class WordpressModule {}

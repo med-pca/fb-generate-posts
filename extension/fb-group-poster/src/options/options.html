@@ -114,6 +114,17 @@
       Reutiliser le meme onglet
       <small>L'extension ne ferme jamais l'onglet Facebook.</small>
     </label>
+    <label class="check">
+      <input id="closeWhenIdle" type="checkbox">
+      Fermer le navigateur entre deux lots (veille)
+      <small>Quand la prochaine publication est loin, le navigateur se ferme entierement pour liberer la memoire,
+        puis il est rouvert quelques minutes avant l'heure et reprend son travail la ou il en etait.
+        Il faut que l'agent local tourne sur la machine (python -m app.launcher) : c'est lui qui rouvre.</small>
+    </label>
+    <label>Fermer seulement si l'attente depasse (minutes)
+      <input id="closeIfWaitMinutes" type="number" min="5" step="5">
+      <small>5 minutes au minimum. Le navigateur est rouvert 3 minutes avant l'heure.</small>
+    </label>
   </fieldset>
 
   <details>

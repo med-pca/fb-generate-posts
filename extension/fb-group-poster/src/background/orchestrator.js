@@ -22,6 +22,7 @@ import { publishPost, findPublished } from './publish.js';
 import { placeLinks, placeLinkNow } from './links.js';
 import { askControl, applyPushedSettings } from './control.js';
 import * as tab from './tab.js';
+import { sleepPlan, fallAsleep } from './sleep.js';
 
 // Event types written to the API's activity log (same names as the Python).
 const EVENT_PUBLISHED = 'WORKER_POST_PUBLISHED';
@@ -60,6 +61,12 @@ const EMPTY_STATE = {
   stoppedByCeiling: false,
   /** Le dernier ordre reçu de l'admin, pour que le popup dise qui commande. */
   remote: null,
+  /** La veille (voir sleep.js) : l'heure de réveil annoncée au serveur, le
+   * moment où le navigateur s'est rouvert, et l'attente pour laquelle une
+   * fermeture a échoué (pour ne pas réessayer en boucle). */
+  sleepUntil: 0,
+  awakeSince: 0,
+  sleepRefusedFor: 0,
 };
 
 export async function getState() {
@@ -103,6 +110,7 @@ export async function start({ once = false } = {}) {
     job: state.inFlight || resumable ? state.job : null,
     nextDueAt: resumable ? state.nextDueAt : 0,
     author: state.author || '',
+    awakeSince: state.awakeSince || 0,
     index: state.index,
     inFlight: state.inFlight,
     startedAt: Date.now(),
@@ -177,6 +185,11 @@ export async function supervise() {
   await start({ once: false });
 }
 
+/** Le navigateur vient de (re)démarrer : la veille est finie. */
+export async function markAwake() {
+  await setState({ awakeSince: Date.now(), sleepUntil: 0, sleepRefusedFor: 0 });
+}
+
 // -- the driver ------------------------------------------------------------
 
 let busy = false;
@@ -198,6 +211,10 @@ async function drive() {
     const state = await getState();
     if (!state.running) return;
     if (state.nextDueAt > Date.now()) {
+      // Une longue attente : fermer le navigateur, l'agent local le rouvrira
+      // à l'heure (option « Fermer le navigateur entre deux lots »).
+      const plan = sleepPlan(config, state);
+      if (plan && (await fallAsleep(config, state, setState, plan))) return;
       // The heartbeat comes back every minute; a shorter wait gets its own timer.
       const wait = state.nextDueAt - Date.now();
       if (wait < 60000) setTimeout(tick, wait + 500);

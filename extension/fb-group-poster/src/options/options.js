@@ -6,13 +6,14 @@ const TEXT = ['apiBaseUrl', 'apiKey', 'profileExternalId', 'groupExternalId', 'f
 const NUMBERS = [
   'delayUnitSeconds', 'staggerSeconds', 'busyRetrySeconds', 'idlePollSeconds',
   'maxPostsPerRun', 'stepTimeoutSeconds', 'navigationTimeoutSeconds',
-  'linkPreviewMinSeconds', 'linkPreviewWaitSeconds',
+  'linkPreviewMinSeconds', 'linkPreviewWaitSeconds', 'closeIfWaitMinutes',
 ];
 const FLAGS = [
   'controlEnabled',
   'addFirstComment',
   'focusWorkTab',
   'reuseWorkTab',
+  'closeWhenIdle',
 ];
 
 const $ = (id) => document.getElementById(id);

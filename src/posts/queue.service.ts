@@ -152,6 +152,7 @@ export class QueueService {
           select: {
             id: true,
             forcedAt: true,
+            repeatRound: true,
             forcedProfile: { select: PROFILE_FIELDS },
             post: { select: POST_FIELDS },
             group: GROUP_WITH_CANDIDATES,
@@ -192,6 +193,7 @@ export class QueueService {
             verifiedAt: true,
             verifyDetail: true,
             republishCount: true,
+            repeatRound: true,
             facebookUrl: true,
             post: { select: { ...POST_FIELDS, url: true } },
             group: { select: GROUP_FIELDS },
@@ -250,6 +252,8 @@ export class QueueService {
         candidates: row.group.profiles.map(({ profile }) => profile),
         forcedProfile: row.forcedProfile,
         forcedAt: row.forcedAt,
+        // Duplication : 0 = première publication dans ce groupe.
+        repeatRound: row.repeatRound,
       })),
       failed: failedRows.map((row) => ({
         targetId: row.id,
@@ -270,6 +274,7 @@ export class QueueService {
           group: row.group,
           profile: item?.job.profile ?? null,
           facebookUrl: row.facebookUrl ?? item?.externalPostUrl ?? null,
+          repeatRound: row.repeatRound,
           // Le contrôle du vérificateur : null tant qu'il n'est pas passé.
           verify: {
             status: row.verifyStatus,
@@ -445,6 +450,7 @@ export class QueueService {
         verifyDetail: true,
         verifiedAt: true,
         republishCount: true,
+        repeatRound: true,
         attemptsCount: true,
         post: { select: { id: true, title: true, imageUrl: true, url: true } },
         group: { select: { id: true, name: true, url: true } },

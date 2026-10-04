@@ -1,3 +1,4 @@
+import { articleUrlKey } from './article-url';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
   IngestStatus,
@@ -443,7 +444,7 @@ export class WordpressService {
    * l'article est reçu normalement, et la réception ne casse pas pour
    * autant. */
   private async ingestFor(dto: WordpressArticleDto, siteUrl: string) {
-    if (!dto.ingestRef) return null;
+    if (!dto.ingestRef) return this.ingestByArticle(dto, siteUrl);
     const ingest = await this.prisma.sourceIngest.findUnique({
       where: { id: dto.ingestRef },
     });
@@ -458,6 +459,73 @@ export class WordpressService {
       return null;
     }
     return ingest;
+  }
+
+  /** Une capture sans référence dans WordPress : l'article n'a pas été
+   * déposé par la réécriture (article écrit à la main, URL de notre propre
+   * article donnée dans l'extension, ancien plugin). On la retrouve :
+   *
+   * 1. déjà rattachée à cet article — un renvoi (article retouché dans
+   *    WordPress) ne doit pas remplacer la description Facebook par l'extrait ;
+   * 2. sinon, une capture en attente pour ce site dont l'URL donnée (ou celle
+   *    du dépôt) est celle de l'article. */
+  private async ingestByArticle(dto: WordpressArticleDto, siteUrl: string) {
+    const linked = await this.prisma.sourceIngest.findFirst({
+      where: {
+        siteUrl,
+        article: { externalId: `wordpress:${dto.postId}`, source: { originUrl: siteUrl } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (linked) return linked;
+    const key = articleUrlKey(dto.articleUrl);
+    if (!key) return null;
+    const waiting = await this.prisma.sourceIngest.findMany({
+      where: { siteUrl, articleId: null, fbCaption: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    const match = waiting.find(
+      (i) => articleUrlKey(i.sourceUrl) === key || articleUrlKey(i.wpPermalink) === key,
+    );
+    if (match) {
+      this.logger.log(`Capture ${match.id} rattachée à ${dto.articleUrl} par son adresse`);
+    }
+    return match ?? null;
+  }
+
+  /** Une capture qui désigne un article de NOTRE site : rien à réécrire. Si
+   * l'article est déjà dans la plateforme, sa description devient tout de
+   * suite celle du post Facebook, et ses posts encore à publier la reprennent.
+   * Sinon la capture attend : l'article la retrouvera à sa réception. */
+  async attachCapture(ingestId: string) {
+    const ingest = await this.prisma.sourceIngest.findUniqueOrThrow({ where: { id: ingestId } });
+    const key = articleUrlKey(ingest.sourceUrl);
+    const slug = key?.split('/').filter(Boolean).pop() ?? '';
+    const candidates = key
+      ? await this.prisma.article.findMany({
+          where: { source: { originUrl: ingest.siteUrl }, articleUrl: { contains: slug, mode: 'insensitive' } },
+          take: 50,
+        })
+      : [];
+    const article = candidates.find((a) => articleUrlKey(a.articleUrl) === key);
+    if (!article) return { attached: false as const };
+    // Le texte d'origine, mot pour mot (sans son lien) : la même règle que
+    // pour un article né d'une réécriture.
+    const text = facebookCaption(ingest.fbCaption ?? '');
+    if (!text) return { attached: false as const };
+    return this.prisma.$transaction(async (tx) => {
+      await this.closeIngest(tx, ingest.id, article.id);
+      const updated = await tx.article.update({
+        where: { id: article.id },
+        data: { captions: [{ text, angle: 'facebook' }], hashtags: [] },
+      });
+      const { count } = await tx.post.updateMany({
+        where: this.syncablePosts(article.id),
+        data: this.articles.postContent(updated),
+      });
+      return { attached: true as const, articleId: article.id, title: article.title, synchronized: count };
+    });
   }
 
   /** Referme la reprise sur l'article produit. `articleId` est unique : une

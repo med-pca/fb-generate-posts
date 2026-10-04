@@ -118,6 +118,10 @@ function setup(stored_ingest: StoredIngest | null = null) {
     ),
     sourceIngest: {
       findUnique: jest.fn(() => Promise.resolve(stored_ingest)),
+      // Sans référence : la capture déjà liée à l'article, puis celles en
+      // attente pour ce site (rapprochées par adresse).
+      findFirst: jest.fn<Promise<any>, unknown[]>(() => Promise.resolve(null)),
+      findMany: jest.fn<Promise<any[]>, unknown[]>(() => Promise.resolve([])),
     },
     // Le site tel que déclaré : actif sauf mention contraire.
     contentSource: {
@@ -633,9 +637,36 @@ describe('Réception d’un article issu d’une reprise', () => {
     expect(tx.sourceIngest.updateMany).not.toHaveBeenCalled();
   });
 
-  it('ne consulte aucune reprise quand le plugin n’en annonce pas', async () => {
+  it('ne consulte aucune reprise par référence quand le plugin n’en annonce pas', async () => {
     const { service, prisma } = setup(ingest());
     await service.publish(payload);
     expect(prisma.sourceIngest.findUnique).not.toHaveBeenCalled();
+  });
+
+  // L'URL donnée dans l'extension était celle de l'article (écrit à la main,
+  // ou déjà sur notre site) : WordPress ne connaît pas la capture.
+  it('sans référence, retrouve la capture par l’adresse de l’article et reprend sa description', async () => {
+    const { service, prisma, tx } = setup();
+    prisma.sourceIngest.findMany.mockResolvedValueOnce([
+      { ...ingest(), sourceUrl: 'https://autre.example.com/x', wpPermalink: null },
+      { ...ingest({ id: 'ing_url' }), sourceUrl: payload.articleUrl.replace('https://', 'https://www.') + '/?utm_source=fb', wpPermalink: null },
+    ]);
+    await service.publish(payload);
+    const { description } = tx.post.create.mock.calls[0][0].data;
+    expect(description).toBe('Le couscous de ma grand-mère 🍲 #recette #maghreb\nUn régal !');
+    expect(tx.sourceIngest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: 'ing_url' }) }),
+    );
+  });
+
+  // L'article retouché dans WordPress revient sans référence : il ne doit pas
+  // reprendre l'extrait WordPress à la place de la description Facebook.
+  it('un renvoi sans référence garde la description de la capture déjà liée', async () => {
+    const { service, prisma, tx } = setup();
+    prisma.sourceIngest.findFirst.mockResolvedValueOnce(ingest());
+    tx.article.findUnique.mockResolvedValueOnce(stored());
+    await service.publish(payload);
+    const data = tx.article.update.mock.calls[0][0].data as unknown as { captions: Array<{ text: string; angle: string }> };
+    expect(data.captions[0]).toEqual({ text: 'Le couscous de ma grand-mère 🍲 #recette #maghreb\nUn régal !', angle: 'facebook' });
   });
 });

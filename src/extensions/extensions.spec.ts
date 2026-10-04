@@ -63,20 +63,38 @@ describe('ExtensionsService', () => {
     expect(all).not.toMatch(/[0-9a-f]{48,}/);
   });
 
-  it('relit les 4 extensions du projet, sans tests ni paquets, et les enregistre', async () => {
+  it('relit les extensions du projet et le plugin WordPress, sans tests ni paquets', async () => {
     const { service, created } = setup();
     const names = await service.syncAll(ROOT);
     const latest = (key: string) => created.filter((c) => c.key === key).pop();
     expect(['adhesion', 'capture', 'moderateur', 'publication'].every((k) => latest(k))).toBe(true);
-    expect(latest('capture').version).toBe('1.3.1');
+    expect(latest('capture').version).toBe('1.4.0');
     for (const c of created) {
       const paths = c.files.map((f: any) => f.path);
-      expect(paths).toContain('manifest.json');
+      expect(paths).toContain(c.key === 'wordpress' ? 'data-fb-posting.php' : 'manifest.json');
       expect(paths.some((p: string) => /(^|\/)tests?\//.test(p) || p.endsWith('.zip') || p.endsWith('README.md'))).toBe(false);
     }
     const pub = latest('publication');
     expect(pub.files.every((f: any) => /^(manifest\.json|src\/|icons\/)/.test(f.path))).toBe(true);
     expect(names.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('plugin WordPress : version lue dans l’en-tête PHP, anciennes versions archivées', async () => {
+    const { service, created } = setup();
+    await service.syncAll(ROOT);
+    const wp = created.filter((c) => c.key === 'wordpress');
+    expect(wp.map((c) => c.version)).toEqual(expect.arrayContaining(['1.0.0', '1.3.0']));
+    expect(wp.every((c) => c.files.length === 1 && c.files[0].path === 'data-fb-posting.php')).toBe(true);
+  });
+
+  it('plugin WordPress : le ZIP s’installe tel quel (dossier data-fb-posting/), jamais préconfiguré', async () => {
+    const { service, created } = setup();
+    await service.syncAll(ROOT);
+    const v = created.filter((c) => c.key === 'wordpress').pop().version;
+    const { zip, fileName } = await service.download('wordpress', v, { preset: false, origin: 'https://post.pulserecipe.com' }, admin);
+    expect(fileName).toBe(`data-fb-posting-${v}.zip`);
+    expect(zip.includes(Buffer.from('data-fb-posting/data-fb-posting.php'))).toBe(true);
+    await expect(service.download('wordpress', v, { preset: true, origin: 'x' }, admin)).rejects.toThrow('ne se préconfigure pas');
   });
 
   it('aucune clé dans ce qui est enregistré', async () => {

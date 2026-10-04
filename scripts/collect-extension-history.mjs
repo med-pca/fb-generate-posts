@@ -23,7 +23,17 @@ const SOURCES = [
   { key: 'moderateur', dir: 'extension/fb-post-checker', zip: 'extension/fb-post-checker.zip' },
   { key: 'publication', dir: 'extension/fb-group-poster' },
   { key: 'adhesion', dir: 'extension/fb-group-joiner' },
+  // Le plugin WordPress : sa version est dans l'en-tête du fichier PHP.
+  { key: 'wordpress', dir: 'wordpress/data-fb-posting', zip: 'wordpress/data-fb-posting.zip' },
 ];
+/** Le fichier qui marque la racine d'un paquet, et où lire sa version. */
+const MARKERS = {
+  wordpress: {
+    file: 'data-fb-posting.php',
+    version: (text) => /^\s*\*\s*Version:\s*([\w.+-]+)/m.exec(text)?.[1] ?? '0.0.0',
+  },
+};
+const DEFAULT_MARKER = { file: 'manifest.json', version: (text) => String(JSON.parse(text).version || '0.0.0') };
 const EXCLUDE = /(^|\/)(tests?|node_modules|dist|scripts)(\/|$)|\.DS_Store$|\.zip$|(^|\/)README\.md$|(^|\/)package(-lock)?\.json$|(^|\/)build\.sh$|^__MACOSX\//;
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 });
 
@@ -55,17 +65,18 @@ function readZip(buf) {
 }
 
 /** Les fichiers d'une version, ramenés à la racine de l'extension. */
-function normalize(files) {
-  const manifest = files.find((f) => /(^|\/)manifest\.json$/.test(f.path));
+function normalize(files, key) {
+  const marker = MARKERS[key] || DEFAULT_MARKER;
+  const manifest = files.find((f) => f.path === marker.file || f.path.endsWith(`/${marker.file}`));
   if (!manifest) return null;
-  const prefix = manifest.path.slice(0, -'manifest.json'.length);
+  const prefix = manifest.path.slice(0, -marker.file.length);
   const kept = files
     .filter((f) => f.path.startsWith(prefix))
     .map((f) => ({ path: f.path.slice(prefix.length), data: f.data }))
     .filter((f) => f.path && !EXCLUDE.test(f.path))
     .map((f) => ({ path: f.path, data: sanitize(f.path, f.data) }))
     .sort((a, b) => a.path.localeCompare(b.path));
-  const version = String(JSON.parse(kept.find((f) => f.path === 'manifest.json').data.toString('utf8')).version || '0.0.0');
+  const version = marker.version(kept.find((f) => f.path === marker.file).data.toString('utf8'));
   const hash = createHash('sha256');
   for (const f of kept) hash.update(f.path).update('\0').update(f.data.toString('base64'));
   return { version, files: kept, sha256: hash.digest('hex') };
@@ -118,11 +129,11 @@ for (const src of SOURCES) {
       const list = git('ls-tree', '-r', '--name-only', hash, '--', src.dir).toString().trim().split('\n').filter(Boolean);
       files = list.map((p) => ({ path: p.slice(src.dir.length + 1), data: git('show', `${hash}:${p}`) }));
     } catch { /* absent à ce commit */ }
-    if (files.length) add(src.key, normalize(files), date, subject, `git ${hash.slice(0, 8)}`);
+    if (files.length) add(src.key, normalize(files, src.key), date, subject, `git ${hash.slice(0, 8)}`);
     if (src.zip) {
       try {
         const zip = git('show', `${hash}:${src.zip}`);
-        add(src.key, normalize(readZip(zip)), date, `${subject} (paquet ZIP)`, `git ${hash.slice(0, 8)} zip`);
+        add(src.key, normalize(readZip(zip), src.key), date, `${subject} (paquet ZIP)`, `git ${hash.slice(0, 8)} zip`);
       } catch { /* pas de ZIP à ce commit */ }
     }
   }
@@ -135,7 +146,7 @@ for (let i = 0; i < args.length; i += 1) {
   const key = args[i + 1], file = args[i + 2];
   i += 2;
   const { mtime } = await import('node:fs').then((fs) => fs.statSync(file));
-  add(key, normalize(readZip(readFileSync(file))), mtime.toISOString(), `paquet retrouvé : ${file.split('/').pop()}`, `fichier ${file.split('/').pop()}`);
+  add(key, normalize(readZip(readFileSync(file)), key), mtime.toISOString(), `paquet retrouvé : ${file.split('/').pop()}`, `fichier ${file.split('/').pop()}`);
 }
 
 index.sort((a, b) => a.key.localeCompare(b.key) || a.date.localeCompare(b.date));

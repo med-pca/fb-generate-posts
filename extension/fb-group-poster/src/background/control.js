@@ -23,6 +23,8 @@ function reportOf(state) {
     failed: state.stats?.failed || 0,
     links: state.stats?.links || 0,
     agent: `extension ${version}`,
+    // La veille : l'agent local ne rouvrira ce navigateur qu'à cette heure.
+    sleepUntil: state.sleepUntil > Date.now() ? new Date(state.sleepUntil).toISOString() : undefined,
   };
 }
 

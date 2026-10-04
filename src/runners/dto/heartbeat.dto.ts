@@ -7,6 +7,7 @@ import {
   Matches,
   MaxLength,
   Min,
+  IsISO8601,
 } from 'class-validator';
 
 /** L'état que l'extension rapporte. Tout est optionnel : un battement doit
@@ -67,4 +68,11 @@ export class HeartbeatDto {
   @IsString()
   @MaxLength(200)
   facebookName?: string;
+
+  /** L'extension ferme son navigateur jusqu'à cette heure (veille entre deux
+   * lots) : l'agent local le rouvrira à ce moment-là. Absent = éveillé. */
+  @ApiPropertyOptional({ example: '2026-10-04T14:05:00.000Z' })
+  @IsOptional()
+  @IsISO8601()
+  sleepUntil?: string;
 }

@@ -179,6 +179,8 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 // paquet porte une clé, puis reprendre. Sans clé, l'appairage par code reste
 // là, dans les options.
 chrome.runtime.onStartup.addListener(async () => {
+  // Un démarrage met fin à la veille : le prochain battement le dira au serveur.
+  await run.markAwake().catch(() => null);
   await autoPair({ quiet: true }).catch(() => null);
   resume('Chrome a redemarre');
 });

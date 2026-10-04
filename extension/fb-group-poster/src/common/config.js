@@ -61,6 +61,13 @@ export const DEFAULTS = {
   // lets text be inserted into a focused document, so leave this on.
   focusWorkTab: true,
 
+  // La veille : fermer tout le navigateur quand l'attente avant la prochaine
+  // publication dépasse `closeIfWaitMinutes`, pour libérer la mémoire.
+  // L'agent local (python -m app.launcher) le rouvre à l'heure ; sans lui,
+  // le navigateur resterait fermé -- d'où « désactivé » par défaut.
+  closeWhenIdle: false,
+  closeIfWaitMinutes: 15,
+
   debug: false,
 
   /* ── Pilotage depuis l'admin ────────────────────────────────────────── */
@@ -93,6 +100,8 @@ export const PUSHABLE = [
   'groupExternalId',
   'focusWorkTab',
   'reuseWorkTab',
+  'closeWhenIdle',
+  'closeIfWaitMinutes',
   'debug',
 ];
 
@@ -108,6 +117,7 @@ const MINIMUMS = {
   navigationTimeoutSeconds: 10,
   linkPreviewMinSeconds: 0,
   linkPreviewWaitSeconds: 0,
+  closeIfWaitMinutes: 5,
 };
 
 const KEY = 'config';

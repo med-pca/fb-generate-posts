@@ -1577,6 +1577,68 @@ anciens) : `node scripts/collect-extension-history.mjs [--zip <clé> <fichier.zi
 Les clés (`apiKey`, `nstApiKey`) sont vidées avant d'archiver ; aucun dossier
 d'extension ne doit en contenir — elles sont injectées au téléchargement.
 
+## Capture : la description du post Facebook, mot pour mot
+
+Les posts d'un article venu d'une capture reprennent **la légende du post
+Facebook capturé** (sans son lien), jamais l'extrait WordPress. La capture est
+retrouvée :
+
+1. par `ingestRef`, quand l'article a été déposé par la réécriture ;
+2. sinon par adresse : l'URL donnée dans l'extension (ou celle du dépôt) est
+   celle de l'article reçu (`www`, barre finale et paramètres ignorés) ;
+3. et, pour un renvoi (article retouché dans WordPress), par la capture déjà
+   rattachée à l'article — la description Facebook n'est pas écrasée.
+
+**URL d'un article de notre site** dans l'extension Capture (≥ 1.4.0) : pas de
+lecture ni de réécriture. Si l'article est déjà dans la plateforme, sa
+description et celle de ses posts encore à publier deviennent tout de suite
+celle du post Facebook (`INGEST_CAPTION_APPLIED`) ; sinon la capture attend sa
+réception (`INGEST_WAITING_ARTICLE` — le réenregistrer dans WordPress l'envoie).
+
+Le **plugin WordPress** est sur la page 🧩 Extensions (carte « Plugin
+WordPress », ZIP prêt à téléverser, anciennes versions en archives). Jamais
+préconfiguré : sa clé est `WORDPRESS_API_KEY` du serveur.
+
+## Duplication des contenus
+
+Par défaut, un post part **une seule fois** dans chaque groupe. **Posts → 🔁
+Duplication** (`/posts/duplication`) règle combien de fois il y repart et
+l'écart entre deux publications (« 3 fois en une semaine », « tous les 2
+jours · 4 fois »…). Un post peut avoir sa propre règle (« Modifier », ou
+« 🔁 Duplication » sur une sélection de la bibliothèque) ; vide = le réglage
+global.
+
+Mécanique (`RepeatService`, toutes les 5 min, `REPEAT_CHECK_INTERVAL_MINUTES`) :
+une cible `PUBLISHED` dont l'écart est écoulé (compté depuis sa dernière
+publication) et qui n'a pas atteint son nombre repasse `AVAILABLE`
+(`repeatRound + 1`), puis suit le parcours normal — réservation, commentaire,
+lien, vérification. L'adresse de la publication précédente reste dans
+l'historique (trace `REPEAT_QUEUED`, journal `POST_REPEAT_QUEUED`).
+
+## Veille du navigateur entre deux lots (extension Publication ≥ 1.5.0)
+
+Option « Fermer le navigateur entre deux lots » (options de l'extension, ou
+**Pilotage → Réglages → 💤** pour la pousser à un profil). Quand la prochaine
+publication est à plus de N minutes (15 par défaut, 5 au minimum), l'extension :
+
+1. annonce au serveur « en veille jusqu'à HH:MM » (heure de reprise − 3 min)
+   dans son battement, et exige l'accusé (`sleepUntil` dans la réponse) ;
+2. demande à NSTBrowser (`DELETE localhost:8848/api/v2/browsers/<profil>`) de
+   fermer son profil.
+
+Le plan de l'agent local (`GET /api/control/launcher`) garde `shouldRun: false`
+jusqu'à cette heure, puis l'agent (`python -m app.launcher`) rouvre le
+navigateur ; l'extension reprend son état stocké (lot en cours compris). Sans
+agent local, rien ne rouvre : l'option est donc désactivée par défaut. Jamais
+pendant une publication, un commentaire ou la pose des liens.
+
+## Extension Adhésion (≥ 1.5.0) : un onglet par groupe, fermé ensuite
+
+Chaque groupe est traité dans un onglet fermé dès la fin, réussite ou échec.
+Les onglets ouverts sont notés en stockage : si Chrome arrête le service worker
+en route, le réveil suivant ferme l'onglet oublié et remet le groupe en
+attente. Une page qui ne répond plus est abandonnée au bout de 60 s.
+
 ## Sécurité
 
 Les routes sont déjà protégées par deux clés distinctes : `AdminAuthGuard`

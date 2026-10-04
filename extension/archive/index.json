@@ -9,6 +9,15 @@
     "file": "adhesion/adhesion-1.4.0.zip"
   },
   {
+    "key": "adhesion",
+    "version": "1.4.1",
+    "date": "2026-10-04T13:09:54Z",
+    "notes": "feat: add Chrome extensions management with catalog, controller, service, and zip handling",
+    "source": "git 87913c49",
+    "sha256": "fb399ad0b22f53936d3336c115e721d55fae6f0c24cfc3b68a1b63f07cb48177",
+    "file": "adhesion/adhesion-1.4.1.zip"
+  },
+  {
     "key": "capture",
     "version": "1.0.0",
     "date": "2026-09-27T00:43:26Z",
@@ -81,6 +90,15 @@
     "file": "capture/capture-1.3.0.zip"
   },
   {
+    "key": "capture",
+    "version": "1.3.1",
+    "date": "2026-10-04T13:09:54Z",
+    "notes": "feat: add Chrome extensions management with catalog, controller, service, and zip handling",
+    "source": "git 87913c49",
+    "sha256": "841ae6c71f9365ea0c45c67390fe633ba2334685e976523575b8daa3b92e37bb",
+    "file": "capture/capture-1.3.1.zip"
+  },
+  {
     "key": "moderateur",
     "version": "1.2.1",
     "date": "2026-10-03T13:32:47Z",
@@ -133,5 +151,59 @@
     "source": "fichier fb-group-poster.zip",
     "sha256": "0e3f1dae93ce89d5b4df4f7c9e615b9ff378c193c4cf9e9447603dca5e7bbf4d",
     "file": "publication/publication-1.4.0.zip"
+  },
+  {
+    "key": "wordpress",
+    "version": "1.0.0",
+    "date": "2026-09-20T01:03:17Z",
+    "notes": "feat(wordpress): implement WordPress API integration for article posting",
+    "source": "git d0b8340e",
+    "sha256": "9791142084209e0847bd4ad80567c29164f1560da125ad9f9b37178254201df0",
+    "file": "wordpress/wordpress-1.0.0.zip"
+  },
+  {
+    "key": "wordpress",
+    "version": "1.1.0",
+    "date": "2026-09-26T09:08:52Z",
+    "notes": "all in one",
+    "source": "git 139fd4ee",
+    "sha256": "1e11f3555424338dd1751a5063539f16ea9fe347d6e2a3d2ed739852d4677232",
+    "file": "wordpress/wordpress-1.1.0.zip"
+  },
+  {
+    "key": "wordpress",
+    "version": "1.2.1",
+    "date": "2026-09-26T23:06:10Z",
+    "notes": "big all in one",
+    "source": "git b5cc10b2",
+    "sha256": "b9ee12ae3aec116d4086ef53e0fdffde782f81ce067bf6a737007f49a3f71f24",
+    "file": "wordpress/wordpress-1.2.1.zip"
+  },
+  {
+    "key": "wordpress",
+    "version": "1.2.2",
+    "date": "2026-09-26T23:30:15Z",
+    "notes": "feat(plugin): update version to 1.2.2 and add status route for diagnostics",
+    "source": "git 1c54e038",
+    "sha256": "31bca22b156f858f4873219a2a661f08f0fac07f57edb8d0181d81fb41e437e8",
+    "file": "wordpress/wordpress-1.2.2.zip"
+  },
+  {
+    "key": "wordpress",
+    "version": "1.2.3",
+    "date": "2026-09-27T02:25:51Z",
+    "notes": "feat: Enhance text extraction and image handling in Facebook post capture",
+    "source": "git e90c3b5d",
+    "sha256": "95dd061b42f9a40ccb9a3a4c85a3c9b73f4095b3a3575ae5886f7f5169cfdafe",
+    "file": "wordpress/wordpress-1.2.3.zip"
+  },
+  {
+    "key": "wordpress",
+    "version": "1.3.0",
+    "date": "2026-09-27T02:49:20Z",
+    "notes": "feat: implement pagination for articles in WordPress",
+    "source": "git 8547dc05",
+    "sha256": "a5ab1101df78ca3d29103aaedfc8404e501394f3326169150ef7c46f84e9d8cc",
+    "file": "wordpress/wordpress-1.3.0.zip"
   }
 ]

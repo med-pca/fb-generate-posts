@@ -12,6 +12,19 @@ import { readZip } from './unzip';
 
 type StoredFile = { path: string; b64: string };
 
+/** Le numéro de version d'un paquet : manifest.json pour une extension
+ * Chrome, l'en-tête du plugin pour WordPress. */
+export function versionOf(def: ExtensionDef, files: StoredFile[]) {
+  const read = (path: string) => {
+    const f = files.find((x) => x.path === path);
+    return f ? Buffer.from(f.b64, 'base64').toString('utf8') : undefined;
+  };
+  if (def.versionOf) return def.versionOf(read);
+  const manifest = read('manifest.json');
+  if (!manifest) throw new Error(`${def.dir} : manifest.json introuvable`);
+  return String(JSON.parse(manifest).version || '0.0.0');
+}
+
 /** Nos extensions Chrome, téléchargeables depuis la plateforme, avec
  * l'historique de toutes leurs versions (la sauvegarde : on peut toujours
  * reprendre une ancienne version si la nouvelle pose problème).
@@ -45,9 +58,7 @@ export class ExtensionsService implements OnModuleInit {
     };
     await walk(base);
     out.sort((a, b) => a.path.localeCompare(b.path));
-    const manifest = out.find((f) => f.path === 'manifest.json');
-    if (!manifest) throw new Error(`${def.dir} : manifest.json introuvable`);
-    const version = String(JSON.parse(Buffer.from(manifest.b64, 'base64').toString('utf8')).version || '0.0.0');
+    const version = versionOf(def, out);
     const hash = createHash('sha256');
     for (const f of out) hash.update(f.path).update('\0').update(f.b64);
     const size = out.reduce((n, f) => n + Buffer.from(f.b64, 'base64').length, 0);
@@ -150,6 +161,8 @@ export class ExtensionsService implements OnModuleInit {
         color: def.color,
         role: def.role,
         installOn: def.installOn,
+        kind: def.kind ?? 'chrome',
+        installHint: def.installHint ?? null,
         preconfigurable: Boolean(def.preset),
         current,
         pinned: mine.some((r) => r.pinned),
@@ -197,9 +210,12 @@ export class ExtensionsService implements OnModuleInit {
       },
     });
     const safe = version.replace(/[^0-9A-Za-z.+-]/g, '');
+    const packed = def.zipRoot ? files.map((f) => ({ ...f, path: `${def.zipRoot}${f.path}` })) : files;
     return {
-      fileName: `${key}-${safe}${opts.preset ? '-preconfiguree' : ''}.zip`,
-      zip: buildZip(files, release.createdAt),
+      // Un plugin WordPress garde le nom de son dossier : téléverser une
+      // nouvelle version remplace l'ancienne au lieu d'en installer une seconde.
+      fileName: def.kind === 'wordpress' ? `data-fb-posting-${safe}.zip` : `${key}-${safe}${opts.preset ? '-preconfiguree' : ''}.zip`,
+      zip: buildZip(packed, release.createdAt),
     };
   }
 

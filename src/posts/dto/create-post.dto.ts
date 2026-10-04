@@ -8,8 +8,9 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { RepeatRuleDto } from './repeat.dto';
 
-export class CreatePostDto {
+export class CreatePostDto extends RepeatRuleDto {
   @IsString()
   title!: string;
 

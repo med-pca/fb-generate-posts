@@ -35,6 +35,10 @@ const PENDING_STATUSES = ["REQUESTED", "QUESTIONS"];
 const NST_API = "http://localhost:8848/api/v2";
 const ALARM_NAME = "join-next";
 const PAGE_LOAD_TIMEOUT = 30000;
+// Le script dans la page attend au plus ~20 s. Au-delà, il ne répondra plus
+// (la page a changé d'adresse sous lui) : on abandonne et on ferme l'onglet.
+const SCRIPT_TIMEOUT = 60000;
+const OWN_TABS_KEY = "ownTabs";
 
 // ---------- Stockage ----------
 
@@ -164,10 +168,7 @@ async function detectNstProfile() {
   if (!browsers.length) throw new Error("Aucun navigateur Nstbrowser lancé.");
 
   const token = crypto.randomUUID();
-  const tab = await chrome.tabs.create({
-    url: chrome.runtime.getURL(`whoami.html?t=${token}`),
-    active: false,
-  });
+  const tab = await openOwnTab(chrome.runtime.getURL(`whoami.html?t=${token}`));
   try {
     for (let attempt = 0; attempt < 5; attempt++) {
       for (const b of browsers) {
@@ -180,7 +181,7 @@ async function detectNstProfile() {
     }
     throw new Error("Profil courant introuvable parmi les navigateurs Nstbrowser lancés.");
   } finally {
-    chrome.tabs.remove(tab.id).catch(() => {});
+    await closeOwnTab(tab.id);
   }
 }
 
@@ -202,6 +203,51 @@ async function syncNstProfile() {
 }
 
 // ---------- Gestion des onglets ----------
+
+// Les onglets ouverts par l'extension sont notés en stockage : si Chrome arrête
+// le service worker en plein traitement, le `finally` qui devait les fermer ne
+// tourne jamais. Le réveil suivant les retrouve et les ferme — un onglet
+// Facebook oublié garde des centaines de Mo de mémoire.
+async function ownTabs() {
+  const data = await chrome.storage.local.get(OWN_TABS_KEY);
+  return Array.isArray(data[OWN_TABS_KEY]) ? data[OWN_TABS_KEY] : [];
+}
+
+async function openOwnTab(url) {
+  const tab = await chrome.tabs.create({ url, active: false });
+  await chrome.storage.local.set({ [OWN_TABS_KEY]: [...(await ownTabs()), tab.id] });
+  return tab;
+}
+
+async function closeOwnTab(tabId) {
+  await chrome.tabs.remove(tabId).catch(() => {});
+  await chrome.storage.local.set({ [OWN_TABS_KEY]: (await ownTabs()).filter((id) => id !== tabId) });
+}
+
+// Ferme tout ce qu'un traitement interrompu a laissé ouvert.
+async function closeLeftoverTabs() {
+  const ids = await ownTabs();
+  if (!ids.length) return 0;
+  await Promise.all(ids.map((id) => chrome.tabs.remove(id).catch(() => {})));
+  await chrome.storage.local.set({ [OWN_TABS_KEY]: [] });
+  return ids.length;
+}
+
+// Chrome peut remplacer un onglet (préchargement) : il change alors d'identifiant.
+chrome.tabs.onReplaced.addListener(async (added, removed) => {
+  const ids = await ownTabs();
+  if (ids.includes(removed)) {
+    await chrome.storage.local.set({ [OWN_TABS_KEY]: ids.map((id) => (id === removed ? added : id)) });
+  }
+});
+
+function withTimeout(promise, ms, message) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(message)), ms))),
+  ]).finally(() => clearTimeout(timer));
+}
 
 function waitForTabLoad(tabId) {
   return new Promise((resolve, reject) => {
@@ -300,13 +346,17 @@ async function processGroup(group) {
   await updateGroup(group.id, { status: "processing", message: "" });
   let tab;
   try {
-    tab = await chrome.tabs.create({ url: group.url, active: false });
+    tab = await openOwnTab(group.url);
     await waitForTabLoad(tab.id);
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: joinGroupInPage,
-      args: [group.mode || "join"],
-    });
+    const [{ result }] = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: joinGroupInPage,
+        args: [group.mode || "join"],
+      }),
+      SCRIPT_TIMEOUT,
+      "La page du groupe ne répond plus (délai dépassé)",
+    );
     await updateGroup(group.id, result);
     await syncStatus(group, result);
     return result;
@@ -316,13 +366,17 @@ async function processGroup(group) {
     await syncStatus(group, result);
     return result;
   } finally {
-    if (tab?.id) chrome.tabs.remove(tab.id).catch(() => {});
+    // Groupe terminé (réussi ou non) : son onglet est fermé tout de suite.
+    if (tab?.id) await closeOwnTab(tab.id);
   }
 }
 
 // ---------- Boucle principale ----------
 
 async function processNext() {
+  // La réparation du réveil d'abord : elle ne doit pas fermer l'onglet du
+  // groupe qu'on s'apprête à ouvrir.
+  await recovered;
   const state = await getState();
   if (!state.running) return;
 
@@ -330,6 +384,9 @@ async function processNext() {
     await stop("Limite par session atteinte");
     return;
   }
+
+  // Un onglet resté d'un traitement interrompu est fermé avant d'en ouvrir un autre.
+  await closeLeftoverTabs();
 
   const next = state.groups.find((g) => g.status === "pending");
   if (!next) {
@@ -367,6 +424,7 @@ async function start() {
 
 async function stop(info = "Arrêté") {
   await chrome.alarms.clear(ALARM_NAME);
+  await closeLeftoverTabs();
   await chrome.storage.local.set({ running: false, nextAt: null, lastInfo: info });
   // Remettre en attente un groupe interrompu en plein traitement
   const { groups } = await getState();
@@ -392,6 +450,21 @@ async function autoRun() {
     await chrome.storage.local.set({ lastInfo: `Erreur : ${err.message}` });
   }
 }
+
+// Réveil du service worker : rien ne peut être « en cours » dans un worker qui
+// vient de naître. Ce qu'un worker arrêté en route a laissé — onglet ouvert,
+// groupe bloqué « en cours » — est réparé ici.
+async function recoverInterrupted() {
+  const closed = await closeLeftoverTabs();
+  const { groups } = await getState();
+  if (groups.some((g) => g.status === "processing")) {
+    await chrome.storage.local.set({
+      groups: groups.map((g) => (g.status === "processing" ? { ...g, status: "pending" } : g)),
+    });
+  }
+  return closed;
+}
+const recovered = recoverInterrupted().catch(() => 0);
 
 chrome.runtime.onStartup.addListener(autoRun);
 chrome.runtime.onInstalled.addListener(autoRun);

@@ -14,6 +14,7 @@ export const APP_ROUTES: Record<string, AppRoute> = {
   '/posts/echecs': { view: 'posts', tab: 'queue', title: 'Posts — en échec' },
   '/posts/a-traiter': { view: 'posts', tab: 'queue', title: 'Posts — à traiter' },
   '/posts/tous': { view: 'posts', tab: 'all', title: 'Posts — tous' },
+  '/posts/duplication': { view: 'posts', tab: 'repeat', title: 'Posts — duplication' },
   '/journaux': { view: 'logs', title: 'Journaux' },
   '/pilotage': { view: 'runners', title: 'Pilotage' },
   '/pilotage/objectif': { view: 'runners', title: 'Pilotage — objectif du jour' },

@@ -21,6 +21,15 @@ export type ExtensionDef = {
   exclude: RegExp;
   /** Le fichier de configuration, et comment le remplir. */
   preset?: { file: string; fill: (text: string, ctx: PresetContext) => string };
+  /** Extension Chrome (défaut) ou plugin WordPress. */
+  kind?: 'chrome' | 'wordpress';
+  /** La version, quand elle n'est pas dans manifest.json. */
+  versionOf?: (read: (path: string) => string | undefined) => string;
+  /** Dossier racine dans le ZIP : WordPress installe un plugin depuis
+   * `<dossier>/<fichier>.php`. */
+  zipRoot?: string;
+  /** Comment l'installer, en une phrase, sur la carte. */
+  installHint?: string;
 };
 
 /** Remplace `champ: '...'` (ou "...") dans un fichier de configuration. */
@@ -93,5 +102,24 @@ export const EXTENSIONS: ExtensionDef[] = [
       file: 'config.js',
       fill: (text, ctx) => setField(setField(text, 'apiBase', ctx.origin), 'apiKey', ctx.apiKey),
     },
+  },
+  {
+    key: 'wordpress',
+    kind: 'wordpress',
+    name: 'Plugin WordPress · PostFlow',
+    letter: 'W',
+    color: '#21759b',
+    dir: 'wordpress/data-fb-posting',
+    role: 'Relie un site WordPress à la plateforme : envoie ses articles (et leurs modifications), reçoit les articles réécrits.',
+    installOn: 'Chaque site WordPress de destination.',
+    installHint:
+      'WordPress → Extensions → Ajouter → Téléverser le ZIP → Activer. Puis Réglages → Data FB Posting : URL de réception ' +
+      '« <adresse de la plateforme>/api/wordpress/articles » et la clé WordPress du serveur. Mise à jour : téléverser la ' +
+      'nouvelle version, WordPress propose de remplacer — les réglages sont conservés.',
+    exclude: COMMON_EXCLUDE,
+    zipRoot: 'data-fb-posting/',
+    // Pas de préréglage : la clé du plugin est celle du serveur
+    // (WORDPRESS_API_KEY), jamais mise dans un fichier téléchargeable.
+    versionOf: (read) => /^\s*\*\s*Version:\s*([\w.+-]+)/m.exec(read('data-fb-posting.php') ?? '')?.[1] ?? '0.0.0',
   },
 ];

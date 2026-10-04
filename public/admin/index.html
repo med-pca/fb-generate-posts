@@ -283,7 +283,8 @@
           <div class="posts-head">
             <div class="subtabs" role="tablist">
               <button class="subtab active" data-posts-tab="queue" role="tab">File de publication</button
-              ><button class="subtab" data-posts-tab="all" role="tab">Bibliothèque de posts</button>
+              ><button class="subtab" data-posts-tab="all" role="tab">Bibliothèque de posts</button
+              ><button class="subtab" data-posts-tab="repeat" role="tab">🔁 Duplication</button>
             </div>
             <button class="primary" data-open="post-modal">+ Nouveau post</button>
           </div>
@@ -359,6 +360,31 @@
             </div>
           </div>
 
+          <!-- La duplication : republier les mêmes posts dans les mêmes groupes. -->
+          <div id="posts-repeat" class="posts-pane hidden">
+            <div class="panel repeat-panel">
+              <div class="panel-head"><div><small>DUPLICATION DES CONTENUS</small><h2>Republier les mêmes posts</h2></div></div>
+              <p class="form-help">Par défaut, chaque post part <b>une seule fois</b> dans chaque groupe. Ici, on le fait repartir dans les mêmes groupes : un nombre de fois, avec un écart entre deux publications. Ce réglage vaut pour tous les posts, sauf ceux qui ont leur propre règle (« Modifier » un post, ou « 🔁 Duplication » sur une sélection de la bibliothèque).</p>
+              <div class="repeat-presets" id="repeat-presets">
+                <button class="secondary" type="button" data-repeat-preset="1,48">Une seule fois (défaut)</button
+                ><button class="secondary" type="button" data-repeat-preset="3,72">3 fois en une semaine</button
+                ><button class="secondary" type="button" data-repeat-preset="4,48">Tous les 2 jours · 4 fois</button
+                ><button class="secondary" type="button" data-repeat-preset="5,24">Chaque jour · 5 jours</button>
+              </div>
+              <form id="repeat-form" class="repeat-form">
+                <label>Publier<input name="times" type="number" min="1" max="30" required /><span>fois dans chaque groupe</span></label>
+                <label>une fois tous les<input name="every" type="number" min="1" max="2160" required /><select name="unit"><option value="24">jours</option><option value="1">heures</option></select></label>
+                <button class="primary" type="submit">Enregistrer</button>
+              </form>
+              <p class="repeat-summary" id="repeat-summary"></p>
+              <ul class="form-help repeat-notes">
+                <li>Le compte part de la publication précédente : un post publié lundi à 10 h avec « tous les 2 jours » repart dans la file mercredi à 10 h, puis attend son tour.</li>
+                <li>Chaque republication suit le parcours normal (commentaire, lien de l’article, vérification par le modérateur). Les adresses des publications précédentes restent dans l’historique 🕘.</li>
+                <li>Baisser le nombre arrête les republications à venir ; ce qui est déjà publié reste en ligne.</li>
+              </ul>
+            </div>
+          </div>
+
           <div id="posts-all" class="posts-pane hidden">
           <div class="toolbar">
             <div class="toolbar-group">
@@ -371,6 +397,7 @@
               ><label class="inline-check"
                 ><input type="checkbox" id="post-select-all" /> Tout
                 sélectionner</label
+              ><button class="secondary" id="post-bulk-repeat" disabled title="Combien de fois ces posts repartent dans leurs groupes">🔁 Duplication</button
               ><button class="danger" id="post-bulk-delete" disabled>
                 Supprimer la sélection
               </button>
@@ -791,12 +818,12 @@
              et garder toutes les anciennes en sauvegarde. -->
         <section id="extensions" class="view">
           <div class="toolbar">
-            <p>Téléchargez nos extensions Chrome. <b>Préconfigurée</b> : la clé d’API de votre compte (et votre clé NSTBrowser) y est déjà — rien à saisir, mais <b>ne partagez pas ce fichier</b>. La <b>release actuelle</b> est proposée en haut ; toutes les anciennes versions sont gardées dans les <b>archives</b> — en cas de problème, téléchargez-en une ou remettez-la en release.</p>
+            <p>Téléchargez nos extensions Chrome et le plugin WordPress. <b>Préconfigurée</b> : la clé d’API de votre compte (et votre clé NSTBrowser) y est déjà — rien à saisir, mais <b>ne partagez pas ce fichier</b>. La <b>release actuelle</b> est proposée en haut ; toutes les anciennes versions sont gardées dans les <b>archives</b> — en cas de problème, téléchargez-en une ou remettez-la en release.</p>
             <button class="secondary admin-only" type="button" id="ext-sync" title="Relire le dossier extension/ du serveur et enregistrer les nouvelles versions">↻ Relire les versions</button>
           </div>
           <div class="ext-grid" id="ext-cards"></div>
           <details class="panel pp-panel ext-howto">
-            <summary>Installer ou mettre à jour une extension</summary>
+            <summary>Installer ou mettre à jour une extension Chrome</summary>
             <ol>
               <li>Téléchargez le fichier ZIP, puis décompressez-le dans un dossier qui ne bougera plus (un dossier par extension).</li>
               <li>Dans le navigateur NSTBrowser du profil : <code>chrome://extensions</code> → activez le <b>mode développeur</b>.</li>
@@ -1027,6 +1054,13 @@
         </p>
         <div id="runner-days" class="chips"></div>
         <p class="form-help">Aucun jour coché = tous les jours.</p>
+        <label class="inline-check sleep-check"
+          ><input type="checkbox" name="closeWhenIdle" /> 💤 Fermer le navigateur entre deux lots
+          <small>Quand la prochaine publication est à plus de
+            <input name="closeIfWaitMinutes" type="number" min="5" max="600" value="15" /> min,
+            l’extension Publication (≥ 1.5.0) ferme tout le navigateur pour libérer la mémoire ; l’agent local
+            (<code>python -m app.launcher</code>) le rouvre 3 min avant l’heure, et le travail reprend où il en était.</small></label
+        >
         <label
           >Réglages poussés au navigateur (JSON)<textarea
             name="settings"
@@ -1356,6 +1390,14 @@
               required
           /></label>
         </div>
+        <fieldset class="repeat-field">
+          <legend>🔁 Duplication</legend>
+          <div class="two">
+            <label>Publications par groupe<input name="repeatTimes" type="number" min="1" max="30" /></label
+            ><label>Écart (jours)<input name="repeatEveryDays" type="number" min="0.05" max="90" step="any" /></label>
+          </div>
+          <small id="post-repeat-help">Vide = le réglage global.</small>
+        </fieldset>
         <label
           >Image spécifique<input
             name="imageUrl"
@@ -1366,6 +1408,24 @@
         <div class="actions">
           <button class="secondary" type="button" data-close>Annuler</button
           ><button class="primary">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="repeat-modal">
+      <form id="repeat-bulk-form">
+        <div class="modal-head">
+          <div><small>DUPLICATION</small><h2 id="repeat-bulk-title">Posts sélectionnés</h2></div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <p class="form-help">Combien de fois ces posts partent dans chacun de leurs groupes, et l’écart entre deux publications.</p>
+        <div class="two">
+          <label>Publications par groupe<input name="repeatTimes" type="number" min="1" max="30" required /></label
+          ><label>Écart (jours)<input name="repeatEveryDays" type="number" min="0.05" max="90" step="any" required /></label>
+        </div>
+        <p class="repeat-summary" id="repeat-bulk-summary"></p>
+        <div class="actions">
+          <button class="secondary" type="button" id="repeat-bulk-reset">Revenir au réglage global</button
+          ><button class="primary">Appliquer</button>
         </div>
       </form>
     </dialog>

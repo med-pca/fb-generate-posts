@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Adhésion aux groupes · PostFlow",
   "short_name": "Adhésion aux",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "Récupère une liste de groupes depuis une API et envoie les demandes pour les rejoindre.",
   "permissions": [
     "storage",
