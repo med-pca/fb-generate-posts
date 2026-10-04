@@ -164,19 +164,12 @@ async function memberOne(cfg, tabId, task) {
     await open(tabId, `${base}/member-requests`);
     return inPage(tabId, (m, ms) => self.FPM.approve(m, { settleMs: ms }), [member, settleMs]);
   }
-  // Pré-approuver : d'abord depuis sa page de membre, sinon depuis ses
-  // publications en attente.
-  await open(tabId, `${base}/user/${member.facebookUserId}/`);
+  // Pré-approuver : UNIQUEMENT dans la liste des membres du groupe
+  // (<groupe>/people) — menu « … » de sa ligne. Pas de détour par sa page de
+  // profil ni par les publications en attente : ce n'est pas là que ça se fait.
+  await open(tabId, `${base}/people`);
   await sleep(settleMs);
-  const fromPage = await inPage(tabId, (m) => self.FPM.preapproveFromMemberPage(m), [member]);
-  if (fromPage && (fromPage.outcome === 'done' || fromPage.outcome === 'already')) return fromPage;
-  await open(tabId, `${base}/pending_posts`);
-  await sleep(settleMs);
-  const fromPending = await inPage(tabId, (m) => self.FPM.preapproveFromPending(m), [member]);
-  if (fromPending && (fromPending.outcome === 'done' || fromPending.outcome === 'already')) return fromPending;
-  // Les deux chemins ont échoué : on garde le constat le plus parlant.
-  const worst = fromPage?.outcome === 'no_permission' && fromPending?.outcome === 'no_permission' ? 'no_permission' : 'not_found';
-  return { outcome: worst, detail: [fromPage?.detail, fromPending?.detail].filter(Boolean).join(' ; ') };
+  return (await inPage(tabId, (m) => self.FPM.preapproveFromPeople(m), [member])) || { outcome: 'unreachable', detail: 'page des membres illisible' };
 }
 
 async function memberRound(cfg, tabId, reason) {
@@ -244,11 +237,13 @@ async function auditRound(cfg, tabId, reason) {
     let verdict;
     try {
       if (!base) throw new Error('adresse du groupe inconnue');
-      await open(tabId, `${base}/user/${task.member.facebookUserId}/`);
+      // Le contrôle se fait sur <groupe>/people : la ligne du membre dit
+      // « pré-approuvé pour publier » quand c'est fait.
+      await open(tabId, `${base}/people`);
       await sleep(cfg.settleSeconds * 1000);
-      verdict = (await inPage(tabId, (m) => self.FPM.auditPreapproval(m), [task.member])) || { outcome: 'unreachable', detail: 'page illisible' };
+      verdict = (await inPage(tabId, (m) => self.FPM.auditFromPeople(m), [task.member])) || { outcome: 'unreachable', detail: 'page illisible' };
       if (task.mode === 'fix' && verdict.outcome === 'not_done') {
-        const fixed = await inPage(tabId, (m) => self.FPM.preapproveFromMemberPage(m), [task.member]);
+        const fixed = await inPage(tabId, (m) => self.FPM.preapproveFromPeople(m), [task.member]);
         verdict = fixed?.outcome === 'done'
           ? { outcome: 'fixed', detail: `${verdict.detail} → pré-approuvé` }
           : { outcome: 'not_done', detail: `${verdict.detail} → correction impossible : ${fixed?.detail || 'page illisible'}` };

@@ -53,6 +53,7 @@ window.eval(fs.readFileSync(`${DIR}/app.js`, 'utf8'));
 
 setTimeout(async () => {
   const $ = (s) => window.document.querySelector(s);
+  const $$q = (s) => [...window.document.querySelectorAll(s)];
   let ko = 0;
   const check = (label, ok, got) => { console.log(`${ok ? '  ok  ' : '  KO  '}${label}${ok ? '' : ' → ' + JSON.stringify(got)}`); if (!ok) ko++; };
 
@@ -198,6 +199,24 @@ setTimeout(async () => {
   check('un lien Facebook collé retrouve sa publication', queueCalls.some((c) => c.startsWith('GET /posts/targets-by-url')) && $('#history-modal').open, queueCalls);
   $('#history-modal').close();
 
+  // ─── Organisation : un état à la fois, une adresse par onglet ─────
+  check('la file s’ouvre sur « À venir », un seul tableau visible', $('.q-section.active')?.dataset.section === 'upcoming' && $$q('.q-section.active').length === 1, null);
+  $('[data-q-section="failed"]').click();
+  check('l’onglet « En échec » a son adresse : /posts/echecs', window.location.pathname === '/posts/echecs' && $('.q-section.active').dataset.section === 'failed', window.location.pathname);
+  check('et dit quoi faire', /Relancer/.test($('#q-help').textContent), $('#q-help').textContent);
+  check('l’onglet est signalé quand il y a des échecs', $('[data-q-section="failed"]').classList.contains('alert'), null);
+  const dots = $('#queue-failed [data-row-menu]');
+  dots.click();
+  check('« ⋯ » ouvre le menu de la ligne', dots.nextElementSibling.hidden === false && /Déjà en ligne/.test(dots.nextElementSibling.textContent), null);
+  window.document.body.click();
+  check('un clic ailleurs le referme', dots.nextElementSibling.hidden === true, null);
+  $('#queue-search').value = 'zzz-introuvable';
+  $('#queue-search').dispatchEvent(new window.Event('input'));
+  check('la recherche filtre les lignes', /Aucun échec/.test($('#queue-failed').textContent), $('#queue-failed').textContent.slice(0, 60));
+  $('#queue-search').value = '';
+  $('#queue-search').dispatchEvent(new window.Event('input'));
+  $('[data-q-section="upcoming"]').click();
+  check('retour à « À venir » : /posts', window.location.pathname === '/posts', window.location.pathname);
   check('un envoi forcé est visible dans la file', /→ Salim/.test($('#queue-upcoming').textContent), null);
   const forceSelect = $('select[data-force="t-f"]');
   forceSelect.value = 'p1';
@@ -205,7 +224,7 @@ setTimeout(async () => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   check('« Envoyer par… » force le profil choisi', queueCalls.includes('PUT /posts/targets/t-f/force'), queueCalls);
   check('et prévient si ce profil est à l’arrêt', /à l’arrêt/.test($('#notice').textContent), $('#notice').textContent);
-  check('un groupe sans profil ne propose pas d’envoi', $('#queue-upcoming tr:nth-child(2) select').disabled, null);
+  check('un groupe sans profil ne propose pas d’envoi', !$('#queue-upcoming tr:nth-child(2) select') && /Aucun profil n’a rejoint ce groupe/.test($('#queue-upcoming tr:nth-child(2)').textContent), null);
   $('[data-unforce="t-a"]').click();
   await new Promise((resolve) => setTimeout(resolve, 50));
   check('« annuler » rend la publication à la file', queueCalls.filter((c) => c === 'PUT /posts/targets/t-a/force').length === 1, queueCalls);
@@ -647,6 +666,26 @@ setTimeout(async () => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   check('« Relancer » remet la tâche en route', memberCalls.includes('/admin/verify/members/pg-x/retry'), memberCalls);
   check('le compteur signale les profils à vérifier', /2 à vérifier/.test($('#runner-count').textContent), $('#runner-count').textContent);
+  // ─── Pilotage organisé : filtres rapides, sous-onglets, menu « ⋯ » ──
+  check('les filtres rapides comptent chaque état', /À vérifier\s*2/.test($('#pil-quick').textContent.replace(/\s+/g, ' ')), $('#pil-quick').textContent);
+  $('[data-pil-quick="off"]').click();
+  check('« Arrêtés » filtre d’un clic', $('#runner-mode-filter').value === 'OFF' && /Omar/.test($('#runner-rows').textContent) && !/Salim/.test($('#runner-rows').textContent), $('#runner-rows').textContent.slice(0, 80));
+  $('[data-pil-quick="all"]').click();
+  check('« Tous » efface le filtre', /Salim/.test($('#runner-rows').textContent), null);
+  check('les actions secondaires sont dans « ⋯ » (appairer, identifiant Facebook)', !!$('#runner-rows .row-menu [data-runner-pair]') && !!$('#runner-rows .row-menu [data-fb-id]'), null);
+  $('[data-pil-tab="objective"]').click();
+  check('« Objectif du jour » a son adresse', window.location.pathname === '/pilotage/objectif' && !$('#pil-objective').classList.contains('hidden') && $('#pil-profiles').classList.contains('hidden'), window.location.pathname);
+  $('[data-pil-tab="members"]').click();
+  check('« Nos profils dans les groupes » a son adresse', window.location.pathname === '/pilotage/adhesions' && !$('#pil-members').classList.contains('hidden'), window.location.pathname);
+  $('[data-pil-tab="profiles"]').click();
+  check('retour aux profils : /pilotage', window.location.pathname === '/pilotage', window.location.pathname);
+  // ─── Menu groupé par tâche ─────────────────────────────────────────
+  check('le menu est groupé par tâche', [...window.document.querySelectorAll('.nav-group .nav-head')].map((h) => h.textContent.replace('▾', '').trim()).join('|') === 'Publication|Profils Facebook|Modération|Suivi & réglages', null);
+  check('la section de la rubrique ouverte est dépliée', !$('.nav[data-view="runners"]').closest('.nav-group').classList.contains('collapsed'), null);
+  $('.nav-group[data-group="moderation"] .nav-head').click();
+  check('une section se replie d’un clic', $('.nav-group[data-group="moderation"]').classList.contains('collapsed'), null);
+  $('.nav-group[data-group="moderation"] .nav-head').click();
+  check('et se déplie', !$('.nav-group[data-group="moderation"]').classList.contains('collapsed'), null);
   $('#runner-search').value = 'nad';
   $('#runner-search').dispatchEvent(new window.Event('input'));
   check('la recherche filtre par nom', runnerNames().join() === 'Nadia', runnerNames());

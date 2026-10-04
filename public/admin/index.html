@@ -17,25 +17,44 @@
       <aside>
         <div class="brand"><b>P</b><span>PostFlow</span></div>
         <nav>
-          <button class="nav active" data-view="dashboard">
-            ⌁ <span>Vue d’ensemble</span></button
-          ><button class="nav" data-view="profiles">
-            ◎ <span>Profils</span></button
-          ><button class="nav" data-view="groups">◇ <span>Groupes</span></button
-          ><button class="nav" data-view="categories">◈ <span>Catégories</span></button
-          ><button class="nav" data-view="sites">▣ <span>Sites</span></button
-          ><button class="nav" data-view="articles">
-            ◫ <span>Articles</span></button
-          ><button class="nav" data-view="posts">▤ <span>Posts</span></button
-          ><button class="nav" data-view="logs">≡ <span>Journaux</span></button
-          ><button class="nav admin-only" data-view="users">
-            ⚭ <span>Comptes</span></button
-          ><button class="nav" data-view="runners">
-            ⏻ <span>Pilotage</span></button
-          ><button class="nav" data-view="moderators">🛡 <span>Modérateurs</span></button
-          ><button class="nav" data-view="preapprovals">★ <span>Pré-approbations</span></button
-          ><button class="nav" data-view="bulk">⧉ <span>Actions en masse</span></button
-          ><button class="nav" data-view="settings">⚙ <span>Paramètres</span></button>
+          <button class="nav active" data-view="dashboard">⌁ <span>Vue d’ensemble</span></button>
+
+          <div class="nav-group" data-group="publication">
+            <button class="nav-head" type="button" aria-expanded="true">Publication<i>▾</i></button>
+            <div class="nav-items">
+              <button class="nav" data-view="posts">▤ <span>Posts</span></button>
+              <button class="nav" data-view="articles">◫ <span>Articles</span></button>
+              <button class="nav" data-view="sites">▣ <span>Sites</span></button>
+              <button class="nav" data-view="categories">◈ <span>Catégories</span></button>
+            </div>
+          </div>
+
+          <div class="nav-group" data-group="facebook">
+            <button class="nav-head" type="button" aria-expanded="true">Profils Facebook<i>▾</i></button>
+            <div class="nav-items">
+              <button class="nav" data-view="profiles">◎ <span>Profils</span></button>
+              <button class="nav" data-view="groups">◇ <span>Groupes</span></button>
+              <button class="nav" data-view="runners">⏻ <span>Pilotage</span></button>
+              <button class="nav" data-view="bulk">⧉ <span>Actions en masse</span></button>
+            </div>
+          </div>
+
+          <div class="nav-group" data-group="moderation">
+            <button class="nav-head" type="button" aria-expanded="true">Modération<i>▾</i></button>
+            <div class="nav-items">
+              <button class="nav" data-view="moderators">🛡 <span>Modérateurs</span></button>
+              <button class="nav" data-view="preapprovals">★ <span>Pré-approbations</span></button>
+            </div>
+          </div>
+
+          <div class="nav-group" data-group="admin">
+            <button class="nav-head" type="button" aria-expanded="true">Suivi & réglages<i>▾</i></button>
+            <div class="nav-items">
+              <button class="nav" data-view="logs">≡ <span>Journaux</span></button>
+              <button class="nav admin-only" data-view="users">⚭ <span>Comptes</span></button>
+              <button class="nav" data-view="settings">⚙ <span>Paramètres</span></button>
+            </div>
+          </div>
         </nav>
         <a href="/api/docs" target="_blank">Documentation API ↗</a>
         <button id="logout" class="logout">Se déconnecter</button>
@@ -260,34 +279,42 @@
           <div class="pagination" id="articles-pagination"></div>
         </section>
         <section id="posts" class="view">
-          <div class="subtabs" role="tablist">
-            <button class="subtab active" data-posts-tab="queue" role="tab">File d’attente</button
-            ><button class="subtab" data-posts-tab="all" role="tab">Tous les posts</button>
+          <div class="posts-head">
+            <div class="subtabs" role="tablist">
+              <button class="subtab active" data-posts-tab="queue" role="tab">File de publication</button
+              ><button class="subtab" data-posts-tab="all" role="tab">Bibliothèque de posts</button>
+            </div>
+            <button class="primary" data-open="post-modal">+ Nouveau post</button>
           </div>
 
-          <!-- La file : ce qui part, ce qui vient, ce qui est parti. -->
+          <!-- La file : un état à la fois, choisi par onglet. -->
           <div id="posts-queue" class="posts-pane">
-            <div class="toolbar">
+            <div class="toolbar q-filters">
               <div class="toolbar-group">
                 <select id="queue-category"><option value="">Toutes les catégories</option></select
                 ><select id="queue-group"><option value="">Tous les groupes</option></select
-                ><button class="secondary" id="queue-refresh" type="button">Rafraîchir</button>
+                ><input id="queue-search" type="search" placeholder="Rechercher un post" />
               </div>
-              <form class="url-search" id="url-search">
-                <input name="url" type="url" placeholder="Coller un lien de post Facebook…" aria-label="Retrouver une publication par son lien Facebook" required
-                ><button class="secondary" type="submit">Retrouver</button>
-              </form>
-              <p class="queue-rule">Ordre de passage : <b>priorité</b>, puis le plus ancien.</p>
+              <div class="toolbar-group">
+                <button class="link" type="button" id="url-search-toggle">🔗 Retrouver par lien Facebook</button>
+                <button class="secondary" id="queue-refresh" type="button" title="Se rafraîchit aussi seule toutes les 15 s">↻</button>
+              </div>
             </div>
-            <div class="queue-stats">
-              <article><span>En cours</span><strong id="q-running">—</strong><small>réservés par un automate</small></article>
-              <article><span>À venir</span><strong id="q-upcoming">—</strong><small>en attente dans les groupes</small></article>
-              <article><span>Publiés</span><strong id="q-published">—</strong><small>publications faites</small></article>
-              <article class="failed-stat"><span>En échec</span><strong id="q-failed">—</strong><small>à relancer ou retirer</small></article>
-            </div>
+            <form class="url-search" id="url-search" hidden>
+              <input name="url" type="url" placeholder="Coller un lien de post Facebook…" aria-label="Retrouver une publication par son lien Facebook" required
+              ><button class="secondary" type="submit">Retrouver</button>
+            </form>
 
-            <div class="panel queue-panel">
-              <div class="panel-head"><div><small>EN COURS</small><h2>En train de partir</h2></div></div>
+            <nav class="q-tabs" id="q-tabs" role="tablist">
+              <button type="button" class="q-tab active" data-q-section="upcoming" role="tab"><span>⏳ À venir</span><strong id="q-upcoming">—</strong></button>
+              <button type="button" class="q-tab" data-q-section="running" role="tab"><span>▶ En cours</span><strong id="q-running">—</strong></button>
+              <button type="button" class="q-tab" data-q-section="published" role="tab"><span>✓ Publiés</span><strong id="q-published">—</strong></button>
+              <button type="button" class="q-tab bad" data-q-section="failed" role="tab"><span>⚠ En échec</span><strong id="q-failed">—</strong></button>
+              <button type="button" class="q-tab bad" data-q-section="review" role="tab"><span>🔍 À traiter</span><strong id="q-review">—</strong></button>
+            </nav>
+            <p class="q-help" id="q-help"></p>
+
+            <div class="panel queue-panel q-section" data-section="running">
               <div class="table-wrap"><table>
                 <colgroup><col /><col class="w-group" /><col class="w-profile" /><col class="w-state" /></colgroup>
                 <thead><tr><th>Post</th><th>Groupe</th><th>Profil</th><th>État</th></tr></thead>
@@ -295,49 +322,39 @@
               </table></div>
             </div>
 
-            <div class="panel queue-panel" id="queue-review-panel" hidden>
-              <div class="panel-head">
-                <div><small>VÉRIFICATION · À TRAITER</small><h2>Ce que le vérificateur n’a pas pu régler</h2></div>
-                <span class="verify-summary" id="verify-summary"></span>
-              </div>
+            <div class="panel queue-panel q-section" data-section="review" id="queue-review-panel">
               <div class="table-wrap"><table>
                 <colgroup><col /><col class="w-group" /><col class="w-reason" /><col class="w-actions" /></colgroup>
-                <thead><tr><th>Post</th><th>Groupe</th><th>Constat</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Post</th><th>Groupe</th><th>Constat du vérificateur</th><th></th></tr></thead>
                 <tbody id="queue-review"></tbody>
               </table></div>
+              <p class="q-foot"><span class="verify-summary" id="verify-summary"></span></p>
             </div>
 
-            <div class="panel queue-panel" id="queue-failed-panel">
-              <div class="panel-head"><div><small>EN ÉCHEC</small><h2>Publications qui ont échoué</h2></div></div>
+            <div class="panel queue-panel q-section" data-section="failed" id="queue-failed-panel">
               <div class="table-wrap"><table>
                 <colgroup><col /><col class="w-group" /><col class="w-reason" /><col class="w-actions" /></colgroup>
-                <thead><tr><th>Post</th><th>Groupe</th><th>Raison</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Post</th><th>Groupe</th><th>Raison</th><th></th></tr></thead>
                 <tbody id="queue-failed"></tbody>
               </table></div>
             </div>
 
-            <div class="panel queue-panel">
-              <div class="panel-head">
-                <div><small>À VENIR</small><h2>Prochaines publications</h2></div>
-                <button class="link" id="queue-more" type="button">Voir 10 de plus</button>
-              </div>
+            <div class="panel queue-panel q-section active" data-section="upcoming">
               <div class="table-wrap"><table>
                 <colgroup><col class="w-rank" /><col /><col class="w-group" /><col class="w-profiles" /><col class="w-prio" /><col class="w-actions" /></colgroup>
-                <thead><tr><th>#</th><th>Post</th><th>Groupe</th><th>Profils possibles</th><th>Priorité</th><th>Actions</th></tr></thead>
+                <thead><tr><th>#</th><th>Post</th><th>Groupe</th><th>Profils possibles</th><th>Priorité</th><th></th></tr></thead>
                 <tbody id="queue-upcoming"></tbody>
               </table></div>
+              <p class="q-foot"><button class="link" id="queue-more" type="button">Voir 10 de plus</button></p>
             </div>
 
-            <div class="panel queue-panel">
-              <div class="panel-head">
-                <div><small>PUBLIÉS</small><h2>Déjà publiés</h2></div>
-                <button class="link" id="queue-more-published" type="button">Voir 20 de plus</button>
-              </div>
+            <div class="panel queue-panel q-section" data-section="published">
               <div class="table-wrap"><table>
-                <colgroup><col class="w-date" /><col /><col class="w-group" /><col class="w-profile" /><col class="w-link" /><col class="w-link" /></colgroup>
-                <thead><tr><th>Publié le</th><th>Post</th><th>Groupe</th><th>Profil</th><th>Lien article</th><th>Vérification</th></tr></thead>
+                <colgroup><col class="w-date" /><col /><col class="w-group" /><col class="w-profile" /><col class="w-chip" /><col class="w-chip" /><col class="w-actions-sm" /></colgroup>
+                <thead><tr><th>Publié</th><th>Post</th><th>Groupe</th><th>Profil</th><th>Lien article</th><th>Vérification</th><th></th></tr></thead>
                 <tbody id="queue-published"></tbody>
               </table></div>
+              <p class="q-foot"><button class="link" id="queue-more-published" type="button">Voir 20 de plus</button></p>
             </div>
           </div>
 
@@ -357,11 +374,14 @@
                 Supprimer la sélection
               </button>
             </div>
-            <button class="primary" data-open="post-modal">
-              + Nouveau post
-            </button>
           </div>
-          <div id="post-cards" class="cards posts"></div>
+          <div class="panel table-wrap queue-panel lib-panel">
+            <table class="lib-table">
+              <colgroup><col class="w-check" /><col /><col class="w-groups" /><col class="w-pubstate" /><col class="w-date-sm" /><col class="w-actions" /></colgroup>
+              <thead><tr><th></th><th>Post</th><th>Groupes visés</th><th>Publication</th><th>Créé</th><th></th></tr></thead>
+              <tbody id="post-cards"></tbody>
+            </table>
+          </div>
           <div class="pagination" id="posts-pagination"></div>
           </div>
         </section>
@@ -767,6 +787,61 @@
         </section>
 
         <section id="runners" class="view">
+          <div class="posts-head">
+            <div class="subtabs" role="tablist">
+              <button class="subtab active" type="button" data-pil-tab="profiles" role="tab">Profils</button
+              ><button class="subtab" type="button" data-pil-tab="objective" role="tab">Objectif du jour</button
+              ><button class="subtab" type="button" data-pil-tab="members" role="tab">Nos profils dans les groupes</button>
+            </div>
+            <label class="switch-row publish-switch" title="Coupée : aucun profil ne publie, quel que soit son mode"
+              ><input id="publishing-enabled" type="checkbox" /> <span>Publication autorisée</span></label>
+          </div>
+
+          <div class="pil-pane" id="pil-profiles">
+            <nav class="q-tabs pil-quick" id="pil-quick" role="tablist"></nav>
+            <div class="toolbar q-filters runner-filters">
+              <div class="toolbar-group">
+                <input id="runner-search" type="search" placeholder="Rechercher un profil (nom ou identifiant)" /><select id="runner-mode-filter">
+                  <option value="">Tous les modes</option>
+                  <option value="OFF">Arrêté</option>
+                  <option value="AUTO">Auto</option>
+                  <option value="ON">Marche forcée</option></select
+                ><select id="runner-state-filter">
+                  <option value="">Tous les états</option>
+                  <option value="check">⚠ À vérifier</option>
+                  <option value="working">Au travail</option>
+                  <option value="should">Doit publier</option>
+                  <option value="idle">Doit publier, mais ne travaille pas</option>
+                  <option value="silent">Muet (dit travailler, plus vu)</option>
+                  <option value="browser-open">Navigateur ouvert</option>
+                  <option value="browser-error">Navigateur en erreur</option>
+                  <option value="pairing-broken">Appairage à refaire</option>
+                  <option value="pairing-unconfirmed">Appairage non confirmé</option>
+                  <option value="unpaired">Jamais appairé</option>
+                  <option value="inactive">Profil inactif</option>
+                </select
+                ><button class="link" id="runner-filters-reset" type="button" hidden>Effacer les filtres</button>
+              </div>
+              <div class="toolbar-group">
+                <button class="secondary" id="runners-all-auto">Tout en auto</button
+                ><button class="danger" id="runners-all-off">Tout arrêter</button
+                ><button class="secondary" id="runners-pairing-check" title="Vérifier que chaque navigateur appairé est encore reconnu">Vérifier les appairages</button
+                ><button class="secondary" id="runners-refresh" title="Se rafraîchit aussi seule toutes les 10 s">↻</button>
+              </div>
+            </div>
+            <p id="runner-count" class="runner-count"></p>
+            <div id="pairing-report" class="banner pairing-report" hidden></div>
+            <div class="panel table-wrap queue-panel">
+              <table class="pil-table">
+                <colgroup><col /><col class="w-mode" /><col class="w-state2" /><col class="w-pairing" /><col class="w-today" /><col class="w-actions" /></colgroup>
+                <thead><tr><th>Profil</th><th>Pilotage</th><th>Navigateur · extension</th><th>Appairage</th><th>Compteurs</th><th></th></tr></thead>
+                <tbody id="runner-rows"></tbody>
+              </table>
+            </div>
+            <p class="form-help" id="runners-note"></p>
+          </div>
+
+          <div class="pil-pane hidden" id="pil-objective">
           <!-- L'objectif du jour : où l'on en est, ce qu'il manque, où ça coince. -->
           <div class="panel objective" id="objective">
             <div class="panel-head">
@@ -805,75 +880,10 @@
               </div>
             </div>
           </div>
-          <div class="toolbar">
-            <p>
-              Chaque profil publie quand cette page le dit. L’agent local ouvre
-              les navigateurs ; l’extension de chacun obéit au même ordre.
-            </p>
-            <div class="toolbar-group">
-              <label class="switch-row"
-                ><input id="publishing-enabled" type="checkbox" /> Publication
-                autorisée</label
-              ><button class="secondary" id="runners-all-auto">
-                Tout en auto
-              </button
-              ><button class="danger" id="runners-all-off">Tout arrêter</button
-              ><button class="secondary" id="runners-pairing-check" title="Vérifier que chaque navigateur appairé est encore reconnu">
-                Vérifier les appairages
-              </button
-              ><button class="secondary" id="runners-refresh">
-                Rafraîchir
-              </button>
-            </div>
           </div>
-          <div id="pairing-report" class="banner pairing-report" hidden></div>
-          <div class="toolbar runner-filters">
-            <div class="toolbar-group">
-              <input id="runner-search" type="search" placeholder="Rechercher un profil (nom ou identifiant)" /><select
-                id="runner-mode-filter"
-              >
-                <option value="">Tous les modes</option>
-                <option value="OFF">Arrêté</option>
-                <option value="AUTO">Auto</option>
-                <option value="ON">Marche forcée</option></select
-              ><select id="runner-state-filter">
-                <option value="">Tous les états</option>
-                <option value="check">⚠ À vérifier</option>
-                <option value="working">Au travail</option>
-                <option value="should">Doit publier</option>
-                <option value="idle">Doit publier, mais ne travaille pas</option>
-                <option value="silent">Muet (dit travailler, plus vu)</option>
-                <option value="browser-open">Navigateur ouvert</option>
-                <option value="browser-error">Navigateur en erreur</option>
-                <option value="pairing-broken">Appairage à refaire</option>
-                <option value="pairing-unconfirmed">Appairage non confirmé</option>
-                <option value="unpaired">Jamais appairé</option>
-                <option value="inactive">Profil inactif</option>
-              </select
-              ><button class="link" id="runner-filters-reset" type="button" hidden>Effacer les filtres</button>
-            </div>
-            <p id="runner-count" class="runner-count"></p>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Profil</th>
-                  <th>Appairage</th>
-                  <th>Pilotage</th>
-                  <th>Fenêtre</th>
-                  <th>Navigateur</th>
-                  <th>Extension</th>
-                  <th>Compteurs</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="runner-rows"></tbody>
-            </table>
-          </div>
-          <p class="form-help" id="runners-note"></p>
 
-          <div class="panel queue-panel members-panel" id="members-panel" hidden>
+          <div class="pil-pane hidden" id="pil-members">
+          <div class="panel queue-panel members-panel" id="members-panel">
             <div class="panel-head">
               <div><small>VÉRIFICATEUR · NOS PROFILS DANS LES GROUPES</small><h2>Adhésions et pré-approbations</h2></div>
               <span class="verify-summary" id="members-summary"></span>
@@ -885,7 +895,9 @@
               <tbody id="members-problems"></tbody>
             </table></div>
           </div>
+          </div>
         </section>
+
         <section id="settings" class="view">
           <div class="panel settings-panel">
             <div class="panel-head"><div><small>AUTOMATISATION</small><h2>D’où viennent les posts</h2></div></div>

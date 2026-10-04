@@ -32,7 +32,7 @@
 
   const APPROVE = words(['approve', 'approuver', 'accepter', 'aprobar', 'aceptar', 'aprovar', 'genehmigen', 'approva', 'onayla', 'zatwierdź', 'goedkeuren', 'موافقة', 'قبول', 'الموافقة', 'وافق']);
   const PREAPPROVE = words([
-    'pre-approve', 'preapprove', 'pre-approve posts', 'pre-approve member', 'approve all future posts',
+    'pre-approve', 'preapprove', 'pre-approve posts', 'pre-approve member', 'pre-approve to post', 'approve all future posts',
     'pré-approuver', 'préapprouver', 'pré-approuver les publications', 'approuver automatiquement',
     'approuver toutes les publications futures',
     'aprobar previamente', 'preaprobar', 'pré-aprovar', 'vorab genehmigen', 'pre-approva', 'önceden onayla',
@@ -44,6 +44,15 @@
   ]);
   const MANAGE = words(['manage', 'member settings', 'admin tools', 'more', 'gérer', 'plus', "plus d'options", 'outils d’admin', 'administrar', 'más', 'verwalten', 'gestisci', 'إدارة', 'المزيد', 'خيارات']);
   const CONFIRM = words(['confirm', 'pre-approve', 'approve', 'ok', 'confirmer', 'pré-approuver', 'approuver', 'confirmar', 'bestätigen', 'conferma', 'تأكيد', 'موافقة']);
+  // La fenêtre « Preapprove X's posts » : son bouton principal, et ceux qui
+  // annulent (jamais cliqués).
+  const PREAPPROVAL_CONFIRM = words([
+    'give pre-approval', 'give preapproval', 'pre-approve', 'preapprove', 'confirm', 'ok',
+    'donner la pré-approbation', 'accorder la pré-approbation', 'pré-approuver', 'confirmer',
+    'dar aprobación previa', 'aprobar', 'conceder', 'vorab genehmigen', 'bestätigen',
+    'منح الموافقة المسبقة', 'منح موافقة مسبقة', 'الموافقة المسبقة', 'تأكيد', 'موافقة',
+  ]);
+  const CANCEL = words(['cancel', 'annuler', 'close', 'fermer', 'cancelar', 'abbrechen', 'annulla', 'iptal', 'إلغاء', 'إغلاق']);
   const UNAVAILABLE = /this content isn.?t available|ce contenu n.?est pas disponible|contenu indisponible|هذا المحتوى غير متاح/i;
 
   const isLabel = (el, list) => list.includes(labelOf(el));
@@ -257,6 +266,252 @@
     return { outcome: 'not_found', detail: `ni « pré-approuver » ni « retirer la pré-approbation » (vu : ${[...new Set(seen)].slice(0, 12).join(' | ') || 'rien'})` };
   }
 
+  /* ── La bonne page : <groupe>/people ─────────────────────────────────
+   * La liste des membres du groupe. Chaque ligne porte le statut du membre
+   * (« Pre-approved to post » quand c'est fait) et un menu « … » où l'admin
+   * ou le modérateur trouve la pré-approbation. */
+
+  // Ce que la LIGNE du membre affiche une fois la pré-approbation faite.
+  const PREAPPROVED_ROW = words([
+    'pre-approved to post', 'pre-approved', 'pré-approuvé pour publier', 'pré-approuvé pour les publications',
+    'publications pré-approuvées', 'pré-approuvé', 'preaprobado para publicar', 'pré-aprovado para publicar',
+    'vorab genehmigt', 'pre-approvato', 'تمت الموافقة المسبقة على النشر', 'موافقة مسبقة على النشر', 'تمت الموافقة المسبقة',
+  ]);
+  const SEARCH_LABEL = /search|rechercher|buscar|suchen|cerca|ara|szukaj|بحث/i;
+
+  const rowText = (el) => fold(el.innerText || el.textContent || '');
+  const rowSaysPreapproved = (row) => {
+    const t = ` ${rowText(row)} `;
+    // « Pre-approve » (verbe, une option) n'est pas « Pre-approved » (statut).
+    return PREAPPROVED_ROW.some((w) => t.includes(` ${w} `) || t.includes(` ${w} ·`) || t.includes(`${w} ·`));
+  };
+
+  const SEARCH_WORDS = /search|find|rechercher|chercher|trouver|buscar|suchen|cerca|ara|szukaj|بحث|ابحث/i;
+  /** Le bouton « … » d'une ligne : un bouton de menu, un libellé « plus /
+   * options / actions », ou un bouton sans texte qui ne porte qu'une icône. */
+  const MORE = words(['more', 'more options', 'options', 'actions', 'member actions', 'member settings', 'settings', 'manage',
+    'plus', "plus d'options", 'gérer', 'paramètres', 'más', 'opciones', 'mehr', 'altro', 'المزيد', 'خيارات', 'إجراءات', 'إعدادات']);
+  const dotsIn = (scope) =>
+    buttons(scope).filter((b) => {
+      if (b.closest('a[href]')) return false;
+      const label = labelOf(b);
+      const text = (b.textContent || '').trim();
+      return (
+        b.getAttribute('aria-haspopup') === 'menu' ||
+        (label && MORE.some((w) => label === w || label.startsWith(`${w} `) || label.includes(` ${w} `))) ||
+        /^(…|\.\.\.|⋯)$/.test(text) ||
+        (!text && !b.getAttribute('aria-label') && b.querySelector('svg'))
+      );
+    });
+
+  /** Les personnes qu'un bloc désigne : par identifiant, sinon par nom. */
+  const personKey = (a) => idOfHref(a.getAttribute('href')) || fold(a.textContent || '');
+  const personLinks = (scope) =>
+    [...scope.querySelectorAll('a[href]')].filter((a) => {
+      const href = a.getAttribute('href') || '';
+      return idOfHref(href) || /\/user\/|profile\.php|facebook\.com\/[A-Za-z0-9.]+\/?(\?|$)|^\/[A-Za-z0-9.]{3,}\/?(\?|$)/.test(href);
+    }).filter((a) => fold(a.textContent || '').length > 1 || idOfHref(a.getAttribute('href')));
+
+  /** Taper le nom dans la recherche de la page (champ React : setter natif,
+   * puis Entrée), et laisser la liste se filtrer. */
+  async function searchPeople(name) {
+    const main = document.querySelector('[role="main"]') || document.body;
+    const input = [...main.querySelectorAll('input')].find(
+      (i) => i.type === 'search' || SEARCH_WORDS.test(`${i.getAttribute('aria-label') || ''} ${i.getAttribute('placeholder') || ''}`),
+    );
+    if (!input || !name) return false;
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
+    input.focus();
+    if (setter) setter.call(input, name);
+    else input.value = name;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+    await sleep(3000);
+    return true;
+  }
+
+  /** La ligne de CE membre et son « … ». Par identifiant Facebook ; si la
+   * page ne l'expose pas, par le nom EXACT — seulement s'il n'y a qu'une
+   * personne de ce nom à l'écran. La ligne ne doit désigner que lui. */
+  function peopleRow(member) {
+    const id = member.facebookUserId;
+    const name = fold(member.name);
+    const all = personLinks(document);
+    let anchors = all.filter((a) => idOfHref(a.getAttribute('href')) === id);
+    let by = 'identifiant';
+    if (!anchors.length && name) {
+      const sameName = all.filter((a) => fold(a.textContent || '') === name);
+      const distinct = new Set(sameName.map((a) => (a.getAttribute('href') || '').split('?')[0]));
+      if (distinct.size > 1) return { ambiguous: true, detail: `${distinct.size} personnes s’appellent « ${member.name} » : rien cliqué` };
+      anchors = sameName;
+      by = 'nom exact';
+    }
+    if (!anchors.length) return null;
+    // Sa photo et son nom pointent vers le même profil : une seule personne.
+    const base = (a) => (a.getAttribute('href') || '').split('?')[0].replace(/\/+$/, '');
+    const ownHrefs = new Set(anchors.map(base));
+    const own = new Set([...anchors, ...all.filter((a) => ownHrefs.has(base(a)))].map(personKey));
+    for (const a of anchors) {
+      let el = a;
+      for (let i = 0; i < 14 && el && el !== document.body; i += 1) {
+        el = el.parentElement;
+        if (!el) break;
+        // Plus haut que la ligne : le bloc contient d'autres personnes.
+        const people = new Set(personLinks(el).map(personKey).filter((k) => !own.has(k)));
+        if (people.size) break;
+        const dots = dotsIn(el);
+        if (dots.length) return { row: el, menu: dots[dots.length - 1], by };
+      }
+    }
+    return { noMenu: true, by };
+  }
+
+  /** Ouvrir <groupe>/people (fait par l'extension), puis trouver la ligne :
+   * à l'écran, sinon par la recherche, sinon en descendant la liste. */
+  async function findOnPeople(member) {
+    if (!/\/people|\/members/.test(location.pathname)) return { error: { outcome: 'unreachable', detail: 'la page des membres du groupe n’est pas ouverte' } };
+    if (unavailable()) return { error: { outcome: 'no_permission', detail: 'page des membres inaccessible' } };
+    const usable = (h) => h && (h.row || h.ambiguous);
+    let hit = peopleRow(member);
+    let searched = false;
+    if (!usable(hit)) {
+      searched = await searchPeople(member.name);
+      hit = peopleRow(member);
+    }
+    if (!usable(hit)) hit = (await scrollFor(() => { const h = peopleRow(member); return usable(h) ? h : null; }, 5)) || peopleRow(member);
+    if (!hit) {
+      return { error: { outcome: 'not_found', detail: `« ${member.name} » introuvable dans les membres du groupe${searched ? ' (recherche faite)' : ' (pas de barre de recherche trouvée)'}` } };
+    }
+    if (hit.ambiguous) return { error: { outcome: 'unreachable', detail: hit.detail || 'ligne ambiguë : rien cliqué' } };
+    if (hit.noMenu) {
+      const near = personLinks(document).find((a) => idOfHref(a.getAttribute('href')) === member.facebookUserId || fold(a.textContent || '') === fold(member.name));
+      const box = near?.parentElement?.parentElement?.parentElement?.parentElement || document.body;
+      const seen = buttons(box).map((b) => rawLabel(b) || (b.querySelector('svg') ? '[icône]' : '')).filter(Boolean).slice(0, 10);
+      return { error: { outcome: 'not_found', detail: `ligne de « ${member.name} » trouvée (par ${hit.by}) mais pas son bouton « … » (boutons vus : ${seen.join(' | ') || 'aucun'})` } };
+    }
+    return hit;
+  }
+
+  async function openRowMenu(hit) {
+    hit.menu.click();
+    await sleep(1200);
+    const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"], [role="dialog"] [role="menuitem"], [role="listbox"] [role="option"]')];
+    return {
+      items,
+      seen: items.map((i) => rawLabel(i)).filter(Boolean),
+      already: items.find((i) => hasPhrase(i, ALREADY_PREAPPROVED)),
+      offered: items.find((i) => hasLabel(i, PREAPPROVE) && !hasPhrase(i, ALREADY_PREAPPROVED)),
+    };
+  }
+
+  const isPreapprovalDialog = (d) => /pre-?approv|preapprov|pre-?approuv|aprobaci|موافق/.test(fold(d.innerText || d.textContent || ''));
+  const openDialogs = () => [...document.querySelectorAll('[role="dialog"]')].filter((d) => d.isConnected && isPreapprovalDialog(d));
+
+  /** La fenêtre de confirmation : cliquer son bouton principal (« Give
+   * Pre-approval »), jamais « Cancel » ni la croix, puis attendre qu'elle se
+   * ferme. Dit ce qui s'est passé. */
+  async function confirmPreapproval() {
+    let dialog = null;
+    for (let i = 0; i < 20 && !dialog; i += 1) {
+      dialog = openDialogs().pop() || null;
+      if (!dialog) await sleep(250);
+    }
+    if (!dialog) return { asked: false };
+    const candidates = buttons(dialog).filter((b) => b.getAttribute('aria-disabled') !== 'true' && !hasLabel(b, CANCEL));
+    const ok =
+      candidates.find((b) => PREAPPROVAL_CONFIRM.some((w) => labelOf(b) === w || labelOf(b).startsWith(w))) ||
+      // Sinon le dernier bouton qui porte du texte (le bouton principal est
+      // à droite, après « Annuler »).
+      candidates.filter((b) => (b.textContent || '').trim()).pop();
+    const seen = buttons(dialog).map((b) => rawLabel(b)).filter(Boolean).slice(0, 8);
+    if (!ok) return { asked: true, clicked: null, closed: false, seen };
+    const label = rawLabel(ok);
+    ok.click();
+    for (let i = 0; i < 24; i += 1) {
+      await sleep(250);
+      if (!dialog.isConnected || !openDialogs().includes(dialog)) return { asked: true, clicked: label, closed: true, seen };
+    }
+    return { asked: true, clicked: label, closed: false, seen };
+  }
+
+  /** Relire la ligne du membre (la liste se redessine après la fenêtre). */
+  async function rereadRow(member) {
+    for (let i = 0; i < 3; i += 1) {
+      await sleep(1500);
+      const again = peopleRow(member);
+      if (again && again.row) return again;
+    }
+    if (await searchPeople(member.name)) {
+      const again = peopleRow(member);
+      if (again && again.row) return again;
+    }
+    return null;
+  }
+
+  /** Pré-approuver CE membre depuis <groupe>/people. « Fait » seulement si
+   * c'est PROUVÉ : la fenêtre de confirmation s'est fermée et sa ligne dit
+   * « pré-approuvé pour publier ». */
+  async function preapproveFromPeople(member) {
+    const hit = await findOnPeople(member);
+    if (hit.error) return hit.error;
+    if (rowSaysPreapproved(hit.row)) return { outcome: 'already', detail: 'sa ligne dit déjà « pré-approuvé pour publier »' };
+    const menu = await openRowMenu(hit);
+    if (menu.already) {
+      closeMenus();
+      return { outcome: 'already', detail: `menu : « ${rawLabel(menu.already)} »` };
+    }
+    if (!menu.offered) {
+      closeMenus();
+      return {
+        outcome: menu.items.length ? 'not_found' : 'no_permission',
+        detail: menu.items.length
+          ? `option de pré-approbation introuvable dans son menu (vu : ${[...new Set(menu.seen)].slice(0, 12).join(' | ')})`
+          : 'son menu « … » ne s’ouvre pas : le modérateur est-il admin/modérateur du groupe ?',
+      };
+    }
+    const label = rawLabel(menu.offered);
+    menu.offered.click();
+    const confirm = await confirmPreapproval();
+    if (confirm.asked && !confirm.closed) {
+      // La fenêtre est restée ouverte : on la ferme, et ce n'est PAS fait.
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return {
+        outcome: 'not_found',
+        detail: confirm.clicked
+          ? `« ${label} » → « ${confirm.clicked} » cliqué, mais la fenêtre de confirmation est restée ouverte : non fait`
+          : `« ${label} » → fenêtre de confirmation sans bouton reconnu (vu : ${confirm.seen.join(' | ')}) : non fait`,
+      };
+    }
+    const steps = `« ${label} »${confirm.clicked ? ` → « ${confirm.clicked} »` : ''}`;
+    // On ne croit pas le clic : la ligne doit maintenant le dire.
+    const after = await rereadRow(member);
+    if (after && rowSaysPreapproved(after.row)) {
+      return { outcome: 'done', detail: `${steps} ; sa ligne dit « pré-approuvé pour publier »` };
+    }
+    // Pas de preuve : à revoir plus tard (un nouveau passage relira la ligne).
+    return { outcome: 'unreachable', detail: `${steps} cliqué, mais sa ligne ne dit pas encore « pré-approuvé » : à recontrôler` };
+  }
+
+  /** CONTRÔLE sur <groupe>/people, sans rien cliquer d'autre que le menu
+   * (ouvert pour être lu, puis refermé). */
+  async function auditFromPeople(member) {
+    const hit = await findOnPeople(member);
+    if (hit.error) return hit.error;
+    if (rowSaysPreapproved(hit.row)) return { outcome: 'already', detail: 'sa ligne dit « pré-approuvé pour publier »' };
+    const menu = await openRowMenu(hit);
+    closeMenus();
+    await sleep(400);
+    if (menu.already) return { outcome: 'already', detail: `menu : « ${rawLabel(menu.already)} »` };
+    if (menu.offered) return { outcome: 'not_done', detail: `menu : « ${rawLabel(menu.offered)} » proposé, non cliqué` };
+    return {
+      outcome: menu.items.length ? 'not_found' : 'no_permission',
+      detail: menu.items.length ? `ni pré-approuvé, ni option (vu : ${[...new Set(menu.seen)].slice(0, 12).join(' | ')})` : 'son menu « … » ne s’ouvre pas',
+    };
+  }
+
   self.FPM = {
+    preapproveFromPeople,
+    auditFromPeople,
     auditPreapproval, approve, preapproveFromMemberPage, preapproveFromPending, memberIdsIn, idOfHref, fold };
 })();

@@ -731,6 +731,59 @@ Routes : `GET /posts/targets/:id/history`, `PUT /posts/targets/:id/facebook-url`
 `20261002120000_publication_traces` (reprend les adresses et les publications
 déjà enregistrées).
 
+### Le menu et le Pilotage : organisation
+
+**Menu** groupé par tâche, en sections repliables (l'état est retenu ; la
+section de la rubrique ouverte reste dépliée ; une section repliée affiche
+un point rouge si l'une de ses rubriques a une alerte) :
+
+- *Vue d'ensemble*
+- **Publication** : Posts, Articles, Sites, Catégories
+- **Profils Facebook** : Profils, Groupes, Pilotage, Actions en masse
+- **Modération** : Modérateurs, Pré-approbations
+- **Suivi & réglages** : Journaux, Comptes, Paramètres
+
+**Pilotage** — trois sous-onglets, chacun avec son adresse : **Profils**
+(`/pilotage`), **Objectif du jour** (`/pilotage/objectif`), **Nos profils
+dans les groupes** (`/pilotage/adhesions`). L'interrupteur « Publication
+autorisée » est toujours visible (vert / rouge).
+
+Onglet Profils : des **filtres rapides cliquables** avec leur compteur
+(Tous, ⚠ À vérifier, ▶ Au travail, ⏸ Doivent publier sans travailler, ■
+Arrêtés, 🔑 Appairage à refaire), une barre (recherche, mode, état, Tout en
+auto, Tout arrêter, Vérifier les appairages), et un tableau resserré : profil
+(+ identifiant Facebook), pilotage (mode, fenêtre), navigateur · extension,
+appairage, compteurs, « Réglages » et « ⋯ » (appairer, identifiant Facebook,
+page du profil, rôle modérateur). Les lignes à vérifier sont marquées d'un
+trait rouge.
+
+### La page Posts : organisation
+
+Deux onglets : **File de publication** et **Bibliothèque de posts**, avec
+« + Nouveau post » toujours à droite.
+
+**File de publication** — une barre de filtres (catégorie, groupe, recherche
+dans le titre, le texte ou le groupe ; « 🔗 Retrouver par lien Facebook »
+s'ouvre à la demande), puis **un onglet par état, avec son compteur**, et un
+seul tableau affiché :
+
+| Onglet | Adresse | Contenu |
+|---|---|---|
+| ⏳ À venir | `/posts` | l'ordre de passage, priorités ⤒ ↑ ↓ |
+| ▶ En cours | `/posts/en-cours` | réservés / en publication, « Libérer le lot » |
+| ✓ Publiés | `/posts/publies` | date, lien Facebook, lien article, vérification |
+| ⚠ En échec | `/posts/echecs` | raison, « ↻ Relancer » |
+| 🔍 À traiter | `/posts/a-traiter` | ce que le modérateur n'a pas réglé |
+
+Les onglets « En échec » et « À traiter » passent en rouge quand ils ne sont
+pas vides. Chaque ligne montre **une** action (Modifier, ↻ Relancer, ✓ C'est
+bon…) et un menu **« ⋯ »** pour le reste : Envoyer par un profil, Déjà en
+ligne, Modifier, Historique, Corriger le lien, Retirer de ce groupe.
+
+**Bibliothèque de posts** (`/posts/tous`) — une liste compacte : image, titre
+et texte, groupes visés (2 + « +N »), **avancement** (barre « x/y publiés »,
+échecs en rouge), date et délai, « Modifier » et « ⋯ → Supprimer ».
+
 ### Un site désactivé ne synchronise plus
 
 Tant qu'un site est **inactif** (page Sites → Modifier → État), ses articles

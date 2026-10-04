@@ -42,7 +42,7 @@ const API = '/api',
     // Les filtres du Pilotage survivent au rafraîchissement automatique.
     runnerFilters: { search: '', mode: '', state: '' },
     // La file de publication : ses filtres et combien on en montre.
-    queue: { tab: 'queue', categoryId: '', groupId: '', limit: 10, publishedLimit: 20, data: null },
+    queue: { tab: 'queue', section: 'upcoming', search: '', categoryId: '', groupId: '', limit: 10, publishedLimit: 20, data: null },
     selection: new Set(),
   };
 // La session vit dans un cookie HttpOnly que ce script ne voit pas : aucun
@@ -177,6 +177,7 @@ async function loadCounters() {
   try {
     state.counters = await api('/insights/counters');
     renderCounters();
+    applyNavGroups();
   } catch {
     // Un compteur manquant n'empêche rien.
   }
@@ -816,6 +817,48 @@ function filteredRunners() {
 const runnerFiltered = () =>
   Boolean(state.runnerFilters.search.trim() || state.runnerFilters.mode || state.runnerFilters.state);
 
+/* ── Pilotage : filtres rapides et sous-onglets ─────────────────────── */
+const PIL_QUICK = [
+  ['all', 'Tous', {}],
+  ['check', '⚠ À vérifier', { state: 'check' }, 'bad'],
+  ['working', '▶ Au travail', { state: 'working' }],
+  ['idle', '⏸ Doivent publier, ne travaillent pas', { state: 'idle' }, 'bad'],
+  ['off', '■ Arrêtés', { mode: 'OFF' }],
+  ['pairing', '🔑 Appairage à refaire', { state: 'pairing-broken' }, 'bad'],
+];
+function renderPilotQuick() {
+  const all = state.runners?.profiles || [];
+  const f = state.runnerFilters;
+  const count = (q) => all.filter((r) => (!q.state || runnerTags(r).has(q.state)) && (!q.mode || r.mode === q.mode)).length;
+  $('#pil-quick').innerHTML = PIL_QUICK.map(([key, label, q, tone]) => {
+    const n = count(q);
+    const active = (q.state || '') === (f.state || '') && (q.mode || '') === (f.mode || '');
+    return `<button type="button" class="q-tab ${tone || ''} ${tone && n ? 'alert' : ''} ${active ? 'active' : ''}" data-pil-quick="${key}"><span>${label}</span><strong>${n}</strong></button>`;
+  }).join('');
+}
+$('#pil-quick').addEventListener('click', (e) => {
+  const key = e.target.closest('[data-pil-quick]')?.dataset.pilQuick;
+  if (!key) return;
+  const q = PIL_QUICK.find((x) => x[0] === key)[2];
+  state.runnerFilters.state = q.state || '';
+  state.runnerFilters.mode = q.mode || '';
+  $('#runner-state-filter').value = state.runnerFilters.state;
+  $('#runner-mode-filter').value = state.runnerFilters.mode;
+  renderRunners();
+});
+
+const PIL_TABS = { profiles: '/pilotage', objective: '/pilotage/objectif', members: '/pilotage/adhesions' };
+function showPilotTab(tab, { fromUrl = false } = {}) {
+  if (!PIL_TABS[tab]) tab = 'profiles';
+  state.pilotTab = tab;
+  $$('[data-pil-tab]').forEach((b) => b.classList.toggle('active', b.dataset.pilTab === tab));
+  $('#pil-profiles').classList.toggle('hidden', tab !== 'profiles');
+  $('#pil-objective').classList.toggle('hidden', tab !== 'objective');
+  $('#pil-members').classList.toggle('hidden', tab !== 'members');
+  if (!fromUrl && location.pathname !== PIL_TABS[tab]) history.pushState({}, '', PIL_TABS[tab]);
+}
+$$('[data-pil-tab]').forEach((b) => (b.onclick = () => showPilotTab(b.dataset.pilTab)));
+
 /** L'état RÉEL de l'appairage, calculé par l'API : clé encore valable,
  * identifiant inchangé, battements reçus ou refusés. */
 const PAIRING_LABELS = {
@@ -1119,6 +1162,7 @@ function renderRunners() {
   $('#runners-all-auto').textContent = filtered ? `Mettre en auto (${shown.length})` : 'Tout en auto';
   $('#runners-all-off').textContent = filtered ? `Arrêter (${shown.length})` : 'Tout arrêter';
   $('#runners-all-auto').disabled = $('#runners-all-off').disabled = filtered && !shown.length;
+  renderPilotQuick();
   $('#runner-rows').innerHTML =
     shown
       .map((r) => {
@@ -1126,34 +1170,39 @@ function renderRunners() {
           ? `<span class="chip join-joined">au travail · ${esc(PHASE_LABELS[r.phase] || r.phase || '—')}</span>`
           : r.running
             ? `<span class="chip join-failed">muet · dit travailler</span>`
-            : `<span class="chip join-not_joined">à l’arrêt</span>`;
+            : `<span class="chip join-not_joined">extension à l’arrêt</span>`;
         const browser = `<span class="chip join-${r.browserState === 'RUNNING' ? 'joined' : r.browserState === 'ERROR' ? 'failed' : 'not_joined'}">${BROWSER_LABELS[r.browserState] || r.browserState}</span>`;
         const modes = ['OFF', 'AUTO', 'ON']
-          .map(
-            (m) =>
-              `<option value="${m}" ${r.mode === m ? 'selected' : ''}>${MODE_LABELS[m]}</option>`,
-          )
+          .map((m) => `<option value="${m}" ${r.mode === m ? 'selected' : ''}>${MODE_LABELS[m]}</option>`)
           .join('');
-        // L'appairage d'abord : un navigateur jamais appairé ne parlera jamais,
-        // quel que soit son mode. C'est la première chose à regarder.
-        const paired = pairingCell(r);
-        return `<tr class="${r.status === 'INACTIVE' ? 'inactive' : ''}">
-        <td><strong>${esc(r.name)}</strong>${r.isModerator ? ' <span class="chip moderator" title="Ce profil vérifie les publications des autres (extension FB Post Checker)">vérificateur</span>' : ''}<small>${esc(r.externalId || 'sans identifiant NSTBrowser')}</small>` +
+        const lockMode = r.isModerator && state.me?.role !== 'ADMIN';
+        return (
+          `<tr class="${r.status === 'INACTIVE' ? 'inactive' : ''} ${runnerTags(r).has('check') ? 'needs-check' : ''}">` +
+          `<td><strong>${esc(r.name)}</strong>${r.isModerator ? ' <span class="chip moderator" title="Profil modérateur">modérateur</span>' : ''}` +
+          `<small>${esc(r.externalId || 'sans identifiant NSTBrowser')}</small>` +
           `<small>${r.facebookUserId
             ? `<a href="https://www.facebook.com/profile.php?id=${esc(r.facebookUserId)}" target="_blank" rel="noreferrer" title="${esc(r.facebookName || '')}">Facebook ${esc(r.facebookUserId)}</a>`
-            : '<span class="fb-missing" title="Remonté automatiquement par l’extension de publication (≥ 1.3.0) au prochain battement ; sans lui, le vérificateur ne peut ni accepter son adhésion ni le pré-approuver">⚠ compte Facebook inconnu</span>'}` +
-          ` <button class="link inline-link" type="button" data-fb-id="${r.profileId}" data-current="${esc(r.facebookUserId || '')}">${r.facebookUserId ? 'modifier' : 'saisir'}</button></small></td>
-        <td>${paired}</td>
-        <td><select data-runner-mode="${r.profileId}" ${r.isModerator && state.me?.role !== 'ADMIN' ? 'disabled title="Profil modérateur : réservé aux administrateurs"' : ''}>${modes}</select><small class="${r.shouldRun ? '' : 'muted'}">${r.shouldRun ? '▶ doit publier' : '■ ' + esc(r.reason)}</small></td>
-        <td>${esc(r.window)}<small>${esc(r.timezone)}</small></td>
-        <td>${browser}<small>${esc(ago(r.browserSeenAt))}${r.browserMessage ? ' · ' + esc(r.browserMessage) : ''}</small></td>
-        <td>${worker}<small>${esc(ago(r.lastSeenAt))}</small></td>
-        <td>${r.published} publiés · ${r.failed} échecs · ${r.links} liens${r.message ? `<small>${esc(r.message)}</small>` : ''}</td>
-        <td><div class="row-actions"><button class="edit" data-runner-pair="${r.profileId}">${r.pairedAt ? 'Ré-appairer' : 'Appairer'}</button><button class="edit" data-runner-edit="${r.profileId}">Réglages</button><button class="edit admin-only" data-runner-moderator="${r.profileId}" data-on="${r.isModerator ? '1' : ''}" title="Le vérificateur ouvre les posts publiés par les autres profils, vérifie le lien, supprime et fait republier ce qui est en défaut. Il doit être administrateur des groupes.">${r.isModerator ? 'Retirer vérificateur' : 'Vérificateur'}</button></div></td>
-      </tr>`;
+            : '<span class="fb-missing" title="Remonté automatiquement par l’extension de publication (≥ 1.3.0) au prochain battement">⚠ compte Facebook inconnu</span>'}</small></td>` +
+          `<td><select data-runner-mode="${r.profileId}" ${lockMode ? 'disabled title="Profil modérateur : réservé aux administrateurs"' : ''}>${modes}</select>` +
+          `<small class="${r.shouldRun ? '' : 'muted'}">${r.shouldRun ? '▶ doit publier' : '■ ' + esc(r.reason)}</small>` +
+          `<small class="muted">${esc(r.window)} · ${esc(r.timezone)}</small></td>` +
+          `<td><div class="stack">${browser}${worker}</div><small>vu ${esc(ago(r.lastSeenAt || r.browserSeenAt))}${r.browserMessage ? ' · ' + esc(r.browserMessage) : ''}</small></td>` +
+          `<td>${pairingCell(r)}</td>` +
+          `<td><span class="counts-cell"><b>${r.published}</b> publiés · <b class="${r.failed ? 'bad' : ''}">${r.failed}</b> échecs · <b>${r.links}</b> liens</span>${r.message ? `<small title="${esc(r.message)}">${esc(r.message)}</small>` : ''}</td>` +
+          `<td><div class="row-actions"><button class="edit" data-runner-edit="${r.profileId}">Réglages</button>` +
+          rowMenu([
+            menuItem(`data-runner-pair="${r.profileId}"`, r.pairedAt ? '🔑 Ré-appairer' : '🔑 Appairer'),
+            menuItem(`data-fb-id="${r.profileId}" data-current="${esc(r.facebookUserId || '')}"`, r.facebookUserId ? '👤 Modifier l’identifiant Facebook' : '👤 Saisir l’identifiant Facebook'),
+            menuItem(`data-goto="/profils/${r.profileId}"`, '📊 Page du profil'),
+            state.me?.role === 'ADMIN'
+              ? menuItem(`data-runner-moderator="${r.profileId}" data-on="${r.isModerator ? '1' : ''}"`, r.isModerator ? '🛡 Retirer le rôle modérateur' : '🛡 Désigner modérateur')
+              : '',
+          ]) +
+          `</div></td></tr>`
+        );
       })
       .join('') ||
-    `<tr><td colspan="8"><div class="empty">${filtered ? 'Aucun profil pour ces filtres.' : 'Aucun profil à piloter.'}</div></td></tr>`;
+    `<tr><td colspan="6"><div class="empty">${filtered ? 'Aucun profil pour ces filtres.' : 'Aucun profil à piloter.'}</div></td></tr>`;
   $$('[data-runner-mode]').forEach(
     (select) =>
       (select.onchange = () =>
@@ -1602,18 +1651,31 @@ function renderArticles() {
  * WordPress. Le coupe-circuit vit dans le Pilotage. */
 function renderSettings() {}
 function renderPosts() {
+  // La bibliothèque : une ligne par post — image, texte, groupes visés,
+  // où il en est (publié dans x groupes sur y), date ; actions dans « ⋯ ».
   $('#post-cards').innerHTML =
     state.posts
-      .map(
-        (p) =>
-          `<article class="post-card ${state.selection.has(p.id) ? 'selected' : ''}"><div class="post-meta"><label class="inline-check"><input type="checkbox" data-select-post="${p.id}" ${state.selection.has(p.id) ? 'checked' : ''}>${p.targets.length} groupe(s)</label><span>${p.delay} min</span></div><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="chips">${p.targets
-            .slice(0, 3)
-            .map((x) => `<span class="chip">${esc(x.group.name)}</span>`)
-            .join(
-              '',
-            )}</div><div class="card-actions"><button class="edit" data-edit-post="${p.id}">Modifier</button><button class="danger" data-delete-post="${p.id}">Supprimer</button></div></article>`,
-      )
-      .join('') || '<div class="empty">Aucun post pour ce filtre.</div>';
+      .map((p) => {
+        const targets = p.targets || [];
+        const done = targets.filter((t) => t.status === 'PUBLISHED').length;
+        const failed = targets.filter((t) => t.status === 'FAILED').length;
+        const groups = targets.slice(0, 2).map((x) => `<span class="chip" title="${esc(x.group.name)}">${esc(x.group.name)}</span>`).join('') +
+          (targets.length > 2 ? `<span class="chip more" title="${esc(targets.slice(2).map((x) => x.group.name).join(', '))}">+${targets.length - 2}</span>` : '');
+        const progress = targets.length ? Math.round((done / targets.length) * 100) : 0;
+        return (
+          `<tr class="${state.selection.has(p.id) ? 'selected' : ''}">` +
+          `<td class="w-check"><input type="checkbox" data-select-post="${p.id}" ${state.selection.has(p.id) ? 'checked' : ''} aria-label="Sélectionner ${esc(p.title)}"></td>` +
+          `<td>${queuePost(p)}</td>` +
+          `<td><div class="chips">${groups || '<span class="muted">aucun</span>'}</div></td>` +
+          `<td><div class="pub-progress" title="${done} publié(s) sur ${targets.length} groupe(s)${failed ? `, ${failed} échec(s)` : ''}">` +
+          `<span class="bar"><i style="width:${progress}%"></i></span><small>${done}/${targets.length} publié(s)${failed ? ` · <b class="bad">${failed} échec(s)</b>` : ''}</small></div></td>` +
+          `<td><small>${p.createdAt ? esc(new Date(p.createdAt).toLocaleDateString('fr-FR')) : '—'}${p.delay ? `<br>délai ${p.delay} min` : ''}</small></td>` +
+          `<td><div class="row-actions"><button class="edit" data-edit-post="${p.id}">Modifier</button>` +
+          rowMenu([menuItem(`data-delete-post="${p.id}"`, '🗑 Supprimer le post', 'danger')]) +
+          `</div></td></tr>`
+        );
+      })
+      .join('') || '<tr><td colspan="6" class="empty">Aucun post pour ce filtre.</td></tr>';
   renderSelection();
 }
 function renderSelection() {
@@ -1907,10 +1969,16 @@ const ROUTES = {
   '/categories': { view: 'categories' },
   '/sites': { view: 'sites' },
   '/articles': { view: 'articles' },
-  '/posts': { view: 'posts', tab: 'queue' },
+  '/posts': { view: 'posts', tab: 'queue', section: 'upcoming' },
+  '/posts/en-cours': { view: 'posts', tab: 'queue', section: 'running' },
+  '/posts/publies': { view: 'posts', tab: 'queue', section: 'published' },
+  '/posts/echecs': { view: 'posts', tab: 'queue', section: 'failed' },
+  '/posts/a-traiter': { view: 'posts', tab: 'queue', section: 'review' },
   '/posts/tous': { view: 'posts', tab: 'all' },
   '/journaux': { view: 'logs' },
-  '/pilotage': { view: 'runners' },
+  '/pilotage': { view: 'runners', pil: 'profiles' },
+  '/pilotage/objectif': { view: 'runners', pil: 'objective' },
+  '/pilotage/adhesions': { view: 'runners', pil: 'members' },
   '/parametres': { view: 'settings' },
   '/comptes': { view: 'users' },
   '/actions-en-masse': { view: 'bulk' },
@@ -1919,13 +1987,17 @@ const ROUTES = {
 };
 /** L'adresse d'une rubrique (et, pour les posts, de son onglet). */
 function pathOf(id, tab) {
-  if (id === 'posts') return (tab || state.queue.tab) === 'all' ? '/posts/tous' : '/posts';
+  if (id === 'posts') {
+    if ((tab || state.queue.tab) === 'all') return '/posts/tous';
+    return Q_SECTIONS[state.queue.section]?.path || '/posts';
+  }
   return Object.keys(ROUTES).find((p) => ROUTES[p].view === id) || '/';
 }
 /** Mettre l'adresse à jour sans recharger : le bouton Précédent du
  * navigateur ramène à la rubrique d'avant, et un lien se partage. */
 function syncUrl(id) {
   if (id === 'profile-page' || id === 'moderator-page') return;
+  if (id === 'runners' && location.pathname.startsWith('/pilotage')) return;
   const path = pathOf(id);
   if (location.pathname.replace(/\/+$/, '') !== path.replace(/\/+$/, '') && path) {
     history.pushState({ view: id }, '', path);
@@ -1955,7 +2027,16 @@ function routeFromUrl() {
     state.logFilters.search = search;
     $('#log-search').value = search;
   }
-  if (route.view === 'posts') showPostsTab(route.tab, { fromUrl: true });
+  if (route.view === 'runners') {
+    view('runners', { fromUrl: true });
+    showPilotTab(route.pil || 'profiles', { fromUrl: true });
+    return;
+  }
+  if (route.view === 'posts') {
+    if (route.section) state.queue.section = route.section;
+    showPostsTab(route.tab, { fromUrl: true });
+    if (route.section && state.queue.data) showQueueSection(route.section, { fromUrl: true });
+  }
   else view(route.view, { fromUrl: true });
 }
 window.addEventListener('popstate', routeFromUrl);
@@ -1967,6 +2048,7 @@ function view(id, { fromUrl = false } = {}) {
   $$('.nav').forEach((x) =>
     x.classList.toggle('active', x.dataset.view === id),
   );
+  if (typeof applyNavGroups === 'function') applyNavGroups();
   $('#title').textContent = {
     dashboard: 'Vue d’ensemble',
     profiles: 'Profils',
@@ -1987,6 +2069,7 @@ function view(id, { fromUrl = false } = {}) {
   }[id];
   if (id === 'bulk') loadBulk();
   if (id === 'moderators') loadModerators();
+  if (id === 'runners' && !fromUrl) showPilotTab('profiles', { fromUrl: true });
   if (id === 'preapprovals') loadPreapprovals();
   // Les journaux se relisent à chaque ouverture : une synthèse périmée
   // conduirait à décider sur l'état d'hier.
@@ -2680,32 +2763,80 @@ const LINK_LABELS = {
   none: 'Sans lien',
 };
 
+/* ── File de publication : un état à la fois ────────────────────────── */
+const Q_SECTIONS = {
+  upcoming: { path: '/posts', help: 'Ordre de passage : <b>priorité</b>, puis le plus ancien. ⤒ ↑ ↓ changent l’ordre ; <b>⋯</b> pour l’envoyer par un profil précis, le modifier ou le retirer.' },
+  running: { path: '/posts/en-cours', help: 'Réservés ou en cours de publication par un automate. Un lot qui ne bouge plus se libère ici.' },
+  published: { path: '/posts/publies', help: 'Les dernières publications : le lien de l’article posé en commentaire, et le contrôle du modérateur. <b>⋯</b> pour l’historique ou corriger le lien.' },
+  failed: { path: '/posts/echecs', help: '<b>↻ Relancer</b> seulement si le post n’est PAS en ligne ; s’il l’est, <b>⋯ → Déjà en ligne</b>.' },
+  review: { path: '/posts/a-traiter', help: 'Ce que le modérateur n’a pas pu régler seul. Regardez sur Facebook, puis tranchez.' },
+};
+
+/** Un menu « ⋯ » : les actions secondaires d'une ligne. */
+function rowMenu(items) {
+  const list = items.filter(Boolean);
+  if (!list.length) return '';
+  return `<div class="row-menu-wrap"><button type="button" class="dots-btn" data-row-menu aria-haspopup="menu" aria-label="Plus d’actions" title="Plus d’actions">⋯</button>` +
+    `<div class="row-menu" role="menu" hidden>${list.join('')}</div></div>`;
+}
+const menuItem = (attrs, label, cls = '') => `<button type="button" class="menu-item ${cls}" role="menuitem" ${attrs}>${label}</button>`;
+
+/** La recherche de la barre : sur le titre, le texte et le groupe. */
+function queueMatches(row) {
+  const q = (state.queue.search || '').toLowerCase();
+  if (!q) return true;
+  return [row.post?.title, row.post?.description, row.group?.name].some((x) => String(x || '').toLowerCase().includes(q));
+}
+
+function showQueueSection(section, { fromUrl = false } = {}) {
+  if (!Q_SECTIONS[section]) section = 'upcoming';
+  state.queue.section = section;
+  try {
+    localStorage.setItem('postflow_queue_section', section);
+  } catch (_) {
+    /* stockage indisponible */
+  }
+  $$('[data-q-section]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.qSection === section);
+    b.setAttribute('aria-selected', String(b.dataset.qSection === section));
+  });
+  $$('.q-section').forEach((el) => el.classList.toggle('active', el.dataset.section === section));
+  $('#q-help').innerHTML = Q_SECTIONS[section].help;
+  if (!fromUrl && state.queue.tab === 'queue') syncUrl('posts');
+}
+
 function renderQueue() {
   const d = state.queue.data;
   if (!d) return;
+  const review = state.queue.verify && Array.isArray(state.queue.verify.review) ? state.queue.verify.review : [];
   $('#q-running').textContent = d.counts.running;
   $('#q-upcoming').textContent = d.counts.upcoming;
   $('#q-published').textContent = d.counts.published;
   $('#q-failed').textContent = d.counts.failed;
+  $('#q-review').textContent = review.length;
+  $('[data-q-section="failed"]').classList.toggle('alert', d.counts.failed > 0);
+  $('[data-q-section="review"]').classList.toggle('alert', review.length > 0);
 
-  $('#queue-failed-panel').hidden = !d.failed.length;
-  $('#queue-failed').innerHTML = d.failed
-    .map(
-      (f) =>
-        `<tr><td>${queuePost(f.post)}</td><td>${queueGroup(f.group)}</td>` +
-        `<td><div class="queue-error">${esc(f.error)}</div>` +
-        `<small>${f.profile ? `par ${esc(f.profile.name)} · ` : ''}${esc(when(f.failedAt))} · ${f.attempts} tentative(s)</small></td>` +
-        `<td>${targetActions(f, { retry: true })}</td></tr>`,
-    )
-    .join('');
+  const failed = d.failed.filter(queueMatches);
+  $('#queue-failed').innerHTML =
+    failed
+      .map(
+        (f) =>
+          `<tr><td>${queuePost(f.post)}</td><td>${queueGroup(f.group)}</td>` +
+          `<td><div class="queue-error" title="${esc(f.error)}">${esc(f.error)}</div>` +
+          `<small>${f.profile ? `par ${esc(f.profile.name)} · ` : ''}${esc(when(f.failedAt))} · ${f.attempts} tentative(s)</small></td>` +
+          `<td>${targetActions(f, { retry: true })}</td></tr>`,
+      )
+      .join('') || '<tr><td colspan="4" class="empty">Aucun échec 🎉</td></tr>';
 
   $('#queue-running').innerHTML =
     d.running
+      .filter(queueMatches)
       .map(
         (r) =>
           `<tr><td>${queuePost(r.post)}</td><td>${queueGroup(r.group)}</td><td>${queueProfile(r.profile)}</td>` +
-          `<td><span class="pill state-${r.state}">${r.state === 'publishing' ? 'Publication en cours' : 'Réservé'}</span>` +
-          `<small>depuis ${esc(when(r.since))}${r.expiresAt ? ` · jusqu’à ${esc(when(r.expiresAt))}` : ''}</small>` +
+          `<td><div class="state-cell"><span class="pill state-${r.state}">${r.state === 'publishing' ? 'Publication en cours' : 'Réservé'}</span>` +
+          `<small>depuis ${esc(when(r.since))}${r.expiresAt ? ` · jusqu’à ${esc(when(r.expiresAt))}` : ''}</small></div>` +
           // Un lot qui ne bouge plus (navigateur fermé, extension réinstallée)
           // garde son profil « occupé » : le libérer remet ses posts en file.
           (r.jobId ? `<button class="edit release-job" data-release-job="${r.jobId}" data-profile="${esc(r.profile?.name || '')}">Libérer le lot</button>` : '') +
@@ -2715,6 +2846,7 @@ function renderQueue() {
 
   $('#queue-upcoming').innerHTML =
     d.upcoming
+      .filter(queueMatches)
       .map((u) => {
         const prio = u.post.priority;
         const candidates = profileChips(u.candidates, u.group.pendingJoins);
@@ -2740,50 +2872,56 @@ function renderQueue() {
 
   $('#queue-published').innerHTML =
     d.published
+      .filter(queueMatches)
       .map(
         (p) =>
-          `<tr><td><strong>${esc(when(p.publishedAt))}</strong>` +
+          `<tr><td class="pub-date"><strong>${esc(when(p.publishedAt))}</strong>` +
           (p.facebookUrl
             ? `<a href="${esc(p.facebookUrl)}" target="_blank" rel="noreferrer" title="${esc(p.facebookUrl)}">Voir sur Facebook ↗</a>`
-            : '<span class="fb-missing" title="L’extension n’a pas retrouvé l’adresse du post : le vérificateur la cherchera dans le groupe, ou collez-la">⚠ adresse inconnue</span>') +
-          `<div class="link-actions"><button type="button" data-history="${p.targetId}">Historique</button>` +
-          `<button type="button" data-set-url="${p.targetId}" data-current="${esc(p.facebookUrl || '')}">${p.facebookUrl ? 'Corriger le lien' : 'Coller le lien'}</button></div>` +
+            : '<span class="fb-missing" title="L’extension n’a pas retrouvé l’adresse du post : le modérateur la cherchera dans le groupe, ou collez-la">⚠ adresse inconnue</span>') +
           `</td><td>${queuePost(p.post)}</td><td>${queueGroup(p.group)}</td><td>${queueProfile(p.profile)}</td>` +
           `<td><span class="pill link-${p.link}">${LINK_LABELS[p.link]}</span></td>` +
-          `<td>${verifyCell(p.verify)}</td></tr>`,
+          `<td>${verifyCell(p.verify)}</td>` +
+          `<td>${rowMenu([
+            menuItem(`data-history="${p.targetId}"`, '🕘 Historique'),
+            menuItem(`data-set-url="${p.targetId}" data-current="${esc(p.facebookUrl || '')}"`, p.facebookUrl ? '🔗 Corriger le lien Facebook' : '🔗 Coller le lien Facebook'),
+          ])}</td></tr>`,
       )
-      .join('') || '<tr><td colspan="6" class="empty">Aucune publication pour ce filtre.</td></tr>';
+      .join('') || '<tr><td colspan="7" class="empty">Aucune publication pour ce filtre.</td></tr>';
   $('#queue-more-published').hidden = d.published.length >= d.counts.published;
   renderVerifyReview();
+  showQueueSection(state.queue.section || 'upcoming', { fromUrl: true });
 }
 
 /** Ce que le vérificateur n'a pas pu régler seul : post sans lien qu'il n'a
  * pas pu supprimer, republications épuisées, page toujours injoignable. */
 function renderVerifyReview() {
   const v = state.queue.verify;
-  const panel = $('#queue-review-panel');
   if (!v || !Array.isArray(v.review)) {
-    panel.hidden = true;
+    $('#queue-review').innerHTML = '<tr><td colspan="4" class="empty">Vérification indisponible.</td></tr>';
     return;
   }
-  panel.hidden = !v.review.length;
   $('#verify-summary').textContent =
     `${v.verified} vérifiée(s) · ${v.republished} republiée(s) · ${v.due} à vérifier`;
-  $('#queue-review').innerHTML = v.review
-    .map(
-      (r) =>
-        `<tr><td>${queuePost(r.post)}</td><td>${queueGroup(r.group)}</td>` +
-        `<td><div class="queue-error" title="${esc(r.detail || '')}">${esc(r.detail || 'À vérifier')}</div>` +
-        `<small>${esc(when(r.since))}` +
-        (r.facebookUrl ? ` · <a href="${esc(r.facebookUrl)}" target="_blank" rel="noreferrer">Voir sur Facebook ↗</a>` : '') +
-        `</small></td>` +
-        `<td><div class="row-actions">` +
-        `<button class="edit" data-history="${r.targetId}">Historique</button>` +
-        `<button class="edit" data-verify-resolve="${r.targetId}" data-action="ok" title="J’ai regardé : le post est correct, le laisser tel quel">✓ C’est bon</button>` +
-        `<button class="edit" data-verify-resolve="${r.targetId}" data-action="republish" title="Le remettre dans la file. Supprimez d’abord le post défectueux sur Facebook, sinon il sera en double">↻ Republier</button>` +
-        `</div></td></tr>`,
-    )
-    .join('');
+  $('#queue-review').innerHTML =
+    v.review
+      .filter(queueMatches)
+      .map(
+        (r) =>
+          `<tr><td>${queuePost(r.post)}</td><td>${queueGroup(r.group)}</td>` +
+          `<td><div class="queue-error" title="${esc(r.detail || '')}">${esc(r.detail || 'À vérifier')}</div>` +
+          `<small>${esc(when(r.since))}` +
+          (r.facebookUrl ? ` · <a href="${esc(r.facebookUrl)}" target="_blank" rel="noreferrer">Voir sur Facebook ↗</a>` : '') +
+          `</small></td>` +
+          `<td><div class="row-actions">` +
+          `<button class="edit" data-verify-resolve="${r.targetId}" data-action="ok" title="J’ai regardé : le post est correct, le laisser tel quel">✓ C’est bon</button>` +
+          rowMenu([
+            menuItem(`data-verify-resolve="${r.targetId}" data-action="republish" title="Supprimez d’abord le post défectueux sur Facebook, sinon il sera en double"`, '↻ Republier'),
+            menuItem(`data-history="${r.targetId}"`, '🕘 Historique'),
+          ]) +
+          `</div></td></tr>`,
+      )
+      .join('') || '<tr><td colspan="4" class="empty">Rien à traiter 🎉</td></tr>';
 }
 
 const TARGET_STATUS_LABELS = {
@@ -2862,20 +3000,56 @@ $('#url-search').addEventListener('submit', async (e) => {
  * pour un échec, le relancer. */
 function targetActions(row, { retry = false } = {}) {
   const who = row.candidates.length
-    ? `<select data-force="${row.targetId}" title="Ce profil la publiera en premier à son prochain passage">` +
-      '<option value="">Envoyer par…</option>' +
+    ? `<label class="menu-select">Envoyer par<select data-force="${row.targetId}" title="Ce profil la publiera en premier à son prochain passage">` +
+      '<option value="">— choisir un profil —</option>' +
       row.candidates.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('') +
-      '</select>'
-    : '<select disabled title="Aucun profil n’a rejoint ce groupe"><option>Aucun profil dans ce groupe</option></select>';
+      '</select></label>'
+    : '<span class="menu-note">Aucun profil n’a rejoint ce groupe</span>';
+  // Une action visible (la plus utile), le reste dans « ⋯ ».
+  const primary = retry
+    ? `<button class="edit" data-retry="${row.targetId}" title="Le republier : seulement s’il n’est PAS en ligne">↻ Relancer</button>`
+    : `<button class="edit" data-edit-queued="${row.post.id}">Modifier</button>`;
   return (
-    `<div class="queue-actions">${who}<div class="row-actions">` +
-    (retry ? `<button class="edit" data-retry="${row.targetId}" title="Le republier : seulement s’il n’est PAS en ligne">↻ Relancer</button>` : '') +
-    (retry ? `<button class="edit" data-mark-online="${row.targetId}" title="Il est bien sur Facebook : l’enregistrer comme publié, sans le republier">✓ Déjà en ligne</button>` : '') +
-    `<button class="edit" data-edit-queued="${row.post.id}">Modifier</button>` +
-    `<button class="danger" data-remove-target="${row.targetId}" data-title="${esc(row.post.title)}" data-group="${esc(row.group.name)}">Retirer</button>` +
-    `</div></div>`
+    `<div class="row-actions">${primary}` +
+    rowMenu([
+      who,
+      retry ? menuItem(`data-mark-online="${row.targetId}" title="Il est bien sur Facebook : l’enregistrer comme publié, sans le republier"`, '✓ Déjà en ligne') : '',
+      retry ? menuItem(`data-edit-queued="${row.post.id}"`, '✏️ Modifier le post') : '',
+      menuItem(`data-history="${row.targetId}"`, '🕘 Historique'),
+      menuItem(`data-remove-target="${row.targetId}" data-title="${esc(row.post.title)}" data-group="${esc(row.group.name)}"`, '🗑 Retirer de ce groupe', 'danger'),
+    ]) +
+    `</div>`
   );
 }
+
+/* Les menus « ⋯ » : un seul ouvert à la fois, fermé au clic ailleurs. */
+document.addEventListener('click', (e) => {
+  const toggle = e.target.closest('[data-row-menu]');
+  const inside = e.target.closest('.row-menu');
+  $$('.row-menu').forEach((m) => {
+    if (toggle && m === toggle.nextElementSibling) return;
+    if (inside && m === inside && e.target.closest('select, label')) return;
+    m.hidden = true;
+  });
+  if (toggle) {
+    const menu = toggle.nextElementSibling;
+    menu.hidden = !menu.hidden;
+  }
+}, true);
+
+$('#q-tabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-q-section]');
+  if (tab) showQueueSection(tab.dataset.qSection);
+});
+$('#queue-search').oninput = (e) => {
+  state.queue.search = e.target.value.trim();
+  renderQueue();
+};
+$('#url-search-toggle').onclick = () => {
+  const form = $('#url-search');
+  form.hidden = !form.hidden;
+  if (!form.hidden) form.elements.url.focus();
+};
 
 async function queueAction(request, success, button) {
   if (button) button.disabled = true;
@@ -4257,3 +4431,38 @@ $('#pa-rows').addEventListener('click', async (e) => {
     if (r) await loadPreapprovals();
   }
 });
+
+/* ── Menu : sections repliables, par tâche ─────────────────────────── */
+function navCollapsed() {
+  try {
+    return JSON.parse(localStorage.getItem('postflow_nav_collapsed') || '[]');
+  } catch (_) {
+    return [];
+  }
+}
+function applyNavGroups() {
+  const collapsed = new Set(navCollapsed());
+  $$('.nav-group').forEach((g) => {
+    // La section de la rubrique ouverte reste toujours dépliée.
+    const hasActive = !!g.querySelector('.nav.active');
+    const closed = collapsed.has(g.dataset.group) && !hasActive;
+    g.classList.toggle('collapsed', closed);
+    g.querySelector('.nav-head').setAttribute('aria-expanded', String(!closed));
+    g.querySelector('.nav-head').classList.toggle('has-alert', !!g.querySelector('.nav-count.alert:not([hidden])'));
+  });
+}
+document.querySelector('aside nav').addEventListener('click', (e) => {
+  const head = e.target.closest('.nav-head');
+  if (!head) return;
+  const group = head.closest('.nav-group').dataset.group;
+  const set = new Set(navCollapsed());
+  if (set.has(group)) set.delete(group);
+  else set.add(group);
+  try {
+    localStorage.setItem('postflow_nav_collapsed', JSON.stringify([...set]));
+  } catch (_) {
+    /* stockage indisponible */
+  }
+  applyNavGroups();
+});
+applyNavGroups();

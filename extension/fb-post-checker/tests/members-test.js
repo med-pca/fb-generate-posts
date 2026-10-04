@@ -110,6 +110,141 @@ const request = (id, name, state = '') => `
   const otherMember = page('<div role="main"></div>', 'https://www.facebook.com/groups/1/user/999999/');
   check('contrôle : page d’un autre membre → rien lu', (await otherMember.FPM.auditPreapproval(ours)).outcome === 'unreachable', null);
 
+  // ─── La bonne page : <groupe>/people ───────────────────────────────
+  const personRow = (id, name, status, menuClass = '') => `
+    <div class="person" data-id="${id}"><a href="/groups/1/user/${id}/">${name}</a><span>${status}</span>
+      <div role="button" aria-haspopup="menu" aria-label="Member settings" class="dots ${menuClass}">…</div></div>`;
+  const peoplePage = (rows, items, opts = {}) => {
+    const p = page(`<div role="main"><input type="search" placeholder="Search" class="q">${rows}</div>`, 'https://www.facebook.com/groups/1/people');
+    const log = [];
+    p.document.querySelector('.q').addEventListener('input', (e) => log.push(`search:${e.target.value}`));
+    p.document.querySelectorAll('.dots').forEach((b) => b.addEventListener('click', () => {
+      const who = b.closest('.person').dataset.id;
+      log.push(`menu:${who}`);
+      p.document.body.insertAdjacentHTML('beforeend', `<div role="menu">${items.map((i) => `<div role="menuitem">${i}</div>`).join('')}</div>`);
+      p.document.querySelectorAll('[role="menuitem"]').forEach((m) => m.addEventListener('click', () => {
+        log.push(`click:${who}:${m.textContent}`);
+        p.document.querySelector('[role="menu"]')?.remove();
+        if (!/pre-approve/i.test(m.textContent)) return;
+        // Comme Facebook : une fenêtre de confirmation.
+        p.document.body.insertAdjacentHTML('beforeend', `<div role="dialog"><h2>Preapprove ${who}'s posts</h2>
+          <p>You are about to pre-approve this member's posts.</p>
+          <div role="button" aria-label="Close" class="x"></div><div role="button" class="cancel">Cancel</div><div role="button" class="give">Give Pre-approval</div></div>`);
+        const dlg = p.document.querySelector('[role="dialog"]');
+        dlg.querySelector('.cancel').addEventListener('click', () => { log.push('cancel'); dlg.remove(); });
+        dlg.querySelector('.x').addEventListener('click', () => { log.push('close'); dlg.remove(); });
+        dlg.querySelector('.give').addEventListener('click', () => {
+          log.push('give');
+          if (opts.stuck) return; // la fenêtre reste ouverte
+          dlg.remove();
+          if (opts.noStatus) return; // fermée, mais la ligne ne change pas
+          p.document.querySelector(`.person[data-id="${who}"] span`).textContent = 'Pre-approved to post · Joined about an hour ago';
+        });
+      }));
+    }));
+    return { p, log };
+  };
+  let pp = peoplePage(
+    personRow('555', 'Soumia Ait Mellou', 'Moderator · Joined about an hour ago') +
+      personRow('999999', 'Salim Bennani', 'Joined yesterday') +
+      personRow('100011', 'Salim Bennani', 'Joined about an hour ago'),
+    ['Pre-approve posts', 'Remove member', 'Block'],
+  );
+  r = await pp.p.FPM.preapproveFromPeople(ours);
+  check('people : notre profil est pré-approuvé depuis son menu « … »', r.outcome === 'done' && pp.log.includes('click:100011:Pre-approve posts'), { r, log: pp.log });
+  check('people : la fenêtre « Give Pre-approval » est confirmée (jamais Cancel ni la croix)', pp.log.includes('give') && !pp.log.includes('cancel') && !pp.log.includes('close'), pp.log);
+  check('people : la ligne relue dit « Pre-approved to post »', /pré-approuvé pour publier/.test(r.detail) && /Give Pre-approval/.test(r.detail), r.detail);
+
+  pp = peoplePage(personRow('100011', 'Salim Bennani', 'Joined about an hour ago'), ['Pre-approve posts'], { stuck: true });
+  r = await pp.p.FPM.preapproveFromPeople(ours);
+  check('people : fenêtre restée ouverte → PAS « fait »', r.outcome !== 'done' && /restée ouverte/.test(r.detail), r);
+
+  pp = peoplePage(personRow('100011', 'Salim Bennani', 'Joined about an hour ago'), ['Pre-approve posts'], { noStatus: true });
+  r = await pp.p.FPM.preapproveFromPeople(ours);
+  check('people : fenêtre fermée mais ligne inchangée → PAS « fait », à recontrôler', r.outcome === 'unreachable' && /recontrôler/.test(r.detail), r);
+  check('people : jamais l’homonyme, jamais « Remove member »', !pp.log.some((l) => l.includes('999999')) && !pp.log.some((l) => /Remove|Block/.test(l)), pp.log);
+
+  pp = peoplePage(personRow('100011', 'Salim Bennani', 'Pre-approved to post · Joined about an hour ago'), ['Remove pre-approval']);
+  r = await pp.p.FPM.preapproveFromPeople(ours);
+  check('people : déjà « Pre-approved to post » → rien cliqué', r.outcome === 'already' && !pp.log.some((l) => l.startsWith('menu')), { r, log: pp.log });
+
+  pp = peoplePage(personRow('100011', 'Salim Bennani', 'Joined about an hour ago'), ['Pre-approve posts', 'Remove member']);
+  r = await pp.p.FPM.auditFromPeople(ours);
+  check('people / contrôle : « pas fait », option lue mais PAS cliquée', r.outcome === 'not_done' && !pp.log.some((l) => l.startsWith('click')), { r, log: pp.log });
+
+  pp = peoplePage(personRow('100011', 'Salim Bennani', 'Pre-approved to post · Joined on Thursday'), []);
+  r = await pp.p.FPM.auditFromPeople(ours);
+  check('people / contrôle : « déjà fait » lu sur la ligne', r.outcome === 'already', r);
+
+  pp = peoplePage(personRow('777', 'Autre', 'Joined'), ['Pre-approve posts']);
+  r = await pp.p.FPM.preapproveFromPeople(ours);
+  check('people : absent de la liste → recherche par son nom, puis introuvable (rien cliqué)', r.outcome === 'not_found' && pp.log.includes('search:Salim Bennani') && !pp.log.some((l) => l.startsWith('click')), { r, log: pp.log });
+
+  // ─── Variantes réalistes de la page des membres ───────────────────
+  const realPage = (rowsHtml, items) => {
+    const p = page(`<div role="main"><input placeholder="Find a member" class="q"><div role="list">${rowsHtml}</div></div>`, 'https://www.facebook.com/groups/1/people');
+    const log = [];
+    p.document.querySelectorAll('.dots').forEach((b) => b.addEventListener('click', () => {
+      const who = b.closest('.person').dataset.id;
+      log.push(`menu:${who}`);
+      p.document.body.insertAdjacentHTML('beforeend', `<div role="menu">${items.map((i) => `<div role="menuitem">${i}</div>`).join('')}</div>`);
+      p.document.querySelectorAll('[role="menuitem"]').forEach((m) => m.addEventListener('click', () => {
+        log.push(`click:${who}:${m.textContent}`);
+        p.document.querySelector('[role="menu"]')?.remove();
+        if (!/pre-approve/i.test(m.textContent)) return;
+        p.document.body.insertAdjacentHTML('beforeend', `<div role="dialog"><h2>Preapprove posts</h2>
+          <div role="button" class="cancel">Cancel</div><div role="button" class="give">Give Pre-approval</div></div>`);
+        const dlg = p.document.querySelector('[role="dialog"]');
+        dlg.querySelector('.cancel').addEventListener('click', () => { log.push('cancel'); dlg.remove(); });
+        dlg.querySelector('.give').addEventListener('click', () => {
+          log.push('give');
+          dlg.remove();
+          const person = p.document.querySelector(`.person[data-id="${who}"]`);
+          const status = person.querySelector('span') || person.appendChild(p.document.createElement('span'));
+          status.textContent = 'Pre-approved to post · Joined about an hour ago';
+        });
+      }));
+    }));
+    return { p, log };
+  };
+  // Photo + nom (même lien), « … » sans attribut de menu, libellé « More options for … ».
+  let rp = realPage(`
+    <div class="person" data-id="100011"><a href="/groups/1/user/100011/"><img alt=""></a><div><a href="/groups/1/user/100011/">Salim Bennani</a><span>Joined about an hour ago</span></div>
+      <div role="button" aria-label="More options for Salim Bennani" class="dots">…</div></div>
+    <div class="person" data-id="555"><a href="/groups/1/user/555/">Soumia</a><div role="button" aria-label="More options for Soumia" class="dots">…</div></div>`,
+    ['Pre-approve posts', 'Remove member']);
+  r = await rp.p.FPM.preapproveFromPeople(ours);
+  check('people réel : « … » libellé « More options for … » (sans attribut de menu)', r.outcome === 'done' && rp.log.includes('click:100011:Pre-approve posts'), { r, log: rp.log });
+
+  // Bouton icône seule (svg, aucun texte, aucun libellé).
+  rp = realPage(`
+    <div class="person" data-id="100011"><a href="/groups/1/user/100011/">Salim Bennani</a><span>Joined</span>
+      <div role="button" class="dots"><svg></svg></div></div>`, ['Pre-approve posts']);
+  r = await rp.p.FPM.preapproveFromPeople(ours);
+  check('people réel : bouton « … » en icône seule', r.outcome === 'done', { r, log: rp.log });
+
+  // Lien sans identifiant (adresse personnalisée) : reconnu par le nom exact, s'il est unique.
+  rp = realPage(`
+    <div class="person" data-id="vanity"><a href="https://www.facebook.com/salim.bennani.75">Salim Bennani</a><span>Joined</span>
+      <div role="button" aria-label="Member settings" class="dots">…</div></div>
+    <div class="person" data-id="other"><a href="https://www.facebook.com/omar.x">Omar</a><div role="button" aria-label="Member settings" class="dots">…</div></div>`,
+    ['Pre-approve posts']);
+  r = await rp.p.FPM.preapproveFromPeople(ours);
+  check('people réel : sans identifiant, reconnu par le nom exact (unique)', r.outcome === 'done' && rp.log.includes('click:vanity:Pre-approve posts') && !rp.log.some((l) => l.includes('other')), { r, log: rp.log });
+
+  // Deux homonymes sans identifiant : rien n'est touché.
+  rp = realPage(`
+    <div class="person" data-id="h1"><a href="https://www.facebook.com/salim.1">Salim Bennani</a><div role="button" aria-label="Member settings" class="dots">…</div></div>
+    <div class="person" data-id="h2"><a href="https://www.facebook.com/salim.2">Salim Bennani</a><div role="button" aria-label="Member settings" class="dots">…</div></div>`,
+    ['Pre-approve posts']);
+  r = await rp.p.FPM.preapproveFromPeople(ours);
+  check('people réel : deux homonymes sans identifiant → rien cliqué', r.outcome === 'unreachable' && !rp.log.length, { r, log: rp.log });
+
+  // Ligne trouvée mais pas de « … » : diagnostic avec les boutons vus.
+  rp = realPage(`<div class="person" data-id="100011"><a href="/groups/1/user/100011/">Salim Bennani</a><div role="button">Message</div></div>`, []);
+  r = await rp.p.FPM.preapproveFromPeople(ours);
+  check('people réel : pas de « … » → diagnostic avec les boutons vus', r.outcome === 'not_found' && /trouvée.*Message/.test(r.detail), r);
+
   // ─── Repli : publications en attente ───────────────────────────────
   w = page(`<div role="main">
     <div class="pending"><a href="/groups/1/user/100011/">Salim</a><p>Recette</p>

@@ -49,6 +49,34 @@ Pilotage montre la raison (avec les entrées de menu vues) et propose
 « Relancer ». La case « Accepter l'adhésion de nos profils… » de la fenêtre
 active ou coupe cette partie.
 
+## Où se fait la pré-approbation : `<groupe>/people`
+
+L'extension ouvre la **liste des membres** du groupe (`…/people`), cherche
+le profil avec la barre de recherche de la page, retrouve **sa ligne par son
+identifiant Facebook** (jamais par le nom seul : un homonyme n'est pas
+touché), puis :
+
+- la ligne dit déjà **« Pre-approved to post »** → déjà fait, rien cliqué ;
+- sinon : menu « … » de la ligne → option de pré-approbation → fenêtre
+  « Preapprove X's posts » → **« Give Pre-approval »** (jamais « Cancel » ni la
+  croix) → la ligne est **relue**.
+
+« Fait » n'est rapporté que si c'est **prouvé** : la fenêtre s'est fermée ET
+la ligne dit « Pre-approved to post ». Fenêtre restée ouverte → « non fait »
+(elle est refermée) ; fenêtre fermée mais ligne inchangée → « à
+recontrôler » (un passage suivant relira la ligne).
+
+Le contrôle (🔍 Tester) lit cette même ligne, sans rien cliquer.
+
+La pré-approbation se fait **uniquement** dans la liste des membres : plus
+de détour par la page du profil ni par les publications en attente. La
+ligne est reconnue par l'identifiant Facebook ; si la page ne l'expose pas,
+par le **nom exact**, et seulement s'il n'y a qu'une personne de ce nom (sinon
+rien n'est cliqué). Le « … » est reconnu par son rôle de menu, son libellé
+(More / Plus / Options / Actions / المزيد…) ou comme bouton-icône. En cas
+d'échec, le constat dit ce qui a été vu (ligne trouvée ou non, boutons de la
+ligne).
+
 ## Deux missions séparées
 
 La fenêtre a deux blocs, suivis chacun de son côté :
