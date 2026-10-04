@@ -36,7 +36,8 @@ function wp_schedule_single_event($time, $hook, $args, $error) { $GLOBALS['event
 function wp_clear_scheduled_hook($hook, $args) { unset($GLOBALS['events'][$args[0]]); }
 function is_wp_error($v) { return $v instanceof WP_Error || $v instanceof Exception; }
 class WP_Error { public $code; public $message; public $data;
-    public function __construct($code = '', $message = '', $data = array()) { $this->code = $code; $this->message = $message; $this->data = $data; } }
+    public function __construct($code = '', $message = '', $data = array()) { $this->code = $code; $this->message = $message; $this->data = $data; }
+    public function get_error_message() { return $this->message; } }
 class DFB_Request { private $body; private $headers;
     public function __construct($body, $headers = array()) { $this->body = $body; $this->headers = $headers; }
     public function get_json_params() { return $this->body; }
@@ -316,3 +317,11 @@ check(!isset($GLOBALS['events'][55]) && !get_post_meta(55, '_dfb_error', true), 
 update_post_meta(56, '_dfb_pending', array('title' => 'modifié depuis'));
 DFB_Posting::ack_route(new DFB_Request(array('articles' => array(array('postId' => '56', 'hash' => 'ancienne-version')))));
 check((bool) get_post_meta(56, '_dfb_pending', true), 'An edit made since the pull still has to be sent');
+
+// La vraie cause d'un échec réseau est montrée, pas seulement « API inaccessible ».
+$GLOBALS['options'][DFB_Posting::OPTION] = array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => 'test');
+$GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'publish', 'post_password' => '', 'post_title' => 'x', 'post_content' => 'x', 'post_excerpt' => '');
+update_post_meta(60, '_dfb_pending', array('title' => 'x'));
+$GLOBALS['response'] = new WP_Error('http_request_failed', 'cURL error 6: Could not resolve host: api.example.com');
+DFB_Posting::deliver(60);
+check(strpos(get_post_meta(60, '_dfb_error', true), 'Could not resolve host') !== false, 'A network failure says why (cURL error)');

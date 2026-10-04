@@ -125,7 +125,11 @@ final class DFB_Posting {
             'body' => wp_json_encode($payload),
         ));
         if (is_wp_error($response)) {
-            self::failed($id, 'API inaccessible : nouvel essai automatique.');
+            // La vraie cause (cURL error 6 : nom introuvable, 28 : délai, 60 :
+            // certificat, « bloqué » : WP_HTTP_BLOCK_EXTERNAL…) : sans elle,
+            // impossible de savoir quoi demander à l'hébergeur.
+            $why = method_exists($response, 'get_error_message') ? (string) $response->get_error_message() : '';
+            self::failed($id, 'API inaccessible' . ($why !== '' ? ' (' . $why . ')' : '') . ' : nouvel essai automatique.');
             return;
         }
         $code = wp_remote_retrieve_response_code($response);

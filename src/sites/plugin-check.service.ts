@@ -43,6 +43,7 @@ export function classifyPluginResponse(
     pending?: number;
     lastError?: string;
     cronDisabled?: boolean;
+    endpoint?: string;
     code?: string;
     message?: string;
     data?: { version?: string };
@@ -61,6 +62,7 @@ export function classifyPluginResponse(
           ? ` · ${json.pending} article(s) que le site n’arrive pas à envoyer` +
             (json.lastError ? ` (${json.lastError})` : '') +
             (json.cronDisabled ? ' — WP-Cron est désactivé sur ce site' : '') +
+            (json.endpoint ? ` — URL de réception réglée : ${json.endpoint}` : '') +
             ' : la plateforme les récupère elle-même'
           : ''),
     };
