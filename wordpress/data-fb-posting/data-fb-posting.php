@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Data FB Posting
  * Description: Envoie les articles publiés vers Data FB Posting, resynchronise leurs modifications (titre, contenu, image), et reçoit les articles réécrits que l'API dépose.
- * Version: 1.4.0
+ * Version: 1.4.1
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
 if (!defined('ABSPATH')) { exit; }
 
 final class DFB_Posting {
-    const VERSION = '1.4.0';
+    const VERSION = '1.4.1';
     const OPTION = 'dfb_posting_settings';
     const HOOK = 'dfb_posting_deliver';
     const INGEST_META = '_dfb_ingest';
@@ -168,6 +168,19 @@ final class DFB_Posting {
             'callback' => array(__CLASS__, 'read_route'),
             'permission_callback' => array(__CLASS__, 'authorized'),
         ));
+        // La synchronisation tirée par la plateforme : elle vient chercher les
+        // articles que le site n'a pas réussi à lui envoyer (WP-Cron absent,
+        // pare-feu sortant…), puis confirme ce qu'elle a reçu.
+        register_rest_route('dfb/v1', '/pending', array(
+            'methods' => 'GET',
+            'callback' => array(__CLASS__, 'pending_route'),
+            'permission_callback' => array(__CLASS__, 'authorized'),
+        ));
+        register_rest_route('dfb/v1', '/ack', array(
+            'methods' => 'POST',
+            'callback' => array(__CLASS__, 'ack_route'),
+            'permission_callback' => array(__CLASS__, 'authorized'),
+        ));
         // De quoi vérifier, sans rien publier, que l'extension est bien la
         // bonne version et que la clé passe le verrou du site.
         register_rest_route('dfb/v1', '/status', array(
@@ -201,11 +214,73 @@ final class DFB_Posting {
         return self::payload($id, $post);
     }
 
+    /** Les articles publics dont l'envoi n'a pas abouti, dans la forme exacte
+     * de l'envoi. Au plus 20 à la fois, les plus anciens d'abord. */
+    public static function pending_route() {
+        $ids = get_posts(array(
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'meta_key' => '_dfb_pending',
+            'orderby' => 'date',
+            'order' => 'ASC',
+            'posts_per_page' => 20,
+            'fields' => 'ids',
+            'suppress_filters' => true,
+        ));
+        $articles = array();
+        foreach ($ids as $id) {
+            $post = get_post($id);
+            if (!$post || $post->post_password !== '') { continue; }
+            $payload = self::payload($id, $post);
+            $articles[] = array('payload' => $payload, 'hash' => self::hash($payload),
+                'error' => (string) get_post_meta($id, '_dfb_error', true));
+        }
+        return array('articles' => $articles);
+    }
+
+    /** La plateforme a reçu ces articles : ils sont transmis. Seule la version
+     * reçue est acquittée — une modification faite entre-temps repart. */
+    public static function ack_route($request) {
+        $body = $request->get_json_params();
+        $items = isset($body['articles']) && is_array($body['articles']) ? $body['articles'] : array();
+        $done = array();
+        foreach ($items as $item) {
+            $id = isset($item['postId']) ? (int) $item['postId'] : 0;
+            $hash = isset($item['hash']) ? (string) $item['hash'] : '';
+            if (!$id || $hash === '') { continue; }
+            update_post_meta($id, '_dfb_sent', current_time('mysql', true));
+            update_post_meta($id, '_dfb_hash', $hash);
+            delete_post_meta($id, '_dfb_error');
+            delete_post_meta($id, '_dfb_attempt');
+            $pending = get_post_meta($id, '_dfb_pending', true);
+            if ($pending && self::hash($pending) === $hash) {
+                delete_post_meta($id, '_dfb_pending');
+                wp_clear_scheduled_hook(self::HOOK, array($id));
+            }
+            $done[] = (string) $id;
+        }
+        return array('acknowledged' => $done);
+    }
+
     public static function status_route() {
+        $settings = get_option(self::OPTION, array());
+        // L'état du renvoi, pour l'afficher dans la plateforme sans ouvrir
+        // l'admin WordPress : combien attendent, et la dernière erreur.
+        $waiting = get_posts(array('post_type' => 'post', 'post_status' => 'publish', 'meta_key' => '_dfb_pending',
+            'posts_per_page' => 50, 'fields' => 'ids', 'suppress_filters' => true));
+        $error = '';
+        foreach ($waiting as $id) {
+            $error = (string) get_post_meta($id, '_dfb_error', true);
+            if ($error !== '') { break; }
+        }
         return array(
             'plugin' => 'data-fb-posting',
             'version' => self::VERSION,
-            'endpointConfigured' => !empty(get_option(self::OPTION, array())['endpoint']),
+            'endpointConfigured' => !empty($settings['endpoint']),
+            'endpoint' => isset($settings['endpoint']) ? (string) $settings['endpoint'] : '',
+            'pending' => count($waiting),
+            'lastError' => $error,
+            'cronDisabled' => defined('DISABLE_WP_CRON') && DISABLE_WP_CRON,
         );
     }
 

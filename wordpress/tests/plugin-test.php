@@ -42,6 +42,7 @@ class DFB_Request { private $body; private $headers;
     public function get_json_params() { return $this->body; }
     public function get_header($name) { return $this->headers[$name] ?? ''; } }
 function get_post($id) { return $GLOBALS['post']; }
+function get_posts($args) { return $GLOBALS['pending_ids'] ?? array(); }
 function get_option($name, $default) { return $GLOBALS['options'][$name] ?? $default; }
 function wp_json_encode($v) { return json_encode($v); }
 function wp_remote_post($url, $args) {
@@ -254,7 +255,7 @@ check(DFB_Posting::unlock(true) === true, 'An already authenticated request is l
 $_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/status';
 $_SERVER['HTTP_X_API_KEY'] = 'secret';
 check(DFB_Posting::unlock($locked) === true, 'The status route is unlocked too');
-check(DFB_Posting::status_route()['version'] === '1.4.0', 'The status route reports the version');
+check(DFB_Posting::status_route()['version'] === '1.4.1', 'The status route reports the version');
 check(isset($GLOBALS['routes']['dfb/v1/status']), 'The status route is registered');
 
 
@@ -293,4 +294,25 @@ $article = DFB_Posting::read_route(array('id' => '77'));
 check(is_array($article) && $article['postId'] === '77' && $article['ingestRef'] === 'ing_42', 'It returns the delivery payload, capture reference included');
 $GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'draft', 'post_password' => '', 'post_title' => 'x', 'post_content' => 'x', 'post_excerpt' => '');
 check(is_wp_error(DFB_Posting::read_route(array('id' => '78'))), 'A draft is never readable');
-check(DFB_Posting::VERSION === '1.4.0', 'Version 1.4.0');
+check(DFB_Posting::VERSION === '1.4.1', 'Version 1.4.1');
+
+// 1.4.1 : la plateforme vient chercher ce que le site n'a pas pu envoyer.
+check(isset($GLOBALS['routes']['dfb/v1/pending']) && $GLOBALS['routes']['dfb/v1/pending']['permission_callback'] === array('DFB_Posting', 'authorized'), 'The pending route is protected by the key');
+check(isset($GLOBALS['routes']['dfb/v1/ack']) && $GLOBALS['routes']['dfb/v1/ack']['permission_callback'] === array('DFB_Posting', 'authorized'), 'The ack route is protected by the key');
+$GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'publish', 'post_password' => '', 'post_title' => 'Publiée à la main', 'post_content' => 'Corps', 'post_excerpt' => '');
+$GLOBALS['pending_ids'] = array(55);
+$payload55 = DFB_Posting::payload(55, $GLOBALS['post']);
+update_post_meta(55, '_dfb_pending', $payload55);
+update_post_meta(55, '_dfb_error', 'Réponse API invalide (HTTP 401). Vérifier URL et clé.');
+$GLOBALS['events'][55] = time() + 60;
+$pending = DFB_Posting::pending_route();
+check(count($pending['articles']) === 1 && $pending['articles'][0]['payload']['postId'] === '55', 'An article the site could not send is listed');
+check(strpos($pending['articles'][0]['error'], 'HTTP 401') !== false, 'With the reason the site could not send it');
+$status = DFB_Posting::status_route();
+check($status['pending'] === 1 && strpos($status['lastError'], 'HTTP 401') !== false, 'The status route reports what waits and why');
+$ack = DFB_Posting::ack_route(new DFB_Request(array('articles' => array(array('postId' => '55', 'hash' => $pending['articles'][0]['hash'])))));
+check($ack['acknowledged'] === array('55') && !get_post_meta(55, '_dfb_pending', true) && get_post_meta(55, '_dfb_sent', true), 'An acknowledged article is sent, no longer pending');
+check(!isset($GLOBALS['events'][55]) && !get_post_meta(55, '_dfb_error', true), 'Its retries and error are cleared');
+update_post_meta(56, '_dfb_pending', array('title' => 'modifié depuis'));
+DFB_Posting::ack_route(new DFB_Request(array('articles' => array(array('postId' => '56', 'hash' => 'ancienne-version')))));
+check((bool) get_post_meta(56, '_dfb_pending', true), 'An edit made since the pull still has to be sent');

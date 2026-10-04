@@ -1616,6 +1616,15 @@ peut ne jamais partir. Plusieurs filets :
 - **« Relancer »** une capture déjà déposée relit l'article — elle ne le
   redépose jamais (c'était un doublon sur le site).
 
+**Synchronisation tirée (plugin ≥ 1.4.1)** : toutes les 2 min
+(`WORDPRESS_PULL_INTERVAL_MINUTES`), la plateforme appelle
+`GET dfb/v1/pending` sur chaque site actif — les articles publiés que le site
+n'a pas réussi à envoyer, même ceux publiés à la main —, les reçoit comme un
+envoi normal (mêmes validations), puis les acquitte (`POST dfb/v1/ack`).
+Journal : `WORDPRESS_PULLED`, avec la raison pour laquelle le site n'envoyait
+pas. La page Sites affiche combien d'articles attendent sur le site, et
+pourquoi. La réception accepte la clé globale **ou** la clé propre du site.
+
 Côté WordPress, la colonne « Facebook » de la liste des articles dit où en est
 le renvoi (« En attente », « Réponse API invalide (HTTP …) », etc.).
 `ECHO_PULL_INTERVAL_MINUTES` (défaut 2, 0 = jamais) règle la relecture.

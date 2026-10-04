@@ -4,6 +4,7 @@ import { ArticlesModule } from '../articles/articles.module';
 import { WordpressArticleDto } from './wordpress.dto';
 import { WordpressGuard } from './wordpress.guard';
 import { WordpressService } from './wordpress.service';
+import { WordpressPullService } from './wordpress-pull.service';
 
 @ApiTags('wordpress')
 @ApiHeader({ name: 'x-api-key', required: true })
@@ -20,7 +21,7 @@ export class WordpressController {
 @Module({
   imports: [ArticlesModule],
   controllers: [WordpressController],
-  providers: [WordpressService, WordpressGuard],
-  exports: [WordpressService],
+  providers: [WordpressService, WordpressGuard, WordpressPullService],
+  exports: [WordpressService, WordpressPullService],
 })
 export class WordpressModule {}

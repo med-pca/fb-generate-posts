@@ -26,3 +26,24 @@ describe('WordPress authentication', () => {
       'WORDPRESS_API_KEY',
     ));
 });
+
+describe('WordPress authentication — clé propre d’un site', () => {
+  const ctx = (key: string, siteUrl: string) =>
+    ({
+      switchToHttp: () => ({ getRequest: () => ({ headers: { 'x-api-key': key }, body: { siteUrl } }) }),
+    }) as ExecutionContext;
+  const prisma = {
+    contentSource: {
+      findUnique: jest.fn(({ where }: { where: { originUrl: string } }) =>
+        Promise.resolve(where.originUrl === 'https://tera.test' ? { depositKey: 'cle-du-site' } : null),
+      ),
+    },
+  };
+  const guard = new WordpressGuard({ get: () => 'globale' } as unknown as ConfigService, prisma as never);
+
+  it('accepte la clé propre du site qui envoie', async () =>
+    expect(await guard.canActivate(ctx('cle-du-site', 'https://tera.test/'))).toBe(true));
+  it('refuse la clé d’un autre site', async () =>
+    expect(() => guard.canActivate(ctx('cle-du-site', 'https://autre.test'))).rejects.toThrow('Clé WordPress invalide'));
+  it('la clé globale passe toujours', () => expect(guard.canActivate(ctx('globale', 'https://autre.test'))).toBe(true));
+});

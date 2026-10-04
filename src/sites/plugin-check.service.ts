@@ -40,6 +40,9 @@ export function classifyPluginResponse(
     plugin?: string;
     version?: string;
     endpointConfigured?: boolean;
+    pending?: number;
+    lastError?: string;
+    cronDisabled?: boolean;
     code?: string;
     message?: string;
     data?: { version?: string };
@@ -48,10 +51,18 @@ export function classifyPluginResponse(
     return {
       state: PluginState.CONNECTED,
       version: json.version ?? null,
-      message: json.endpointConfigured
-        ? 'Extension active, clé acceptée'
-        : 'Extension active, mais l’URL de l’API n’est pas renseignée dans ses réglages : ' +
-          'elle ne nous enverra pas ses articles',
+      message:
+        (json.endpointConfigured
+          ? 'Extension active, clé acceptée'
+          : 'Extension active, mais l’URL de l’API n’est pas renseignée dans ses réglages : ' +
+            'elle ne nous enverra pas ses articles') +
+        // Plugin ≥ 1.4.1 : ce qui n'a pas pu partir du site, et pourquoi.
+        (json.pending
+          ? ` · ${json.pending} article(s) que le site n’arrive pas à envoyer` +
+            (json.lastError ? ` (${json.lastError})` : '') +
+            (json.cronDisabled ? ' — WP-Cron est désactivé sur ce site' : '') +
+            ' : la plateforme les récupère elle-même'
+          : ''),
     };
   }
   if (typeof json.code === 'string' && json.code.startsWith('dfb_')) {
