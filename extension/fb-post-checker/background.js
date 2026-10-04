@@ -118,8 +118,18 @@ async function checkOne(cfg, tabId, task) {
   let foundUrl;
   if (!task.postUrl) {
     if (!task.group.url) return { outcome: 'unreachable', detail: 'ni adresse du post, ni adresse du groupe' };
-    await open(tabId, task.group.url);
-    const located = await inPage(tabId, (t, ms) => self.FPC.locate(t, { settleMs: ms }), [task, settleMs]);
+    let located = null;
+    // D'abord la page « ses publications dans ce groupe » : seulement les
+    // posts de NOTRE profil, quelques-uns au plus. Le fil du groupe, où
+    // d'autres membres publient sans arrêt, ne sert qu'en dernier recours.
+    if (task.authorFacebookId && groupBase(task.group.url)) {
+      await open(tabId, `${groupBase(task.group.url)}/user/${encodeURIComponent(task.authorFacebookId)}/`);
+      located = await inPage(tabId, (t, ms) => self.FPC.locate({ ...t, author: '' }, { settleMs: ms, scrolls: 4 }), [task, settleMs]);
+    }
+    if (!located?.found) {
+      await open(tabId, task.group.url);
+      located = await inPage(tabId, (t, ms) => self.FPC.locate(t, { settleMs: ms }), [task, settleMs]);
+    }
     if (!located?.found) return { outcome: 'unreachable', detail: located?.detail || 'groupe illisible' };
     foundUrl = located.url;
     task = { ...task, postUrl: foundUrl };

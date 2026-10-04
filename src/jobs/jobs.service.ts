@@ -112,7 +112,13 @@ export function claimablePostWhere(profile: {
 export function notForcedElsewhere(
   profileId: string,
 ): Prisma.PostTargetWhereInput {
-  return { OR: [{ forcedProfileId: null }, { forcedProfileId: profileId }] };
+  return {
+    AND: [
+      { OR: [{ forcedProfileId: null }, { forcedProfileId: profileId }] },
+      // Une republication écarte le profil qui avait laissé le post incomplet.
+      { OR: [{ avoidProfileId: null }, { avoidProfileId: { not: profileId } }] },
+    ],
+  };
 }
 
 @Injectable()
@@ -207,6 +213,9 @@ export class JobsService {
           AND pt.status = 'AVAILABLE'::"TargetStatus"
           -- Une cible forcée vers un autre profil lui est réservée.
           AND (pt.forced_profile_id IS NULL OR pt.forced_profile_id = ${dto.profileId})
+          -- Republication d'un post incomplet : pas par le profil qui l'avait raté
+          -- (sauf envoi forcé vers lui par l'admin).
+          AND (pt.avoid_profile_id IS NULL OR pt.avoid_profile_id <> ${dto.profileId} OR pt.forced_profile_id = ${dto.profileId})
           -- Ses propres posts, ou un post ouvert de son compte (sans
           -- propriétaire : de tous). Chaque cible ne part qu'une fois : le
           -- premier profil qui la réserve publie dans ce groupe.

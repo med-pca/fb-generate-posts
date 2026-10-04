@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Modérateur · PostFlow",
   "short_name": "Modérateur",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "Profil vérificateur : rouvre les posts publiés par les automates, vérifie qu'ils sont en ligne avec le lien de l'article, supprime ceux qui n'en ont pas et les fait republier.",
   "permissions": [
     "storage",

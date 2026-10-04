@@ -94,6 +94,20 @@ async function api(path, options = {}) {
   }
   return r.json();
 }
+/** Le numéro d'un compte Facebook, saisi seul ou dans un lien : profile.php?id=…,
+ * /groups/…/user/…/, /people/…/…, ou facebook.com/<numéro>. '' si vide ou introuvable. */
+function facebookIdFrom(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  if (/^\d{5,20}$/.test(text)) return text;
+  const m =
+    /[?&]id=(\d{5,20})/.exec(text) ||
+    /\/user\/(\d{5,20})/.exec(text) ||
+    /\/people\/[^/]+\/(\d{5,20})/.exec(text) ||
+    /facebook\.com\/(\d{5,20})(?:[/?#]|$)/.exec(text);
+  return m ? m[1] : '';
+}
+
 /* ── Fenêtres de la plateforme ─────────────────────────────────────────
  * Confirmer, avertir, demander une valeur : toujours cette fenêtre, jamais
  * confirm()/prompt() du navigateur (sans style, sans ton, sans bouton qui dit
@@ -1334,14 +1348,25 @@ function renderRunners() {
     (button) =>
       (button.onclick = async () => {
         const value = await askText(
-          'Identifiant Facebook NUMÉRIQUE de ce profil (vide pour l’effacer).\nNormalement remonté seul par l’extension de publication.',
+          'Identifiant Facebook de ce profil\n' +
+          'Le NUMÉRO du compte Facebook connecté dans ce navigateur — par exemple 100092467372660. Vous pouvez coller un lien, le numéro en est extrait.\n' +
+          '• Le plus simple : dans un groupe, cliquez sur le nom du profil → l’adresse devient …/groups/…/user/100092467372660/ → copiez-la ;\n' +
+          '• ou ouvrez son profil : si l’adresse est …/profile.php?id=100092467372660, copiez-la ;\n' +
+          '• une adresse avec un nom (facebook.com/rihab.nakous) ne contient pas le numéro : utilisez le lien du groupe.\n' +
+          'Normalement l’extension Publication (≥ 1.3.0) le remonte seule. Vide = effacer.',
           button.dataset.current || '',
+          { label: 'Numéro ou lien Facebook', placeholder: '100092467372660 ou https://www.facebook.com/groups/…/user/…/', confirmLabel: 'Enregistrer' },
         );
         if (value === null || value === undefined) return;
+        const id = facebookIdFrom(value);
+        if (value.trim() && !id) {
+          notice('Pas de numéro dans ce texte. Collez un lien …/user/<numéro>/ ou …profile.php?id=<numéro>, ou le numéro seul.', 'error');
+          return;
+        }
         try {
           await api(`/admin/verify/profiles/${button.dataset.fbId}`, {
             method: 'PATCH',
-            body: JSON.stringify({ facebookUserId: String(value).trim() }),
+            body: JSON.stringify({ facebookUserId: id }),
           });
           notice('Identifiant Facebook enregistré.');
           await loadRunners();
@@ -3003,7 +3028,9 @@ function renderQueue() {
             ? `<div class="forced" title="${esc(u.forcedProfile.name)} le publiera à son prochain passage (forcé le ${esc(when(u.forcedAt))})">→ ${esc(u.forcedProfile.name)}` +
               `<button data-unforce="${u.targetId}" title="Rendre à la file normale">annuler</button></div>`
             : '') +
-          `<div class="chips">${candidates}</div></td>` +
+          `<div class="chips">${candidates}</div>` +
+          (u.avoidProfile ? `<small class="muted" title="Post incomplet republié : pas par le profil qui l’avait raté">↻ sans ${esc(u.avoidProfile.name)}</small>` : '') +
+          `</td>` +
           `<td><div class="prio-actions">` +
           (prio ? `<span class="prio ${prio < 0 ? 'low' : ''}">${prio > 0 ? '+' : ''}${prio}</span>` : '') +
           `<button class="edit" data-prio="${u.post.id}" data-move="top" title="En tête : passer devant tous les autres">⤒</button>` +
@@ -3180,8 +3207,29 @@ document.addEventListener('click', (e) => {
   if (toggle) {
     const menu = toggle.nextElementSibling;
     menu.hidden = !menu.hidden;
+    if (!menu.hidden) placeRowMenu(toggle, menu);
   }
 }, true);
+
+/** Le menu s'ouvre « au-dessus » de la page, calé sur son bouton : dans un
+ * tableau qui défile, une position relative le faisait rogner (seule la
+ * première entrée restait visible). S'il manque de place en bas, il s'ouvre
+ * vers le haut. */
+function placeRowMenu(toggle, menu) {
+  const box = toggle.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.right = `${Math.max(8, window.innerWidth - box.right)}px`;
+  menu.style.left = 'auto';
+  const height = menu.offsetHeight || 0;
+  const below = window.innerHeight - box.bottom;
+  menu.style.top = height + 12 > below && box.top > below ? `${Math.max(8, box.top - height - 4)}px` : `${box.bottom + 4}px`;
+}
+// Calé sur l'écran, il ne suivrait pas le défilement : on le referme.
+window.addEventListener('scroll', (e) => {
+  if (e.target?.closest?.('.row-menu')) return;
+  $$('.row-menu').forEach((m) => (m.hidden = true));
+}, true);
+window.addEventListener('resize', () => $$('.row-menu').forEach((m) => (m.hidden = true)));
 
 $('#q-tabs').addEventListener('click', (e) => {
   const tab = e.target.closest('[data-q-section]');

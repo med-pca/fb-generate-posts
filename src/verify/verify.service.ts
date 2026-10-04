@@ -133,7 +133,7 @@ export class VerifyService {
           take: 1,
           select: {
             externalPostUrl: true,
-            job: { select: { profile: { select: { name: true, externalId: true } } } },
+            job: { select: { profile: { select: { name: true, externalId: true, facebookUserId: true } } } },
           },
         },
       },
@@ -156,6 +156,10 @@ export class VerifyService {
         postTitle: t.post.title,
         linkUrl: t.post.url,
         author: t.jobItems[0]?.job.profile.name ?? null,
+        // Son compte Facebook : la page « ses publications dans ce groupe »
+        // (/groups/<g>/user/<id>/) ne montre que les siennes — bien plus
+        // court que le fil du groupe, où d'autres membres publient sans cesse.
+        authorFacebookId: t.jobItems[0]?.job.profile.facebookUserId ?? null,
         group: { name: t.group.name, url: t.group.url },
         publishedAt: t.publishedAt,
         republishCount: t.republishCount,
@@ -382,6 +386,11 @@ export class VerifyService {
       await this.needsAction(target, `déjà republié ${MAX_REPUBLISH} fois, toujours en défaut — ${detail}`, by);
       return { targetId: target.id, result: 'needs_action' };
     }
+    // Le profil qui a laissé le post incomplet ne le refait pas : un AUTRE
+    // profil du groupe le republie. S'il est seul dans le groupe, c'est lui
+    // ou personne — on le laisse, et on le dit.
+    const avoid = await this.previousPublisher(target);
+    if (avoid) detail = `${detail} — ${avoid.others ? `republié par un autre profil que « ${avoid.name} »` : `aucun autre profil dans le groupe : « ${avoid.name} » le republiera`}`;
     await this.prisma.$transaction([
       this.prisma.postTarget.update({
         where: { id: target.id },
@@ -403,6 +412,7 @@ export class VerifyService {
           verifyDetail: detail,
           verifyClaimedUntil: null,
           republishCount: { increment: 1 },
+          avoidProfileId: avoid?.others ? avoid.id : null,
         },
       }),
       trace(this.prisma, {
@@ -426,6 +436,27 @@ export class VerifyService {
       }),
     ]);
     return { targetId: target.id, result: 'requeued' };
+  }
+
+  /** Qui a publié la dernière version, et s'il y a un autre profil actif,
+   * publieur (pas modérateur), qui a rejoint le groupe pour prendre le relais. */
+  private async previousPublisher(target: { id: string; groupId: string }) {
+    const last = await this.prisma.publicationJobItem.findFirst({
+      where: { postTargetId: target.id, status: TargetStatus.PUBLISHED },
+      orderBy: { publishedAt: 'desc' },
+      select: { job: { select: { profileId: true, profile: { select: { name: true } } } } },
+    });
+    if (!last) return null;
+    const others = await this.prisma.profileGroup.count({
+      where: {
+        groupId: target.groupId,
+        status: 'ACTIVE',
+        joinStatus: 'JOINED',
+        profileId: { not: last.job.profileId },
+        profile: { status: 'ACTIVE', isModerator: false },
+      },
+    });
+    return { id: last.job.profileId, name: last.job.profile.name, others: others > 0 };
   }
 
   /* ── Gestes de l'admin ─────────────────────────────────────────────── */

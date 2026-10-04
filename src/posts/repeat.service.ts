@@ -85,7 +85,7 @@ export class RepeatService implements OnModuleInit, OnModuleDestroy {
             link_updated_at = NULL, facebook_url = NULL, last_error = NULL,
             verify_status = NULL, verified_at = NULL, verify_detail = NULL,
             verify_claimed_until = NULL, verify_attempts = 0, republish_count = 0,
-            forced_profile_id = NULL, forced_at = NULL,
+            forced_profile_id = NULL, forced_at = NULL, avoid_profile_id = NULL,
             updated_at = ${now}
           FROM due
           WHERE t.id = due.id

@@ -1069,13 +1069,13 @@
         </p>
         <div id="runner-days" class="chips"></div>
         <p class="form-help">Aucun jour coché = tous les jours.</p>
-        <label class="inline-check sleep-check"
-          ><input type="checkbox" name="closeWhenIdle" /> 💤 Fermer le navigateur entre deux lots
-          <small>Quand la prochaine publication est à plus de
-            <input name="closeIfWaitMinutes" type="number" min="5" max="600" value="15" /> min,
+        <div class="sleep-box">
+          <label class="sleep-title"><input type="checkbox" name="closeWhenIdle" /> 💤 Fermer le navigateur entre deux lots</label>
+          <p class="form-help">Quand la prochaine publication est à plus de
+            <input name="closeIfWaitMinutes" type="number" min="5" max="600" value="15" aria-label="minutes" /> min,
             l’extension Publication (≥ 1.5.0) ferme tout le navigateur pour libérer la mémoire ; l’agent local
-            (<code>python -m app.launcher</code>) le rouvre 3 min avant l’heure, et le travail reprend où il en était.</small></label
-        >
+            (<code>python -m app.launcher</code>) le rouvre 3 min avant l’heure, et le travail reprend où il en était.</p>
+        </div>
         <label
           >Réglages poussés au navigateur (JSON)<textarea
             name="settings"

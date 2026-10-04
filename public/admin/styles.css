@@ -2132,3 +2132,24 @@ aside .brand { padding-bottom: 22px; }
   font-size: 0.86rem; font-weight: 750; box-shadow: 0 7px 16px #d92d2029;
 }
 .pf-dialog.tone-warn .actions .primary { border-color: #dc6803; background: #dc6803; box-shadow: 0 7px 16px #dc680329; }
+/* Le menu « ⋯ » est placé en position fixe à l'ouverture (placeRowMenu) :
+ * au-dessus de tout, jamais rogné par un tableau qui défile. */
+.row-menu { z-index: 1000; max-height: calc(100vh - 16px); overflow-y: auto; }
+/* La case de veille porte une longue explication : elle doit revenir à la
+ * ligne (inline-check interdit le retour à la ligne). */
+.sleep-check, .sleep-check small { white-space: normal; }
+.sleep-check { align-items: start; }
+/* Aucune fenêtre ne défile à l'horizontale : un contenu trop large revient à
+ * la ligne au lieu de pousser la fenêtre. */
+dialog form { overflow-x: hidden; }
+dialog form small, dialog form .form-help, dialog form p { overflow-wrap: anywhere; }
+/* Les jours du pilotage : des pastilles cochables, pas des champs étirés. */
+#runner-days { display: flex; flex-wrap: wrap; gap: 6px; }
+#runner-days .chip { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; padding: 6px 11px; font-size: 0.8rem; cursor: pointer; }
+#runner-days .chip input { width: 15px; height: 15px; min-height: 15px; margin: 0; padding: 0; }
+/* La veille : une carte, la case et son titre sur une ligne. */
+.sleep-box { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fafbff; }
+.sleep-box .sleep-title { display: flex; flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-size: 0.86rem; }
+.sleep-box .sleep-title input { width: 17px; height: 17px; min-height: 17px; margin: 0; }
+.sleep-box .form-help { margin: 0; line-height: 1.6; }
+.sleep-box .form-help input { display: inline-block; width: 64px; min-height: 28px; padding: 2px 6px; margin: 0 2px; }

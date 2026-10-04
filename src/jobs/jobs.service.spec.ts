@@ -359,9 +359,10 @@ describe('JobsService — groupes rejoints uniquement', () => {
     const { service, prisma } = makeClaimHarness();
     await service.claimByProfileExternalId('demo-profile');
     const [[{ where }]] = prisma.group.findMany.mock.calls;
-    expect(where.targets.some.OR).toEqual([
-      { forcedProfileId: null },
-      { forcedProfileId: 'profile_1' },
+    expect(where.targets.some.AND).toEqual([
+      { OR: [{ forcedProfileId: null }, { forcedProfileId: 'profile_1' }] },
+      // Ni une republication qui écarte ce profil (post qu'il avait raté).
+      { OR: [{ avoidProfileId: null }, { avoidProfileId: { not: 'profile_1' } }] },
     ]);
   });
 

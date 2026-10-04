@@ -11,7 +11,7 @@ const payload = (postId: string, title = 'Tarte au citron') => ({
   publishedAt: '2026-10-04T20:00:00+00:00',
 });
 
-function setup(responses: Array<{ status: number; body?: unknown }>, publish = jest.fn(() => Promise.resolve({ articleId: 'a' }))) {
+function setup(responses: Array<{ status: number; body?: unknown }>, publish: jest.Mock = jest.fn(() => Promise.resolve({ articleId: 'a' }))) {
   const calls: Array<{ url: string; init: any }> = [];
   global.fetch = jest.fn((url: string, init: any) => {
     calls.push({ url, init });

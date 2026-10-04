@@ -120,6 +120,24 @@
     return [...seen].filter(Boolean);
   }
 
+  /** Pourquoi le post est incomplet, en clair pour le journal : le premier
+   * commentaire « . » posé mais jamais remplacé par le lien, ou aucun
+   * commentaire du tout (photo et texte seuls). */
+  const COMMENT_LABEL = /comment|commentaire|comentario|kommentar|تعليق/i;
+  function incompleteReason(scope) {
+    // Exactement « . » (le commentaire d'attente de l'extension de
+    // publication), hors boutons : le menu « … » du post n'en est pas un.
+    const placeholder = [...scope.querySelectorAll('div, span')].some(
+      (el) => el.children.length === 0 && textOf(el).trim() === '.' && !el.closest('[role="button"], button'),
+    );
+    if (placeholder) return 'post incomplet : premier commentaire « . » jamais remplacé par le lien';
+    const comments = [...scope.querySelectorAll('[role="article"][aria-label]')].filter((el) =>
+      COMMENT_LABEL.test(el.getAttribute('aria-label') || ''),
+    );
+    if (!comments.length) return 'post incomplet : aucun commentaire vu sous le post (photo et texte seuls)';
+    return '';
+  }
+
   /** Les commentaires repliés : on les déplie une fois. */
   async function expandComments(scope) {
     const buttons = [...scope.querySelectorAll('[role="button"], button, span')].filter((el) =>
@@ -159,9 +177,12 @@
     // Ce qui est posé à la place (un autre article, un lien tronqué) : c'est
     // ce qui permet de comprendre l'erreur depuis le journal.
     const others = outboundLinks(postScope()).slice(0, 3);
+    const why = others.length ? '' : incompleteReason(postScope());
     return {
       outcome: 'missing_link',
-      detail: `en ligne sans le lien attendu ${task.linkUrl}${others.length ? ` — liens vus : ${others.join(', ')}` : ' — aucun lien d’article sous le post'}`,
+      detail:
+        (why ? `${why} — ` : '') +
+        `en ligne sans le lien attendu ${task.linkUrl}${others.length ? ` — liens vus : ${others.join(', ')}` : ' — aucun lien d’article sous le post'}`,
     };
   }
 

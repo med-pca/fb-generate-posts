@@ -153,6 +153,7 @@ export class QueueService {
             id: true,
             forcedAt: true,
             repeatRound: true,
+            avoidProfileId: true,
             forcedProfile: { select: PROFILE_FIELDS },
             post: { select: POST_FIELDS },
             group: GROUP_WITH_CANDIDATES,
@@ -249,7 +250,9 @@ export class QueueService {
         targetId: row.id,
         post: row.post,
         group: withoutCandidates(row.group),
-        candidates: row.group.profiles.map(({ profile }) => profile),
+        // Une republication écarte le profil qui avait raté le post.
+        candidates: row.group.profiles.map(({ profile }) => profile).filter((p) => p.id !== row.avoidProfileId),
+        avoidProfile: row.group.profiles.map(({ profile }) => profile).find((p) => p.id === row.avoidProfileId) ?? null,
         forcedProfile: row.forcedProfile,
         forcedAt: row.forcedAt,
         // Duplication : 0 = première publication dans ce groupe.

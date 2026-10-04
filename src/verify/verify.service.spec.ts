@@ -3,7 +3,7 @@ import { VerifyService } from './verify.service';
 
 const NOW = new Date('2026-10-02T12:00:00Z');
 
-function setup(opts: { moderator?: boolean; republishCount?: number; verifyAttempts?: number; noUrl?: boolean } = {}) {
+function setup(opts: { moderator?: boolean; republishCount?: number; verifyAttempts?: number; noUrl?: boolean; otherProfiles?: number } = {}) {
   const target = {
     id: 't1',
     status: 'PUBLISHED',
@@ -38,7 +38,7 @@ function setup(opts: { moderator?: boolean; republishCount?: number; verifyAttem
           jobItems: [
             {
               externalPostUrl: 'https://facebook.com/groups/1/posts/9',
-              job: { profile: { name: 'Salim', externalId: 'x' } },
+              job: { profile: { name: 'Salim', externalId: 'x', facebookUserId: '100012345' } },
             },
           ],
         },
@@ -47,6 +47,11 @@ function setup(opts: { moderator?: boolean; republishCount?: number; verifyAttem
       updateMany: jest.fn(async () => ({ count: 1 })),
       count: jest.fn(async () => 3),
     },
+    // Qui a publié la version vérifiée, et qui d'autre est dans le groupe.
+    publicationJobItem: {
+      findFirst: jest.fn(async () => ({ job: { profileId: 'p-salim', profile: { name: 'Salim' } } })),
+    },
+    profileGroup: { count: jest.fn(async () => opts.otherProfiles ?? 2) },
     activityLog: { create: jest.fn(async () => ({})) },
     publicationTrace: { create: jest.fn(async (args: any) => args) },
     $transaction: jest.fn(async (ops: unknown[]) => ops),
@@ -203,5 +208,27 @@ describe('VerifyService', () => {
     const r = await service.claim('m', 5, null, NOW);
     expect(r).toMatchObject({ tasks: [], paused: true });
     expect(prisma.postTarget.findMany).not.toHaveBeenCalled();
+  });
+
+  it('la tâche donne le compte Facebook de l’auteur : sa page de publications dans le groupe', async () => {
+    const { service } = setup();
+    const res = await service.claim('m', 5, null, NOW);
+    expect(res.tasks[0].authorFacebookId).toBe('100012345');
+  });
+
+  it('post incomplet republié : par un AUTRE profil que celui qui l’avait raté', async () => {
+    const { service, prisma } = setup();
+    await service.report('t1', { profileExternalId: 'm', outcome: 'missing_link', detail: 'photo seule, sans commentaire', deleted: true }, null, NOW);
+    const data = prisma.postTarget.update.mock.calls.map((c: any) => c[0].data).find((d: any) => d.status === 'AVAILABLE');
+    expect(data.avoidProfileId).toBe('p-salim');
+    expect(data.verifyDetail).toMatch(/autre profil que « Salim »/);
+  });
+
+  it('seul profil du groupe : il republie quand même, et c’est dit', async () => {
+    const { service, prisma } = setup({ otherProfiles: 0 });
+    await service.report('t1', { profileExternalId: 'm', outcome: 'missing_link', detail: 'x', deleted: true }, null, NOW);
+    const data = prisma.postTarget.update.mock.calls.map((c: any) => c[0].data).find((d: any) => d.status === 'AVAILABLE');
+    expect(data.avoidProfileId).toBeNull();
+    expect(data.verifyDetail).toMatch(/aucun autre profil/);
   });
 });

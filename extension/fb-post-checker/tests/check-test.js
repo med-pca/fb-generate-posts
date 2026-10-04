@@ -43,6 +43,12 @@ const post = (comments) => `<div role="main"><div role="article">
   w = page(post('<div>.</div>'));
   let r = await w.FPC.inspect(task);
   check('commentaire « . » sans URL → missing_link', r.outcome === 'missing_link', r);
+  check('et le constat dit : « . » jamais remplacé par le lien', /premier commentaire « \. » jamais remplacé/.test(r.detail), r.detail);
+
+  w = page(post(''));
+  r = await w.FPC.inspect(task);
+  check('photo seule, aucun commentaire → missing_link', r.outcome === 'missing_link', r);
+  check('et le constat dit : aucun commentaire', /aucun commentaire vu sous le post/.test(r.detail), r.detail);
 
   w = page(post('<a href="https://food.test/autre-recette/">autre</a>'));
   r = await w.FPC.inspect(task);
