@@ -977,6 +977,21 @@
       </main>
     </div>
 
+    <!-- La fenêtre de la plateforme pour confirmer, avertir ou demander une
+         valeur : jamais confirm()/prompt() du navigateur. Voir pfDialog(). -->
+    <dialog id="pf-dialog" class="pf-dialog" aria-labelledby="pf-dialog-title">
+      <form id="pf-dialog-form">
+        <div class="pf-dialog-head">
+          <span class="pf-dialog-icon" id="pf-dialog-icon" aria-hidden="true"></span>
+          <div><small id="pf-dialog-kicker"></small><h2 id="pf-dialog-title"></h2></div>
+        </div>
+        <div class="pf-dialog-body" id="pf-dialog-body"></div>
+        <label class="pf-dialog-field" id="pf-dialog-field" hidden
+          ><span id="pf-dialog-label"></span><input id="pf-dialog-input" autocomplete="off"
+        /></label>
+        <div class="actions" id="pf-dialog-actions"></div>
+      </form>
+    </dialog>
     <dialog id="history-modal" class="history-modal">
       <div class="modal-body">
         <div class="modal-head">

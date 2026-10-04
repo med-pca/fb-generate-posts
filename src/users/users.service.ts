@@ -23,6 +23,9 @@ export function publicUser(user: User) {
     username: user.username,
     role: user.role,
     status: user.status,
+    // Seulement le fait qu'elle existe : la page Extensions prévient avant
+    // un téléchargement qui ne marcherait pas.
+    hasAutomationKey: Boolean(user.automationKey),
     hasNstApiKey: Boolean(user.nstApiKey),
     nstApiKeyHint: user.nstApiKey ? `…${user.nstApiKey.slice(-4)}` : null,
     createdAt: user.createdAt,

@@ -30,6 +30,11 @@ export type ExtensionDef = {
   zipRoot?: string;
   /** Comment l'installer, en une phrase, sur la carte. */
   installHint?: string;
+  /** La clé NSTBrowser : indispensable (sans elle, rien ne marche) ou utile
+   * (appairage automatique, veille). Absente = l'extension ne s'en sert pas. */
+  nstKey?: 'required' | 'useful';
+  /** Ce qui casse sans elle, dit à l'utilisateur avant le téléchargement. */
+  nstKeyWhy?: string;
 };
 
 /** Remplace `champ: '...'` (ou "...") dans un fichier de configuration. */
@@ -49,6 +54,8 @@ export const EXTENSIONS: ExtensionDef[] = [
     dir: 'extension/fb-group-poster',
     role: 'Publie les posts dans les groupes, pose le premier commentaire puis l’URL de l’article.',
     installOn: 'Tous les profils qui publient (un navigateur NSTBrowser par profil).',
+    nstKey: 'useful',
+    nstKeyWhy: 'L’extension ne pourra pas s’appairer seule à son profil (il faudra un code d’appairage par navigateur), et la veille entre deux lots restera inactive.',
     include: ['manifest.json', 'src', 'icons'],
     exclude: COMMON_EXCLUDE,
     preset: {
@@ -69,6 +76,8 @@ export const EXTENSIONS: ExtensionDef[] = [
     dir: 'extension/fb-group-joiner',
     role: 'Demande à rejoindre les groupes liés à chaque profil (lancement manuel).',
     installOn: 'Les profils qui doivent rejoindre des groupes.',
+    nstKey: 'required',
+    nstKeyWhy: 'L’extension ne détectera pas le profil NSTBrowser (« Clé API Nstbrowser absente de config.js ») : elle ne chargera aucun groupe et ne démarrera pas.',
     exclude: COMMON_EXCLUDE,
     preset: {
       file: 'config.js',

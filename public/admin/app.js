@@ -94,6 +94,120 @@ async function api(path, options = {}) {
   }
   return r.json();
 }
+/* ── Fenêtres de la plateforme ─────────────────────────────────────────
+ * Confirmer, avertir, demander une valeur : toujours cette fenêtre, jamais
+ * confirm()/prompt() du navigateur (sans style, sans ton, sans bouton qui dit
+ * ce qu'il fait). Rend une promesse :
+ *   - confirmation : true / false ;
+ *   - saisie (`input`) : le texte, ou null si annulée ;
+ *   - choix (`actions`) : la clé du bouton, ou null. */
+const DIALOG_ICONS = { danger: '!', warn: '!', info: 'i', ok: '✓' };
+let pfDialogClose = null;
+function pfDialog({
+  title,
+  message = '',
+  tone = 'info',
+  kicker = '',
+  confirmLabel = 'Confirmer',
+  cancelLabel = 'Annuler',
+  input = null,
+  actions = null,
+} = {}) {
+  const dialog = $('#pf-dialog');
+  // Une fenêtre déjà ouverte est refermée comme « annulée » avant la suivante.
+  if (pfDialogClose) pfDialogClose(null);
+  dialog.className = `pf-dialog tone-${tone}`;
+  $('#pf-dialog-icon').textContent = DIALOG_ICONS[tone] || 'i';
+  $('#pf-dialog-kicker').textContent = kicker || { danger: 'ACTION DÉFINITIVE', warn: 'À VÉRIFIER', ok: 'C’EST FAIT', info: 'CONFIRMATION' }[tone] || '';
+  $('#pf-dialog-title').textContent = title || '';
+  // Le texte : un paragraphe par ligne ; « • … » devient une liste.
+  const lines = String(message || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  let html = '', list = [];
+  const flush = () => { if (list.length) html += `<ul>${list.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`; list = []; };
+  for (const line of lines) {
+    if (/^[•\-–]\s*/.test(line)) list.push(line.replace(/^[•\-–]\s*/, ''));
+    else { flush(); html += `<p>${esc(line)}</p>`; }
+  }
+  flush();
+  $('#pf-dialog-body').innerHTML = html;
+  $('#pf-dialog-body').hidden = !html;
+  const field = $('#pf-dialog-field'), inputEl = $('#pf-dialog-input');
+  field.hidden = !input;
+  if (input) {
+    $('#pf-dialog-label').textContent = input.label || '';
+    inputEl.type = input.type || 'text';
+    inputEl.value = input.value ?? '';
+    inputEl.placeholder = input.placeholder || '';
+    inputEl.required = Boolean(input.required);
+  }
+  const buttons = actions || [
+    ...(cancelLabel ? [{ key: '__cancel', label: cancelLabel, cls: 'secondary' }] : []),
+    { key: '__ok', label: confirmLabel, cls: tone === 'danger' ? 'danger' : 'primary', submit: true },
+  ];
+  $('#pf-dialog-actions').innerHTML = buttons
+    .map((b) => `<button type="${b.submit ? 'submit' : 'button'}" class="${esc(b.cls || 'secondary')}" data-pf-answer="${esc(b.key)}">${esc(b.label)}</button>`)
+    .join('');
+  return new Promise((resolve) => {
+    const answer = (key) => {
+      if (key === null || key === '__cancel') return input ? null : actions ? null : false;
+      if (key === '__ok') return input ? inputEl.value.trim() : true;
+      return key;
+    };
+    const done = (key) => {
+      pfDialogClose = null;
+      dialog.onclick = dialog.oncancel = null;
+      $('#pf-dialog-form').onsubmit = null;
+      if (dialog.open) dialog.close();
+      resolve(answer(key));
+    };
+    pfDialogClose = done;
+    dialog.onclick = (e) => {
+      const b = e.target.closest('[data-pf-answer]');
+      if (b && b.type !== 'submit') done(b.dataset.pfAnswer);
+      // Un clic sur le fond (hors de la boîte) annule.
+      else if (e.target === dialog) done(null);
+    };
+    dialog.oncancel = (e) => { e.preventDefault(); done(null); };
+    $('#pf-dialog-form').onsubmit = (e) => {
+      e.preventDefault();
+      // Entrée au clavier (pas de bouton cliqué) : c'est le bouton principal.
+      const key = e.submitter?.dataset.pfAnswer || $('#pf-dialog-actions [type="submit"]')?.dataset.pfAnswer || '__ok';
+      if (input?.required && !inputEl.value.trim()) return inputEl.focus();
+      done(key);
+    };
+    dialog.showModal();
+    (input ? inputEl : $('#pf-dialog-actions [type="submit"]'))?.focus?.();
+  });
+}
+/** Le ton d'une question, d'après son verbe. */
+function toneOf(title) {
+  if (/^(Supprimer|Retirer|Régénérer|Désactiver|Délier|Effacer|Arrêter|Vider)/i.test(title)) return 'danger';
+  if (/^(Libérer|Republier|Remettre|Faire de|Passer|Demander|Réactiver|Relancer)/i.test(title)) return 'warn';
+  return 'info';
+}
+/** Le bouton dit ce qu'il fait : « Supprimer », pas « OK ». */
+function verbOf(title) {
+  const m = /^(Supprimer|Retirer|Régénérer|Désactiver|Délier|Effacer|Arrêter|Libérer|Republier|Remettre|Demander|Réactiver|Relancer|Activer|Passer|Envoyer|Télécharger)/i.exec(title);
+  return m ? m[1][0].toUpperCase() + m[1].slice(1) : 'Confirmer';
+}
+/** Remplace confirm() : la 1re ligne est la question, le reste l'explique. */
+function ask(message, opts = {}) {
+  const [title, ...rest] = String(message).split('\n');
+  return pfDialog({ title, message: rest.join('\n'), tone: opts.tone || toneOf(title), confirmLabel: opts.confirmLabel || verbOf(title), ...opts }).then(Boolean);
+}
+/** Remplace prompt() : null si annulé. */
+function askText(message, value = '', opts = {}) {
+  const [title, ...rest] = String(message).split('\n');
+  return pfDialog({
+    title: title.replace(/\s*:\s*$/, ''),
+    message: rest.join('\n'),
+    kicker: opts.kicker || 'SAISIE',
+    confirmLabel: opts.confirmLabel || 'Enregistrer',
+    input: { value, label: opts.label || '', placeholder: opts.placeholder || '', type: opts.type || 'text', required: opts.required },
+    ...opts,
+  });
+}
+
 function notice(message, type = 'success') {
   const n = $('#notice');
   n.textContent = message;
@@ -396,7 +510,7 @@ async function renderProfilePage(profileId, { focusDeactivate = false } = {}) {
     $('#pd-deactivate').onclick = async () => {
       const heir = $('#pd-heir').value || null;
       const heirName = heir ? tr.candidates.find((c) => c.id === heir)?.name : null;
-      if (!confirm(`Désactiver « ${p.name} » ?\n${heirName ? `Ses posts en attente iront en priorité à « ${heirName} ».` : 'Ses posts en attente retournent à la file.'}`)) return;
+      if (!await ask(`Désactiver « ${p.name} » ?\n${heirName ? `Ses posts en attente iront en priorité à « ${heirName} ».` : 'Ses posts en attente retournent à la file.'}`)) return;
       $('#pd-deactivate').disabled = true;
       try {
         const r = await api(`/profiles/${p.id}/deactivate`, { method: 'POST', body: JSON.stringify({ transferTo: heir }) });
@@ -537,7 +651,7 @@ $('#pp-memberships').addEventListener('change', (e) => {
 });
 async function ppUnlink(groupIds, label) {
   const pp = state.profilePage;
-  if (!confirm(`Retirer « ${pp.data.profile.name} » de ${label} ?\nIl ne publiera plus dans ${groupIds.length > 1 ? 'ces groupes' : 'ce groupe'}.`)) return;
+  if (!await ask(`Retirer « ${pp.data.profile.name} » de ${label} ?\nIl ne publiera plus dans ${groupIds.length > 1 ? 'ces groupes' : 'ce groupe'}.`)) return;
   try {
     const r = await api('/bulk/link', { method: 'POST', body: JSON.stringify({ profileIds: [pp.id], groupIds, action: 'unlink' }) });
     notice(`${r.removed} liaison(s) retirée(s).`);
@@ -1219,7 +1333,7 @@ function renderRunners() {
   $$('[data-fb-id]').forEach(
     (button) =>
       (button.onclick = async () => {
-        const value = prompt(
+        const value = await askText(
           'Identifiant Facebook NUMÉRIQUE de ce profil (vide pour l’effacer).\nNormalement remonté seul par l’extension de publication.',
           button.dataset.current || '',
         );
@@ -1412,7 +1526,7 @@ async function patchAllRunners(mode) {
   if (runnerFiltered()) {
     const targets = filteredRunners().filter((r) => r.status === 'ACTIVE');
     if (!targets.length) return notice('Aucun profil actif parmi ceux affichés.', 'error');
-    if (!confirm(`${verb} les ${targets.length} profil(s) affiché(s) ?\n${targets.map((r) => '• ' + r.name).join('\n')}`)) return;
+    if (!await ask(`${verb} les ${targets.length} profil(s) affiché(s) ?\n${targets.map((r) => '• ' + r.name).join('\n')}`)) return;
     let done = 0;
     for (const r of targets) {
       try {
@@ -1425,7 +1539,7 @@ async function patchAllRunners(mode) {
     notice(`${done} profil(s) réglé(s) sur ${targets.length}`);
     return loadRunners();
   }
-  if (!confirm(mode === 'OFF' ? 'Arrêter tous les profils actifs ?' : 'Passer tous les profils actifs en auto ?'))
+  if (!await ask(mode === 'OFF' ? 'Arrêter tous les profils actifs ?' : 'Passer tous les profils actifs en auto ?'))
     return;
   try {
     const answer = await api('/runners/all', {
@@ -2340,7 +2454,7 @@ $('#post-bulk-delete').onclick = async () => {
   const ids = [...state.selection];
   if (!ids.length) return;
   if (
-    !confirm(`Supprimer définitivement ${ids.length} post(s) et leurs cibles ?`)
+    !await ask(`Supprimer définitivement ${ids.length} post(s) et leurs cibles ?`)
   )
     return;
   try {
@@ -2525,8 +2639,8 @@ $('#nst-form').onsubmit = (e) => {
   e.preventDefault();
   saveNstKey(e.target.elements.nstApiKey.value.trim());
 };
-$('#nst-clear').onclick = () => {
-  if (!confirm('Retirer la clé NSTBrowser ? L’agent reprendra celle de son .env.')) return;
+$('#nst-clear').onclick = async () => {
+  if (!await ask('Retirer la clé NSTBrowser ? L’agent reprendra celle de son .env.')) return;
   saveNstKey('');
 };
 
@@ -3321,7 +3435,7 @@ async function clearGroupPosts(group, button) {
       `• ${plan.stillInOtherGroups} post(s) restent dans les autres groupes de leur catégorie.`,
     ];
     if (plan.kept) lines.push(`• ${plan.kept} publication(s) faites ou en cours sont conservées.`);
-    if (!confirm(lines.join('\n'))) return;
+    if (!await ask(lines.join('\n'))) return;
     const done = await api(`/groups/${group.id}/posts`, { method: 'DELETE' });
     notice(
       `${done.removedFromGroup} post(s) retiré(s) de « ${group.name} », ${done.deletedPosts} supprimé(s).`,
@@ -3336,7 +3450,7 @@ async function clearGroupPosts(group, button) {
 async function deleteArticlePosts(article, button) {
   const message =
     `Supprimer définitivement tous les posts liés à l’article « ${article.title} » ? L’article sera conservé. Les posts réservés par un automate en cours seront conservés.`;
-  if (!confirm(message)) return;
+  if (!await ask(message)) return;
   button.disabled = true;
   try {
     const result = await api('/posts/bulk-delete', {
@@ -3358,7 +3472,7 @@ async function deleteArticlePosts(article, button) {
   }
 }
 
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   if (e.target.dataset.pageResource) {
     const resource = e.target.dataset.pageResource;
     state.page[resource] = Number(e.target.dataset.pageValue);
@@ -3398,7 +3512,7 @@ document.addEventListener('click', (e) => {
   }
   if (e.target.dataset.releaseJob) {
     const { releaseJob, profile } = e.target.dataset;
-    if (!confirm(`Libérer le lot de ${profile || 'ce profil'} ?\nSes posts pas encore commencés retournent dans la file, et le profil pourra en réserver d’autres. Un post en cours de publication est laissé tel quel.`)) return;
+    if (!await ask(`Libérer le lot de ${profile || 'ce profil'} ?\nSes posts pas encore commencés retournent dans la file, et le profil pourra en réserver d’autres. Un post en cours de publication est laissé tel quel.`)) return;
     void queueAction(async () => {
       const r = await api(`/admin/jobs/${releaseJob}/release`, { method: 'POST' });
       return { warning: r.inProgress ? `${r.inProgress} post(s) en cours de publication laissé(s) tel(s) quel(s).` : null };
@@ -3407,7 +3521,7 @@ document.addEventListener('click', (e) => {
   }
   if (e.target.dataset.verifyResolve) {
     const { verifyResolve, action } = e.target.dataset;
-    if (action === 'republish' && !confirm('Republier dans ce groupe ?\nSi le post défectueux est encore sur Facebook, supprimez-le d’abord : sinon il sera en double.')) return;
+    if (action === 'republish' && !await ask('Republier dans ce groupe ?\nSi le post défectueux est encore sur Facebook, supprimez-le d’abord : sinon il sera en double.')) return;
     void queueAction(
       () => api(`/admin/verify/targets/${verifyResolve}/resolve`, { method: 'POST', body: JSON.stringify({ action }) }),
       action === 'ok' ? 'Marqué comme vérifié.' : 'Remis dans la file : il sera republié.',
@@ -3420,7 +3534,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (e.target.dataset.setUrl) {
-    const url = prompt('Adresse du post sur Facebook (ouvrez le post, copiez le lien de sa date) :', e.target.dataset.current || '');
+    const url = await askText('Adresse du post sur Facebook (ouvrez le post, copiez le lien de sa date) :', e.target.dataset.current || '');
     if (!url) return;
     void queueAction(
       () => api(`/posts/targets/${e.target.dataset.setUrl}/facebook-url`, { method: 'PUT', body: JSON.stringify({ facebookUrl: url.trim() }) }),
@@ -3431,7 +3545,7 @@ document.addEventListener('click', (e) => {
   }
   if (e.target.dataset.markOnline) {
     // L'adresse est facultative, mais c'est elle qu'ouvrira le vérificateur.
-    const url = prompt('Il est bien en ligne : collez l’adresse du post Facebook (facultatif, mais utile au vérificateur) :', '');
+    const url = await askText('Il est bien en ligne : collez l’adresse du post Facebook (facultatif, mais utile au vérificateur) :', '');
     if (url == null) return;
     void queueAction(
       () =>
@@ -3466,7 +3580,7 @@ document.addEventListener('click', (e) => {
   }
   if (e.target.dataset.removeTarget) {
     const { removeTarget, title, group } = e.target.dataset;
-    if (!confirm(`Retirer « ${title} » du groupe « ${group} » ?\nIl reste dans ses autres groupes ; s’il ne visait que celui-ci, il est supprimé.`)) return;
+    if (!await ask(`Retirer « ${title} » du groupe « ${group} » ?\nIl reste dans ses autres groupes ; s’il ne visait que celui-ci, il est supprimé.`)) return;
     void queueAction(async () => {
       const r = await api(`/posts/targets/${removeTarget}`, { method: 'DELETE' });
       return r;
@@ -3519,7 +3633,7 @@ document.addEventListener('click', (e) => {
   );
   if (deleteProfile) {
     if (
-      !confirm(
+      !await ask(
         `Supprimer définitivement le profil « ${deleteProfile.name} » et ses données dépendantes ?`,
       )
     )
@@ -3535,7 +3649,7 @@ document.addEventListener('click', (e) => {
   );
   if (deleteGroup) {
     if (
-      !confirm(
+      !await ask(
         `Supprimer définitivement le groupe « ${deleteGroup.name} » et ses associations ?`,
       )
     )
@@ -3558,7 +3672,7 @@ document.addEventListener('click', (e) => {
   );
   if (deleteArticle) {
     if (
-      !confirm(
+      !await ask(
         `Supprimer définitivement l’article « ${deleteArticle.title} » ? Les posts existants seront conservés.`,
       )
     )
@@ -3645,7 +3759,7 @@ document.addEventListener('click', (e) => {
   }
   const rotate = state.users.find((x) => x.id === e.target.dataset.rotateUser);
   if (rotate) {
-    if (!confirm(`Régénérer la clé de « ${rotate.username} » ? L’ancienne cessera aussitôt de fonctionner.`)) return;
+    if (!await ask(`Régénérer la clé de « ${rotate.username} » ? L’ancienne cessera aussitôt de fonctionner.`)) return;
     api(`/users/${rotate.id}/rotate-key`, { method: 'POST' })
       .then((r) => showKey(r.username, r.automationKey))
       .catch((x) => notice(x.message, 'error'));
@@ -3653,7 +3767,7 @@ document.addEventListener('click', (e) => {
   }
   const dropUser = state.users.find((x) => x.id === e.target.dataset.deleteUser);
   if (dropUser) {
-    if (!confirm(`Supprimer « ${dropUser.username} » ? Ses ressources ne sont pas détruites : elles deviennent sans propriétaire.`)) return;
+    if (!await ask(`Supprimer « ${dropUser.username} » ? Ses ressources ne sont pas détruites : elles deviennent sans propriétaire.`)) return;
     api(`/users/${dropUser.id}`, { method: 'DELETE' })
       .then((r) => {
         const n = r.released;
@@ -3704,7 +3818,7 @@ document.addEventListener('click', (e) => {
     (x) => x.id === e.target.dataset.renameCategory,
   );
   if (renameCat) {
-    const name = prompt('Nouveau nom de la catégorie', renameCat.name);
+    const name = await askText('Nouveau nom de la catégorie', renameCat.name);
     if (!name || name === renameCat.name) return;
     api(`/categories/${renameCat.id}`, {
       method: 'PATCH',
@@ -3720,7 +3834,7 @@ document.addEventListener('click', (e) => {
   );
   if (dropCat) {
     if (
-      !confirm(
+      !await ask(
         `Supprimer « ${dropCat.name} » ? ${dropCat.groups} groupe(s) et ${dropCat.sites} site(s) deviendront sans catégorie : les articles de ces sites ne produiront plus de post.`,
       )
     )
@@ -3745,7 +3859,7 @@ document.addEventListener('click', (e) => {
     (x) => x.id === e.target.dataset.deleteSite,
   );
   if (dropSite) {
-    if (!confirm(`Supprimer le site « ${dropSite.name} » ?`)) return;
+    if (!await ask(`Supprimer le site « ${dropSite.name} » ?`)) return;
     api(`/sites/${dropSite.id}`, { method: 'DELETE' })
       .then(load)
       .then(() => notice('Site supprimé.'))
@@ -3766,7 +3880,7 @@ document.addEventListener('click', (e) => {
     (x) => x.id === e.target.dataset.deletePost,
   );
   if (deletePost) {
-    if (!confirm(`Supprimer définitivement le post « ${deletePost.title} » ?`))
+    if (!await ask(`Supprimer définitivement le post « ${deletePost.title} » ?`))
       return;
     api(`/posts/${deletePost.id}`, { method: 'DELETE' })
       .then(load)
@@ -4031,7 +4145,7 @@ $('#bulk').addEventListener('click', (e) => {
 async function bulkLink(action) {
   const b = state.bulk;
   const pairs = b.selProfiles.size * b.selGroups.size;
-  if (action === 'unlink' && !confirm(`Délier ${b.selProfiles.size} profil(s) de ${b.selGroups.size} groupe(s) (${pairs} liaison(s)) ?\nIls ne publieront plus dans ces groupes.`)) return;
+  if (action === 'unlink' && !await ask(`Délier ${b.selProfiles.size} profil(s) de ${b.selGroups.size} groupe(s) (${pairs} liaison(s)) ?\nIls ne publieront plus dans ces groupes.`)) return;
   $('#bl-link').disabled = $('#bl-unlink').disabled = true;
   try {
     const r = await api('/bulk/link', {
@@ -4058,7 +4172,7 @@ $('#bl-unlink').onclick = () => bulkLink('unlink');
 async function bulkShare(action) {
   const b = state.bulk;
   const kind = $('#bs-kind').value;
-  if (action === 'revoke' && !confirm(`Retirer le partage de ${b.selItems.size} élément(s) pour ${b.selUsers.size} compte(s) ?`)) return;
+  if (action === 'revoke' && !await ask(`Retirer le partage de ${b.selItems.size} élément(s) pour ${b.selUsers.size} compte(s) ?`)) return;
   $('#bs-grant').disabled = $('#bs-revoke').disabled = true;
   try {
     const r = await api('/bulk/share', {
@@ -4175,7 +4289,7 @@ $('#audit-panel').addEventListener('click', async (e) => {
   const text = mode === 'check'
     ? 'Contrôler la pré-approbation de TOUS nos profils dans leurs groupes ?\nLe modérateur regarde seulement : rien n’est modifié sur Facebook.'
     : 'Contrôler puis PRÉ-APPROUVER ce qui manque, pour tous nos profils ?\nLe modérateur cliquera « Pré-approuver » là où ce n’est pas fait.';
-  if (!confirm(text)) return;
+  if (!await ask(text)) return;
   const r = await requestAudit({ mode }, e.target);
   e.target.disabled = false;
   if (r) await loadAudit();
@@ -4238,7 +4352,7 @@ $('#member-actions').addEventListener('click', async (e) => {
   const text = kind === 'approve'
     ? 'Demander au modérateur d’accepter TOUTES les demandes d’adhésion de nos profils ?'
     : 'Demander au modérateur de PRÉ-APPROUVER tous nos profils membres des groupes ?\nLeurs posts paraîtront sans validation des modérateurs.';
-  if (!confirm(text)) return;
+  if (!await ask(text)) return;
   await requestMembers({ kind }, e.target);
   await loadMemberActions();
 });
@@ -4286,7 +4400,7 @@ $('#mod-designate').onchange = (e) => ($('#mod-designate-go').disabled = !e.targ
 $('#mod-designate-go').onclick = async () => {
   const id = $('#mod-designate').value;
   const name = $('#mod-designate').selectedOptions[0]?.textContent;
-  if (!id || !confirm(`Faire de « ${name} » un modérateur ?\nIl quittera la liste des profils qui publient, et seul un administrateur pourra le modifier.`)) return;
+  if (!id || !await ask(`Faire de « ${name} » un modérateur ?\nIl quittera la liste des profils qui publient, et seul un administrateur pourra le modifier.`)) return;
   try {
     await api(`/admin/verify/profiles/${id}`, { method: 'PATCH', body: JSON.stringify({ isModerator: true }) });
     notice(`${name} est maintenant modérateur.`);
@@ -4381,7 +4495,7 @@ $('#md-actions').addEventListener('click', async (e) => {
     'retry-members': () => api(`/moderators/${m.id}/retry-members`, { method: 'POST' }),
     unset: () => api(`/admin/verify/profiles/${m.id}`, { method: 'PATCH', body: JSON.stringify({ isModerator: false }) }),
   };
-  if (act === 'unset' && !confirm(`Retirer le rôle de modérateur à « ${m.name} » ?\nIl redevient un profil ordinaire.`)) return;
+  if (act === 'unset' && !await ask(`Retirer le rôle de modérateur à « ${m.name} » ?\nIl redevient un profil ordinaire.`)) return;
   e.target.disabled = true;
   try {
     const r = await calls[act]();
@@ -4573,9 +4687,9 @@ async function paRequest(ids, button) {
   state.pa.selected.clear();
   await loadPreapprovals();
 }
-$('#pa-go').onclick = (e) => {
+$('#pa-go').onclick = async (e) => {
   const n = state.pa.selected.size;
-  if (!confirm(`Demander au modérateur de pré-approuver ${n} profil(s) × groupe(s) ?`)) return;
+  if (!await ask(`Demander au modérateur de pré-approuver ${n} profil(s) × groupe(s) ?`)) return;
   void paRequest([...state.pa.selected], e.target);
 };
 $('#pa-audit').onclick = async (e) => {
@@ -4689,9 +4803,92 @@ async function loadExtensions() {
 
 /** Télécharger : le fichier part du serveur (session), sans exposer la clé à
  * la page. */
+/** Avant de télécharger : prévenir de ce qui ne marchera pas à l'installation
+ * (clé absente du compte, version sans clé), et proposer de le réparer. Rend
+ * `false` pour ne pas télécharger, ou le mode retenu ({ preset }). */
+async function checkBeforeDownload(ext, preset) {
+  const me = state.me || {};
+  if (!ext) return { preset };
+  // « Sans clé » d'une extension qui en a besoin : elle s'installera, mais ne
+  // se connectera pas.
+  if (!preset && ext.preconfigurable) {
+    const choice = await pfDialog({
+      tone: 'warn',
+      kicker: 'VERSION SANS CLÉ',
+      title: `${ext.name} ne pourra pas se connecter`,
+      message:
+        'Ce paquet ne contient ni la clé d’API de votre compte ni votre clé NSTBrowser. Une fois installée, l’extension sera bloquée tant que ces clés n’y sont pas :\n' +
+        '• aucune connexion à la plateforme ;\n' +
+        (ext.nstKey === 'required' ? '• « Clé API Nstbrowser absente de config.js » : profil non détecté.\n' : '') +
+        'Prenez la version préconfigurée, sauf pour garder une copie de sauvegarde.',
+      actions: [
+        { key: 'cancel', label: 'Annuler', cls: 'secondary' },
+        { key: 'raw', label: 'Sans clé quand même', cls: 'secondary' },
+        { key: 'preset', label: 'Préconfigurée', cls: 'primary', submit: true },
+      ],
+    });
+    if (choice === 'raw') return { preset: false };
+    if (choice !== 'preset' && choice !== '__ok') return false;
+    preset = true;
+  }
+  if (preset && me.hasAutomationKey === false) {
+    await pfDialog({
+      tone: 'danger',
+      kicker: 'CLÉ D’API MANQUANTE',
+      title: 'Votre compte n’a pas de clé d’automatisation',
+      message: 'Sans elle, l’extension ne peut pas parler à la plateforme. Demandez à un administrateur de la générer (Comptes → 🔑 Régénérer la clé), puis revenez télécharger.',
+      cancelLabel: '',
+      confirmLabel: 'Compris',
+    });
+    return false;
+  }
+  if (preset && ext.nstKey && !me.hasNstApiKey) {
+    const required = ext.nstKey === 'required';
+    const choice = await pfDialog({
+      tone: required ? 'danger' : 'warn',
+      kicker: 'CLÉ NSTBROWSER MANQUANTE',
+      title: required ? 'L’installation ne fonctionnera pas sans votre clé NSTBrowser' : 'Votre clé NSTBrowser n’est pas enregistrée',
+      message:
+        `${ext.nstKeyWhy || ''}\n` +
+        'Pour la régler une fois pour toutes :\n' +
+        '• NSTBrowser → API → copiez l’API Key ;\n' +
+        '• ici, « Ajouter ma clé » et collez-la ;\n' +
+        '• puis téléchargez à nouveau : la clé sera dans le paquet.',
+      actions: [
+        { key: 'cancel', label: 'Annuler', cls: 'secondary' },
+        { key: 'anyway', label: 'Télécharger quand même', cls: 'secondary' },
+        { key: 'nst', label: 'Ajouter ma clé', cls: 'primary', submit: true },
+      ],
+    });
+    if (choice === 'nst' || choice === '__ok') {
+      $('#nst-open').click();
+      return false;
+    }
+    if (choice !== 'anyway') return false;
+    return { preset: true };
+  }
+  if (preset) {
+    const ok = await pfDialog({
+      tone: 'warn',
+      kicker: 'FICHIER CONFIDENTIEL',
+      title: 'Ce paquet contient vos clés',
+      message:
+        `${ext.name} sera prête à l’emploi : la clé d’API de votre compte${ext.nstKey ? ' et votre clé NSTBrowser y sont' : ' y est'} déjà.\n` +
+        '• Ne le partagez pas, ne l’envoyez à personne ;\n' +
+        '• supprimez le ZIP une fois l’extension installée.',
+      confirmLabel: 'Télécharger',
+    });
+    return ok ? { preset: true } : false;
+  }
+  return { preset: false };
+}
+
 async function downloadExtension(button) {
-  const { extDownload: key, version, preset } = button.dataset;
-  if (preset && !confirm('Ce fichier contiendra la clé d’API de votre compte.\nNe le partagez pas, ne l’envoyez à personne.')) return;
+  const { extDownload: key, version } = button.dataset;
+  const ext = (state.extensions || []).find((x) => x.key === key);
+  const decided = await checkBeforeDownload(ext, Boolean(button.dataset.preset));
+  if (!decided) return;
+  const preset = decided.preset;
   button.disabled = true;
   try {
     const response = await fetch(`${API}/extensions/${encodeURIComponent(key)}/${encodeURIComponent(version)}/download${preset ? '?preset=1' : ''}`, {
@@ -4725,7 +4922,7 @@ $('#ext-cards').addEventListener('click', async (e) => {
   if (!pin && !unpin) return;
   const key = (pin || unpin).dataset.extPin || (pin || unpin).dataset.extUnpin;
   const version = pin ? pin.dataset.version : null;
-  if (pin && !confirm(`Remettre la version ${version} en release ?\nC’est elle qui sera proposée au téléchargement ; la version actuelle passe aux archives.`)) return;
+  if (pin && !await ask(`Remettre la version ${version} en release ?\nC’est elle qui sera proposée au téléchargement ; la version actuelle passe aux archives.`)) return;
   try {
     await api(`/extensions/${encodeURIComponent(key)}/pin`, { method: 'POST', body: JSON.stringify({ version }) });
     notice(version ? `Version ${version} remise en release.` : 'La plus récente redevient la release.');

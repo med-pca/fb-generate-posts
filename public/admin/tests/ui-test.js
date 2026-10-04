@@ -22,7 +22,29 @@ const dom = new JSDOM(html, { virtualConsole: vc, url: 'http://localhost:3000/',
 const { window } = dom;
 window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
 window.HTMLDialogElement.prototype.close = function () { this.open = false; };
+// Les fenêtres de la plateforme (pfDialog) remplacent confirm()/prompt() :
+// le test y répond comme un utilisateur, avec ce que `window.confirm` /
+// `window.prompt` (simulés) auraient répondu. Le texte affiché leur est passé.
 window.confirm = () => true;
+setInterval(() => {
+  const d = window.document.getElementById('pf-dialog');
+  if (!d || !d.open) return;
+  const text = [d.querySelector('#pf-dialog-title').textContent, d.querySelector('#pf-dialog-body').innerText ?? d.querySelector('#pf-dialog-body').textContent].join('\n');
+  const field = d.querySelector('#pf-dialog-field');
+  let key;
+  if (!field.hidden) {
+    const v = window.prompt(text);
+    if (v === null) key = '__cancel';
+    else { d.querySelector('#pf-dialog-input').value = v; key = '__ok'; }
+  } else {
+    key = window.confirm(text) ? null : '__cancel';
+  }
+  const buttons = [...d.querySelectorAll('[data-pf-answer]')];
+  const target = key === '__cancel' ? buttons.find((b) => b.dataset.pfAnswer === '__cancel' || b.dataset.pfAnswer === 'cancel') : buttons.find((b) => b.type === 'submit');
+  if (!target) return;
+  if (target.type === 'submit') d.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+  else target.click();
+}, 5);
 
 const routes = {
   '/me': { id: 'boss', username: 'admin', role: 'ADMIN', status: 'ACTIVE' },
@@ -630,6 +652,7 @@ setTimeout(async () => {
       const releases = [rel('1.9.0'), rel('1.8.0')];
       return { ok: true, status: 200, json: async () => ([
         { key: 'moderateur', name: 'Modérateur · PostFlow', letter: 'M', color: '#7c3aed', role: 'Vérifie', installOn: 'Le profil modérateur', preconfigurable: true, pinned: false, current: releases[0], releases },
+        { key: 'adhesion', name: 'Adhésion aux groupes · PostFlow', letter: 'A', color: '#17803d', role: 'Rejoint', installOn: 'Les profils', preconfigurable: true, nstKey: 'required', nstKeyWhy: 'L’extension ne détectera pas le profil NSTBrowser.', pinned: false, current: rel('1.5.0'), releases: [rel('1.5.0')] },
       ]) };
     }
     if (path.startsWith('/extensions/')) {
@@ -651,6 +674,23 @@ setTimeout(async () => {
   check('« Télécharger (préconfigurée) » demande la version avec la clé du compte', extCalls.some((c) => c.startsWith('GET /extensions/moderateur/1.9.0/download?preset=1')), extCalls);
   $('[data-ext-pin="moderateur"][data-version="1.8.0"]').click();
   await new Promise((resolve) => setTimeout(resolve, 60));
+  // Avant le téléchargement : ce qui ne marchera pas à l'installation.
+  let shown = '';
+  const confirmBefore = window.confirm;
+  window.confirm = (text) => { shown += text + '\n'; return true; };
+  const before = extCalls.length;
+  $('[data-ext-download="adhesion"][data-preset="1"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('sans clé NSTBrowser sur le compte : prévenu avant de télécharger Adhésion', /clé NSTBrowser/.test(shown) && /ne détectera pas le profil/.test(shown), shown);
+  check('et invité à l’ajouter (pas de téléchargement)', $('#nst-modal').open && extCalls.length === before, extCalls.slice(before));
+  $('#nst-modal').close();
+  shown = '';
+  $('[data-ext-download="moderateur"][data-preset=""]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('« Sans clé » : prévenu que l’extension ne pourra pas se connecter', /ne pourra pas se connecter/.test(shown), shown);
+  check('le bouton principal propose la préconfigurée (puis rappelle de ne pas la partager)', /contient vos clés/.test(shown) && extCalls.some((c) => c.includes('/moderateur/1.9.0/download?preset=1')), shown);
+  check('la fenêtre est celle de la plateforme, pas une alerte du navigateur', $('#pf-dialog').classList.contains('tone-warn') || /pf-dialog/.test($('#pf-dialog').className), $('#pf-dialog').className);
+  window.confirm = confirmBefore;
   check('« ↩︎ » revient à une ancienne version (admin)', extCalls.some((c) => c.startsWith('POST /extensions/moderateur/pin') && c.includes('"version":"1.8.0"')), extCalls);
   window.fetch = beforeExt;
 

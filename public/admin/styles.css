@@ -2087,3 +2087,48 @@ aside .brand { padding-bottom: 22px; }
 .sleep-check small { color: var(--muted); font-weight: 500; }
 .sleep-check small input { width: 64px; min-height: 28px; padding: 2px 6px; display: inline-block; }
 .ext-hint { margin: 0; padding: 8px 10px; border-radius: 8px; background: #f2f6fb; color: #344054; font-size: 0.8rem; line-height: 1.45; }
+
+/* ── Fenêtre de confirmation / saisie (pfDialog) ──────────────────────── */
+.pf-dialog { width: min(560px, calc(100vw - 28px)); overflow: hidden; }
+.pf-dialog form { gap: 14px; padding: 0; }
+.pf-dialog-head {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 22px 24px 0;
+}
+.pf-dialog-head h2 { margin: 2px 0 0; font-size: 1.08rem; line-height: 1.35; color: var(--ink); }
+.pf-dialog-head small { color: var(--pf-tone, var(--blue)); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; }
+.pf-dialog-icon {
+  flex: none; display: grid; place-items: center;
+  width: 40px; height: 40px; border-radius: 12px;
+  color: var(--pf-tone, var(--blue)); background: var(--pf-tone-bg, #eef4ff);
+  font-weight: 800; font-size: 1.1rem; font-family: Georgia, serif;
+  box-shadow: inset 0 0 0 1px var(--pf-tone-ring, #d6e4ff);
+}
+.pf-dialog-body { padding: 0 24px 0 78px; color: #475467; font-size: 0.88rem; line-height: 1.55; }
+.pf-dialog-body p { margin: 0 0 6px; }
+.pf-dialog-body ul { margin: 4px 0 6px; padding: 10px 12px 10px 28px; border-radius: 10px; background: #f6f8fb; display: grid; gap: 4px; }
+.pf-dialog-body li::marker { color: var(--pf-tone, var(--blue)); }
+.pf-dialog-field { padding: 0 24px 0 78px; }
+.pf-dialog-field input { width: 100%; }
+.pf-dialog .actions {
+  margin: 4px 0 0; padding: 14px 24px; flex-wrap: wrap;
+  border-top: 1px solid var(--line); background: #fafbfd;
+}
+.pf-dialog.tone-danger { --pf-tone: #c0362c; --pf-tone-bg: #fdecea; --pf-tone-ring: #f8c9c4; }
+.pf-dialog.tone-warn { --pf-tone: #b54708; --pf-tone-bg: #fff4e5; --pf-tone-ring: #fedcae; }
+.pf-dialog.tone-ok { --pf-tone: #17803d; --pf-tone-bg: #e8f6ee; --pf-tone-ring: #bfe5cc; }
+.pf-dialog[open] { animation: pf-pop 0.16s ease-out; }
+@keyframes pf-pop { from { transform: translateY(6px) scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (max-width: 520px) {
+  .pf-dialog-body, .pf-dialog-field { padding-left: 24px; }
+  .pf-dialog .actions { justify-content: stretch; }
+  .pf-dialog .actions button { flex: 1 1 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .pf-dialog[open] { animation: none; } }
+/* Dans la fenêtre, l'action définitive est un vrai bouton plein, rouge. */
+.pf-dialog .actions .danger {
+  min-height: 42px; padding: 10px 16px; border-radius: 9px;
+  border: 1px solid #d92d20; color: #fff; background: #d92d20;
+  font-size: 0.86rem; font-weight: 750; box-shadow: 0 7px 16px #d92d2029;
+}
+.pf-dialog.tone-warn .actions .primary { border-color: #dc6803; background: #dc6803; box-shadow: 0 7px 16px #dc680329; }

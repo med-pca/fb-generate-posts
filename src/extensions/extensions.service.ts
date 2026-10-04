@@ -164,6 +164,8 @@ export class ExtensionsService implements OnModuleInit {
         kind: def.kind ?? 'chrome',
         installHint: def.installHint ?? null,
         preconfigurable: Boolean(def.preset),
+        nstKey: def.nstKey ?? null,
+        nstKeyWhy: def.nstKeyWhy ?? null,
         current,
         pinned: mine.some((r) => r.pinned),
         releases: mine,
