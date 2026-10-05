@@ -6,7 +6,7 @@ import { AdminRoleGuard } from '../auth/admin-role.guard';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
-import { AuditRequestDto, MemberRequestDto, VerifyClaimDto } from '../verify/dto/verify.dto';
+import { AuditRequestDto, MemberManualDto, MemberRequestDto, VerifyClaimDto } from '../verify/dto/verify.dto';
 import { MembersService } from '../verify/members.service';
 import { AuditService } from '../verify/audit.service';
 import { Query } from '@nestjs/common';
@@ -17,6 +17,13 @@ export class ModeratorSettingsDto {
   @ApiPropertyOptional({ minimum: 1, maximum: 20 }) @IsOptional() @IsInt() @Min(1) @Max(20) batchSize?: number;
   @ApiPropertyOptional({ minimum: 2, maximum: 240 }) @IsOptional() @IsInt() @Min(2) @Max(240) everyMinutes?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() members?: boolean;
+  /** Heures de travail, en minutes depuis minuit, dans `timezone`. */
+  @ApiPropertyOptional({ minimum: 0, maximum: 1439 }) @IsOptional() @IsInt() @Min(0) @Max(1439) windowStart?: number;
+  @ApiPropertyOptional({ minimum: 0, maximum: 1439 }) @IsOptional() @IsInt() @Min(0) @Max(1439) windowEnd?: number;
+  @ApiPropertyOptional({ example: 'Europe/Paris' }) @IsOptional() @IsString() @MaxLength(60) timezone?: string;
+  /** Plafonds d'actions (vérifier, supprimer, accepter, pré-approuver…). */
+  @ApiPropertyOptional({ minimum: 1, maximum: 60 }) @IsOptional() @IsInt() @Min(1) @Max(60) hourlyLimit?: number;
+  @ApiPropertyOptional({ minimum: 1, maximum: 400 }) @IsOptional() @IsInt() @Min(1) @Max(400) dailyLimit?: number;
 }
 
 export class ModeratorRunDto {
@@ -62,6 +69,14 @@ export class ModeratorsController {
   @ApiOperation({ summary: 'Demander au modérateur d’accepter les adhésions / de pré-approuver (tout, un profil, des liaisons) (admin)' })
   requestMembers(@Body() dto: MemberRequestDto, @ActingUser() acting: CurrentUser) {
     return this.members.request(dto.kind, { profileGroupIds: dto.profileGroupIds, profileId: dto.profileId }, acting);
+  }
+
+  @Post('members/manual')
+  @HttpCode(200)
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Marquer des pré-approbations faites à la main sur Facebook, ou annuler ce marquage (admin)' })
+  markManual(@Body() dto: MemberManualDto, @ActingUser() acting: CurrentUser) {
+    return this.members.markManual(dto.profileGroupIds, dto.state, acting);
   }
 
   @Post('audit')

@@ -930,11 +930,15 @@ function runnerTags(r) {
     tags.add('check');
   return tags;
 }
+/** Un profil désactivé ne publie plus : il n'encombre pas le Pilotage. On
+ * le retrouve avec le filtre « Profil inactif » (ou le lien sous la liste). */
+const pilotVisible = (r, wanted = state.runnerFilters.state) => r.status !== 'INACTIVE' || wanted === 'inactive';
 function filteredRunners() {
   const { search, mode, state: wanted } = state.runnerFilters;
   const needle = search.trim().toLowerCase();
   return (state.runners?.profiles || []).filter(
     (r) =>
+      pilotVisible(r, wanted) &&
       (!needle ||
         r.name.toLowerCase().includes(needle) ||
         (r.externalId || '').toLowerCase().includes(needle)) &&
@@ -957,7 +961,7 @@ const PIL_QUICK = [
 function renderPilotQuick() {
   const all = state.runners?.profiles || [];
   const f = state.runnerFilters;
-  const count = (q) => all.filter((r) => (!q.state || runnerTags(r).has(q.state)) && (!q.mode || r.mode === q.mode)).length;
+  const count = (q) => all.filter((r) => pilotVisible(r, q.state) && (!q.state || runnerTags(r).has(q.state)) && (!q.mode || r.mode === q.mode)).length;
   $('#pil-quick').innerHTML = PIL_QUICK.map(([key, label, q, tone]) => {
     const n = count(q);
     const active = (q.state || '') === (f.state || '') && (q.mode || '') === (f.mode || '');
@@ -1301,9 +1305,14 @@ function renderRunners() {
   const shown = filteredRunners();
   const filtered = runnerFiltered();
   const toCheck = data.profiles.filter((r) => runnerTags(r).has('check')).length;
+  const active = data.profiles.filter((r) => r.status !== 'INACTIVE').length;
+  const hidden = data.profiles.length - active;
   $('#runner-count').innerHTML =
-    (filtered ? `<b>${shown.length}</b> profil(s) sur ${data.profiles.length}` : `${data.profiles.length} profil(s)`) +
-    (toCheck ? ` · <button class="link warn-link" data-runner-check type="button">⚠ ${toCheck} à vérifier</button>` : '');
+    (filtered ? `<b>${shown.length}</b> profil(s) sur ${active}` : `${active} profil(s) actif(s)`) +
+    (toCheck ? ` · <button class="link warn-link" data-runner-check type="button">⚠ ${toCheck} à vérifier</button>` : '') +
+    (hidden && state.runnerFilters.state !== 'inactive'
+      ? ` · <button class="link" data-runner-inactive type="button" title="Les profils désactivés ne publient pas : ils sont masqués ici">${hidden} désactivé(s) masqué(s)</button>`
+      : '');
   $('#runner-filters-reset').hidden = !filtered;
   // Filtrés : les boutons de masse ne visent que ce qui est affiché — sinon
   // « Tout arrêter » couperait aussi ce qu'on ne voit pas.
@@ -1654,6 +1663,12 @@ $('#runners-pairing-check').onclick = async (e) => {
 };
 // Le raccourci « ⚠ N à vérifier » du compteur.
 $('#runner-count').addEventListener('click', (e) => {
+  if (e.target.closest('[data-runner-inactive]')) {
+    state.runnerFilters.state = 'inactive';
+    $('#runner-state-filter').value = 'inactive';
+    renderRunners();
+    return;
+  }
   if (!e.target.closest('[data-runner-check]')) return;
   state.runnerFilters.state = 'check';
   $('#runner-state-filter').value = 'check';
@@ -4524,6 +4539,12 @@ async function renderModeratorPage(id) {
   const f = $('#md-settings');
   f.elements.batchSize.value = s.batchSize;
   f.elements.everyMinutes.value = s.everyMinutes;
+  f.elements.windowStart.value = minutesToTime(s.windowStart ?? 540);
+  f.elements.windowEnd.value = minutesToTime(s.windowEnd ?? 1320);
+  if (s.timezone && ![...f.elements.timezone.options].some((o) => o.value === s.timezone)) f.elements.timezone.append(new Option(s.timezone, s.timezone));
+  f.elements.timezone.value = s.timezone || 'Europe/Paris';
+  f.elements.hourlyLimit.value = s.hourlyLimit ?? 12;
+  f.elements.dailyLimit.value = s.dailyLimit ?? 60;
   f.elements.members.checked = s.members;
   [...f.elements].forEach((el) => (el.disabled = !admin));
   $('#md-chart').innerHTML = moderatorChart(d.days);
@@ -4599,6 +4620,11 @@ $('#md-settings').onsubmit = async (e) => {
       body: JSON.stringify({
         batchSize: Number(f.elements.batchSize.value),
         everyMinutes: Number(f.elements.everyMinutes.value),
+        windowStart: timeToMinutes(f.elements.windowStart.value) ?? 540,
+        windowEnd: timeToMinutes(f.elements.windowEnd.value) ?? 1320,
+        timezone: f.elements.timezone.value,
+        hourlyLimit: Number(f.elements.hourlyLimit.value),
+        dailyLimit: Number(f.elements.dailyLimit.value),
         members: f.elements.members.checked,
       }),
     });
@@ -4697,13 +4723,16 @@ function renderPreapprovals() {
           `<td class="pa-detail">${detail}</td>` +
           `<td><div class="row-actions">` +
           (admin && can ? `<button class="edit" type="button" data-pa-one="${r.linkId}">★ Pré-approuver</button>` : '') +
+          (admin && r.state !== 'done' ? `<button class="edit" type="button" data-pa-manual="${r.linkId}" title="Fait vous-même sur Facebook : à marquer ici">✍ Fait à la main</button>` : '') +
+          (admin && r.state === 'done' ? `<button class="edit" type="button" data-pa-unmark="${r.linkId}" title="Annuler : ce profil n’est pas (ou plus) pré-approuvé dans ce groupe">↩︎</button>` : '') +
           (admin && r.state !== 'blocked' && !r.auditPending ? `<button class="edit" type="button" data-pa-test="${r.linkId}" title="Regarder sur Facebook, sans rien modifier">🔍</button>` : '') +
           `</div></td></tr>`
         );
       })
       .join('') || '<tr><td colspan="6" class="empty">Rien pour ce filtre.</td></tr>';
   $('#pa-selected').textContent = `${pa.selected.size} sélectionné(s)`;
-  $('#pa-go').disabled = $('#pa-audit').disabled = !pa.selected.size;
+  $('#pa-go').disabled = $('#pa-audit').disabled = $('#pa-manual').disabled = !pa.selected.size;
+  $('#pa-manual').textContent = pa.selected.size ? `✍ Fait à la main (${pa.selected.size})` : '✍ Fait à la main';
   $('#pa-go').textContent = pa.selected.size ? `★ Pré-approuver la sélection (${pa.selected.size})` : '★ Pré-approuver la sélection';
   $('#pa-count').textContent = d.total > d.rows.length ? `${d.rows.length} affichés sur ${d.total} : affinez avec le profil ou la recherche.` : `${d.total} ligne(s).`;
 }
@@ -4760,6 +4789,32 @@ $('#pa-go').onclick = async (e) => {
   if (!await ask(`Demander au modérateur de pré-approuver ${n} profil(s) × groupe(s) ?`)) return;
   void paRequest([...state.pa.selected], e.target);
 };
+/** Ce que l'admin a fait lui-même sur Facebook : marqué ici, le modérateur
+ * n'y retourne pas, et la publication sert ce profil en priorité dans ce
+ * groupe (ses posts y paraissent sans validation). */
+async function paManual(ids, mark, button) {
+  if (
+    !(await ask(
+      mark
+        ? `Marquer ${ids.length} pré-approbation(s) comme faite(s) à la main ?\nÀ faire seulement si vous l’avez vraiment fait sur Facebook (groupe → Membres → « … » → Pré-approuver).\n• le modérateur n’y retournera pas ;\n• la publication servira ce profil en priorité dans ce groupe.`
+        : `Annuler la pré-approbation de ${ids.length} ligne(s) ?\nElle repassera « à faire » pour le modérateur.`,
+      { confirmLabel: mark ? 'Marquer comme fait' : 'Annuler la pré-approbation', tone: mark ? 'info' : 'warn' },
+    ))
+  )
+    return;
+  if (button) button.disabled = true;
+  try {
+    const r = await api('/moderators/members/manual', { method: 'POST', body: JSON.stringify({ profileGroupIds: ids, state: mark ? 'preapproved' : 'clear' }) });
+    notice(mark ? `${r.updated} pré-approbation(s) marquée(s) faite(s) à la main.` : `${r.updated} pré-approbation(s) annulée(s).`);
+    state.pa.selected.clear();
+    await loadPreapprovals();
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+$('#pa-manual').onclick = (e) => void paManual([...state.pa.selected], true, e.target);
 $('#pa-audit').onclick = async (e) => {
   const r = await requestAudit({ mode: 'check', profileGroupIds: [...state.pa.selected] }, e.target);
   e.target.disabled = false;
@@ -4771,6 +4826,8 @@ $('#pa-audit').onclick = async (e) => {
 $('#pa-rows').addEventListener('click', async (e) => {
   const one = e.target.dataset.paOne;
   if (one) return void paRequest([one], e.target);
+  if (e.target.dataset.paManual) return void paManual([e.target.dataset.paManual], true, e.target);
+  if (e.target.dataset.paUnmark) return void paManual([e.target.dataset.paUnmark], false, e.target);
   const test = e.target.dataset.paTest;
   if (test) {
     const r = await requestAudit({ mode: 'check', profileGroupIds: [test] }, e.target);

@@ -230,6 +230,55 @@ export class MembersService {
    * de pré-approuver nos profils membres : tout, un profil, ou des liaisons
    * précises. Ces tâches passent en tête, et les modérateurs sont réveillés.
    * Ce qui ne peut pas être fait est dit, avec la raison. */
+  /** Ce que l'admin a fait LUI-MÊME sur Facebook : pré-approuver un profil
+   * dans un groupe. Le modérateur n'a plus à le faire (ni à y retourner), et la
+   * publication le sait : ce profil y est servi en priorité. `clear` annule.
+   * Une pré-approbation suppose l'adhésion : le lien passe « rejoint ». */
+  async markManual(
+    profileGroupIds: string[],
+    state: 'preapproved' | 'clear',
+    acting: CurrentUser | null,
+    now = new Date(),
+  ) {
+    const s = scopeOf(acting);
+    const where: Prisma.ProfileGroupWhereInput = {
+      id: { in: profileGroupIds },
+      profile: { isModerator: false, ...profileWhere(s) },
+    };
+    const { count } =
+      state === 'preapproved'
+        ? await this.prisma.profileGroup.updateMany({
+            where,
+            data: {
+              preApprovedAt: now,
+              joinStatus: JoinStatus.JOINED,
+              memberRequestedAt: null,
+              memberClaimedUntil: null,
+              memberActionError: null,
+              memberAttempts: 0,
+              preApprovalState: 'PREAPPROVED',
+              preApprovalCheckedAt: now,
+              preApprovalDetail: `marqué à la main par ${acting?.username ?? 'un administrateur'}`,
+            },
+          })
+        : await this.prisma.profileGroup.updateMany({
+            where,
+            data: { preApprovedAt: null, preApprovalState: null, preApprovalDetail: null },
+          });
+    await this.prisma.activityLog.create({
+      data: {
+        eventType: state === 'preapproved' ? 'MEMBER_PREAPPROVED_MANUAL' : 'MEMBER_PREAPPROVAL_CLEARED',
+        level: 'INFO',
+        message:
+          state === 'preapproved'
+            ? `${count} pré-approbation(s) marquée(s) faite(s) à la main par ${acting?.username ?? 'un administrateur'}`
+            : `${count} pré-approbation(s) annulée(s) par ${acting?.username ?? 'un administrateur'}`,
+        metadata: { profileGroupIds, state, by: acting?.username ?? null } as Prisma.InputJsonValue,
+      },
+    });
+    return { updated: count, state };
+  }
+
   async request(
     kind: MemberKind,
     scope: { profileGroupIds?: string[]; profileId?: string },

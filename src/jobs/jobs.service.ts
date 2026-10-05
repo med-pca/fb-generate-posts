@@ -675,6 +675,17 @@ export class JobsService {
         })
       ).map((item) => item.job.groupId),
     );
+    // Les groupes où CE profil est pré-approuvé (par le modérateur ou marqué
+    // à la main) : ses posts y paraissent sans validation — à priorité égale,
+    // il commence par là.
+    const preApproved = new Set(
+      (
+        await this.prisma.profileGroup.findMany({
+          where: { profileId: profile.id, groupId: { in: groups.map((g) => g.id) }, preApprovedAt: { not: null } },
+          select: { groupId: true },
+        })
+      ).map((link) => link.groupId),
+    );
     const tops = await Promise.all(
       groups.map(async (group) => {
         const top = await this.prisma.postTarget.findFirst({
@@ -700,6 +711,7 @@ export class JobsService {
           forced: top?.forcedProfileId === profile.id ? 1 : 0,
           priority: top?.post.priority ?? 0,
           free: crowded.has(group.id) ? 0 : 1,
+          preApproved: preApproved.has(group.id) ? 1 : 0,
           tie: Math.random(),
         };
       }),
@@ -707,7 +719,11 @@ export class JobsService {
     return tops
       .sort(
         (a, b) =>
-          b.forced - a.forced || b.free - a.free || b.priority - a.priority || a.tie - b.tie,
+          b.forced - a.forced ||
+          b.free - a.free ||
+          b.priority - a.priority ||
+          b.preApproved - a.preApproved ||
+          a.tie - b.tie,
       )
       .map(({ group }) => group);
   }

@@ -162,3 +162,34 @@ describe('MembersService — liste des pré-approbations', () => {
     expect(r.rows.map((x: any) => x.state)).toEqual(['done', 'requested', 'failed', 'blocked']);
   });
 });
+
+describe('Pré-approbation marquée à la main', () => {
+  const admin: any = { id: 'u1', username: 'admin', role: 'ADMIN', status: 'ACTIVE' };
+  function harness() {
+    const prisma: any = {
+      profileGroup: { updateMany: jest.fn(async () => ({ count: 2 })) },
+      activityLog: { create: jest.fn(async (a: any) => a) },
+    };
+    return { service: new MembersService(prisma, { moderator: jest.fn() } as any), prisma };
+  }
+
+  it('fait à la main : pré-approuvé, rejoint, plus rien à demander au modérateur, et tracé', async () => {
+    const { service, prisma } = harness();
+    const r = await service.markManual(['pg1', 'pg2'], 'preapproved', admin, NOW);
+    expect(r).toEqual({ updated: 2, state: 'preapproved' });
+    const { where, data } = prisma.profileGroup.updateMany.mock.calls[0][0];
+    expect(where.id).toEqual({ in: ['pg1', 'pg2'] });
+    // Jamais un modérateur lui-même.
+    expect(where.profile.isModerator).toBe(false);
+    expect(data).toMatchObject({ preApprovedAt: NOW, joinStatus: 'JOINED', memberRequestedAt: null, memberActionError: null, preApprovalState: 'PREAPPROVED' });
+    expect(data.preApprovalDetail).toMatch(/à la main par admin/);
+    expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('MEMBER_PREAPPROVED_MANUAL');
+  });
+
+  it('annuler : la pré-approbation est retirée', async () => {
+    const { service, prisma } = harness();
+    await service.markManual(['pg1'], 'clear', admin, NOW);
+    expect(prisma.profileGroup.updateMany.mock.calls[0][0].data).toMatchObject({ preApprovedAt: null });
+    expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('MEMBER_PREAPPROVAL_CLEARED');
+  });
+});

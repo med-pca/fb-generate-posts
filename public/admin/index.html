@@ -757,8 +757,26 @@
             <div class="panel pp-panel">
               <h3 class="history-h">Réglages</h3>
               <form id="md-settings" class="md-settings">
-                <label>Publications par passage <input name="batchSize" type="number" min="1" max="20" required /></label>
-                <label>Un passage toutes les (minutes) <input name="everyMinutes" type="number" min="2" max="240" required /></label>
+                <p class="form-help md-human">🧑 <b>Rythme humain</b> : un compte qui agit jour et nuit à intervalle fixe est repéré par Facebook. Le modérateur ne travaille qu’à ses heures, fait des passages irréguliers (de 70 % à 150 % de l’intervalle, et parfois une longue pause), lit chaque page avant d’agir, et s’arrête au quota.</p>
+                <label>Actions par passage, au plus <input name="batchSize" type="number" min="1" max="20" required /></label>
+                <label>Un passage environ toutes les (minutes) <input name="everyMinutes" type="number" min="2" max="240" required /></label>
+                <div class="two">
+                  <label>Travaille de <input name="windowStart" type="time" required /></label>
+                  <label>à <input name="windowEnd" type="time" required /></label>
+                </div>
+                <label>Heure de <select name="timezone">
+                  <option value="Europe/Paris">France (Paris)</option>
+                  <option value="Africa/Casablanca">Maroc (Casablanca)</option>
+                  <option value="Europe/London">Royaume-Uni (Londres)</option>
+                  <option value="America/New_York">USA Est (New York)</option>
+                  <option value="America/Chicago">USA Centre (Chicago)</option>
+                  <option value="America/Los_Angeles">USA Ouest (Los Angeles)</option>
+                  <option value="UTC">UTC</option>
+                </select></label>
+                <div class="two">
+                  <label>Au plus, par heure <input name="hourlyLimit" type="number" min="1" max="60" required /></label>
+                  <label>Au plus, par jour <input name="dailyLimit" type="number" min="1" max="400" required /></label>
+                </div>
                 <label class="inline-check"><input name="members" type="checkbox" /> Accepter l’adhésion de nos profils et les pré-approuver</label>
                 <small id="md-settings-help">Son extension relit ces réglages chaque minute.</small>
                 <div class="actions"><button class="primary" type="submit">Enregistrer</button></div>
@@ -800,6 +818,7 @@
             <button class="link" type="button" id="pa-none">Tout décocher</button>
             <span class="pa-spacer"></span>
             <button class="edit admin-only" type="button" id="pa-audit" disabled title="Le modérateur regarde sur Facebook si c’est fait, sans rien modifier">🔍 Tester la sélection</button>
+            <button class="edit admin-only" type="button" id="pa-manual" disabled title="Vous l’avez fait vous-même sur Facebook : le modérateur n’y touche plus, et la publication le prend en compte">✍ Fait à la main</button>
             <button class="primary admin-only" type="button" id="pa-go" disabled>★ Pré-approuver la sélection</button>
           </div>
           <div id="pa-result" class="bulk-result" hidden></div>

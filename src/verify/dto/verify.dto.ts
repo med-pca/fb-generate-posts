@@ -1,16 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsBoolean,
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  Matches,
-  Max,
-  MaxLength,
-  Min,
-  MinLength,
-} from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ArrayMinSize, ArrayMaxSize } from 'class-validator';
 import { VERIFY_OUTCOMES } from '../verify.service';
 import { MEMBER_KINDS, MEMBER_OUTCOMES } from '../members.service';
 import { AUDIT_OUTCOMES } from '../audit.service';
@@ -156,6 +145,20 @@ export class AuditRequestDto {
 }
 
 /** L'admin demande au modérateur d'accepter les adhésions, ou de pré-approuver. */
+/** Marquer à la main ce qui a été fait directement sur Facebook. */
+export class MemberManualDto {
+  @ApiProperty({ type: [String] })
+  @IsString({ each: true })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  profileGroupIds!: string[];
+
+  /** `preapproved` : fait à la main ; `clear` : annuler ce marquage. */
+  @ApiProperty({ enum: ['preapproved', 'clear'] })
+  @IsIn(['preapproved', 'clear'])
+  state!: 'preapproved' | 'clear';
+}
+
 export class MemberRequestDto {
   @ApiProperty({ enum: MEMBER_KINDS })
   @IsIn(MEMBER_KINDS as unknown as string[])

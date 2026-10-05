@@ -119,7 +119,9 @@ export class VerifyService {
     const due = await this.prisma.postTarget.findMany({
       where: this.dueWhere(acting, now),
       orderBy: { publishedAt: 'asc' },
-      take: Math.max(1, Math.min(20, moderator.moderatorBatch || limit || 5)),
+      // Le plus petit du réglage et de la demande : l'extension demande un
+      // lot variable (rythme humain), jamais plus que le réglage.
+      take: Math.max(1, Math.min(20, moderator.moderatorBatch || 5, limit || 20)),
       select: {
         id: true,
         publishedAt: true,

@@ -48,6 +48,11 @@ export class ModeratorsService {
     moderatorMembers: boolean;
     moderatorSeenAt: Date | null;
     moderatorAgent: string | null;
+    moderatorWindowStart: number;
+    moderatorWindowEnd: number;
+    moderatorTimezone: string;
+    moderatorHourlyLimit: number;
+    moderatorDailyLimit: number;
   }, now: Date) {
     return {
       paused: p.moderatorPaused,
@@ -58,6 +63,13 @@ export class ModeratorsService {
       batchSize: p.moderatorBatch,
       everyMinutes: p.moderatorEveryMinutes,
       members: p.moderatorMembers,
+      // Le rythme humain : heures de travail (minutes depuis minuit, dans
+      // son fuseau) et plafonds d'actions.
+      windowStart: p.moderatorWindowStart,
+      windowEnd: p.moderatorWindowEnd,
+      timezone: p.moderatorTimezone,
+      hourlyLimit: p.moderatorHourlyLimit,
+      dailyLimit: p.moderatorDailyLimit,
       seenAt: p.moderatorSeenAt,
       agent: p.moderatorAgent,
       online: Boolean(p.moderatorSeenAt && now.getTime() - p.moderatorSeenAt.getTime() < ONLINE_SECONDS * 1000),
@@ -224,7 +236,17 @@ export class ModeratorsService {
 
   async updateSettings(
     id: string,
-    patch: { paused?: boolean; batchSize?: number; everyMinutes?: number; members?: boolean },
+    patch: {
+      paused?: boolean;
+      batchSize?: number;
+      everyMinutes?: number;
+      members?: boolean;
+      windowStart?: number;
+      windowEnd?: number;
+      timezone?: string;
+      hourlyLimit?: number;
+      dailyLimit?: number;
+    },
     acting: CurrentUser,
   ) {
     const m = await this.reachable(id, acting);
@@ -233,6 +255,18 @@ export class ModeratorsService {
     if (patch.batchSize !== undefined) data.moderatorBatch = patch.batchSize;
     if (patch.everyMinutes !== undefined) data.moderatorEveryMinutes = patch.everyMinutes;
     if (patch.members !== undefined) data.moderatorMembers = patch.members;
+    if (patch.windowStart !== undefined) data.moderatorWindowStart = patch.windowStart;
+    if (patch.windowEnd !== undefined) data.moderatorWindowEnd = patch.windowEnd;
+    if (patch.hourlyLimit !== undefined) data.moderatorHourlyLimit = patch.hourlyLimit;
+    if (patch.dailyLimit !== undefined) data.moderatorDailyLimit = patch.dailyLimit;
+    if (patch.timezone !== undefined) {
+      try {
+        new Intl.DateTimeFormat('fr-FR', { timeZone: patch.timezone });
+      } catch {
+        throw new BadRequestException(`Fuseau horaire inconnu : ${patch.timezone}`);
+      }
+      data.moderatorTimezone = patch.timezone;
+    }
     const updated = await this.prisma.profile.update({ where: { id }, data });
     await this.log(m, 'MODERATOR_SETTINGS', `Réglages du modérateur « ${m.name} » modifiés`, acting, patch);
     return this.settingsOf(updated, new Date());

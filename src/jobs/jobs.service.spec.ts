@@ -244,8 +244,9 @@ describe('JobsService — groupes rejoints uniquement', () => {
         updateMany: jest.fn(async () => ({ count: 0 })),
         count: jest.fn(async () => 0),
       },
-      // Les groupes liés au profil, pour le diagnostic d'un « rien à publier ».
-      profileGroup: { findMany: jest.fn(async () => []) },
+      // Les groupes liés au profil, pour le diagnostic d'un « rien à publier »,
+      // et ceux où il est pré-approuvé.
+      profileGroup: { findMany: jest.fn(async (): Promise<Array<{ groupId: string }>> => []) },
       group: {
         findFirst: jest.fn(async () => null),
         findMany: jest.fn(async () => []),
@@ -355,6 +356,20 @@ describe('JobsService — groupes rejoints uniquement', () => {
     expect(tried).toEqual(['libre', 'occupe']);
     const where = prisma.publicationJobItem.findMany.mock.calls[0][0].where;
     expect(where.job.profileId).toEqual({ not: 'profile_1' });
+  });
+
+  it('à priorité égale, il commence par un groupe où il est pré-approuvé', async () => {
+    const { service, prisma } = makeClaimHarness();
+    prisma.group.findMany.mockResolvedValue([{ id: 'a-valider' }, { id: 'pre-approuve' }]);
+    prisma.postTarget.findFirst = jest.fn(async () => ({ post: { priority: 0 } }));
+    prisma.profileGroup.findMany.mockResolvedValue([{ groupId: 'pre-approuve' }]);
+    const tried: string[] = [];
+    jest.spyOn(service, 'claim').mockImplementation(async (dto: any) => {
+      tried.push(dto.groupId);
+      return { job: null, posts: [] };
+    });
+    await service.claimByProfileExternalId('demo-profile');
+    expect(tried[0]).toBe('pre-approuve');
   });
 
   it('un envoi forcé vers ce profil passe avant toute priorité', async () => {

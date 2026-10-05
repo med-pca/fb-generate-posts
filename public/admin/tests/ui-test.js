@@ -611,6 +611,10 @@ setTimeout(async () => {
         ],
       }) };
     }
+    if (path === '/moderators/members/manual') {
+      paCalls.push(`POST ${path} ${options.body}`);
+      return { ok: true, status: 200, json: async () => ({ updated: 1, state: 'preapproved' }) };
+    }
     if (path === '/moderators/members') {
       paCalls.push(`POST ${path} ${options.body}`);
       return { ok: true, status: 200, json: async () => ({ kind: 'preapprove', requested: 2, moderators: 1, moderatorsTotal: 1, blocked: { noFacebookId: 0, profiles: [] } }) };
@@ -632,6 +636,10 @@ setTimeout(async () => {
   await new Promise((resolve) => setTimeout(resolve, 80));
   const paAsked = paCalls.find((c) => c.startsWith('POST /moderators/members'));
   check('« Pré-approuver la sélection » envoie exactement ces liaisons', !!paAsked && paAsked.includes('"profileGroupIds":["l1","l2"]') && paAsked.includes('"kind":"preapprove"'), paAsked);
+  $('[data-pa-manual="l3"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const manual = paCalls.find((c) => c.startsWith('POST /moderators/members/manual'));
+  check('« Fait à la main » marque cette ligne pré-approuvée (fait sur Facebook par l’admin)', !!manual && manual.includes('"profileGroupIds":["l3"]') && manual.includes('"state":"preapproved"'), manual);
   $('#pa-profile').value = 'p-old';
   $('#pa-profile').dispatchEvent(new window.Event('change'));
   await new Promise((resolve) => setTimeout(resolve, 60));
@@ -739,6 +747,7 @@ setTimeout(async () => {
         runner({ name: 'Nadia', shouldRun: true }),
         runner({ name: 'Omar', mode: 'OFF', pairedAt: null }),
         runner({ name: 'Yasmine', browserState: 'ERROR' }),
+        runner({ name: 'Désactivée', status: 'INACTIVE', mode: 'OFF' }),
       ] }) };
     }
     if (path === '/admin/verify') {
@@ -760,7 +769,12 @@ setTimeout(async () => {
   window.eval(`view('runners')`);
   await new Promise((resolve) => setTimeout(resolve, 50));
   const runnerNames = () => [...window.document.querySelectorAll('#runner-rows tr td:first-child strong')].map((el) => el.textContent);
-  check('le Pilotage liste tous les profils', runnerNames().length === 4, runnerNames());
+  check('le Pilotage liste les profils actifs, pas les désactivés', runnerNames().length === 4 && !runnerNames().includes('Désactivée'), runnerNames());
+  check('il dit combien de désactivés sont masqués', /1 désactivé\(s\) masqué\(s\)/.test($('#runner-count').textContent), $('#runner-count').textContent);
+  $('[data-runner-inactive]').click();
+  check('un clic les montre (pour en réactiver un)', runnerNames().join() === 'Désactivée' && $('#runner-state-filter').value === 'inactive', runnerNames());
+  $('#runner-filters-reset').click();
+  check('effacer le filtre les masque de nouveau', runnerNames().length === 4, runnerNames());
   const fbRows = $('#runner-rows').textContent;
   check('l’identifiant Facebook d’un profil est affiché', /Facebook 100011/.test(fbRows), fbRows);
   check('un profil sans compte Facebook connu est signalé', /compte Facebook inconnu/.test(fbRows), null);

@@ -18,6 +18,92 @@ const CONTROL = 'fpc-control';
 const LOG_SIZE = 60;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* ── Rythme humain ──────────────────────────────────────────────────────
+ * Un compte modérateur a été désactivé par Facebook : il agissait toutes les
+ * 10 minutes pile, 24 h/24, sans jamais lire. Désormais :
+ *   - il ne travaille qu'à ses heures (réglées sur la plateforme) ;
+ *   - il ne dépasse pas N actions par heure ni par jour ;
+ *   - ses passages tombent à intervalles irréguliers, avec de longues pauses ;
+ *   - sur chaque page, il prend le temps de lire et fait défiler ;
+ *   - avant une action sensible (supprimer, accepter, pré-approuver), il marque
+ *     un temps. */
+const rand = (min, max) => min + Math.random() * (max - min);
+const between = (pair) => (Array.isArray(pair) ? rand(pair[0], pair[1]) : Number(pair) || 0);
+
+/** L'heure et la date dans le fuseau du modérateur. */
+function clockIn(timezone) {
+  try {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-GB', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+        .formatToParts(new Date())
+        .map((p) => [p.type, p.value]),
+    );
+    const hour = Number(parts.hour) % 24;
+    return { minutes: hour * 60 + Number(parts.minute), day: `${parts.year}-${parts.month}-${parts.day}`, hour: `${parts.year}-${parts.month}-${parts.day}T${hour}` };
+  } catch {
+    const d = new Date();
+    return { minutes: d.getHours() * 60 + d.getMinutes(), day: d.toISOString().slice(0, 10), hour: d.toISOString().slice(0, 13) };
+  }
+}
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+/** Est-ce l'heure de travailler ? (une plage qui passe minuit est permise) */
+function atWork(cfg) {
+  const start = Number(cfg.windowStart), end = Number(cfg.windowEnd);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start === end) return true;
+  const now = clockIn(cfg.timezone).minutes;
+  return start < end ? now >= start && now < end : now >= start || now < end;
+}
+
+/** Ce qu'il reste à faire cette heure-ci et aujourd'hui. */
+async function budget(cfg) {
+  const { day, hour } = clockIn(cfg.timezone);
+  let { pace } = await chrome.storage.local.get('pace');
+  if (!pace || pace.day !== day) pace = { day, hour, dayCount: 0, hourCount: 0 };
+  if (pace.hour !== hour) pace = { ...pace, hour, hourCount: 0 };
+  await chrome.storage.local.set({ pace });
+  return {
+    left: Math.max(0, Math.min(cfg.dailyLimit - pace.dayCount, cfg.hourlyLimit - pace.hourCount)),
+    reason: pace.dayCount >= cfg.dailyLimit ? `quota du jour atteint (${cfg.dailyLimit} actions)` : `quota de l’heure atteint (${cfg.hourlyLimit} actions)`,
+  };
+}
+async function spend() {
+  const { pace } = await chrome.storage.local.get('pace');
+  if (pace) await chrome.storage.local.set({ pace: { ...pace, dayCount: pace.dayCount + 1, hourCount: pace.hourCount + 1 } });
+}
+
+/** La pause entre deux actions ; une fois sur dix, bien plus longue. */
+async function humanPause(cfg) {
+  const long = Math.random() < 0.1;
+  await sleep((long ? rand(180, 420) : between(cfg.pauseSeconds)) * 1000);
+}
+
+/** Lire la page comme quelqu'un : attendre qu'elle s'affiche, faire défiler
+ * un peu, revenir. Rien n'est cliqué. */
+async function readLikeHuman(tabId, cfg) {
+  await sleep(between(cfg.settleSeconds) * 1000);
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async () => {
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = 2 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < steps; i += 1) {
+          window.scrollBy({ top: 200 + Math.random() * 500, behavior: 'smooth' });
+          await wait(700 + Math.random() * 1600);
+        }
+        window.scrollTo({ top: Math.random() * 200, behavior: 'smooth' });
+        await wait(600 + Math.random() * 900);
+      },
+    });
+  } catch {
+    /* page sans script (erreur, connexion) : on lit sans défiler */
+  }
+}
+
+/** Le temps qu'on met avant un geste qui compte. */
+const beforeAction = () => sleep(rand(2000, 5000));
+
 /** La mission en cours : ses journaux et son état vont dans sa rubrique. */
 let currentCat = 'posts';
 const today = () => new Date().toISOString().slice(0, 10);
@@ -33,6 +119,9 @@ async function settings() {
   if (server) {
     cfg.batchSize = server.batchSize ?? cfg.batchSize;
     cfg.everyMinutes = server.everyMinutes ?? cfg.everyMinutes;
+    for (const k of ['windowStart', 'windowEnd', 'timezone', 'hourlyLimit', 'dailyLimit']) {
+      if (server[k] !== undefined && server[k] !== null) cfg[k] = server[k];
+    }
     if (server.members === false) cfg.members = false;
     cfg.paused = Boolean(server.paused);
   }
@@ -112,7 +201,7 @@ async function inPage(tabId, func, args = []) {
 
 /** Contrôler une publication ; supprimer si elle est en ligne sans lien. */
 async function checkOne(cfg, tabId, task) {
-  const settleMs = cfg.settleSeconds * 1000;
+  const settleMs = between(cfg.settleSeconds) * 1000;
   // Publié sans adresse : on la cherche dans le groupe, puis on la rapporte
   // pour qu'elle soit gardée sur la plateforme.
   let foundUrl;
@@ -141,10 +230,12 @@ async function checkOne(cfg, tabId, task) {
 
 async function checkPost(cfg, tabId, task, settleMs) {
   await open(tabId, task.postUrl);
-  const seen = await inPage(tabId, (t, ms) => self.FPC.inspect(t, { settleMs: ms }), [task, settleMs]);
+  await readLikeHuman(tabId, cfg);
+  const seen = await inPage(tabId, (t, ms) => self.FPC.inspect(t, { settleMs: ms }), [task, 0]);
   if (!seen) return { outcome: 'unreachable', detail: 'page illisible' };
   if (seen.outcome !== 'missing_link') return seen;
 
+  await beforeAction();
   const removal = await inPage(tabId, () => self.FPC.remove());
   if (!removal?.deleted) {
     return { ...seen, deleted: false, detail: `${seen.detail} — ${removal?.detail || 'suppression impossible'}` };
@@ -160,6 +251,22 @@ async function checkPost(cfg, tabId, task, settleMs) {
   };
 }
 
+/** Encore une action permise ? Sinon on s'arrête là, et on dit pourquoi. */
+async function mayAct(cfg) {
+  const { left, reason } = await budget(cfg);
+  if (left > 0) return true;
+  await setStatus({ state: 'idle', message: `Pause : ${reason} — reprise plus tard`, at: new Date().toISOString() });
+  await log('warn', `Pause : ${reason}`);
+  return false;
+}
+
+/** Combien d'actions ce passage : au hasard entre 1 et le réglage, jamais
+ * plus que ce que l'heure et la journée permettent encore. */
+async function batchFor(cfg) {
+  const { left } = await budget(cfg);
+  return Math.max(1, Math.min(left || 1, 1 + Math.floor(Math.random() * Math.max(1, cfg.batchSize))));
+}
+
 /* ── Nos profils dans les groupes : adhésion, pré-approbation ─────────── */
 
 const groupBase = (url) => String(url || '').split(/[?#]/)[0].replace(/\/+$/, '');
@@ -168,24 +275,26 @@ const groupBase = (url) => String(url || '').split(/[?#]/)[0].replace(/\/+$/, ''
 async function memberOne(cfg, tabId, task) {
   const base = groupBase(task.group.url);
   if (!base) return { outcome: 'unreachable', detail: 'adresse du groupe inconnue' };
-  const settleMs = cfg.settleSeconds * 1000;
   const member = task.member;
   if (task.kind === 'approve') {
     await open(tabId, `${base}/member-requests`);
-    return inPage(tabId, (m, ms) => self.FPM.approve(m, { settleMs: ms }), [member, settleMs]);
+    await readLikeHuman(tabId, cfg);
+    await beforeAction();
+    return inPage(tabId, (m, ms) => self.FPM.approve(m, { settleMs: ms }), [member, 0]);
   }
   // Pré-approuver : UNIQUEMENT dans la liste des membres du groupe
   // (<groupe>/people) — menu « … » de sa ligne. Pas de détour par sa page de
   // profil ni par les publications en attente : ce n'est pas là que ça se fait.
   await open(tabId, `${base}/people`);
-  await sleep(settleMs);
+  await readLikeHuman(tabId, cfg);
+  await beforeAction();
   return (await inPage(tabId, (m) => self.FPM.preapproveFromPeople(m), [member])) || { outcome: 'unreachable', detail: 'page des membres illisible' };
 }
 
 async function memberRound(cfg, tabId, reason) {
   let claim;
   try {
-    claim = await api(cfg, '/verify/members/claim', { profileExternalId: cfg.profileExternalId, limit: cfg.batchSize });
+    claim = await api(cfg, '/verify/members/claim', { profileExternalId: cfg.profileExternalId, limit: await batchFor(cfg) });
   } catch (err) {
     await log('error', `Adhésions : réservation refusée : ${err.message}`);
     return 0;
@@ -194,6 +303,7 @@ async function memberRound(cfg, tabId, reason) {
   for (const task of claim.tasks || []) {
     const { enabled } = await chrome.storage.local.get('enabled');
     if (reason === 'auto' && enabled === false) break;
+    if (!(await mayAct(cfg))) break;
     const what = task.kind === 'approve' ? 'Adhésion' : 'Pré-approbation';
     await setStatus({ state: 'busy', message: `${what} · ${task.member.name} · ${task.group.name}`, at: new Date().toISOString() });
     let verdict;
@@ -221,8 +331,8 @@ async function memberRound(cfg, tabId, reason) {
       await log('error', `${what} : rapport refusé (${task.group.name}) : ${err.message}`, { count: 'failed' });
     }
     done += 1;
-    const [min, max] = cfg.pauseSeconds;
-    await sleep((min + Math.random() * (max - min)) * 1000);
+    await spend();
+    await humanPause(cfg);
   }
   return done;
 }
@@ -235,13 +345,14 @@ async function memberRound(cfg, tabId, reason) {
 async function auditRound(cfg, tabId, reason) {
   let claim;
   try {
-    claim = await api(cfg, '/verify/members/audit/claim', { profileExternalId: cfg.profileExternalId, limit: cfg.batchSize });
+    claim = await api(cfg, '/verify/members/audit/claim', { profileExternalId: cfg.profileExternalId, limit: await batchFor(cfg) });
   } catch (err) {
     await log('error', `Contrôle : réservation refusée : ${err.message}`);
     return 0;
   }
   let done = 0;
   for (const task of claim.tasks || []) {
+    if (!(await mayAct(cfg))) break;
     const base = groupBase(task.group.url);
     await setStatus({ state: 'busy', message: `Contrôle · ${task.member.name} · ${task.group.name}`, at: new Date().toISOString() });
     let verdict;
@@ -250,7 +361,7 @@ async function auditRound(cfg, tabId, reason) {
       // Le contrôle se fait sur <groupe>/people : la ligne du membre dit
       // « pré-approuvé pour publier » quand c'est fait.
       await open(tabId, `${base}/people`);
-      await sleep(cfg.settleSeconds * 1000);
+      await readLikeHuman(tabId, cfg);
       verdict = (await inPage(tabId, (m) => self.FPM.auditFromPeople(m), [task.member])) || { outcome: 'unreachable', detail: 'page illisible' };
       if (task.mode === 'fix' && verdict.outcome === 'not_done') {
         const fixed = await inPage(tabId, (m) => self.FPM.preapproveFromPeople(m), [task.member]);
@@ -278,8 +389,8 @@ async function auditRound(cfg, tabId, reason) {
       await log('error', `Contrôle : rapport refusé (${task.group.name}) : ${err.message}`);
     }
     done += 1;
-    const [min, max] = cfg.pauseSeconds;
-    await sleep((min + Math.random() * (max - min)) * 1000);
+    await spend();
+    await humanPause(cfg);
   }
   return done;
 }
@@ -288,7 +399,7 @@ async function auditRound(cfg, tabId, reason) {
 async function postsRound(cfg, tabId, reason) {
   let claim;
   try {
-    claim = await api(cfg, '/verify/claim', { profileExternalId: cfg.profileExternalId, limit: cfg.batchSize });
+    claim = await api(cfg, '/verify/claim', { profileExternalId: cfg.profileExternalId, limit: await batchFor(cfg) });
   } catch (err) {
     await log('error', `Réservation refusée : ${err.message}`);
     await setStatus({ state: 'error', message: err.message, at: new Date().toISOString() });
@@ -299,6 +410,7 @@ async function postsRound(cfg, tabId, reason) {
   for (const task of tasks) {
     const { enabled } = await chrome.storage.local.get('enabled');
     if (reason === 'auto' && enabled === false) break;
+    if (!(await mayAct(cfg))) break;
     await setStatus({ state: 'busy', message: `${done + 1}/${tasks.length} · ${task.group.name}`, at: new Date().toISOString() });
     let verdict;
     try {
@@ -328,10 +440,8 @@ async function postsRound(cfg, tabId, reason) {
       await log('error', `Rapport refusé (${task.group.name}) : ${err.message}`, { count: 'failed' });
     }
     done += 1;
-    if (done < tasks.length) {
-      const [min, max] = cfg.pauseSeconds;
-      await sleep((min + Math.random() * (max - min)) * 1000);
-    }
+    await spend();
+    if (done < tasks.length) await humanPause(cfg);
   }
   return done;
 }
@@ -365,6 +475,14 @@ async function doRound(kind, reason) {
     await setStatus('system', { state: 'config', message: 'Suspendu par l’administrateur (rubrique Modérateurs)', at: new Date().toISOString() });
     return;
   }
+  if (reason === 'auto' && !atWork(cfg)) {
+    await setStatus({ state: 'idle', message: `Hors des heures de travail (${hhmm(cfg.windowStart)}–${hhmm(cfg.windowEnd)}, ${cfg.timezone})`, at: new Date().toISOString() });
+    return;
+  }
+  if ((await budget(cfg)).left <= 0) {
+    await setStatus({ state: 'idle', message: `Pause : ${(await budget(cfg)).reason}`, at: new Date().toISOString() });
+    return;
+  }
   if (kind === 'members' && cfg.members === false && reason === 'auto') return;
   if (kind === 'posts' && cfg.posts === false && reason === 'auto') return;
   await setStatus({ state: 'busy', message: `En cours (${reason})…`, at: new Date().toISOString() });
@@ -392,10 +510,22 @@ async function doRound(kind, reason) {
   });
 }
 
+/** Le prochain passage : jamais à intervalle fixe. Entre 70 % et 150 % du
+ * réglage, et une fois sur six une longue pause (45 à 120 min). */
+async function nextRound(cfg, first = false) {
+  await chrome.alarms.clear(ALARM);
+  if (!cfg.enabled) return;
+  const minutes = first
+    ? rand(1, 5)
+    : Math.random() < 1 / 6
+      ? rand(45, 120)
+      : cfg.everyMinutes * rand(0.7, 1.5);
+  chrome.alarms.create(ALARM, { delayInMinutes: minutes });
+}
+
 async function schedule() {
   const cfg = await settings();
-  await chrome.alarms.clear(ALARM);
-  if (cfg.enabled) chrome.alarms.create(ALARM, { periodInMinutes: cfg.everyMinutes, delayInMinutes: 0.1 });
+  await nextRound(cfg, true);
   chrome.alarms.create(CONTROL, { periodInMinutes: 1, delayInMinutes: 0.05 });
 }
 
@@ -438,8 +568,13 @@ async function poll() {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === ALARM) {
     const cfg = await settings();
-    if (cfg.posts !== false) runRound('posts', 'auto');
-    if (cfg.members !== false) runRound('members', 'auto');
+    // Le suivant est tiré tout de suite : même si ce passage échoue, le
+    // modérateur reviendra — à une heure imprévisible.
+    await nextRound(cfg);
+    // Une chose à la fois, comme quelqu'un : une seule mission par passage,
+    // tirée au hasard quand les deux sont actives.
+    const kinds = [cfg.posts !== false && 'posts', cfg.members !== false && 'members'].filter(Boolean);
+    if (kinds.length) runRound(kinds[Math.random() < 0.6 ? 0 : kinds.length - 1], 'auto');
   }
   if (alarm.name === CONTROL) poll();
 });

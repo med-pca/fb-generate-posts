@@ -196,9 +196,17 @@ model Profile {
   /// Idem pour les tâches « nos profils » (adhésions, pré-approbations,
   /// contrôles), séparées de la vérification des posts.
   moderatorMembersRunAt    DateTime?        @map("moderator_members_run_at")
-  moderatorBatch           Int              @default(5) @map("moderator_batch")
-  moderatorEveryMinutes    Int              @default(10) @map("moderator_every_minutes")
+  moderatorBatch           Int              @default(3) @map("moderator_batch")
+  moderatorEveryMinutes    Int              @default(25) @map("moderator_every_minutes")
   moderatorMembers         Boolean          @default(true) @map("moderator_members")
+  /// Un rythme humain : il ne travaille qu'entre ces heures (minutes depuis
+  /// minuit, dans son fuseau), et pas plus de N actions par heure / par jour.
+  /// Facebook a désactivé un compte modérateur qui agissait 24 h/24.
+  moderatorWindowStart     Int              @default(540) @map("moderator_window_start")
+  moderatorWindowEnd       Int              @default(1320) @map("moderator_window_end")
+  moderatorTimezone        String           @default("Europe/Paris") @map("moderator_timezone")
+  moderatorHourlyLimit     Int              @default(12) @map("moderator_hourly_limit")
+  moderatorDailyLimit      Int              @default(60) @map("moderator_daily_limit")
   /// Dernière relecture par son extension : en ligne ou non.
   moderatorSeenAt          DateTime?        @map("moderator_seen_at")
   moderatorAgent           String?          @map("moderator_agent")

@@ -2155,3 +2155,5 @@ dialog form small, dialog form .form-help, dialog form p { overflow-wrap: anywhe
 .sleep-box .form-help input { display: inline-block; width: 64px; min-height: 28px; padding: 2px 6px; margin: 0 2px; }
 .objective-form select { width: auto; min-height: 36px; padding: 6px 9px; }
 .obj-tz-now { color: var(--muted); font-size: 0.78rem; }
+.md-human { margin: 0 0 4px; padding: 8px 10px; border-radius: 8px; background: #f2f6fb; line-height: 1.5; }
+.md-settings select { width: auto; }
