@@ -121,6 +121,9 @@ export function notForcedElsewhere(
   };
 }
 
+/** Écart voulu entre deux profils qui publient dans le même groupe. */
+const GROUP_GAP_MINUTES = 3;
+
 @Injectable()
 export class JobsService {
   constructor(
@@ -649,6 +652,25 @@ export class JobsService {
     groups: Array<{ id: string }>,
     profile: { id: string; ownerId: string | null },
   ) {
+    // Les groupes où un AUTRE profil publie en ce moment, ou vient de publier :
+    // deux comptes qui postent ensemble dans un groupe se gênent (Facebook
+    // freine, la vérification du post dans le fil confond les deux). Ils
+    // passent en dernier — jamais exclus : l'objectif du jour passe avant.
+    const now = Date.now();
+    const crowded = new Set(
+      (
+        await this.prisma.publicationJobItem.findMany({
+          where: {
+            job: { groupId: { in: groups.map((g) => g.id) }, profileId: { not: profile.id } },
+            OR: [
+              { status: TargetStatus.CONSUMED, updatedAt: { gt: new Date(now - 10 * 60_000) } },
+              { status: TargetStatus.PUBLISHED, publishedAt: { gt: new Date(now - GROUP_GAP_MINUTES * 60_000) } },
+            ],
+          },
+          select: { job: { select: { groupId: true } } },
+        })
+      ).map((item) => item.job.groupId),
+    );
     const tops = await Promise.all(
       groups.map(async (group) => {
         const top = await this.prisma.postTarget.findFirst({
@@ -673,6 +695,7 @@ export class JobsService {
           // Un envoi forcé passe avant toute priorité.
           forced: top?.forcedProfileId === profile.id ? 1 : 0,
           priority: top?.post.priority ?? 0,
+          free: crowded.has(group.id) ? 0 : 1,
           tie: Math.random(),
         };
       }),
@@ -680,7 +703,7 @@ export class JobsService {
     return tops
       .sort(
         (a, b) =>
-          b.forced - a.forced || b.priority - a.priority || a.tie - b.tie,
+          b.forced - a.forced || b.free - a.free || b.priority - a.priority || a.tie - b.tie,
       )
       .map(({ group }) => group);
   }

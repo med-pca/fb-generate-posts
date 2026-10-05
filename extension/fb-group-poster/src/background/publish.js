@@ -11,6 +11,7 @@
 import { groupUrl, groupFeedUrl, groupOwnPostsUrl } from '../common/config.js';
 import { info, warn, error } from '../common/log.js';
 import * as tab from './tab.js';
+import * as cdp from './cdp.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -26,6 +27,15 @@ const result = (fields) => ({
 });
 
 export async function publishPost(tabId, config, job) {
+  try {
+    return await publishPostFocused(tabId, config, job);
+  } finally {
+    // La barre « débogage en cours » ne reste pas entre deux posts.
+    await cdp.detach(tabId).catch(() => null);
+  }
+}
+
+async function publishPostFocused(tabId, config, job) {
   const { groupId, content, firstComment, image } = job;
   const stepMs = config.stepTimeoutSeconds * 1000;
   const wireMs = stepMs + 20000;

@@ -143,7 +143,7 @@ const handlers = {
   async openTab() {
     const config = await getConfig();
     const working = await tab.workTab(config);
-    await tab.focus(working.id);
+    await tab.focus(working.id, { system: true });
     return { ok: true, tabId: working.id };
   },
 };

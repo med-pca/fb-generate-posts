@@ -58,6 +58,21 @@ export async function attach(tabId) {
   await send(tabId, 'Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => null);
 }
 
+/** Faire croire à la page qu'elle a le focus, sans toucher à celui du
+ * système. Plusieurs profils NSTBrowser tournent sur la même machine : mettre
+ * SA fenêtre au premier plan l'enlevait à celle d'un autre profil en pleine
+ * saisie, dont le texte ou le commentaire échouait alors. `false` quand le
+ * débogueur n'est pas disponible (outils de développement ouverts…). */
+export async function emulateFocus(tabId) {
+  try {
+    await attach(tabId);
+    await send(tabId, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 export async function detach(tabId) {
   if (!attached.has(tabId)) return;
   attached.delete(tabId);

@@ -238,7 +238,8 @@ describe('JobsService — groupes rejoints uniquement', () => {
         })),
       },
       publicationJob: { findFirst: jest.fn(async () => null) },
-      publicationJobItem: {},
+      // Ce que les AUTRES profils publient en ce moment dans ces groupes.
+      publicationJobItem: { findMany: jest.fn(async (): Promise<Array<{ job: { groupId: string } }>> => []) },
       postTarget: {
         updateMany: jest.fn(async () => ({ count: 0 })),
         count: jest.fn(async () => 0),
@@ -336,6 +337,24 @@ describe('JobsService — groupes rejoints uniquement', () => {
     });
     await service.claimByProfileExternalId('demo-profile');
     expect(tried).toEqual(['urgent', 'moyen', 'calme']);
+  });
+
+  it('un groupe où un autre profil publie en ce moment passe en dernier, sans être exclu', async () => {
+    const { service, prisma } = makeClaimHarness();
+    prisma.group.findMany.mockResolvedValue([{ id: 'occupe' }, { id: 'libre' }]);
+    prisma.postTarget.findFirst = jest.fn(async ({ where }: any) => ({
+      post: { priority: where.groupId === 'occupe' ? 9 : 0 },
+    }));
+    prisma.publicationJobItem.findMany.mockResolvedValue([{ job: { groupId: 'occupe' } }]);
+    const tried: string[] = [];
+    jest.spyOn(service, 'claim').mockImplementation(async (dto: any) => {
+      tried.push(dto.groupId);
+      return { job: null, posts: [] };
+    });
+    await service.claimByProfileExternalId('demo-profile');
+    expect(tried).toEqual(['libre', 'occupe']);
+    const where = prisma.publicationJobItem.findMany.mock.calls[0][0].where;
+    expect(where.job.profileId).toEqual({ not: 'profile_1' });
   });
 
   it('un envoi forcé vers ce profil passe avant toute priorité', async () => {

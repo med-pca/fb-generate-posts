@@ -9,6 +9,7 @@
  */
 
 import { info, warn } from '../common/log.js';
+import * as cdp from './cdp.js';
 
 const TAB_KEY = 'workTabId';
 const CONTENT_FILES = [
@@ -51,11 +52,16 @@ export async function forgetTab() {
   await chrome.storage.local.remove(TAB_KEY);
 }
 
-/* Chrome inserts text only into a focused document, so the tab has to be the
- * active one while the composer is being filled. */
-export async function focus(tabId) {
+/* Chrome inserts text only into a focused document. The tab becomes the
+ * active one OF ITS WINDOW, and the focus is emulated through the debugger:
+ * the window is NOT brought to the front of the screen. Several profiles share
+ * the machine, and stealing the system focus from one in the middle of typing
+ * is exactly what made their posts and comments fail when they ran together.
+ * `{ system: true }` (the popup's "open the tab" button) really brings it up. */
+export async function focus(tabId, { system = false } = {}) {
   try {
     const tab = await chrome.tabs.update(tabId, { active: true });
+    if (!system && (await cdp.emulateFocus(tabId))) return;
     if (tab && tab.windowId !== undefined) {
       await chrome.windows.update(tab.windowId, { focused: true, drawAttention: false });
     }
@@ -132,6 +138,9 @@ export async function navigate(tabId, url, config) {
   if (!loaded) await warn(`La page n'a pas fini de charger dans les ${config.navigationTimeoutSeconds}s : ${url}`);
   const ready = await waitForContentScript(tabId, Math.max(15000, timeoutMs / 2));
   if (!ready) throw new TabError(`L'onglet ne repond pas apres l'ouverture de ${url}`);
+  // Chaque page chargée doit pouvoir recevoir la saisie (texte du post,
+  // premier commentaire), même si un autre profil a la main sur l'écran.
+  if (config.focusWorkTab) await focus(tabId);
   return true;
 }
 
