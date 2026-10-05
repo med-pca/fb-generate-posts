@@ -388,7 +388,7 @@ async function doPublish(config, api, state) {
     image = await fetchImage(post.imageUrl, undefined, (url) => api.media(url));
   } catch (err) {
     if (err instanceof ImageError) {
-      await failPost(api, job, post, config, `image : ${err.message}`, ids);
+      await failPost(api, job, post, config, `image : ${err.message}`, ids, { requeue: true });
       await nextPost(config, state, job, post, false);
       return;
     }
@@ -430,6 +430,12 @@ async function doPublish(config, api, state) {
       firstComment,
       image,
       author: state.author,
+      // Noté juste avant le clic « Publier » : après une interruption, on saura
+      // si le post a pu partir.
+      onSubmit: async () => {
+        const now = await getState();
+        if (now.inFlight) await setState({ inFlight: { ...now.inFlight, submitted: true } });
+      },
     });
   } catch (err) {
     // publishPost turns page problems into results; anything left is a bug or a
@@ -518,7 +524,10 @@ async function recover(config, api, state) {
     await api.log(EVENT_PARTIAL, 'Publie mais interrompu avant la fin du parcours', { level: 'WARN', ...ids });
     await bumpStats({ published: 1 });
   } else {
-    await failPost(api, job, post, config, `Interrompu avant la publication (${found.reason})`, ids);
+    // Interrompu AVANT le clic « Publier » : rien n'est parti, il repart.
+    // Après le clic, le post peut attendre la validation d'un admin sans être
+    // visible : le remettre en file risquerait un doublon.
+    await failPost(api, job, post, config, `Interrompu avant la publication (${found.reason})`, ids, { requeue: !flight.submitted });
   }
   await setState({ inFlight: null });
   await nextPost(config, await getState(), job, post, Boolean(found.found));
@@ -641,7 +650,9 @@ async function confirm(api, job, post, published, config, ids) {
     return;
   }
 
-  await failPost(api, job, post, config, published.message, ids);
+  // Ni succès ni « peut-être publié » : l'échec est arrivé avant le clic
+  // « Publier ». Rien n'est sur Facebook, le post peut repartir.
+  await failPost(api, job, post, config, published.message, ids, { requeue: true });
 }
 
 /* Tell the API which comment was written, so the link can reach it. Without
@@ -668,9 +679,9 @@ async function recordComment(api, job, post, published, ids) {
   }
 }
 
-async function failPost(api, job, post, config, reason, ids) {
-  await error(`Post ${post.id} en echec : ${reason}`);
-  await api.markFailed(job.jobId, post.id, reason);
+async function failPost(api, job, post, config, reason, ids, { requeue = false } = {}) {
+  await error(`Post ${post.id} en echec : ${reason}${requeue ? ' (rien n’est parti : il repart dans la file)' : ''}`);
+  await api.markFailed(job.jobId, post.id, reason, { requeue });
   await api.log(EVENT_FAILED, reason, { level: 'ERROR', ...ids });
   await bumpStats({ failed: 1 });
 }

@@ -186,3 +186,12 @@ test("liberer un lot oublie appelle la route de liberation de l'API", async () =
     assert.equal(r.released, 2);
   });
 });
+
+test('un échec avant « Publier » demande la remise en file ; sinon non', async () => {
+  await withServer({ 'POST /api/jobs/j1/posts/p1/failed': () => [201, {}] }, async (api, seen) => {
+    await api.markFailed('j1', 'p1', 'composeur absent', { requeue: true });
+    await api.markFailed('j1', 'p1', 'peut-être publié');
+    assert.deepEqual(seen[0].body, { error: 'composeur absent', requeue: true });
+    assert.deepEqual(seen[1].body, { error: 'peut-être publié' });
+  });
+});

@@ -67,6 +67,10 @@ export async function emulateFocus(tabId) {
   try {
     await attach(tabId);
     await send(tabId, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+    // Une fenêtre cachée derrière une autre peut voir sa page « gelée » par
+    // Chrome : Facebook cesse alors de dessiner (zone « Écrire quelque
+    // chose… » absente). On la garde active.
+    await send(tabId, 'Page.setWebLifecycleState', { state: 'active' }).catch(() => null);
     return true;
   } catch (_) {
     return false;

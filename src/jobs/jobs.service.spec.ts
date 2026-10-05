@@ -477,3 +477,50 @@ describe('JobsService — un lot terminé ne bloque pas le profil', () => {
     expect(result.activeJobId).toBeUndefined();
   });
 });
+
+describe('JobsService — un post qui n’est jamais parti repart seul dans la file', () => {
+  function harness(attemptsCount: number, others = 2) {
+    const prisma: any = {
+      publicationJobItem: {
+        findUnique: jest.fn(async () => ({
+          postTargetId: 't1',
+          postTarget: { status: TargetStatus.FAILED, attemptsCount, groupId: 'g1', facebookUrl: null },
+          job: { profileId: 'p-mohammed', profile: { name: 'Mohammed' } },
+          post: { title: 'Spot the Pigeons' },
+        })),
+      },
+      profileGroup: { count: jest.fn(async () => others) },
+      postTarget: { update: jest.fn(async (a: any) => a) },
+      publicationTrace: { create: jest.fn(async (a: any) => a) },
+      activityLog: { create: jest.fn(async (a: any) => a) },
+      $transaction: jest.fn(async (ops: unknown[]) => ops),
+    };
+    const service = new JobsService(prisma, {} as any);
+    jest.spyOn(service as any, 'reachableJob').mockResolvedValue({});
+    jest.spyOn(service as any, 'updateItem').mockResolvedValue({ status: TargetStatus.FAILED });
+    return { service, prisma };
+  }
+
+  it('échec avant « Publier » : remis en file, pour un autre profil du groupe', async () => {
+    const { service, prisma } = harness(1);
+    await service.markFailed('j1', 'post1', 'the "Write something..." box is not on the page', null, true);
+    const data = prisma.postTarget.update.mock.calls[0][0].data;
+    expect(data).toMatchObject({ status: TargetStatus.AVAILABLE, avoidProfileId: 'p-mohammed', claimedAt: null });
+    const log = prisma.activityLog.create.mock.calls[0][0].data;
+    expect(log.eventType).toBe('TARGET_AUTO_REQUEUED');
+    expect(log.message).toMatch(/tentative 2\/3/);
+  });
+
+  it('au bout de 3 tentatives : laissé en échec, et dit', async () => {
+    const { service, prisma } = harness(3);
+    await service.markFailed('j1', 'post1', 'x', null, true);
+    expect(prisma.postTarget.update).not.toHaveBeenCalled();
+    expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('TARGET_REQUEUE_EXHAUSTED');
+  });
+
+  it('sans « requeue » (peut-être publié) : rien ne repart', async () => {
+    const { service, prisma } = harness(1);
+    await service.markFailed('j1', 'post1', 'x', null, false);
+    expect(prisma.publicationJobItem.findUnique).not.toHaveBeenCalled();
+  });
+});

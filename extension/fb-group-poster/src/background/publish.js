@@ -48,7 +48,16 @@ async function publishPostFocused(tabId, config, job) {
     await tab.navigate(tabId, groupUrl(groupId), config);
     if (config.focusWorkTab) await tab.focus(tabId);
 
-    const opened = await run('openComposer');
+    let opened = await run('openComposer');
+    if (!opened.ok) {
+      // Souvent passager quand plusieurs profils tournent sur la machine : la
+      // page, restée en arrière-plan, n'a pas fini de se dessiner. On la
+      // recharge une fois avant d'abandonner.
+      await warn(`Composeur absent (${opened.reason}) : rechargement du groupe et nouvel essai`);
+      await tab.navigate(tabId, groupUrl(groupId), config);
+      await sleep(3000);
+      opened = await run('openComposer');
+    }
     if (!opened.ok) return result({ message: `Le composeur ne s'est pas ouvert : ${opened.reason}` });
 
     const named = await run('readAuthor');
@@ -87,6 +96,7 @@ async function publishPostFocused(tabId, config, job) {
   let submitted;
   try {
     await info('Publication...');
+    if (job.onSubmit) await job.onSubmit();
     submitted = await run('submit');
   } catch (err) {
     // The click may have gone through before the page stopped answering.

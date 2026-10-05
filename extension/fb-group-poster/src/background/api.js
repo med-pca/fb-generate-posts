@@ -70,9 +70,14 @@ export class JobApi {
     return this.request('POST', `/jobs/${jobId}/posts/${postId}/published`, permalink ? { externalPostUrl: permalink } : {});
   }
 
-  markFailed(jobId, postId, reason) {
+  /* `requeue` : rien n'est parti sur Facebook -- la plateforme remet le post
+   * dans la file elle-même (au plus 3 fois, vers un autre profil si possible). */
+  markFailed(jobId, postId, reason, { requeue = false } = {}) {
     // The API requires a non-empty reason.
-    return this.request('POST', `/jobs/${jobId}/posts/${postId}/failed`, { error: String(reason || 'unknown error').slice(0, 1000) });
+    return this.request('POST', `/jobs/${jobId}/posts/${postId}/failed`, {
+      error: String(reason || 'unknown error').slice(0, 1000),
+      ...(requeue ? { requeue: true } : {}),
+    });
   }
 
   /* Record the comment that was written, by its own identifier. Without it the

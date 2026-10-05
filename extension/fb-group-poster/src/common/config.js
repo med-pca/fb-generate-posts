@@ -34,8 +34,8 @@ export const DEFAULTS = {
   // Once the URL is typed into the comment, Facebook fetches the site to build
   // its preview card. Saving before that card is there looks like a bot
   // dropping a bare link: wait for it, at least the minimum, at most the max.
-  linkPreviewMinSeconds: 5,
-  linkPreviewWaitSeconds: 20,
+  linkPreviewMinSeconds: 1,
+  linkPreviewWaitSeconds: 5,
 
   // The API stores each post's pacing in minutes. 1 turns it into seconds,
   // which is how a whole batch is tried out quickly.
@@ -127,7 +127,8 @@ export async function getConfig() {
   // Older installations may still carry `placeLinksAfterJob: true`. Never
   // expose that legacy value: the publishing workflow must stop after the job
   // is closed and must not rewrite the comment with an URL.
-  const { placeLinksAfterJob: _legacyPlaceLinksAfterJob, ...saved } = stored[KEY] || {};
+  const { placeLinksAfterJob: _legacyPlaceLinksAfterJob, ...saved } =
+    stored[KEY] || {};
   const config = { ...DEFAULTS, ...saved };
   // Un champ laissé vide dans les options ne doit pas effacer le préréglage
   // du paquet : sans clé, plus d'appairage automatique.
@@ -169,6 +170,7 @@ export function configProblems(config) {
   const problems = [];
   if (!config.apiBaseUrl) problems.push("l'adresse de l'API est vide");
   if (!config.apiKey) problems.push("la cle d'API (X-API-Key) est vide");
-  if (!config.profileExternalId) problems.push("l'identifiant de profil (Profile.externalId) est vide");
+  if (!config.profileExternalId)
+    problems.push("l'identifiant de profil (Profile.externalId) est vide");
   return problems;
 }

@@ -121,6 +121,10 @@ export function notForcedElsewhere(
   };
 }
 
+/** Un post qui n'est jamais parti repart seul dans la file au plus ce
+ * nombre de fois (tentatives comptées à la réservation). */
+const MAX_AUTO_REQUEUE = 3;
+
 /** Écart voulu entre deux profils qui publient dans le même groupe. */
 const GROUP_GAP_MINUTES = 3;
 
@@ -835,9 +839,76 @@ export class JobsService {
     postId: string,
     error: string,
     acting: CurrentUser | null = null,
+    requeue = false,
   ) {
     await this.reachableJob(jobId, acting);
-    return this.updateItem(jobId, postId, TargetStatus.FAILED, { error });
+    const item = await this.updateItem(jobId, postId, TargetStatus.FAILED, { error });
+    if (requeue) await this.requeueUnpublished(jobId, postId, error);
+    return item;
+  }
+
+  /** Un échec AVANT la publication (composeur absent, page muette, navigateur
+   * interrompu avant le clic « Publier ») : rien n'est parti sur Facebook.
+   * Laisser le post en échec coûtait une publication à chaque gêne passagère
+   * — plusieurs profils sur une machine, une page lente. Il repart dans la
+   * file, de préférence vers un AUTRE profil du groupe, au plus 3 tentatives ;
+   * ensuite il reste en échec, à regarder. */
+  private async requeueUnpublished(jobId: string, postId: string, error: string) {
+    const item = await this.prisma.publicationJobItem.findUnique({
+      where: { jobId_postId: { jobId, postId } },
+      select: {
+        postTargetId: true,
+        postTarget: { select: { status: true, attemptsCount: true, groupId: true, facebookUrl: true } },
+        job: { select: { profileId: true, profile: { select: { name: true } } } },
+        post: { select: { title: true } },
+      },
+    });
+    if (!item || item.postTarget.status !== TargetStatus.FAILED) return;
+    const tries = item.postTarget.attemptsCount;
+    if (tries >= MAX_AUTO_REQUEUE) {
+      await this.log({
+        jobId,
+        postId,
+        profileId: item.job.profileId,
+        eventType: 'TARGET_REQUEUE_EXHAUSTED',
+        level: 'ERROR',
+        message: `« ${item.post.title} » : ${tries} tentatives sans publier, laissé en échec — ${error}`,
+      });
+      return;
+    }
+    const others = await this.prisma.profileGroup.count({
+      where: {
+        groupId: item.postTarget.groupId,
+        status: 'ACTIVE',
+        joinStatus: JoinStatus.JOINED,
+        profileId: { not: item.job.profileId },
+        profile: { status: 'ACTIVE', isModerator: false },
+      },
+    });
+    const who = others ? ` (par un autre profil que « ${item.job.profile.name} »)` : '';
+    const detail = `rien n’était parti : remis dans la file automatiquement${who}, tentative ${tries + 1}/${MAX_AUTO_REQUEUE} — ${error}`;
+    await this.prisma.$transaction([
+      this.prisma.postTarget.update({
+        where: { id: item.postTargetId },
+        data: {
+          status: TargetStatus.AVAILABLE,
+          claimedAt: null,
+          claimExpiresAt: null,
+          consumedAt: null,
+          lastError: error,
+          avoidProfileId: others ? item.job.profileId : null,
+        },
+      }),
+      trace(this.prisma, { postTargetId: item.postTargetId, kind: 'RETRIED', actor: 'Remise en file automatique', jobId, detail }),
+    ]);
+    await this.log({
+      jobId,
+      postId,
+      profileId: item.job.profileId,
+      eventType: 'TARGET_AUTO_REQUEUED',
+      level: 'WARN',
+      message: `« ${item.post.title} » ${detail}`,
+    });
   }
 
   /** Clôture le lot. C'est ici que s'ouvre la seconde phase : une fois tout

@@ -21,7 +21,7 @@ la description) : c'est une place réservée pour l'URL, pas un texte à répét
 Une fois l'URL tapée dans le commentaire, l'extension attend que Facebook ait
 chargé l'aperçu du site (son image) avant d'enregistrer, puis reste le temps
 que l'aperçu s'affiche dans le commentaire enregistré — au moins
-`linkPreviewMinSeconds` (5 s), au plus `linkPreviewWaitSeconds` (20 s). Un site
+`linkPreviewMinSeconds` (1 s), au plus `linkPreviewWaitSeconds` (3 s). Un site
 sans aperçu n'est pas une erreur : le journal le signale et l'édition continue.
 
 Il faut pour cela la version de l'API où `commented` renvoie `url` et où
