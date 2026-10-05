@@ -17,7 +17,29 @@ const FLAGS = [
 ];
 
 const $ = (id) => document.getElementById(id);
-const send = (type, extra = {}) => chrome.runtime.sendMessage({ type, ...extra });
+/* Parler au service de l'extension. S'il ne répond pas (copie incomplète,
+ * extension en erreur), on le DIT au lieu de laisser des champs vides et un
+ * « Appairage en cours... » qui ne finit jamais. */
+const WORKER_DOWN =
+  "Le service de l'extension ne repond pas. Ouvre chrome://extensions, active le mode developpeur, " +
+  "puis clique sur ↻ (Recharger) sur « Publication · PostFlow ». Si un bouton « Erreurs » s'affiche, " +
+  "retelecharge l'extension depuis la plateforme (Extensions → Publication → Telecharger (preconfiguree)) " +
+  "et remplace tout le dossier.";
+async function send(type, extra = {}, timeoutMs = 30000) {
+  let timer;
+  try {
+    const answer = await Promise.race([
+      chrome.runtime.sendMessage({ type, ...extra }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), timeoutMs); }),
+    ]);
+    if (answer === undefined) throw new Error('aucune reponse');
+    return answer;
+  } catch (err) {
+    return { ok: false, message: err.message === 'timeout' ? "Pas de reponse en 30 s : le serveur ou l'extension ne repond pas" : WORKER_DOWN, down: err.message !== 'timeout' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function note(el, message, kind = '') {
   el.textContent = message;
@@ -25,7 +47,12 @@ function note(el, message, kind = '') {
 }
 
 async function load() {
-  const { config, problems } = await send('status');
+  const answer = await send('status');
+  if (!answer.ok && answer.down) {
+    note($('pairState'), answer.message, 'err');
+    return;
+  }
+  const { config, problems } = answer;
   TEXT.forEach((key) => { $(key).value = config[key] || ''; });
   NUMBERS.forEach((key) => { $(key).value = config[key]; });
   FLAGS.forEach((key) => { $(key).checked = Boolean(config[key]); });

@@ -12,6 +12,10 @@ import { getConfig, setConfig, configProblems, PUSHABLE } from '../common/config
 import { info, warn } from '../common/log.js';
 import { JobApi } from './api.js';
 
+/** Un appairage qui ne répond pas ne doit pas laisser « Appairage en cours »
+ * à l'écran pour toujours. */
+const PAIR_TIMEOUT_MS = 20_000;
+
 /** L'état à rapporter, tel que l'admin l'affiche. */
 function reportOf(state) {
   const version = chrome.runtime.getManifest().version;
@@ -115,6 +119,7 @@ export async function autoPair({ quiet = false } = {}) {
   try {
     response = await fetch(`${base}/control/auto-pair`, {
       method: 'POST',
+      signal: AbortSignal.timeout(PAIR_TIMEOUT_MS),
       headers: { 'Content-Type': 'application/json', 'X-API-Key': config.apiKey },
       body: JSON.stringify({ profileExternalId: detected.profileId, name: detected.name || undefined }),
     });
@@ -148,11 +153,16 @@ export async function pair(code) {
   try {
     response = await fetch(`${base}/control/pair`, {
       method: 'POST',
+      signal: AbortSignal.timeout(PAIR_TIMEOUT_MS),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: String(code || '').trim().toUpperCase() }),
     });
   } catch (err) {
-    throw new Error(`Serveur injoignable sur ${base} (${err.message})`);
+    throw new Error(
+      err.name === 'TimeoutError'
+        ? `Le serveur ${base} n'a pas repondu en ${PAIR_TIMEOUT_MS / 1000} s : verifie l'adresse (reglages avances) et la connexion`
+        : `Serveur injoignable sur ${base} (${err.message})`,
+    );
   }
 
   const text = await response.text();
