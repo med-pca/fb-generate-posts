@@ -141,6 +141,23 @@ setTimeout(async () => {
     if (path.startsWith('/posts/targets-by-url')) {
       return { ok: true, status: 200, json: async () => ([{ targetId: 't-p', current: false }]) };
     }
+    if (path.startsWith('/posts/published')) {
+      pubCalls.push(String(url).replace('/api', ''));
+      return { ok: true, status: 200, json: async () => ({
+        timeZone: 'Europe/Paris', total: 3, truncated: false,
+        summary: {
+          total: 3, withUrl: 2,
+          verify: { ok: 1, unverified: 1, republished: 1 },
+          link: { placed: 2, waiting: 1 },
+          byProfile: [{ id: 'p1', name: 'Salim', count: 2 }, { id: 'p2', name: 'Nadia', count: 1 }],
+          byGroup: [{ id: 'g1', name: 'Recettes FR', count: 3 }],
+          byDay: [{ day: '2026-10-05', count: 2 }, { day: '2026-10-06', count: 1 }],
+          byHour: Array.from({ length: 24 }, (_, h) => (h === 9 ? 2 : h === 14 ? 1 : 0)),
+        },
+        rows: [{ targetId: 't-p', publishedAt: '2026-09-30T08:00:00Z', post: post('p'), group, profile: salim, facebookUrl: 'https://facebook.com/groups/g1/posts/9', link: 'placed', verify: { status: 'OK' } }],
+        page: 1, limit: 50,
+      }) };
+    }
     if (path.startsWith('/posts/queue')) {
       return { ok: true, status: 200, json: async () => ({
         counts: { running: 1, upcoming: 12, published: 1, failed: 1 },
@@ -165,6 +182,7 @@ setTimeout(async () => {
     if (path === '/posts/f') return { ok: true, status: 200, json: async () => ({ id: 'f', title: 'Post f', description: 'Texte long', url: 'https://site.test/f', imageUrl: 'https://img.test/f.jpg', delay: 20 }) };
     return beforeQueue(url, options);
   };
+  const pubCalls = [];
   window.eval(`showPostsTab('queue')`);
   await new Promise((resolve) => setTimeout(resolve, 50));
   check('la file s’ouvre sur l’onglet Posts', !$('#posts-queue').classList.contains('hidden') && $('#posts-all').classList.contains('hidden'), null);
@@ -213,6 +231,34 @@ setTimeout(async () => {
   check('l’historique s’ouvre', $('#history-modal').open === true, null);
   check('il dit qui a publié, et à quelle adresse', /Publié/.test(story) && /Salim/.test(story) && !!$('#history-events a[href="https://www.facebook.com/groups/g1/posts/9"]'), story);
   check('le plus récent en premier : supprimé puis remis en file', /Remis dans la file.*Supprimé par le vérificateur.*Publié/s.test(story), story);
+  $('#history-modal').close();
+
+  // ─── Audit des publications : période, filtres, totaux ─────────────
+  window.eval(`showQueueSection('published')`);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const kpis = $('#pub-kpis').textContent.replace(/\s+/g, ' ');
+  check('« Publiés » donne les totaux de TOUT le filtre', /Publiés\s*3/.test(kpis) && /Vérifiés en ligne\s*1/.test(kpis) && /Adresse Facebook\s*2/.test(kpis) && /1 inconnue/.test(kpis), kpis);
+  check('avec la répartition par profil et par jour', /Salim\s*2/.test($('#pub-breakdown').textContent) && $('#pub-breakdown').querySelectorAll('.pub-col').length === 2, $('#pub-breakdown').textContent.slice(0, 120));
+  const pf = $('#pub-filters');
+  pf.elements.from.value = '2026-10-05T08:30';
+  pf.elements.to.value = '2026-10-05T18:45';
+  pf.elements.verify.value = 'unverified';
+  pf.elements.from.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const pubAsked = new URLSearchParams(pubCalls.at(-1).split('?')[1]);
+  check('entre deux dates ET heures : la période part au serveur', pubAsked.get('from') === new Date('2026-10-05T08:30').toISOString() && pubAsked.get('to') === new Date('2026-10-05T18:45').toISOString(), pubCalls.at(-1));
+  check('avec les autres filtres (vérification…)', pubAsked.get('verify') === 'unverified', pubCalls.at(-1));
+  $('[data-pub-range="today"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const today = new URLSearchParams(pubCalls.at(-1).split('?')[1]);
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+  check('« Aujourd’hui » : depuis minuit', today.get('from') === midnight.toISOString() && !today.get('to'), pubCalls.at(-1));
+  $('.pub-bar[data-pub-profile="p2"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  // Pour regarder le rendu : PF_DUMP_PUBLISHED=<fichier> node …/ui-test.js
+  if (process.env.PF_DUMP_PUBLISHED) require('fs').writeFileSync(process.env.PF_DUMP_PUBLISHED, $('[data-section="published"]').outerHTML);
+  check('cliquer un profil dans la répartition filtre sur lui', new URLSearchParams(pubCalls.at(-1).split('?')[1]).get('profileId') === 'p2', pubCalls.at(-1));
+  window.eval(`showQueueSection('upcoming')`);
   check('les tentatives disent le profil', /Salim/.test($('#history-attempts').textContent), $('#history-attempts').textContent);
   $('#history-modal').close();
   $('#url-search').elements.url.value = 'https://www.facebook.com/groups/g1/posts/9';

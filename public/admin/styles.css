@@ -2157,3 +2157,39 @@ dialog form small, dialog form .form-help, dialog form p { overflow-wrap: anywhe
 .obj-tz-now { color: var(--muted); font-size: 0.78rem; }
 .md-human { margin: 0 0 4px; padding: 8px 10px; border-radius: 8px; background: #f2f6fb; line-height: 1.5; }
 .md-settings select { width: auto; }
+
+/* ── Audit des publications (Posts → Publiés) ─────────────────────────── */
+.pub-filters { display: grid; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: #fafbfd; }
+.pub-range, .pub-selects { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.pub-range label { display: flex; align-items: center; gap: 6px; color: #344054; font-size: 0.82rem; font-weight: 650; }
+.pub-range input { width: auto; min-height: 36px; padding: 6px 9px; }
+.pub-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.pub-quick .chip { cursor: pointer; border: 1px solid transparent; }
+.pub-quick .chip.active { border-color: var(--blue); color: var(--blue); background: #eef4ff; }
+.pub-selects select { width: auto; min-height: 36px; padding: 6px 9px; font-size: 0.84rem; }
+.pub-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; padding: 14px 16px 0; }
+.pub-kpis article { display: grid; gap: 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.pub-kpis span { color: var(--muted); font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.pub-kpis strong { font-size: 1.5rem; color: var(--ink); }
+.pub-kpis small { color: var(--muted); font-size: 0.76rem; }
+.pub-kpis article.good strong { color: #17803d; }
+.pub-kpis article.warn strong { color: #b54708; }
+.pub-kpis article.bad strong { color: #c0362c; }
+.pub-breakdown { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding: 14px 16px; }
+.pub-top { display: grid; align-content: start; gap: 4px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.pub-top h4 { margin: 0 0 4px; font-size: 0.84rem; }
+.pub-top h4 small { color: var(--muted); font-weight: 500; }
+.pub-bar { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 0.8rem; text-align: start; cursor: pointer; overflow: hidden; }
+.pub-bar:hover { background: #f4f7fc; }
+.pub-bar span { position: relative; z-index: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pub-bar b { position: relative; z-index: 1; }
+.pub-bar i { position: absolute; inset: 3px auto 3px 0; border-radius: 5px; background: #e0eaff; }
+.pub-time { grid-column: 1 / -1; }
+.pub-cols { display: flex; align-items: flex-end; gap: 3px; height: 110px; padding-top: 6px; }
+.pub-col { flex: 1; display: grid; grid-template-rows: 1fr auto; align-items: end; height: 100%; min-width: 0; }
+.pub-col i { display: block; min-height: 2px; border-radius: 3px 3px 0 0; background: var(--blue); }
+.pub-col small { margin-top: 3px; color: var(--muted); font-size: 0.62rem; text-align: center; white-space: nowrap; overflow: hidden; }
+@media (max-width: 760px) { .pub-range label, .pub-selects select { flex: 1 1 100%; } }
+.pub-kpis small, .pub-top h4 small { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 0.76rem; }
+.pub-cols { justify-content: center; }
+.pub-col { max-width: 56px; }

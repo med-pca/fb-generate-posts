@@ -7,6 +7,8 @@ const API = '/api',
     settings: null,
     sites: [],
     categories: [],
+    // L'audit des publications faites (section « Publiés »).
+    pub: { filters: { from: '', to: '', profileId: '', verify: '', link: '', url: '' }, page: 1, rows: [], data: null, timer: null, loading: false },
     profileOptions: [],
     articleOptions: [],
     groupOptions: [],
@@ -3004,6 +3006,11 @@ function showQueueSection(section, { fromUrl = false } = {}) {
     b.setAttribute('aria-selected', String(b.dataset.qSection === section));
   });
   $$('.q-section').forEach((el) => el.classList.toggle('active', el.dataset.section === section));
+  if (section === 'published' && !state.pub.loading) {
+    state.pub.loading = true;
+    fillPubForm();
+    void loadPublished().finally(() => (state.pub.loading = false));
+  }
   $('#q-help').innerHTML = Q_SECTIONS[section].help;
   if (!fromUrl && state.queue.tab === 'queue') syncUrl('posts');
 }
@@ -3078,11 +3085,24 @@ function renderQueue() {
       .join('') || '<tr><td colspan="6" class="empty">Aucun post en attente pour ce filtre.</td></tr>';
   $('#queue-more').hidden = d.upcoming.length >= d.counts.upcoming;
 
+  // L'audit (filtres, période, totaux) a la main dès qu'il est chargé.
+  if (state.pub.data) {
+    renderPublished();
+  } else {
   $('#queue-published').innerHTML =
     d.published
       .filter(queueMatches)
-      .map(
-        (p) =>
+      .map(publishedRowHtml)
+      .join('') || '<tr><td colspan="7" class="empty">Aucune publication pour ce filtre.</td></tr>';
+  $('#queue-more-published').hidden = d.published.length >= d.counts.published;
+  }
+  renderVerifyReview();
+  showQueueSection(state.queue.section || 'upcoming', { fromUrl: true });
+}
+
+/** Une ligne de publication faite (file et audit). */
+function publishedRowHtml(p) {
+  return (
           `<tr><td class="pub-date"><strong>${esc(when(p.publishedAt))}</strong>` +
           (p.facebookUrl
             ? `<a href="${esc(p.facebookUrl)}" target="_blank" rel="noreferrer" title="${esc(p.facebookUrl)}">Voir sur Facebook ↗</a>`
@@ -3093,13 +3113,170 @@ function renderQueue() {
           `<td>${rowMenu([
             menuItem(`data-history="${p.targetId}"`, '🕘 Historique'),
             menuItem(`data-set-url="${p.targetId}" data-current="${esc(p.facebookUrl || '')}"`, p.facebookUrl ? '🔗 Corriger le lien Facebook' : '🔗 Coller le lien Facebook'),
-          ])}</td></tr>`,
-      )
-      .join('') || '<tr><td colspan="7" class="empty">Aucune publication pour ce filtre.</td></tr>';
-  $('#queue-more-published').hidden = d.published.length >= d.counts.published;
-  renderVerifyReview();
-  showQueueSection(state.queue.section || 'upcoming', { fromUrl: true });
+          ])}</td></tr>`
+  );
 }
+
+/* ── Audit des publications faites ─────────────────────────────────────
+ * Une période à la minute près, des filtres (profil, vérification, lien,
+ * adresse, plus catégorie / groupe / recherche de la barre du haut), et des
+ * totaux calculés côté serveur sur TOUT le filtre — pas sur la page affichée. */
+const PUB_PAGE = 50;
+const pad2 = (n) => String(n).padStart(2, '0');
+/** Une date pour un champ datetime-local (heure de ce navigateur). */
+const toLocalInput = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function pubQuery(page = state.pub.page) {
+  const f = state.pub.filters;
+  const q = new URLSearchParams({ page, limit: PUB_PAGE });
+  if (f.from) q.set('from', new Date(f.from).toISOString());
+  if (f.to) q.set('to', new Date(f.to).toISOString());
+  for (const k of ['profileId', 'verify', 'link', 'url']) if (f[k]) q.set(k, f[k]);
+  if (state.queue.categoryId) q.set('categoryId', state.queue.categoryId);
+  if (state.queue.groupId) q.set('groupId', state.queue.groupId);
+  if (state.queue.search) q.set('search', state.queue.search);
+  return q;
+}
+async function loadPublished({ append = false } = {}) {
+  if (!append) state.pub.page = 1;
+  try {
+    const data = await api(`/posts/published?${pubQuery()}`);
+    state.pub.rows = append ? [...state.pub.rows, ...data.rows] : data.rows;
+    state.pub.data = data;
+    renderPublished();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+}
+const pct = (n, total) => (total ? `${Math.round((n / total) * 100)} %` : '—');
+function renderPublished() {
+  const d = state.pub.data;
+  if (!d) return;
+  const s = d.summary;
+  const v = s.verify || {}, l = s.link || {};
+  const linkable = s.total - (l.none || 0);
+  const kpi = (label, value, sub, tone = '') => `<article class="${tone}"><span>${label}</span><strong>${value}</strong><small>${sub}</small></article>`;
+  $('#pub-kpis').innerHTML =
+    kpi('Publiés', s.total, describePubRange()) +
+    kpi('Vérifiés en ligne', v.ok || 0, `${pct(v.ok || 0, s.total)} · ${v.unverified || 0} pas encore vérifié(s)`, 'good') +
+    kpi('Lien posé', l.placed || 0, `${pct(l.placed || 0, linkable)} des posts avec lien · ${(l.waiting || 0) + (l.missing || 0)} sans`, (l.waiting || 0) + (l.missing || 0) ? 'warn' : 'good') +
+    kpi('Adresse Facebook', s.withUrl, `${pct(s.withUrl, s.total)} · ${s.total - s.withUrl} inconnue(s)`, s.total - s.withUrl ? 'warn' : '') +
+    kpi('À reprendre', (v.republished || 0) + (v.needs_action || 0), `${v.republished || 0} republié(s) · ${v.needs_action || 0} à traiter`, (v.needs_action || 0) ? 'bad' : '');
+  const top = (title, list, key) =>
+    `<div class="pub-top"><h4>${title}</h4>` +
+    (list.length
+      ? list
+          .slice(0, 8)
+          .map((x) => `<button type="button" class="pub-bar" data-pub-${key}="${esc(x.id)}" title="Filtrer sur ${esc(x.name)}"><span>${esc(x.name)}</span><i style="width:${Math.max(4, (x.count / list[0].count) * 100)}%"></i><b>${x.count}</b></button>`)
+          .join('') + (list.length > 8 ? `<small class="muted">+ ${list.length - 8} autre(s)</small>` : '')
+      : '<small class="muted">—</small>') +
+    `</div>`;
+  const days = s.byDay || [];
+  const timeline = days.length > 1
+    ? { title: `Par jour <small>(${esc(d.timeZone)})</small>`, bars: days.map((x) => ({ label: x.day.slice(5).split('-').reverse().join('/'), n: x.count })) }
+    : { title: `Par heure <small>(${esc(d.timeZone)})</small>`, bars: (s.byHour || []).map((n, h) => ({ label: `${h}h`, n })) };
+  const max = Math.max(1, ...timeline.bars.map((b) => b.n));
+  $('#pub-breakdown').innerHTML =
+    top('Par profil', s.byProfile || [], 'profile') +
+    top('Par groupe', s.byGroup || [], 'group') +
+    `<div class="pub-top pub-time"><h4>${timeline.title}</h4><div class="pub-cols">${timeline.bars
+      .map((b) => `<span class="pub-col" title="${esc(b.label)} : ${b.n}"><i style="height:${(b.n / max) * 100}%"></i><small>${esc(b.label)}</small></span>`)
+      .join('')}</div></div>`;
+  $('#queue-published').innerHTML =
+    state.pub.rows.map(publishedRowHtml).join('') || '<tr><td colspan="7" class="empty">Aucune publication pour ce filtre.</td></tr>';
+  const more = $('#queue-more-published');
+  more.hidden = state.pub.rows.length >= d.total;
+  more.textContent = `Voir ${Math.min(PUB_PAGE, d.total - state.pub.rows.length)} de plus (${state.pub.rows.length} / ${d.total})`;
+  if (d.truncated) notice('Période très large : les totaux portent sur les 50 000 dernières publications. Resserrez la période.', 'error');
+}
+function describePubRange() {
+  const f = state.pub.filters;
+  const fmt = (v) => new Date(v).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  if (f.from && f.to) return `du ${fmt(f.from)} au ${fmt(f.to)}`;
+  if (f.from) return `depuis le ${fmt(f.from)}`;
+  if (f.to) return `jusqu’au ${fmt(f.to)}`;
+  return 'depuis le début';
+}
+function fillPubForm() {
+  const form = $('#pub-filters');
+  const select = $('#pub-profile');
+  const current = state.pub.filters.profileId;
+  select.innerHTML = '<option value="">Tous les profils</option>' + (state.profileOptions || []).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  for (const [k, val] of Object.entries(state.pub.filters)) if (form.elements[k]) form.elements[k].value = val;
+  select.value = current;
+}
+function setPubRange(key) {
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const ranges = {
+    today: [start, null],
+    yesterday: [new Date(start.getTime() - 86400000), start],
+    hour: [new Date(now.getTime() - 3600000), null],
+    '7d': [new Date(start.getTime() - 6 * 86400000), null],
+    '30d': [new Date(start.getTime() - 29 * 86400000), null],
+    all: [null, null],
+  };
+  const [from, to] = ranges[key] || ranges.all;
+  state.pub.filters.from = from ? toLocalInput(from) : '';
+  state.pub.filters.to = to ? toLocalInput(to) : '';
+  fillPubForm();
+  $$('[data-pub-range]').forEach((b) => b.classList.toggle('active', b.dataset.pubRange === key));
+  loadPublished();
+}
+$('#pub-filters').addEventListener('change', (e) => {
+  const form = e.currentTarget;
+  for (const k of Object.keys(state.pub.filters)) if (form.elements[k]) state.pub.filters[k] = form.elements[k].value;
+  if (e.target.type === 'datetime-local') $$('[data-pub-range]').forEach((b) => b.classList.remove('active'));
+  loadPublished();
+});
+$('#pub-filters').addEventListener('submit', (e) => e.preventDefault());
+$('#pub-quick').addEventListener('click', (e) => {
+  const key = e.target.closest('[data-pub-range]')?.dataset.pubRange;
+  if (key) setPubRange(key);
+});
+$('#pub-reset').onclick = () => {
+  state.pub.filters = { from: '', to: '', profileId: '', verify: '', link: '', url: '' };
+  fillPubForm();
+  $$('[data-pub-range]').forEach((b) => b.classList.remove('active'));
+  loadPublished();
+};
+$('#pub-breakdown').addEventListener('click', (e) => {
+  const bar = e.target.closest('.pub-bar');
+  if (!bar) return;
+  if (bar.dataset.pubProfile) {
+    state.pub.filters.profileId = bar.dataset.pubProfile;
+    fillPubForm();
+  } else if (bar.dataset.pubGroup) {
+    state.queue.groupId = bar.dataset.pubGroup;
+    fillQueueFilters();
+  }
+  loadPublished();
+});
+$('#pub-export').onclick = async (e) => {
+  const button = e.target;
+  button.disabled = true;
+  try {
+    const query = pubQuery(1);
+    query.delete('page');
+    query.delete('limit');
+    const response = await fetch(`${API}/posts/published.csv?${query}`, {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'PostFlow' },
+    });
+    if (response.status === 401) return toLogin();
+    if (!response.ok) throw new Error(`Export refusé (HTTP ${response.status})`);
+    const blob = await response.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `publications-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+};
 
 /** Ce que le vérificateur n'a pas pu régler seul : post sans lien qu'il n'a
  * pas pu supprimer, republications épuisées, page toujours injoignable. */
@@ -3273,6 +3450,11 @@ $('#q-tabs').addEventListener('click', (e) => {
 $('#queue-search').oninput = (e) => {
   state.queue.search = e.target.value.trim();
   renderQueue();
+  // L'audit cherche côté serveur : on attend que la frappe s'arrête.
+  if (state.queue.section === 'published') {
+    clearTimeout(state.pub.timer);
+    state.pub.timer = setTimeout(() => loadPublished(), 350);
+  }
 };
 $('#url-search-toggle').onclick = () => {
   const form = $('#url-search');
@@ -3469,10 +3651,12 @@ $('#queue-category').onchange = (e) => {
   state.queue.categoryId = e.target.value;
   fillQueueFilters();
   loadQueue();
+  if (state.queue.section === 'published') loadPublished();
 };
 $('#queue-group').onchange = (e) => {
   state.queue.groupId = e.target.value;
   loadQueue();
+  if (state.queue.section === 'published') loadPublished();
 };
 $('#queue-refresh').onclick = () => loadQueue();
 $('#queue-more').onclick = () => {
@@ -3480,6 +3664,11 @@ $('#queue-more').onclick = () => {
   loadQueue();
 };
 $('#queue-more-published').onclick = () => {
+  if (state.pub.data) {
+    state.pub.page += 1;
+    void loadPublished({ append: true });
+    return;
+  }
   state.queue.publishedLimit = Math.min(200, state.queue.publishedLimit + 20);
   loadQueue();
 };

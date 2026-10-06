@@ -9,8 +9,10 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -34,6 +36,8 @@ import {
   QueueQueryDto,
 } from './dto/queue.dto';
 import { QueueService } from './queue.service';
+import { PublishedService } from './published.service';
+import { PublishedQueryDto } from './dto/queue.dto';
 
 @ApiTags('posts')
 @ApiBearerAuth()
@@ -43,7 +47,25 @@ export class PostsController {
   constructor(
     private readonly posts: PostsService,
     private readonly queueService: QueueService,
+    private readonly publishedService: PublishedService,
   ) {}
+
+  // Avant `:id` : « published » serait pris pour un identifiant.
+  @Get('published')
+  @ApiOperation({ summary: 'Audit des publications faites : période (date-heure), profil, groupe, vérification, lien… avec les totaux' })
+  published(@Query() query: PublishedQueryDto, @ActingUser() acting: CurrentUser) {
+    return this.publishedService.audit(query, acting);
+  }
+
+  @Get('published.csv')
+  @ApiOperation({ summary: 'Le même audit en CSV' })
+  async publishedCsv(@Query() query: PublishedQueryDto, @ActingUser() acting: CurrentUser, @Res() reply: FastifyReply) {
+    const body = await this.publishedService.csv(query, acting);
+    return reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', `attachment; filename="publications-${new Date().toISOString().slice(0, 10)}.csv"`)
+      .send(body);
+  }
 
   // Avant `:id` : sinon « queue » serait pris pour un identifiant.
   @Get('queue')

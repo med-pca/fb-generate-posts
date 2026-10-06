@@ -1629,6 +1629,16 @@ Côté WordPress, la colonne « Facebook » de la liste des articles dit où en 
 le renvoi (« En attente », « Réponse API invalide (HTTP …) », etc.).
 `ECHO_PULL_INTERVAL_MINUTES` (défaut 2, 0 = jamais) règle la relecture.
 
+## Audit des publications (Posts → Publiés)
+
+`GET /api/posts/published` (et `published.csv`, même filtre) : période à la
+minute (`from` inclus, `to` exclu, ISO), `profileId` (le profil qui a
+publié), `groupId`, `categoryId`, `verify` (`ok`, `unverified`,
+`republished`, `needs_action`), `link` (`placed`, `waiting`, `missing`,
+`none`), `url` (`with`, `without`), `search`. Les totaux (par profil, par
+groupe, par jour et par heure dans le fuseau de l'objectif, vérification,
+lien, adresse) portent sur TOUT le filtre ; la liste est paginée (50).
+
 ## Duplication des contenus
 
 Par défaut, un post part **une seule fois** dans chaque groupe. **Posts → 🔁

@@ -351,6 +351,35 @@
             </div>
 
             <div class="panel queue-panel q-section" data-section="published">
+              <!-- L'audit : une période (date ET heure), des filtres, et les
+                   totaux calculés sur TOUT le filtre. -->
+              <form id="pub-filters" class="pub-filters">
+                <div class="pub-range">
+                  <label>Du <input name="from" type="datetime-local" /></label>
+                  <label>au <input name="to" type="datetime-local" /></label>
+                  <span class="pub-quick" id="pub-quick">
+                    <button type="button" class="chip" data-pub-range="today">Aujourd’hui</button
+                    ><button type="button" class="chip" data-pub-range="yesterday">Hier</button
+                    ><button type="button" class="chip" data-pub-range="hour">Dernière heure</button
+                    ><button type="button" class="chip" data-pub-range="7d">7 jours</button
+                    ><button type="button" class="chip" data-pub-range="30d">30 jours</button
+                    ><button type="button" class="chip" data-pub-range="all">Tout</button>
+                  </span>
+                </div>
+                <div class="pub-selects">
+                  <select name="profileId" id="pub-profile"><option value="">Tous les profils</option></select
+                  ><select name="verify"
+                    ><option value="">Toute vérification</option><option value="ok">✓ Vérifié</option><option value="unverified">Pas encore vérifié</option><option value="republished">↻ Republié</option><option value="needs_action">⚠ À traiter</option></select
+                  ><select name="link"
+                    ><option value="">Tout lien d’article</option><option value="placed">Lien posé</option><option value="waiting">Lien en attente</option><option value="missing">Lien manquant</option><option value="none">Post sans lien</option></select
+                  ><select name="url"
+                    ><option value="">Adresse Facebook : toutes</option><option value="with">Adresse connue</option><option value="without">⚠ Adresse inconnue</option></select
+                  ><button class="link" type="button" id="pub-reset">Effacer</button
+                  ><button class="secondary" type="button" id="pub-export" title="Le même filtre, en CSV pour un tableur">⬇ CSV</button>
+                </div>
+              </form>
+              <div class="pub-kpis" id="pub-kpis"></div>
+              <div class="pub-breakdown" id="pub-breakdown"></div>
               <div class="table-wrap"><table>
                 <colgroup><col class="w-date" /><col /><col class="w-group" /><col class="w-profile" /><col class="w-chip" /><col class="w-chip" /><col class="w-actions-sm" /></colgroup>
                 <thead><tr><th>Publié</th><th>Post</th><th>Groupe</th><th>Profil</th><th>Lien article</th><th>Vérification</th><th></th></tr></thead>
