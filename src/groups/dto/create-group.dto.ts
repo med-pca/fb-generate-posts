@@ -1,11 +1,14 @@
 import { RecordStatus } from '@prisma/client';
 import {
+  IsIn,
+  ValidateIf,
   IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUrl,
 } from 'class-validator';
+import { LANGUAGES } from '../../ingest/image-translator.service';
 
 export class CreateGroupDto {
   @IsOptional()
@@ -26,4 +29,11 @@ export class CreateGroupDto {
   @IsString()
   @IsNotEmpty({ message: 'Choisissez la catégorie du groupe' })
   categoryId!: string;
+
+  /** La langue des membres (en, fr, ar…). null = non précisée. Les posts
+   * « engagement » ne vont qu'aux groupes de la langue choisie. */
+  @IsOptional()
+  @ValidateIf((_dto, value) => value !== null)
+  @IsIn(Object.keys(LANGUAGES))
+  language?: string | null;
 }

@@ -18,7 +18,7 @@ import { PublishJobItemDto } from './dto/publish-job-item.dto';
 import type { CurrentUser } from '../auth/current-user';
 import { jobWhere, profileWhere, scopeOf } from '../auth/scope';
 
-type LockedTarget = { id: string; postId: string; delay: number };
+type LockedTarget = { id: string; postId: string; delay: number; noComment?: boolean };
 
 /** Ce qu'un automate reçoit pour publier : image et description, jamais
  * l'URL. Le commentaire l'accompagne, il recevra le lien plus tard. */
@@ -28,6 +28,7 @@ type ClaimedPost = {
   description: string;
   image: string | null;
   delay: number;
+  noComment: boolean;
   comment: { text: string; willReceiveLink: boolean };
 };
 
@@ -224,8 +225,8 @@ export class JobsService {
     const job = await this.prisma.$transaction(async (tx) => {
       await this.releaseExpiredClaims(tx);
 
-      const targets = await tx.$queryRaw<LockedTarget[]>(Prisma.sql`
-        SELECT pt.id, pt.post_id AS "postId", p.delay
+      let targets = await tx.$queryRaw<LockedTarget[]>(Prisma.sql`
+        SELECT pt.id, pt.post_id AS "postId", p.delay, p.no_comment AS "noComment"
         FROM post_targets pt
         INNER JOIN posts p ON p.id = pt.post_id
         LEFT JOIN users u ON u.id = p.owner_id
@@ -266,6 +267,11 @@ export class JobsService {
         LIMIT ${count}
       `);
 
+      // Un lot ne mélange jamais les deux parcours : posts d'articles (avec
+      // commentaire et lien) OU visuels (image et description seules). Le
+      // premier post décide ; les autres restent en file pour un autre lot.
+      const kind = targets[0]?.noComment ?? false;
+      targets = targets.filter((t) => Boolean(t.noComment) === Boolean(kind));
       if (targets.length === 0) return null;
       const pacing = targets.reduce((sum, target) => sum + Number(target.delay || 0), 0);
       claimExpiresAt = new Date(Date.now() + (ttlMinutes + pacing) * 60_000);
@@ -334,6 +340,10 @@ export class JobsService {
         description: post.description,
         image: post.imageUrl ?? job.profile.defaultImageUrl,
         delay: post.delay,
+        // Post « engagement » : image et description seules — l'extension
+        // (≥ 1.8.0) ne pose pas de premier commentaire. `comment` reste là
+        // pour les anciennes versions, qui le lisent.
+        noComment: post.noComment,
         comment: { text: post.description, willReceiveLink: Boolean(post.url) },
       })),
     };

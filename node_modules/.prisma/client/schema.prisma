@@ -128,6 +128,7 @@ model Category {
   sites     ContentSource[]
   createdAt DateTime        @default(now()) @map("created_at")
   updatedAt DateTime        @updatedAt @map("updated_at")
+  visuals   Visual[]
 
   @@map("categories")
 }
@@ -163,6 +164,7 @@ model User {
   siteAccess    SiteAccess[]
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
+  visuals       Visual[]
 
   @@index([status])
   @@map("users")
@@ -253,6 +255,9 @@ model Group {
   /// l'objectif ; une plage peut passer minuit). NULL = à toute heure.
   hoursStart      Int?             @map("hours_start")
   hoursEnd        Int?             @map("hours_end")
+  /// La langue des membres (code ISO : en, fr, ar, es…). Les posts
+  /// « engagement » ne vont qu'aux groupes de la langue choisie.
+  language        String?
   profiles        ProfileGroup[]
   targets         PostTarget[]
   publicationJobs PublicationJob[]
@@ -350,9 +355,16 @@ model Post {
   rawData          Json?                @map("raw_data")
   articleId        String?              @map("article_id")
   article          Article?             @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  /// Le visuel d'où vient ce post (rubrique Articles → Visuels) : une image
+  /// seule, sans article ni lien.
+  visualId         String?              @map("visual_id")
+  visual           Visual?              @relation(fields: [visualId], references: [id], onDelete: SetNull)
   socialAngle      String?              @map("social_angle")
   /// Ordre de passage : plus haut = publié plus tôt. À égalité, le plus
   /// ancien d'abord. 0 = normal.
+  /// Post « engagement » : image et description seules — l'extension ne pose
+  /// pas de premier commentaire.
+  noComment        Boolean              @default(false) @map("no_comment")
   priority         Int                  @default(0)
   /// Ses propres règles de duplication. NULL = le réglage global.
   repeatTimes      Int?                 @map("repeat_times")
@@ -367,6 +379,7 @@ model Post {
   @@index([profileId, status])
   @@index([ownerId])
   @@index([articleId])
+  @@index([visualId])
   @@index([priority, createdAt])
   @@map("posts")
 }
@@ -499,14 +512,17 @@ model SourceIngest {
   /// `rewrite` : réécrire l'article d'un site source (sourceUrl).
   /// `news`    : créer NOTRE article à partir de l'image seule, rapprochée de
   ///             l'actualité du moment (sourceText garde les titres utilisés).
-  mode        String  @default("rewrite")
+  mode           String  @default("rewrite")
+  /// Mode « engagement » : la langue cible (image traduite, description, et
+  /// groupes de cette langue).
+  targetLanguage String? @map("target_language")
   /// Ce que l'extension rapporte du post d'origine.
-  fbCaption   String? @map("fb_caption") @db.Text
-  fbImageUrl  String? @map("fb_image_url")
+  fbCaption      String? @map("fb_caption") @db.Text
+  fbImageUrl     String? @map("fb_image_url")
   /// Ce que la page source fournit, gardé pour rejouer la réécriture sans
   /// retourner la chercher.
-  sourceTitle String? @map("source_title")
-  sourceText  String? @map("source_text") @db.Text
+  sourceTitle    String? @map("source_title")
+  sourceText     String? @map("source_text") @db.Text
 
   /// Sortie du modèle, telle quelle.
   generated   Json?
@@ -561,6 +577,10 @@ model AutomationSetting {
   /// est mis en pause ce nombre de jours : il ne publie plus, ses posts
   /// passent aux autres profils.
   rateLimitPauseDays         Int      @default(5) @map("rate_limit_pause_days")
+  /// L'IA qui traduit le texte d'une image (mode « engagement ») : `auto`
+  /// (le premier configuré), `openai`, `qwen` ou `seedream`. Les clés restent
+  /// dans l'environnement du serveur.
+  imageProvider              String   @default("auto") @map("image_provider")
   repeatTimes                Int      @default(1) @map("repeat_times")
   repeatEveryHours           Int      @default(48) @map("repeat_every_hours")
   createdAt                  DateTime @default(now()) @map("created_at")
@@ -844,4 +864,49 @@ model ExtensionRelease {
   @@unique([key, version])
   @@index([key, createdAt])
   @@map("extension_releases")
+}
+
+/// Une image produite par la plateforme (image traduite d'un post
+/// « engagement »). Servie publiquement sous un jeton imprévisible : les
+/// extensions la téléchargent pour la publier.
+model GeneratedImage {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  mimeType  String   @map("mime_type")
+  data      Bytes
+  ingestId  String?  @map("ingest_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("generated_images")
+}
+
+/// Un visuel : une image seule à publier dans les groupes — capturée sur
+/// Facebook (mode « engagement ») ou importée. Pas d'article, pas de lien :
+/// ses posts partent avec l'image et la description, sans commentaire.
+model Visual {
+  id         String       @id @default(cuid())
+  title      String
+  /// L'image publiée (servie par la plateforme : /media/g/<jeton>).
+  imageUrl   String       @map("image_url")
+  caption    String       @db.Text
+  hashtags   String[]
+  /// La langue du texte et des groupes visés (en, fr, ar…).
+  language   String?
+  categoryId String?      @map("category_id")
+  category   Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  /// `capture` (extension Capture) ou `upload` (importé dans la plateforme).
+  origin     String       @default("upload")
+  ingestId   String?      @map("ingest_id")
+  /// Le texte trouvé dans l'image et sa traduction, l'IA utilisée.
+  details    Json?
+  ownerId    String?      @map("owner_id")
+  owner      User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  status     RecordStatus @default(ACTIVE)
+  posts      Post[]
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@index([ownerId])
+  @@map("visuals")
 }

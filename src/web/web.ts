@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SessionService } from '../auth/session.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { isSecure, sessionTokenFrom } from '../auth/cookies';
 import { APP_ROUTES, DYNAMIC_ROUTES, PAGE_CSP, SECURITY_HEADERS, appPath, legacyTarget, safeNext } from './routes';
 
@@ -45,6 +46,22 @@ export function registerWeb(app: NestFastifyApplication) {
     if (request.url.startsWith('/api/docs') && !(await loggedIn(request))) {
       return reply.redirect(`/login?next=${encodeURIComponent('/api/docs')}`, 302);
     }
+  });
+
+  // Les images produites par la plateforme (posts « engagement ») : publiques,
+  // sous un jeton imprévisible — l'extension de publication les télécharge.
+  fastify.get('/media/g/:file', async (request, reply) => {
+    const prisma = app.get(PrismaService, { strict: false });
+    const file = String((request.params as { file?: string }).file || '');
+    const token = file.replace(/\.(png|jpe?g|webp)$/i, '');
+    if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return reply.code(404).send();
+    const image = await prisma.generatedImage.findUnique({ where: { token }, select: { mimeType: true, data: true } });
+    if (!image) return reply.code(404).send();
+    return reply
+      .header('content-type', image.mimeType)
+      .header('cache-control', 'public, max-age=31536000, immutable')
+      .header('access-control-allow-origin', '*')
+      .send(Buffer.from(image.data));
   });
 
   fastify.get('/login', async (request, reply) => {

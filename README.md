@@ -1668,6 +1668,53 @@ source, l'image suffit (`mode: 'news'`). Le serveur :
 Journal : `INGEST_NEWS_READ`, `INGEST_NEWS_TITLES` (les 3 titres et
 l'actualité retenue).
 
+## Capture en mode « engagement » : image traduite, sans lien
+
+Extension Capture (≥ 1.6.0), « 💬 Engagement » : une image, une **langue**.
+Chaque groupe a une langue (Pilotage → Règles & priorités). Le serveur :
+
+1. vérifie qu'il existe des groupes actifs de cette langue dans la catégorie
+   du site (avant toute dépense d'IA) ;
+2. lit le texte de l'image et le traduit (modèle qui voit l'image :
+   OpenAI/Gemini) ;
+3. s'il y a du texte, produit une **nouvelle image** avec le texte traduit,
+   par l'IA d'image choisie (Pilotage → Règles & priorités) — sinon garde
+   l'image d'origine (aucun coût) ;
+4. écrit une description « engagement » dans la langue (DeepSeek d'abord) ;
+5. crée un post **sans lien et sans commentaire** (`noComment`) vers ces
+   groupes. L'image est servie publiquement sous un jeton :
+   `<PUBLIC_URL>/media/g/<jeton>.png` (`PUBLIC_URL`, défaut
+   https://post.pulserecipe.com).
+
+IA d'image (clés et modèles dans l'environnement ; jamais affichés) :
+
+| Choix | Clé | Modèle (défaut) | Adresse (défaut) |
+|---|---|---|---|
+| `openai` | `OPENAI_API_KEY` | `OPENAI_IMAGE_MODEL` (gpt-image-1-mini) | — |
+| `qwen` | `DASHSCOPE_API_KEY` | `QWEN_IMAGE_MODEL` (qwen-image-edit) | `DASHSCOPE_BASE_URL` (https://dashscope-intl.aliyuncs.com) |
+| `seedream` | `ARK_API_KEY` | `SEEDREAM_MODEL` (seedream-4-0-250828) | `ARK_BASE_URL` (https://ark.ap-southeast.bytepluses.com) |
+
+`auto` prend le premier configuré (ordre `IMAGE_PROVIDERS`, défaut
+openai,qwen,seedream) ; un fournisseur en panne fait passer au suivant.
+L'extension Publication (≥ 1.8.0) ne pose pas de premier commentaire sur ces
+posts.
+
+## Articles → Visuels : deux parcours séparés
+
+La rubrique Articles a deux onglets : **📰 Articles** (URL, WordPress,
+commentaire et lien) et **🖼 Visuels** (`/articles/visuels`) — une image seule
+(`Visual`), publiée avec sa description, **sans lien ni commentaire**.
+
+- Un visuel vient d'une capture « 💬 Engagement » (extension Capture) ou d'un
+  **import** (`POST /api/visuals` : image en base64, langue, catégorie ou
+  groupes, description à la main ou par l'IA, traduction du texte de l'image
+  en option). Le même service (`VisualsService`) pour les deux.
+- Ses posts portent `visualId` et `noComment` ; un lot de publication ne
+  mélange jamais posts d'articles et visuels (vérifié sur PostgreSQL).
+- Traçabilité : étiquette 🖼 Visuel dans la file, filtre « type de contenu »
+  dans l'audit des publiés (`kind=article|visual|manual`).
+- Taille des envois : 15 Mo (image importée en base64).
+
 ## Règles du pilotage : plafonds, heures, quotas
 
 - **Groupe** : `dailyCap` (au plus N posts par jour, publiés + en cours),

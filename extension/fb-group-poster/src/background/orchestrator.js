@@ -378,7 +378,8 @@ async function doPublish(config, api, state) {
     await nextPost(config, state, job, post, false);
     return;
   }
-  const firstComment = !config.addFirstComment
+  // Un post « engagement » part sans commentaire, quel que soit le réglage.
+  const firstComment = !config.addFirstComment || post.noComment
     ? ''
     : String(config.firstCommentText || '').trim() || composePostBody(post.commentText);
 

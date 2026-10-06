@@ -92,7 +92,7 @@ function fakeChrome(store = {}) {
     json: async () => ({
       sites: [
         { name: 'Food Time', siteUrl: 'https://foodtime.test', ready: false, reason: 'extension WordPress à mettre à jour (1.3.0)', category: null },
-        { name: 'Tera', siteUrl: 'https://tera.test', ready: true, category: 'Recettes' },
+        { name: 'Tera', siteUrl: 'https://tera.test', ready: true, category: 'Recettes', languages: [{ code: 'fr', groups: 3 }, { code: 'ar', groups: 2 }] },
         { name: 'Nord', siteUrl: 'https://nord.test', ready: false, reason: 'sans catégorie : aucun post', category: null },
       ],
     }),
@@ -161,6 +161,20 @@ function fakeChrome(store = {}) {
   r('send').click();
   await wait(50);
   check('mode actualité : envoyé en « news », en anglais, sans URL source', sentBody && sentBody.mode === 'news' && sentBody.language === 'en' && !('sourceUrl' in sentBody), sentBody);
+
+  // ─── Mode « engagement » : une langue, image traduite, sans lien ──────
+  const eng = rw.document.querySelector('input[name="mode"][value="engagement"]');
+  eng.checked = true;
+  eng.dispatchEvent(new rw.Event('change'));
+  check('engagement : les langues des groupes de la catégorie sont proposées', /Français — 3 groupe/.test(r('language').textContent) && /Arabe — 2 groupe/.test(r('language').textContent), r('language').textContent);
+  check('engagement : il faut choisir la langue avant d’envoyer', r('send').disabled === true, null);
+  r('language').value = 'ar';
+  r('language').dispatchEvent(new rw.Event('change'));
+  check('engagement : langue choisie, l’envoi est prêt', r('send').disabled === false && /engagement/.test(r('send').textContent), r('send').textContent);
+  sentBody = null;
+  r('send').click();
+  await wait(50);
+  check('engagement : envoyé avec la langue cible, sans URL source', sentBody && sentBody.mode === 'engagement' && sentBody.targetLanguage === 'ar' && !('sourceUrl' in sentBody), sentBody);
 
   process.exit(ko ? 1 : 0);
 })();

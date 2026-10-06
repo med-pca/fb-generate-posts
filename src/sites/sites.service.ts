@@ -136,6 +136,13 @@ export class SitesService {
       },
       orderBy: { name: 'asc' },
     });
+    // Les langues des groupes de chaque catégorie : le mode « engagement »
+    // de l'extension Capture ne propose que celles où il y a des groupes.
+    const byLanguage = await this.prisma.group.groupBy({
+      by: ['categoryId', 'language'],
+      where: { status: RecordStatus.ACTIVE, language: { not: null } },
+      _count: { _all: true },
+    });
     // L'extension n'active que les sites prêts, et dit pourquoi les autres
     // ne le sont pas : c'est ce qui évite de choisir un site qui ne peut
     // rien recevoir.
@@ -150,6 +157,9 @@ export class SitesService {
           plugin: site.pluginState,
           ready: !blocker,
           reason: blocker,
+          languages: byLanguage
+            .filter((row) => row.categoryId === site.categoryId && row.language)
+            .map((row) => ({ code: row.language as string, groups: row._count._all })),
         };
       }),
     };

@@ -29,6 +29,8 @@ const els = {
   siteNote: $('site-note'),
   source: $('source'),
   sourceBlock: $('source-block'),
+  engagementBlock: $('engagement-block'),
+  language: $('language'),
   newsHint: $('news-hint'),
   send: $('send'),
   status: $('status'),
@@ -69,18 +71,40 @@ const say = (message, kind = '') => {
 const mode = () => document.querySelector('input[name="mode"]:checked')?.value || 'rewrite';
 function refresh() {
   const site = sites.find((item) => item.siteUrl === els.site.value);
-  const news = mode() === 'news';
-  els.sourceBlock.classList.toggle('hidden', news);
+  const m = mode();
+  const news = m === 'news';
+  const engagement = m === 'engagement';
+  els.sourceBlock.classList.toggle('hidden', news || engagement);
   els.newsHint.classList.toggle('hidden', !news);
-  els.send.textContent = news ? '📰 Créer notre article' : 'Envoyer';
+  els.engagementBlock.classList.toggle('hidden', !engagement);
+  if (engagement) fillLanguages(site);
+  els.send.textContent = news ? '📰 Créer notre article' : engagement ? '💬 Publier en engagement' : 'Envoyer';
+  // Le mode « engagement » n'a pas besoin d'un site prêt à recevoir un
+  // article : le site ne sert qu'à choisir la catégorie des groupes.
   els.send.disabled = !(
     chosen &&
-    site?.ready &&
+    (engagement ? Boolean(site) : site?.ready) &&
     (news
       // L'image est tout l'objet de l'article ; le texte est facultatif.
       ? Boolean(chosen.imageUrl)
-      : els.caption.value.trim().length >= 15 && /^https:\/\/\S+\.\S+/.test(els.source.value.trim()))
+      : engagement
+        ? Boolean(chosen.imageUrl) && Boolean(els.language.value)
+        : els.caption.value.trim().length >= 15 && /^https:\/\/\S+\.\S+/.test(els.source.value.trim()))
   );
+}
+
+/** Les langues proposées : celles des groupes de la catégorie du site. */
+const LANGUAGE_NAMES = { en: 'Anglais', fr: 'Français', ar: 'Arabe', es: 'Espagnol', de: 'Allemand', it: 'Italien', pt: 'Portugais', nl: 'Néerlandais', tr: 'Turc', pl: 'Polonais', ro: 'Roumain', ru: 'Russe', hi: 'Hindi', id: 'Indonésien' };
+function fillLanguages(site) {
+  const langs = (site && site.languages) || [];
+  const key = langs.map((l) => `${l.code}:${l.groups}`).join(',') + (site ? site.siteUrl : '');
+  if (els.language.dataset.key === key) return;
+  els.language.dataset.key = key;
+  const current = els.language.value;
+  els.language.innerHTML = langs.length
+    ? '<option value="">Choisir la langue…</option>' + langs.map((l) => `<option value="${l.code}">${LANGUAGE_NAMES[l.code] || l.code} — ${l.groups} groupe(s)</option>`).join('')
+    : '<option value="">Aucun groupe avec une langue dans cette catégorie</option>';
+  if (langs.some((l) => l.code === current)) els.language.value = current;
 }
 
 async function inject(options) {
@@ -326,6 +350,7 @@ async function send() {
   els.send.disabled = true;
   say('Envoi…');
   const news = mode() === 'news';
+  const engagement = mode() === 'engagement';
   const body = {
     facebookUrl: chosen.facebookUrl || chosen.pageUrl,
     siteUrl: els.site.value,
@@ -333,7 +358,7 @@ async function send() {
     // Nos articles d'actualité sont en anglais (la plateforme l'impose
     // aussi quand la langue est « auto »).
     language: news ? 'en' : config.language || 'auto',
-    ...(news ? { mode: 'news' } : { sourceUrl: els.source.value.trim() }),
+    ...(news ? { mode: 'news' } : engagement ? { mode: 'engagement', targetLanguage: els.language.value } : { sourceUrl: els.source.value.trim() }),
   };
   if (chosen.imageUrl) body.imageUrl = chosen.imageUrl;
 
@@ -364,10 +389,13 @@ async function send() {
   draft = { caption: null, capturedAt: null, source: '' };
   chrome.action.setBadgeText({ text: '' });
   const { ingestId } = JSON.parse(text);
-  const own = !news && sameSite(body.sourceUrl, body.siteUrl);
-  say(news ? 'Envoyé. Notre article est en cours d’écriture côté serveur.' : own ? 'Envoyé. La description sera reprise par les posts de cet article.' : 'Envoyé. La réécriture et la publication suivent côté serveur.', 'ok');
+  const own = !news && !engagement && sameSite(body.sourceUrl, body.siteUrl);
+  say(engagement ? 'Envoyé. Le post « engagement » est en préparation côté serveur.' : news ? 'Envoyé. Notre article est en cours d’écriture côté serveur.' : own ? 'Envoyé. La description sera reprise par les posts de cet article.' : 'Envoyé. La réécriture et la publication suivent côté serveur.', 'ok');
   els.done.classList.remove('hidden');
-  els.done.innerHTML = news
+  els.done.innerHTML = engagement
+    ? 'Reprise <code></code><br>💬 En préparation : texte de l’image traduit, description écrite, puis un post ' +
+      'sans lien ni commentaire pour les groupes de cette langue. Il apparaîtra dans la file de publication.'
+    : news
     ? 'Reprise <code></code><br>📰 Notre article est en préparation : actualité du moment, 3 titres, ' +
       'amorce et article de 300 à 400 mots, puis dépôt sur le site choisi. Les posts suivront à son retour ' +
       'de WordPress, avec l’amorce générée.'
@@ -387,7 +415,7 @@ async function start() {
   chrome.action.setBadgeText({ text: '' });
   const { [CAPTURE_KEY]: captured, [DRAFT_KEY]: saved, 'fcp.mode': savedMode } = await chrome.storage.local.get([CAPTURE_KEY, DRAFT_KEY, 'fcp.mode']);
   // Le dernier mode choisi est gardé : on enchaîne souvent les mêmes.
-  if (savedMode === 'news') document.querySelector('input[name="mode"][value="news"]').checked = true;
+  if (savedMode === 'news' || savedMode === 'engagement') document.querySelector(`input[name="mode"][value="${savedMode}"]`).checked = true;
   if (saved) draft = { ...draft, ...saved };
   // L'URL collée revient toujours, même avant toute capture.
   if (draft.source) els.source.value = draft.source;
@@ -411,6 +439,10 @@ els.site.addEventListener('change', () => {
   describeSite();
 });
 els.source.addEventListener('input', () => { saveDraft(); refresh(); });
+els.language.addEventListener('change', () => {
+  void chrome.storage.local.set({ 'fcp.language': els.language.value });
+  refresh();
+});
 document.querySelectorAll('input[name="mode"]').forEach((r) =>
   r.addEventListener('change', () => {
     void chrome.storage.local.set({ 'fcp.mode': mode() });

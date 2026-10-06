@@ -44,7 +44,17 @@
         <span><b>Réécrire un article</b><small>depuis l'URL d'un site source</small></span></label>
       <label class="radio"><input type="radio" name="mode" value="news" />
         <span><b>📰 Créer notre article</b><small>depuis l'image, rapprochée de l'actualité du moment — sans site source</small></span></label>
+      <label class="radio"><input type="radio" name="mode" value="engagement" />
+        <span><b>💬 Engagement</b><small>image traduite + description, dans les groupes d'une langue — sans lien ni commentaire</small></span></label>
     </fieldset>
+
+    <div id="engagement-block" class="hidden">
+      <label for="language">Langue</label>
+      <select id="language"><option value="">Choisir la langue…</option></select>
+      <p class="hint">Si l'image contient du texte, il est <b>traduit dans l'image</b> (IA d'image réglée sur la plateforme) ;
+        une description faite pour faire réagir est écrite dans cette langue. Le post part dans les groupes de cette langue
+        (catégorie du site choisi), avec l'image et la description seules. <b>L'image est indispensable.</b></p>
+    </div>
 
     <div id="source-block">
       <label for="source">URL de l'article</label>

@@ -33,6 +33,7 @@ const GENERATED = {
 const ingest = (over: Partial<SourceIngest> = {}): SourceIngest => ({
   id: 'ing_1',
   mode: 'rewrite',
+  targetLanguage: null,
   facebookUrl: 'https://www.facebook.com/x/posts/1',
   sourceUrl: SOURCE.url,
   siteUrl: 'https://site.test',
@@ -180,6 +181,39 @@ describe('resumeStatus', () => {
     expect(
       resumeStatus({ generated: null, sourceText: null, fbCaption: null }),
     ).toBe(IngestStatus.PENDING_SCRAPE);
+  });
+});
+
+describe('Mode « engagement » : la capture devient un visuel (rubrique Articles → Visuels)', () => {
+  it('l’image capturée part dans le parcours des visuels : langue, catégorie du site, traduction, post', async () => {
+    const t = setup(ingest({ mode: 'engagement', targetLanguage: 'fr', sourceUrl: '', status: IngestStatus.SCRAPED, fbCaption: 'Good morning friends', fbImageUrl: 'https://scontent.test/img.jpg' }));
+    (t.prisma as any).contentSource.findUnique = jest.fn(async () => ({ categoryId: 'c-recettes', ownerId: 'u1' }));
+    const writer = { ...t.wordpress, loadImage: jest.fn(async () => ({ data: 'T1JJRw==', mimeType: 'image/jpeg', filename: 'img.jpg' })) };
+    const visuals = { create: jest.fn(async () => ({ visual: { id: 'v1', title: 'Bonjour', caption: 'Et vous ?', imageUrl: 'https://post.test/media/g/x.png' }, postId: 'p1', groups: 2 })) };
+    const service = new IngestService(
+      t.prisma as unknown as PrismaService,
+      t.config as unknown as ConfigService,
+      t.reader as unknown as SourceReaderService,
+      t.rewriter as unknown as RewriterService,
+      writer as unknown as WordpressWriterService,
+      undefined,
+      undefined,
+      undefined,
+      visuals as never,
+    );
+    await service.advance('ing_1');
+    expect(visuals.create).toHaveBeenCalledWith(expect.objectContaining({
+      image: { data: 'T1JJRw==', mimeType: 'image/jpeg' },
+      language: 'fr',
+      translate: true,
+      categoryId: 'c-recettes',
+      createPosts: true,
+      origin: 'capture',
+      ingestId: 'ing_1',
+    }));
+    expect(t.current()).toMatchObject({ status: IngestStatus.COMPLETED });
+    expect((t.current().generated as any).visualId).toBe('v1');
+    expect(t.wordpress.deposit).not.toHaveBeenCalled();
   });
 });
 

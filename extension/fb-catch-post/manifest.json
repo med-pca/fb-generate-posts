@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Capture de posts · PostFlow",
   "short_name": "Capture de p",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Reprend une publication Facebook d'un clic : son image et son texte partent vers un site WordPress connecté, avec l'URL d'un article à réécrire.",
   "permissions": [
     "activeTab",

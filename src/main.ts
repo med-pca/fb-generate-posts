@@ -11,7 +11,9 @@ import { registerWeb } from './web/web';
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter(),
+    // 15 Mo : une image importée (rubrique Visuels) arrive en base64 dans le
+    // corps ; au-delà de 1 Mo (défaut de Fastify), elle était refusée.
+    new FastifyAdapter({ bodyLimit: 15 * 1024 * 1024 }),
   );
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

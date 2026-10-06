@@ -117,6 +117,13 @@ export class PublishedQueryDto {
   @IsIn(PUBLISHED_LINK)
   link?: (typeof PUBLISHED_LINK)[number];
 
+  /** Le type de contenu : posts d'articles, visuels (images seules), ou
+   * posts faits à la main. */
+  @ApiPropertyOptional({ enum: ['article', 'visual', 'manual'] })
+  @IsOptional()
+  @IsIn(['article', 'visual', 'manual'])
+  kind?: 'article' | 'visual' | 'manual';
+
   /** Avec ou sans l'adresse du post Facebook. */
   @ApiPropertyOptional({ enum: ['with', 'without'] })
   @IsOptional()

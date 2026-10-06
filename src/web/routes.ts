@@ -8,6 +8,7 @@ export const APP_ROUTES: Record<string, AppRoute> = {
   '/categories': { view: 'categories', title: 'Catégories' },
   '/sites': { view: 'sites', title: 'Sites' },
   '/articles': { view: 'articles', title: 'Articles' },
+  '/articles/visuels': { view: 'articles', title: 'Articles — visuels' },
   '/posts': { view: 'posts', tab: 'queue', title: 'Posts — file d’attente' },
   '/posts/en-cours': { view: 'posts', tab: 'queue', title: 'Posts — en cours' },
   '/posts/publies': { view: 'posts', tab: 'queue', title: 'Posts — publiés' },

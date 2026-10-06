@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -69,4 +70,10 @@ export class UpdateSettingsDto {
   @Min(1)
   @Max(60)
   rateLimitPauseDays?: number;
+
+  /** L'IA qui traduit le texte d'une image (mode « engagement »). */
+  @ApiPropertyOptional({ enum: ['auto', 'openai', 'qwen', 'seedream'] })
+  @IsOptional()
+  @IsIn(['auto', 'openai', 'qwen', 'seedream'])
+  imageProvider?: string;
 }

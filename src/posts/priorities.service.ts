@@ -40,7 +40,7 @@ export class PrioritiesService {
     const [groups, waiting, settings] = await Promise.all([
       this.prisma.group.findMany({
         where: { status: 'ACTIVE', ...groupWhere(scope) },
-        select: { id: true, name: true, url: true, priority: true, dailyCap: true, hoursStart: true, hoursEnd: true, category: { select: { id: true, name: true } } },
+        select: { id: true, name: true, url: true, priority: true, dailyCap: true, hoursStart: true, hoursEnd: true, language: true, category: { select: { id: true, name: true } } },
         orderBy: [{ priority: 'desc' }, { name: 'asc' }],
       }),
       // Ce qui attend dans la file : par groupe, et par article.
@@ -49,7 +49,7 @@ export class PrioritiesService {
         select: { groupId: true, post: { select: { articleId: true } } },
         take: 50_000,
       }),
-      this.prisma.automationSetting.findUnique({ where: { id: 'global' }, select: { rateLimitPauseDays: true } }),
+      this.prisma.automationSetting.findUnique({ where: { id: 'global' }, select: { rateLimitPauseDays: true, imageProvider: true } }),
     ]);
     const byGroup = new Map<string, number>();
     const byArticle = new Map<string, number>();
@@ -65,7 +65,7 @@ export class PrioritiesService {
       take: 300,
     });
     return {
-      settings: { rateLimitPauseDays: settings?.rateLimitPauseDays ?? 5 },
+      settings: { rateLimitPauseDays: settings?.rateLimitPauseDays ?? 5, imageProvider: settings?.imageProvider ?? 'auto' },
       groups: groups.map((g) => ({ ...g, waiting: byGroup.get(g.id) ?? 0, publishedToday: publishedToday.get(g.id) ?? 0 })),
       articles: articles.map((a) => ({ ...a, site: a.source.name, source: undefined, waiting: byArticle.get(a.id) ?? 0 })),
     };

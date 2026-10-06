@@ -195,3 +195,16 @@ test('un échec avant « Publier » demande la remise en file ; sinon non', asyn
     assert.deepEqual(seen[1].body, { error: 'peut-être publié' });
   });
 });
+
+test('un post « engagement » arrive marqué sans commentaire', async () => {
+  await withServer({
+    'POST /api/jobs/claim/profile/p1': () => [201, { jobId: 'j1', group: { externalId: '123', id: 'g' }, posts: [
+      { id: 'a', title: 'A', description: 'Quel est votre souvenir ?', image: 'https://post.test/media/g/abc.png', delay: 10, noComment: true, comment: { text: 'x', willReceiveLink: false } },
+      { id: 'b', title: 'B', description: 'Recette', image: null, delay: 10, comment: { text: 'y', willReceiveLink: true } },
+    ] }],
+  }, async (api) => {
+    const job = await api.claim('p1');
+    assert.equal(job.posts[0].noComment, true);
+    assert.equal(job.posts[1].noComment, false);
+  });
+});

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Publication · PostFlow",
   "short_name": "Publication",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Publie les posts puis remplace leur premier commentaire par l’URL après la clôture du lot.",
   "minimum_chrome_version": "116",
   "permissions": [

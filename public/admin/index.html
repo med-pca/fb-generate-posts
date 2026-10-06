@@ -268,16 +268,38 @@
           </div>
         </section>
         <section id="articles" class="view">
-          <div class="toolbar">
-            <p>
-              Importez le JSON d’un article, puis créez ses variantes de posts.
-            </p>
-            <button class="primary" data-open="article-modal">
-              + Importer un article
-            </button>
+          <!-- Deux parcours séparés : les articles (URL, WordPress, commentaire
+               et lien) et les visuels (une image seule, sans lien). -->
+          <div class="posts-head">
+            <div class="subtabs" role="tablist">
+              <button class="subtab active" type="button" data-articles-tab="articles" role="tab">📰 Articles</button
+              ><button class="subtab" type="button" data-articles-tab="visuals" role="tab">🖼 Visuels (images seules)</button>
+            </div>
           </div>
-          <div id="article-cards" class="cards articles"></div>
-          <div class="pagination" id="articles-pagination"></div>
+          <div id="articles-pane-articles">
+            <div class="toolbar">
+              <p>
+                Importez le JSON d’un article, puis créez ses variantes de posts.
+              </p>
+              <button class="primary" data-open="article-modal">
+                + Importer un article
+              </button>
+            </div>
+            <div id="article-cards" class="cards articles"></div>
+            <div class="pagination" id="articles-pagination"></div>
+          </div>
+          <div id="articles-pane-visuals" class="hidden">
+            <div class="toolbar">
+              <div class="toolbar-group">
+                <select id="visual-language"><option value="">Toutes les langues</option></select
+                ><input id="visual-search" type="search" placeholder="Rechercher un visuel" />
+              </div>
+              <button class="primary" type="button" id="visual-open">+ Importer une image</button>
+            </div>
+            <p class="form-help visual-intro">Une image seule, publiée avec sa description dans les groupes de sa langue — <b>sans article, sans lien, sans commentaire</b>. Viennent ici les captures « 💬 Engagement » de l’extension Capture et vos propres images. Leurs posts ne sont jamais mélangés aux posts d’articles dans un même lot.</p>
+            <div id="visual-cards" class="cards visuals"></div>
+            <div class="pagination" id="visuals-pagination"></div>
+          </div>
         </section>
         <section id="posts" class="view">
           <div class="posts-head">
@@ -367,7 +389,9 @@
                   </span>
                 </div>
                 <div class="pub-selects">
-                  <select name="profileId" id="pub-profile"><option value="">Tous les profils</option></select
+                  <select name="kind"
+                    ><option value="">Tout contenu</option><option value="article">📰 Articles</option><option value="visual">🖼 Visuels</option><option value="manual">Posts faits à la main</option></select
+                  ><select name="profileId" id="pub-profile"><option value="">Tous les profils</option></select
                   ><select name="verify"
                     ><option value="">Toute vérification</option><option value="ok">✓ Vérifié</option><option value="unverified">Pas encore vérifié</option><option value="republished">↻ Republié</option><option value="needs_action">⚠ À traiter</option></select
                   ><select name="link"
@@ -1009,6 +1033,15 @@
                 <button class="primary" type="submit">Enregistrer</button>
               </form>
             </div>
+            <div class="panel rules-panel">
+              <div class="panel-head"><div><small>MODE « ENGAGEMENT » (EXTENSION CAPTURE)</small><h2>IA qui traduit le texte des images</h2></div></div>
+              <p class="form-help">Une image capturée est traduite dans la langue choisie (son texte remplacé), puis publiée avec une description dans les groupes de cette langue — sans lien ni commentaire. Une image sans texte n’est pas régénérée. Les clés et modèles se règlent dans l’environnement du serveur ; la description est écrite par DeepSeek.</p>
+              <form id="rules-image" class="rules-pause">
+                <label>IA d’image <select name="imageProvider" id="rules-image-provider"></select></label>
+                <button class="primary" type="submit">Enregistrer</button>
+              </form>
+              <p class="form-help" id="rules-image-status"></p>
+            </div>
             <div class="rules-grid">
               <div class="panel rules-panel">
                 <div class="panel-head"><div><small>PRIORITÉ DES GROUPES</small><h2>Quels groupes d’abord</h2></div>
@@ -1016,7 +1049,7 @@
                 <p class="form-help">Un profil qui cherche du travail commence par le groupe le plus prioritaire où il peut publier. ⤒ en tête · ↑ ↓ un cran · × normal.
                   <b>Plafond</b> : au plus N posts par jour dans le groupe (vide = sans limite). <b>Heures</b> : on n’y publie qu’entre ces heures (vide = à toute heure). Jour et heures : fuseau de l’objectif.</p>
                 <div class="table-wrap"><table class="rules-table">
-                  <thead><tr><th>Groupe</th><th>En file</th><th>Priorité</th><th>Aujourd’hui / plafond</th><th>Heures</th></tr></thead>
+                  <thead><tr><th>Groupe</th><th>Langue</th><th>En file</th><th>Priorité</th><th>Aujourd’hui / plafond</th><th>Heures</th></tr></thead>
                   <tbody id="rules-groups"></tbody>
                 </table></div>
               </div>
@@ -1547,6 +1580,29 @@
         <div class="actions">
           <button class="secondary" type="button" id="repeat-bulk-reset">Revenir au réglage global</button
           ><button class="primary">Appliquer</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="visual-modal">
+      <form id="visual-form">
+        <div class="modal-head">
+          <div><small>VISUEL</small><h2>Importer une image</h2></div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <label>Image <input name="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required /></label>
+        <img id="visual-preview" class="post-image-preview" alt="" hidden />
+        <div class="two">
+          <label>Langue <select name="language" id="visual-form-language"></select></label>
+          <label>Catégorie <select name="categoryId" id="visual-form-category"></select></label>
+        </div>
+        <label class="inline-check visual-check"><input name="translate" type="checkbox" /> Traduire le texte de l’image dans cette langue <small>(IA d’image réglée dans Pilotage → Règles & priorités)</small></label>
+        <label>Titre <input name="title" maxlength="200" placeholder="Facultatif : sinon écrit par l’IA" /></label>
+        <label>Description <textarea name="caption" rows="4" placeholder="Vide = écrite par l’IA dans la langue, pour faire réagir (sans lien)"></textarea></label>
+        <label class="inline-check visual-check"><input name="createPosts" type="checkbox" checked /> Créer le post tout de suite pour les groupes de cette langue (et de cette catégorie)</label>
+        <p class="form-help" id="visual-form-note"></p>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary" type="submit" id="visual-submit">Importer</button>
         </div>
       </form>
     </dialog>

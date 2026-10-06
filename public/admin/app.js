@@ -8,7 +8,7 @@ const API = '/api',
     sites: [],
     categories: [],
     // L'audit des publications faites (section « Publiés »).
-    pub: { filters: { from: '', to: '', profileId: '', verify: '', link: '', url: '' }, page: 1, rows: [], data: null, timer: null, loading: false },
+    pub: { filters: { from: '', to: '', profileId: '', verify: '', link: '', url: '', kind: '' }, page: 1, rows: [], data: null, timer: null, loading: false },
     profileOptions: [],
     articleOptions: [],
     groupOptions: [],
@@ -109,6 +109,157 @@ function facebookIdFrom(raw) {
     /facebook\.com\/(\d{5,20})(?:[/?#]|$)/.exec(text);
   return m ? m[1] : '';
 }
+
+/* ── Rubrique Articles : articles | visuels ─────────────────────────────── */
+const LANG_NAMES = { en: 'Anglais', fr: 'Français', ar: 'Arabe', es: 'Espagnol', de: 'Allemand', it: 'Italien', pt: 'Portugais', nl: 'Néerlandais', tr: 'Turc', pl: 'Polonais', ro: 'Roumain', ru: 'Russe', hi: 'Hindi', id: 'Indonésien' };
+function showArticlesTab(tab, { fromUrl = false } = {}) {
+  state.articlesTab = tab === 'visuals' ? 'visuals' : 'articles';
+  $$('[data-articles-tab]').forEach((b) => b.classList.toggle('active', b.dataset.articlesTab === state.articlesTab));
+  $('#articles-pane-articles').classList.toggle('hidden', state.articlesTab !== 'articles');
+  $('#articles-pane-visuals').classList.toggle('hidden', state.articlesTab !== 'visuals');
+  if (state.articlesTab === 'visuals') void loadVisuals();
+  view('articles', { fromUrl });
+}
+$$('[data-articles-tab]').forEach((b) => (b.onclick = () => showArticlesTab(b.dataset.articlesTab)));
+
+const visualsState = { page: 1, language: '', search: '', timer: null, data: null };
+function fillLanguageSelect(select, current = '', empty = 'Toutes les langues') {
+  select.innerHTML = `<option value="">${empty}</option>` + Object.entries(LANG_NAMES).map(([c, n]) => `<option value="${c}" ${c === current ? 'selected' : ''}>${n}</option>`).join('');
+}
+async function loadVisuals() {
+  const q = new URLSearchParams({ page: visualsState.page, limit: 24 });
+  if (visualsState.language) q.set('language', visualsState.language);
+  if (visualsState.search) q.set('search', visualsState.search);
+  try {
+    visualsState.data = await api(`/visuals?${q}`);
+    renderVisuals();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+}
+function renderVisuals() {
+  const d = visualsState.data;
+  if (!d) return;
+  if (!$('#visual-language').options.length || $('#visual-language').options.length < 2) fillLanguageSelect($('#visual-language'), visualsState.language);
+  $('#visual-cards').innerHTML =
+    d.data
+      .map(
+        (v) =>
+          `<article class="visual-card ${v.status === 'INACTIVE' ? 'inactive' : ''}">` +
+          `<img src="${esc(v.imageUrl)}" alt="" loading="lazy">` +
+          `<div class="visual-body"><div class="post-meta"><span>${v.language ? esc(LANG_NAMES[v.language] || v.language) : 'sans langue'}${v.category ? ` · ${esc(v.category.name)}` : ''}</span>` +
+          `<span class="chip">${v.origin === 'capture' ? '📸 Capturé' : '⬆ Importé'}</span></div>` +
+          `<h3>${esc(v.title)}</h3><p>${esc(v.caption)}</p>` +
+          (v.details?.translated ? `<small class="muted">Texte traduit dans l’image (${esc(v.details.imageProvider || '')})</small>` : '') +
+          `<div class="pub-progress" title="${v.published} publié(s) sur ${v.groups} groupe(s)"><span class="bar"><i style="width:${v.groups ? Math.round((v.published / v.groups) * 100) : 0}%"></i></span>` +
+          `<small>${v.published}/${v.groups} groupe(s) publié(s)${v.waiting ? ` · ${v.waiting} en file` : ''}</small></div>` +
+          `<div class="card-actions"><button class="primary compact" data-visual-posts="${v.id}" ${v.status === 'INACTIVE' ? 'disabled' : ''} title="Pour les groupes de sa langue (et de sa catégorie) qui ne l’ont pas encore">Créer les posts</button>` +
+          `<button class="edit" data-visual-toggle="${v.id}" data-status="${v.status}">${v.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button>` +
+          `<button class="danger" data-visual-delete="${v.id}" data-title="${esc(v.title)}">Supprimer</button></div></div></article>`,
+      )
+      .join('') || '<p class="empty">Aucun visuel. Importez une image, ou capturez-en une avec l’extension Capture (mode « 💬 Engagement »).</p>';
+  $('#visuals-pagination').innerHTML =
+    d.meta.pages > 1
+      ? `<button class="secondary" data-visual-page="${d.meta.page - 1}" ${d.meta.page <= 1 ? 'disabled' : ''}>‹</button><span>${d.meta.page} / ${d.meta.pages}</span><button class="secondary" data-visual-page="${d.meta.page + 1}" ${d.meta.page >= d.meta.pages ? 'disabled' : ''}>›</button>`
+      : '';
+}
+$('#visual-language').onchange = (e) => {
+  visualsState.language = e.target.value;
+  visualsState.page = 1;
+  loadVisuals();
+};
+$('#visual-search').oninput = (e) => {
+  visualsState.search = e.target.value.trim();
+  clearTimeout(visualsState.timer);
+  visualsState.timer = setTimeout(() => {
+    visualsState.page = 1;
+    loadVisuals();
+  }, 300);
+};
+$('#visuals-pagination').addEventListener('click', (e) => {
+  const page = e.target.closest('[data-visual-page]')?.dataset.visualPage;
+  if (!page) return;
+  visualsState.page = Number(page);
+  loadVisuals();
+});
+$('#visual-cards').addEventListener('click', async (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  try {
+    if (b.dataset.visualPosts) {
+      b.disabled = true;
+      const r = await api(`/visuals/${b.dataset.visualPosts}/posts`, { method: 'POST', body: JSON.stringify({}) });
+      notice(`Post créé pour ${r.groups} groupe(s).`);
+    } else if (b.dataset.visualToggle) {
+      await api(`/visuals/${b.dataset.visualToggle}`, { method: 'PATCH', body: JSON.stringify({ status: b.dataset.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }) });
+    } else if (b.dataset.visualDelete) {
+      if (!(await ask(`Supprimer le visuel « ${b.dataset.title} » ?\nSes posts pas encore publiés sont supprimés ; ce qui est déjà publié reste sur Facebook.`))) return;
+      const r = await api(`/visuals/${b.dataset.visualDelete}`, { method: 'DELETE' });
+      notice(`Visuel supprimé (${r.postsDeleted} post(s) en attente retiré(s)).`);
+    } else return;
+    await loadVisuals();
+  } catch (x) {
+    notice(x.message, 'error');
+    b.disabled = false;
+  }
+});
+$('#visual-open').onclick = () => {
+  const f = $('#visual-form');
+  f.reset();
+  $('#visual-preview').hidden = true;
+  $('#visual-form-note').textContent = '';
+  fillLanguageSelect($('#visual-form-language'), '', 'Choisir…');
+  $('#visual-form-category').innerHTML = '<option value="">Toutes les catégories</option>' + (state.categories || []).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  $('#visual-modal').showModal();
+};
+$('#visual-form').elements.file.addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  $('#visual-preview').src = URL.createObjectURL(file);
+  $('#visual-preview').hidden = false;
+});
+/** Le fichier en base64, sans le préfixe data:. */
+const fileToBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^;]+;base64,/, ''));
+    reader.onerror = () => reject(new Error('Image illisible'));
+    reader.readAsDataURL(file);
+  });
+$('#visual-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  const file = f.file.files?.[0];
+  if (!file) return notice('Choisissez une image.', 'error');
+  if (file.size > 10_000_000) return notice('Image trop lourde (10 Mo au plus).', 'error');
+  if (f.translate.checked && !f.language.value) return notice('Choisissez la langue de traduction.', 'error');
+  const button = $('#visual-submit');
+  button.disabled = true;
+  $('#visual-form-note').textContent = f.translate.checked || !f.caption.value.trim() ? 'Préparation par l’IA (lecture, traduction, description)… cela peut prendre une minute.' : 'Import…';
+  try {
+    const r = await api('/visuals', {
+      method: 'POST',
+      body: JSON.stringify({
+        imageData: await fileToBase64(file),
+        mimeType: file.type,
+        language: f.language.value || null,
+        categoryId: f.categoryId.value || undefined,
+        translate: f.translate.checked,
+        title: f.title.value.trim() || undefined,
+        caption: f.caption.value.trim() || undefined,
+        createPosts: f.createPosts.checked,
+      }),
+    });
+    $('#visual-modal').close();
+    notice(r.postId ? `Visuel importé : post créé pour ${r.groups} groupe(s).` : 'Visuel importé.');
+    showArticlesTab('visuals');
+  } catch (x) {
+    $('#visual-form-note').textContent = x.message;
+    notice(x.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+};
 
 /* ── Fenêtres de la plateforme ─────────────────────────────────────────
  * Confirmer, avertir, demander une valeur : toujours cette fenêtre, jamais
@@ -998,7 +1149,9 @@ $$('[data-pil-tab]').forEach((b) => (b.onclick = () => showPilotTab(b.dataset.pi
 /* ── Règles & priorités ─────────────────────────────────────────────── */
 async function loadRules() {
   try {
-    state.rules = await api('/posts/priorities');
+    const [rules, images] = await Promise.all([api('/posts/priorities'), api('/admin/ingest/image-providers').catch(() => null)]);
+    state.rules = rules;
+    if (images && Array.isArray(images.providers)) state.imageProviders = images;
     renderRules();
   } catch (x) {
     notice(x.message, 'error');
@@ -1017,6 +1170,25 @@ function renderRules() {
   if (!r) return;
   const f = $('#rules-pause');
   if (!f.contains(document.activeElement)) f.elements.rateLimitPauseDays.value = r.settings.rateLimitPauseDays;
+  const imgs = state.imageProviders;
+  if (imgs) {
+    const select = $('#rules-image-provider');
+    if (!$('#rules-image').contains(document.activeElement)) {
+      select.innerHTML =
+        '<option value="auto">Automatique (le premier configuré)</option>' +
+        imgs.providers.map((p) => `<option value="${p.name}" ${p.configured ? '' : 'disabled'}>${esc(p.label)} — ${esc(p.model)}${p.configured ? '' : ' (clé absente)'}</option>`).join('');
+      select.value = r.settings.imageProvider || 'auto';
+    }
+    const ok = imgs.providers.filter((p) => p.configured);
+    $('#rules-image-status').innerHTML = ok.length
+      ? `Configuré(s) : ${ok.map((p) => `<b>${esc(p.label)}</b> (${esc(p.model)})`).join(', ')}.`
+      : '<span class="bad">Aucune IA d’image configurée : renseigner OPENAI_API_KEY, DASHSCOPE_API_KEY (Qwen) ou ARK_API_KEY (Seedream) sur le serveur.</span>';
+  }
+  const langOptions = (code) =>
+    '<option value="">—</option>' +
+    Object.entries((imgs && imgs.languages) || { en: 'English', fr: 'French', ar: 'Arabic', es: 'Spanish' })
+      .map(([c, name]) => `<option value="${c}" ${c === code ? 'selected' : ''}>${esc(name)}</option>`)
+      .join('');
   const gq = ($('#rules-group-search').value || '').trim().toLowerCase();
   const aq = ($('#rules-article-search').value || '').trim().toLowerCase();
   $('#rules-groups').innerHTML =
@@ -1025,13 +1197,14 @@ function renderRules() {
       .map(
         (g) =>
           `<tr class="${g.priority ? 'prioritised' : ''}"><td><b>${esc(g.name)}</b><small>${esc(g.category?.name || 'sans catégorie')}</small></td>` +
+          `<td><select class="rule-lang" data-group-language="${g.id}" aria-label="Langue du groupe">${langOptions(g.language)}</select></td>` +
           `<td>${g.waiting}</td><td>${prioControls('group', g.id, g.priority)}</td>` +
           `<td class="rule-cap"><span class="${g.dailyCap != null && g.publishedToday >= g.dailyCap ? 'bad' : ''}">${g.publishedToday} /</span>` +
           `<input type="number" min="0" max="1000" placeholder="∞" value="${g.dailyCap ?? ''}" data-limit-group="${g.id}" data-field="dailyCap" aria-label="Plafond par jour"></td>` +
           `<td class="rule-hours"><input type="time" value="${g.hoursStart != null ? minutesToTime(g.hoursStart) : ''}" data-limit-group="${g.id}" data-field="hoursStart" aria-label="De">` +
           `<span>–</span><input type="time" value="${g.hoursEnd != null ? minutesToTime(g.hoursEnd) : ''}" data-limit-group="${g.id}" data-field="hoursEnd" aria-label="À"></td></tr>`,
       )
-      .join('') || '<tr><td colspan="5" class="empty">Aucun groupe.</td></tr>';
+      .join('') || '<tr><td colspan="6" class="empty">Aucun groupe.</td></tr>';
   $('#rules-articles').innerHTML =
     r.articles
       .filter((a) => !aq || a.title.toLowerCase().includes(aq) || (a.site || '').toLowerCase().includes(aq))
@@ -1046,6 +1219,16 @@ $('#rules-group-search').addEventListener('input', renderRules);
 /** Plafond ou heures d'un groupe : enregistré dès qu'on quitte le champ. Une
  * plage horaire n'est prise qu'entière (les deux heures). */
 $('#rules-groups').addEventListener('change', async (e) => {
+  // La langue d'un groupe : celle des posts « engagement » qu'il reçoit.
+  if (e.target.dataset.groupLanguage) {
+    try {
+      await api(`/groups/${e.target.dataset.groupLanguage}`, { method: 'PATCH', body: JSON.stringify({ language: e.target.value || null }) });
+      notice('Langue du groupe enregistrée.');
+    } catch (x) {
+      notice(x.message, 'error');
+    }
+    return;
+  }
   const id = e.target.dataset.limitGroup;
   if (!id) return;
   const row = e.target.closest('tr');
@@ -1080,6 +1263,17 @@ $('#pil-rules').addEventListener('click', async (e) => {
     b.disabled = false;
   }
 });
+$('#rules-image').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('/settings', { method: 'PATCH', body: JSON.stringify({ imageProvider: e.target.elements.imageProvider.value }) });
+    notice('IA d’image enregistrée.');
+    document.activeElement?.blur?.();
+    await loadRules();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 $('#rules-pause').onsubmit = async (e) => {
   e.preventDefault();
   try {
@@ -2282,7 +2476,8 @@ const ROUTES = {
   '/groupes': { view: 'groups' },
   '/categories': { view: 'categories' },
   '/sites': { view: 'sites' },
-  '/articles': { view: 'articles' },
+  '/articles': { view: 'articles', articlesTab: 'articles' },
+  '/articles/visuels': { view: 'articles', articlesTab: 'visuals' },
   '/posts': { view: 'posts', tab: 'queue', section: 'upcoming' },
   '/posts/en-cours': { view: 'posts', tab: 'queue', section: 'running' },
   '/posts/publies': { view: 'posts', tab: 'queue', section: 'published' },
@@ -2304,6 +2499,7 @@ const ROUTES = {
 };
 /** L'adresse d'une rubrique (et, pour les posts, de son onglet). */
 function pathOf(id, tab) {
+  if (id === 'articles') return state.articlesTab === 'visuals' ? '/articles/visuels' : '/articles';
   if (id === 'posts') {
     if ((tab || state.queue.tab) === 'all') return '/posts/tous';
     if ((tab || state.queue.tab) === 'repeat') return '/posts/duplication';
@@ -2348,6 +2544,10 @@ function routeFromUrl() {
   if (route.view === 'runners') {
     view('runners', { fromUrl: true });
     showPilotTab(route.pil || 'profiles', { fromUrl: true });
+    return;
+  }
+  if (route.view === 'articles') {
+    showArticlesTab(route.articlesTab || 'articles', { fromUrl: true });
     return;
   }
   if (route.view === 'posts') {
@@ -3048,7 +3248,7 @@ async function loadQueue() {
 
 const queuePost = (post) =>
   `<div class="queue-post">${post.imageUrl ? `<img src="${esc(post.imageUrl)}" alt="" loading="lazy">` : '<span class="noimg"></span>'}` +
-  `<div><strong title="${esc(post.title)}">${esc(post.title)}</strong>` +
+  `<div><strong title="${esc(post.title)}">${post.visualId ? '<span class="chip visual-chip" title="Visuel : image seule, sans lien ni commentaire">🖼 Visuel</span> ' : ''}${esc(post.title)}</strong>` +
   `<small title="${esc(post.description || '')}">${esc(post.description || '')}</small></div></div>`;
 const queueGroup = (group) =>
   `<strong title="${esc(group.name)}">${esc(group.name)}</strong>` +
@@ -3250,7 +3450,7 @@ function pubQuery(page = state.pub.page) {
   const q = new URLSearchParams({ page, limit: PUB_PAGE });
   if (f.from) q.set('from', new Date(f.from).toISOString());
   if (f.to) q.set('to', new Date(f.to).toISOString());
-  for (const k of ['profileId', 'verify', 'link', 'url']) if (f[k]) q.set(k, f[k]);
+  for (const k of ['profileId', 'verify', 'link', 'url', 'kind']) if (f[k]) q.set(k, f[k]);
   if (state.queue.categoryId) q.set('categoryId', state.queue.categoryId);
   if (state.queue.groupId) q.set('groupId', state.queue.groupId);
   if (state.queue.search) q.set('search', state.queue.search);
@@ -3355,7 +3555,7 @@ $('#pub-quick').addEventListener('click', (e) => {
   if (key) setPubRange(key);
 });
 $('#pub-reset').onclick = () => {
-  state.pub.filters = { from: '', to: '', profileId: '', verify: '', link: '', url: '' };
+  state.pub.filters = { from: '', to: '', profileId: '', verify: '', link: '', url: '', kind: '' };
   fillPubForm();
   $$('[data-pub-range]').forEach((b) => b.classList.remove('active'));
   loadPublished();

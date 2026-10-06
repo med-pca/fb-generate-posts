@@ -43,6 +43,9 @@ export type JsonRequest = {
   /** Une image à montrer au modèle (base64). Seuls les fournisseurs qui
    * savent lire une image sont alors interrogés. */
   image?: { data: string; mimeType: string };
+  /** Ces fournisseurs passent en tête de la chaîne (ex. DeepSeek pour les
+   * descriptions), les autres restent en repli. */
+  prefer?: string[];
 };
 
 export type LlmTransport = (
@@ -220,7 +223,12 @@ export class LlmService {
   async completeJson<T>(request: JsonRequest) {
     const all = this.providers();
     // Une image à lire : seuls les fournisseurs qui savent la voir.
-    const providers = request.image ? all.filter((p) => p.vision) : all;
+    const usable = request.image ? all.filter((p) => p.vision) : all;
+    const prefer = request.prefer ?? [];
+    const providers = [...usable].sort((a, b) => {
+      const ia = prefer.indexOf(a.name), ib = prefer.indexOf(b.name);
+      return (ia === -1 ? prefer.length : ia) - (ib === -1 ? prefer.length : ib);
+    });
     if (request.image && all.length && !providers.length) {
       throw new ServiceUnavailableException(
         'Aucun fournisseur capable de lire une image : renseigner OPENAI_API_KEY ou GEMINI_API_KEY',

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
 import { SourceArticle } from './source-reader.service';
+import { languageName } from './image-translator.service';
 
 /** L'article réécrit, prêt pour WordPress, et la publication qui
  * l'accompagnera. Les hashtags restent à part : `postDataForSlot` les
@@ -310,6 +311,71 @@ export class RewriterService {
     }
     this.logger.log(`Article d’actualité généré par ${provider}`);
     return { ...generated, titles, newsHook: String(value.newsHook || '').slice(0, 300) };
+  }
+
+  /** Le texte présent dans l'image, et sa traduction (modèle qui voit
+   * l'image). `hasText: false` : rien à traduire, l'image part telle quelle. */
+  async readImageText(input: { image: { data: string; mimeType: string }; language: string }) {
+    const target = languageName(input.language);
+    const { value } = await this.llm.completeJson<{ hasText: boolean; texts: Array<{ original: string; translated: string }>; scene: string }>({
+      instructions:
+        'You read images. List every piece of text visible in the image (signs, captions, labels, memes, numbers with words), ' +
+        `and translate each into ${target}. Also describe the scene in one short sentence (in English). ` +
+        'Ignore watermarks and tiny unreadable text. Answer with a single JSON object: ' +
+        '{"hasText": boolean, "texts": [{"original": string, "translated": string}], "scene": string}.',
+      input: `Target language: ${target}.`,
+      schemaName: 'image_text',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          hasText: { type: 'boolean' },
+          texts: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { original: { type: 'string' }, translated: { type: 'string' } }, required: ['original', 'translated'] } },
+          scene: { type: 'string' },
+        },
+        required: ['hasText', 'texts', 'scene'],
+      },
+      maxTokens: 1500,
+      image: input.image,
+    });
+    const texts = (Array.isArray(value.texts) ? value.texts : []).filter((t) => t && String(t.original || '').trim());
+    return { hasText: Boolean(value.hasText) && texts.length > 0, texts, scene: String(value.scene || '').slice(0, 400) };
+  }
+
+  /** La description d'un post « engagement » : courte, dans la langue cible,
+   * faite pour faire réagir — DeepSeek d'abord. Pas de lien, pas d'article. */
+  async engagementCaption(input: { language: string; scene: string; texts: string[]; fbCaption?: string | null }) {
+    const target = languageName(input.language);
+    const { value, provider } = await this.llm.completeJson<{ title: string; caption: string; hashtags: string[] }>({
+      instructions: [
+        'You write social media posts for Facebook groups whose only goal is engagement (reactions, comments, shares).',
+        `Write in ${target} only.`,
+        'From the image description and the text in the image, write a short, warm, catchy description (1 to 3 short sentences) that ends with ONE simple question inviting people to comment (e.g. ask their opinion, their memory, their choice).',
+        'No link, no URL, no "link in comments", no hashtag inside the text, no clickbait lie, no all caps.',
+        'Also give a short internal title (max 8 words) and 2 to 4 relevant hashtags without #.',
+        'Answer with a single JSON object: {"title": string, "caption": string, "hashtags": string[]}.',
+      ].join(' '),
+      input: [
+        `Image: ${input.scene || '(no description)'}`,
+        input.texts.length ? `Text in the image (already in ${target}): ${input.texts.join(' | ')}` : '',
+        input.fbCaption?.trim() ? `Original post text (tone only, do not copy): ${input.fbCaption.trim().slice(0, 800)}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      schemaName: 'engagement_post',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { title: { type: 'string' }, caption: { type: 'string' }, hashtags: { type: 'array', items: { type: 'string' } } },
+        required: ['title', 'caption', 'hashtags'],
+      },
+      maxTokens: 1200,
+      prefer: ['deepseek'],
+    });
+    const caption = cleanCaption(String(value.caption || ''));
+    if (!caption) throw new ServiceUnavailableException('La description est revenue vide');
+    this.logger.log(`Description « engagement » écrite par ${provider}`);
+    return { title: String(value.title || '').trim().slice(0, 120) || caption.slice(0, 60), caption, hashtags: normalizeHashtags(value.hashtags || []).slice(0, 4), provider };
   }
 
   private prompt({ source, fbCaption, language }: RewriteInput) {

@@ -67,6 +67,9 @@ export class PublishedService {
     if (q.link === 'waiting') and.push({ linkUpdatedAt: null, commentedAt: { not: null }, post: { url: { not: null } } });
     if (q.link === 'missing') and.push({ linkUpdatedAt: null, commentedAt: null, post: { url: { not: null } } });
     if (q.link === 'none') and.push({ linkUpdatedAt: null, post: { url: null } });
+    if (q.kind === 'article') and.push({ post: { articleId: { not: null } } });
+    if (q.kind === 'visual') and.push({ post: { visualId: { not: null } } });
+    if (q.kind === 'manual') and.push({ post: { articleId: null, visualId: null } });
     if (q.url === 'with') and.push({ facebookUrl: { not: null } });
     if (q.url === 'without') and.push({ facebookUrl: null });
     const needle = q.search?.trim();
@@ -98,7 +101,7 @@ export class PublishedService {
           republishCount: true,
           repeatRound: true,
           facebookUrl: true,
-          post: { select: { id: true, title: true, imageUrl: true, url: true, priority: true } },
+          post: { select: { id: true, title: true, imageUrl: true, url: true, priority: true, visualId: true, articleId: true } },
           group: { select: { id: true, name: true, url: true, category: { select: { id: true, name: true } } } },
           jobItems: {
             where: { status: TargetStatus.PUBLISHED },

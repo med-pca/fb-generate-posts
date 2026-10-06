@@ -16,13 +16,23 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import { CreateIngestDto } from './dto/create-ingest.dto';
 import { ScrapeResultDto } from './dto/scrape-result.dto';
 import { IngestService } from './ingest.service';
+import { ImageTranslatorService, LANGUAGES } from './image-translator.service';
 
 @ApiTags('ingest')
 @ApiBearerAuth()
 @UseGuards(AdminAuthGuard)
 @Controller('admin/ingest')
 export class IngestController {
-  constructor(private readonly ingest: IngestService) {}
+  constructor(
+    private readonly ingest: IngestService,
+    private readonly images: ImageTranslatorService,
+  ) {}
+
+  @Get('image-providers')
+  @ApiOperation({ summary: 'IA d’image (mode « engagement ») : celles configurées sur le serveur, et les langues' })
+  imageProviders() {
+    return { providers: this.images.providers(), languages: LANGUAGES };
+  }
 
   @Post()
   @ApiOperation({

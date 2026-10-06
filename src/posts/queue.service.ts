@@ -20,6 +20,9 @@ const POST_FIELDS = {
   priority: true,
   createdAt: true,
   article: { select: { id: true, title: true } },
+  // Un visuel (image seule, sans lien) : la file le distingue d'un article.
+  visualId: true,
+  noComment: true,
 } as const;
 
 const GROUP_FIELDS = {

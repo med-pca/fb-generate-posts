@@ -10,6 +10,7 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
+import { LANGUAGES } from '../image-translator.service';
 
 /** Les hôtes que Facebook sert : la reprise part d'une publication, pas
  * d'une page quelconque collée par erreur. */
@@ -28,13 +29,20 @@ export class CreateIngestDto {
   /** `rewrite` (défaut) : réécrire l'article de `sourceUrl`. `news` : créer
    * notre propre article depuis l'image, rapprochée de l'actualité — pas de
    * site source. */
-  @ApiPropertyOptional({ enum: ['rewrite', 'news'], default: 'rewrite' })
+  @ApiPropertyOptional({ enum: ['rewrite', 'news', 'engagement'], default: 'rewrite' })
   @IsOptional()
-  @IsIn(['rewrite', 'news'])
-  mode?: 'rewrite' | 'news';
+  @IsIn(['rewrite', 'news', 'engagement'])
+  mode?: 'rewrite' | 'news' | 'engagement';
+
+  /** Mode « engagement » : la langue cible (image traduite, description, et
+   * groupes de cette langue). */
+  @ApiPropertyOptional({ example: 'fr' })
+  @ValidateIf((dto: CreateIngestDto) => dto.mode === 'engagement')
+  @IsIn(Object.keys(LANGUAGES))
+  targetLanguage?: string;
 
   @ApiPropertyOptional({ example: 'https://exemple.com/article', description: 'Obligatoire, sauf en mode « news »' })
-  @ValidateIf((dto: CreateIngestDto) => dto.mode !== 'news' || Boolean(dto.sourceUrl))
+  @ValidateIf((dto: CreateIngestDto) => (dto.mode !== 'news' && dto.mode !== 'engagement') || Boolean(dto.sourceUrl))
   @IsUrl({ protocols: ['https'], require_protocol: true })
   @MaxLength(2000)
   sourceUrl?: string;

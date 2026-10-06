@@ -695,6 +695,48 @@ setTimeout(async () => {
   check('filtrer par état (déjà pré-approuvé)', paCalls.at(-1).includes('state=done'), paCalls.at(-1));
   window.fetch = beforePa;
 
+  // ─── Articles → Visuels : images seules, importées ou capturées ────
+  const visCalls = [];
+  const beforeVis = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const full = String(url).replace('/api', '');
+    const path = full.split('?')[0];
+    if (path === '/visuals' && (!options.method || options.method === 'GET')) {
+      visCalls.push(`GET ${full}`);
+      return { ok: true, status: 200, json: async () => ({
+        data: [{ id: 'v1', title: 'Bonjour', caption: 'Et vous, votre café du matin ?', imageUrl: 'https://post.test/media/g/abc.png', language: 'fr', category: { id: 'c1', name: 'Recettes' }, origin: 'capture', status: 'ACTIVE', posts: 1, groups: 3, published: 1, waiting: 2, details: { translated: true, imageProvider: 'qwen:qwen-image-edit' } }],
+        meta: { page: 1, limit: 24, total: 1, pages: 1 },
+      }) };
+    }
+    if (path.startsWith('/visuals')) {
+      visCalls.push(`${options.method} ${path} ${options.body || ''}`);
+      return { ok: true, status: 200, json: async () => ({ postId: 'p9', groups: 2, postsDeleted: 0 }) };
+    }
+    return beforeVis(url, options);
+  };
+  window.eval(`showArticlesTab('visuals')`);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('Articles a deux onglets : les visuels ont leur adresse', window.location.pathname === '/articles/visuels' && !$('#articles-pane-visuals').classList.contains('hidden') && $('#articles-pane-articles').classList.contains('hidden'), window.location.pathname);
+  const vtext = $('#visual-cards').textContent;
+  check('un visuel montre sa langue, son origine et sa diffusion', /Français/.test(vtext) && /Capturé/.test(vtext) && /1\/3 groupe/.test(vtext) && /Texte traduit/.test(vtext), vtext.slice(0, 160));
+  $('[data-visual-posts="v1"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('« Créer les posts » d’un visuel', visCalls.some((c) => c.startsWith('POST /visuals/v1/posts')), visCalls);
+  $('#visual-open').click();
+  const vf = $('#visual-form');
+  const file = new window.File([new Uint8Array([137, 80, 78, 71])], 'mine.png', { type: 'image/png' });
+  Object.defineProperty(vf.elements.file, 'files', { value: [file], configurable: true });
+  vf.elements.language.value = 'ar';
+  vf.elements.translate.checked = true;
+  vf.dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const up = visCalls.find((c) => c.startsWith('POST /visuals ') || c === 'POST /visuals');
+  const upBody = up ? JSON.parse(up.slice('POST /visuals '.length)) : null;
+  check('importer NOTRE image : base64, langue, traduction, post tout de suite', upBody && upBody.mimeType === 'image/png' && upBody.imageData && upBody.language === 'ar' && upBody.translate === true && upBody.createPosts === true, upBody && { ...upBody, imageData: '…' });
+  window.eval(`showArticlesTab('articles')`);
+  check('retour aux articles : /articles', window.location.pathname === '/articles', window.location.pathname);
+  window.fetch = beforeVis;
+
   // ─── Extensions : téléchargement et historique ───────────────────
   const extCalls = [];
   const beforeExt = window.fetch;
@@ -799,9 +841,23 @@ setTimeout(async () => {
     if (path === '/posts/priorities') {
       return { ok: true, status: 200, json: async () => ({
         settings: { rateLimitPauseDays: 5 },
-        groups: [{ id: 'g1', name: 'Recettes FR', priority: 0, waiting: 12, publishedToday: 6, dailyCap: 8, hoursStart: 480, hoursEnd: 1320, category: { id: 'c1', name: 'Recettes' } }, { id: 'g2', name: 'Desserts', priority: 3, waiting: 4, publishedToday: 2, dailyCap: null, hoursStart: null, hoursEnd: null, category: null }],
+        groups: [{ id: 'g1', name: 'Recettes FR', priority: 0, waiting: 12, publishedToday: 6, dailyCap: 8, hoursStart: 480, hoursEnd: 1320, language: 'fr', category: { id: 'c1', name: 'Recettes' } }, { id: 'g2', name: 'Desserts', priority: 3, waiting: 4, publishedToday: 2, dailyCap: null, hoursStart: null, hoursEnd: null, category: null }],
         articles: [{ id: 'a1', title: 'Tarte au citron', articleUrl: 'https://site.test/tarte', priority: 0, waiting: 9, site: 'Tera', publishedAt: '2026-10-05T10:00:00Z' }],
       }) };
+    }
+    if (path === '/admin/ingest/image-providers') {
+      return { ok: true, status: 200, json: async () => ({
+        providers: [
+          { name: 'openai', label: 'OpenAI GPT Image', model: 'gpt-image-1-mini', configured: true },
+          { name: 'qwen', label: 'Alibaba Qwen Image', model: 'qwen-image-edit', configured: false },
+          { name: 'seedream', label: 'ByteDance Seedream', model: 'seedream-4-0-250828', configured: false },
+        ],
+        languages: { en: 'English', fr: 'French', ar: 'Arabic' },
+      }) };
+    }
+    if (path.startsWith('/groups/') && options.method === 'PATCH') {
+      memberCalls.push(`PATCH ${path} ${options.body || ''}`);
+      return { ok: true, status: 200, json: async () => ({}) };
     }
     if (path.startsWith('/posts/priorities/') || path.endsWith('/resume') || (path === '/settings' && options.method === 'PATCH')) {
       memberCalls.push(`${options.method} ${path} ${options.body || ''}`);
@@ -885,6 +941,17 @@ setTimeout(async () => {
   to.dispatchEvent(new window.Event('change', { bubbles: true }));
   await new Promise((resolve) => setTimeout(resolve, 80));
   check('heures réservées d’un groupe : la plage entière part', memberCalls.some((c) => c.startsWith('PATCH /posts/priorities/groups/g2/limits') && c.includes('"hoursStart":540') && c.includes('"hoursEnd":810')), memberCalls.slice(-3));
+  check('la langue de chaque groupe est affichée et réglable', $('[data-group-language="g1"]').value === 'fr', $('[data-group-language="g1"]').value);
+  const lang = $('[data-group-language="g2"]');
+  lang.value = 'ar';
+  lang.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('changer la langue d’un groupe l’enregistre', memberCalls.some((c) => c.startsWith('PATCH /groups/g2') && c.includes('"language":"ar"')), memberCalls.slice(-3));
+  check('l’IA d’image : seules les configurées sont choisissables', /OpenAI GPT Image/.test($('#rules-image-status').textContent) && $('#rules-image-provider').querySelector('option[value="qwen"]').disabled === true, $('#rules-image-status').textContent);
+  $('#rules-image-provider').value = 'openai';
+  $('#rules-image').dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('choisir l’IA d’image l’enregistre', memberCalls.some((c) => c.startsWith('PATCH /settings') && c.includes('"imageProvider":"openai"')), memberCalls.slice(-3));
   $('#rules-pause').elements.rateLimitPauseDays.value = '7';
   $('#rules-pause').dispatchEvent(new window.Event('submit', { cancelable: true }));
   await new Promise((resolve) => setTimeout(resolve, 80));

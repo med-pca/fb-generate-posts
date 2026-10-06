@@ -296,6 +296,8 @@ function toPost(post) {
     // comment always carried.
     commentText: String(comment.text || description),
     willReceiveLink: Boolean(comment.willReceiveLink),
+    // Post « engagement » : image et description seules, aucun commentaire.
+    noComment: Boolean(post.noComment),
   };
 }
 

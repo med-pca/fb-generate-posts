@@ -24,6 +24,8 @@ import { WordpressWriterService } from './wordpress-writer.service';
 import { WordpressService } from '../wordpress/wordpress.service';
 import { isOnSite } from '../wordpress/article-url';
 import { NewsService, headlinesText } from './news.service';
+import { ImageTranslatorService, languageName } from './image-translator.service';
+import { VisualsService } from '../visuals/visuals.service';
 
 /** Passé ce nombre d'échecs, la reprise cesse de se relancer seule : une
  * erreur qui revient cinq fois demande qu'on la regarde. */
@@ -77,6 +79,10 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly site?: WordpressService,
     /** L'actualité du moment (mode « news »). */
     @Optional() private readonly news?: NewsService,
+    /** La traduction du texte d'une image (mode « engagement »). */
+    @Optional() private readonly imageTranslator?: ImageTranslatorService,
+    /** Les visuels : le mode « engagement » en crée un. */
+    @Optional() private readonly visuals?: VisualsService,
   ) {}
 
   async create(dto: CreateIngestDto, owner: CurrentUser | null = null) {
@@ -110,7 +116,9 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
       data: {
         facebookUrl: dto.facebookUrl,
         // Mode « news » : pas de site source, notre propre article.
+        // Mode « engagement » : image traduite + description, sans article.
         mode: dto.mode ?? 'rewrite',
+        targetLanguage: dto.mode === 'engagement' ? dto.targetLanguage ?? null : null,
         sourceUrl: dto.sourceUrl ?? '',
         siteUrl,
         // Nos articles d'actualité sont en anglais, sauf langue imposée.
@@ -414,6 +422,11 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
   private async step(ingest: SourceIngest): Promise<SourceIngest | null> {
     switch (ingest.status) {
       case IngestStatus.SCRAPED:
+        // Mode « engagement » : pas d'article — image traduite, description,
+        // posts directs dans les groupes de la langue choisie.
+        if (ingest.mode === 'engagement') {
+          return this.guard(ingest, 'INGEST_ENGAGEMENT_READY', 'Posts « engagement » créés', () => this.engagement(ingest));
+        }
         // Mode « news » : pas de site source — on relève l'actualité du
         // moment, à laquelle l'image sera rattachée.
         if (ingest.mode === 'news') {
@@ -521,6 +534,49 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
     const wanted = requested.trim().toLowerCase();
     if (wanted && wanted !== 'auto') return requested;
     return detected ?? 'auto';
+  }
+
+  /** Le mode « engagement », d'un bout à l'autre :
+   *   1. les groupes visés : actifs, de la langue choisie, de la catégorie du
+   *      site (vérifié AVANT toute dépense d'IA) ;
+   *   2. le texte de l'image, lu et traduit (modèle qui voit l'image) ;
+   *   3. s'il y en a, une nouvelle image avec le texte traduit (l'IA d'image
+   *      choisie dans Paramètres) ; sinon l'image d'origine ;
+   *   4. la description « engagement » dans la langue (DeepSeek d'abord) ;
+   *   5. un post ouvert, SANS lien ni commentaire, vers ces groupes. */
+  private async engagement(ingest: SourceIngest) {
+    const language = ingest.targetLanguage;
+    if (!language) throw new Error('Mode engagement : langue cible absente');
+    if (!ingest.fbImageUrl) throw new Error('Mode engagement : la capture n’a pas d’image');
+    if (!this.visuals) throw new Error('Visuels indisponibles');
+    const site = await this.prisma.contentSource.findUnique({ where: { originUrl: ingest.siteUrl }, select: { categoryId: true, ownerId: true } });
+    const original = await this.wordpress.loadImage(ingest.fbImageUrl);
+    // Le même parcours qu'une image importée : rubrique Articles → Visuels.
+    const { visual, postId, groups } = await this.visuals.create({
+      image: { data: original.data, mimeType: original.mimeType },
+      language,
+      translate: true,
+      caption: null,
+      fbCaption: ingest.fbCaption,
+      categoryId: site?.categoryId ?? null,
+      groupIds: ingest.groupIds,
+      createPosts: true,
+      origin: 'capture',
+      ingestId: ingest.id,
+      ownerId: ingest.ownerId ?? site?.ownerId ?? null,
+    });
+    await this.log(ingest.id, 'INGEST_ENGAGEMENT_DETAIL', `Visuel « ${visual.title} » en ${languageName(language)} : ${groups} groupe(s)`, {
+      visualId: visual.id,
+      postId,
+    });
+    return this.prisma.sourceIngest.update({
+      where: { id: ingest.id },
+      data: {
+        generated: { mode: 'engagement', visualId: visual.id, postId, title: visual.title, caption: visual.caption, imageUrl: visual.imageUrl } as unknown as Prisma.InputJsonValue,
+        status: IngestStatus.COMPLETED,
+        lastError: null,
+      },
+    });
   }
 
   /** Les titres d'actualité du moment, gardés sur la reprise : on sait à

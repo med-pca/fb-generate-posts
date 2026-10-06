@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { SessionService } from '../auth/session.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { registerWeb } from './web';
 import { legacyTarget, safeNext } from './routes';
 
@@ -28,7 +29,19 @@ describe('pages de la plateforme', () => {
   const valid = new Set(['bon-jeton']);
   beforeAll(async () => {
     const module = await Test.createTestingModule({
-      providers: [{ provide: SessionService, useValue: { validate: async (t: string) => (valid.has(t) ? { user: { id: 'u1' } } : null) } }],
+      providers: [
+        { provide: SessionService, useValue: { validate: async (t: string) => (valid.has(t) ? { user: { id: 'u1' } } : null) } },
+        // Les images générées (posts « engagement ») : une seule en base.
+        {
+          provide: PrismaService,
+          useValue: {
+            generatedImage: {
+              findUnique: async ({ where }: any) =>
+                where.token === 'AbCdEfGhIjKlMnOpQrStUv' ? { mimeType: 'image/png', data: Buffer.from('PNGDATA') } : null,
+            },
+          },
+        },
+      ],
     }).compile();
     app = module.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
     registerWeb(app);
@@ -98,5 +111,16 @@ describe('pages de la plateforme', () => {
     const r = await get('/api/docs');
     expect(r.statusCode).toBe(302);
     expect(r.headers.location).toBe('/login?next=%2Fapi%2Fdocs');
+  });
+
+  it('les images générées sont publiques sous leur jeton, et rien d’autre', async () => {
+    const ok = await app.getHttpAdapter().getInstance().inject({ method: 'GET', url: '/media/g/AbCdEfGhIjKlMnOpQrStUv.png' });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers['content-type']).toBe('image/png');
+    expect(ok.body).toBe('PNGDATA');
+    const unknown = await app.getHttpAdapter().getInstance().inject({ method: 'GET', url: '/media/g/ZZZZZZZZZZZZZZZZZZZZZZ.png' });
+    expect(unknown.statusCode).toBe(404);
+    const bad = await app.getHttpAdapter().getInstance().inject({ method: 'GET', url: '/media/g/..%2Fsecret' });
+    expect(bad.statusCode).toBe(404);
   });
 });
