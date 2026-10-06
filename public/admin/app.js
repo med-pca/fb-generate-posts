@@ -404,7 +404,7 @@ async function load() {
       categories,
     ] = await Promise.all([
       api(`/profiles?${profileQuery()}`),
-      api(`/groups?page=${state.page.groups}&limit=12`),
+      api(`/groups?page=${state.page.groups}&limit=12${groupLang.filter ? `&language=${groupLang.filter}` : ''}`),
       api(`/articles?page=${state.page.articles}&limit=12`),
       api(`/posts?${postQuery}`),
       api('/profiles?page=1&limit=100&withModerators=true'),
@@ -419,6 +419,7 @@ async function load() {
     state.meta.profiles = profiles.meta;
     state.groups = groups.data;
     state.meta.groups = groups.meta;
+    void loadGroupLanguages();
     state.articles = articles.data;
     state.meta.articles = articles.meta;
     state.posts = posts.data;
@@ -1007,10 +1008,12 @@ function render() {
     state.groups
       .map(
         (g) =>
-          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td>${g.category ? `<span class="chip">${esc(g.category.name)}</span>` : '<span class="chip join-questions" title="Modifiez le groupe pour lui choisir une catégorie : sans elle, il ne reçoit aucun article">À ranger</span>'}</td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td>${groupProfilesCell(g)}</td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-clear-group="${g.id}" ${g._count.targets ? '' : 'disabled'}>Retirer les posts</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
+          `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><input type="checkbox" data-group-check="${g.id}" ${groupLang.selected.has(g.id) ? 'checked' : ''} aria-label="Cocher"></td><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td>${g.category ? `<span class="chip">${esc(g.category.name)}</span>` : '<span class="chip join-questions" title="Modifiez le groupe pour lui choisir une catégorie : sans elle, il ne reçoit aucun article">À ranger</span>'}</td><td><select class="rule-lang ${g.language ? '' : 'missing'}" data-group-lang-inline="${g.id}" aria-label="Langue du groupe"><option value="">— aucune</option>${Object.entries(LANG_NAMES).map(([c, n]) => `<option value="${c}" ${c === g.language ? 'selected' : ''}>${n}</option>`).join('')}</select></td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td>${groupProfilesCell(g)}</td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-clear-group="${g.id}" ${g._count.targets ? '' : 'disabled'}>Retirer les posts</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
       )
       .join('') ||
-    '<tr><td colspan="6"><div class="empty">Aucun groupe</div></td></tr>';
+    `<tr><td colspan="9"><div class="empty">${groupLang.filter ? 'Aucun groupe dans cette langue' : 'Aucun groupe'}</div></td></tr>`;
+  $('#group-check-all').checked = state.groups.length > 0 && state.groups.every((g) => groupLang.selected.has(g.id));
+  renderGroupLangBulk();
   renderProfileFilters();
   renderArticles();
   renderSettings();
@@ -2008,6 +2011,153 @@ function paginationBox(resource) {
   if (!meta) return '';
   return `<button class="secondary" data-page-resource="${resource}" data-page-value="${meta.page - 1}" ${meta.page <= 1 ? 'disabled' : ''}>← Précédent</button><span>Page ${meta.page} sur ${meta.pages} · ${meta.total} élément(s)</span><button class="secondary" data-page-resource="${resource}" data-page-value="${meta.page + 1}" ${meta.page >= meta.pages ? 'disabled' : ''}>Suivant →</button>`;
 }
+/* ── Langues des groupes ─────────────────────────────────────────────────
+ * La langue décide où partent les visuels « engagement ». Ici : combien de
+ * groupes par langue, un filtre, le réglage en masse, et des propositions
+ * (écriture du nom, puis IA) que l'admin valide avant tout enregistrement. */
+const groupLang = { filter: '', selected: new Set(), summary: null };
+async function loadGroupLanguages() {
+  try {
+    groupLang.summary = await api('/groups/languages');
+  } catch {
+    return;
+  }
+  const counts = groupLang.summary.counts || [];
+  const total = counts.reduce((n, c) => n + c.groups, 0);
+  const chip = (code, label, n) =>
+    `<button type="button" class="chip lang-chip ${groupLang.filter === code ? 'on' : ''} ${code === 'none' ? 'missing' : ''}" data-group-lang-filter="${code}">${esc(label)} <b>${n}</b></button>`;
+  $('#group-lang-chips').innerHTML =
+    chip('', 'Tous actifs', total) +
+    counts.map((c) => (c.code ? chip(c.code, LANG_NAMES[c.code] || c.code, c.groups) : chip('none', 'Sans langue', c.groups))).join('');
+}
+function renderGroupLangBulk() {
+  const n = groupLang.selected.size;
+  $('#group-lang-count').textContent = n ? `${n} groupe(s) coché(s) :` : 'Cochez des groupes ci-dessous, ou choisissez une catégorie :';
+  const cat = $('#group-lang-category');
+  cat.classList.toggle('hidden', n > 0);
+  $('#group-lang-missing').closest('label').classList.toggle('hidden', n > 0);
+  const cats = state.categories || [];
+  if (cat.dataset.filled !== String(cats.length)) {
+    const current = cat.value;
+    cat.innerHTML = '<option value="">Catégorie…</option>' + cats.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    cat.value = current;
+    cat.dataset.filled = String(cats.length);
+  }
+  const lang = $('#group-lang-value');
+  if (!lang.options.length) {
+    fillLanguageSelect(lang, '', 'Langue…');
+    lang.insertAdjacentHTML('beforeend', '<option value="none">Retirer la langue</option>');
+  }
+}
+async function applyGroupLanguage(body) {
+  const r = await api('/groups/languages', { method: 'POST', body: JSON.stringify(body) });
+  return r.updated;
+}
+$('#group-lang-chips').onclick = (e) => {
+  const b = e.target.closest('[data-group-lang-filter]');
+  if (!b) return;
+  groupLang.filter = b.dataset.groupLangFilter;
+  state.page.groups = 1;
+  void load();
+};
+$('#group-rows').addEventListener('change', async (e) => {
+  const check = e.target.dataset.groupCheck;
+  if (check) {
+    if (e.target.checked) groupLang.selected.add(check);
+    else groupLang.selected.delete(check);
+    $('#group-check-all').checked = state.groups.every((g) => groupLang.selected.has(g.id));
+    return renderGroupLangBulk();
+  }
+  const id = e.target.dataset.groupLangInline;
+  if (!id) return;
+  try {
+    await api(`/groups/${id}`, { method: 'PATCH', body: JSON.stringify({ language: e.target.value || null }) });
+    const g = state.groups.find((x) => x.id === id);
+    if (g) g.language = e.target.value || null;
+    e.target.classList.toggle('missing', !e.target.value);
+    notice(e.target.value ? `Langue : ${LANG_NAMES[e.target.value]}.` : 'Langue retirée.');
+    void loadGroupLanguages();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+});
+$('#group-check-all').onchange = (e) => {
+  for (const g of state.groups) e.target.checked ? groupLang.selected.add(g.id) : groupLang.selected.delete(g.id);
+  $$('[data-group-check]').forEach((c) => (c.checked = e.target.checked));
+  renderGroupLangBulk();
+};
+$('#group-lang-apply').onclick = async () => {
+  const value = $('#group-lang-value').value;
+  if (!value) return notice('Choisissez la langue à appliquer.', 'error');
+  const language = value === 'none' ? null : value;
+  const label = language ? LANG_NAMES[language] : 'aucune langue';
+  const ids = [...groupLang.selected];
+  let body;
+  if (ids.length) {
+    body = { groupIds: ids, language };
+  } else {
+    const categoryId = $('#group-lang-category').value;
+    if (!categoryId) return notice('Cochez des groupes ou choisissez une catégorie.', 'error');
+    const onlyMissing = $('#group-lang-missing').checked;
+    const cat = (state.categories || []).find((c) => c.id === categoryId);
+    if (!await ask(`Appliquer « ${label} » à ${onlyMissing ? 'tous les groupes sans langue' : 'tous les groupes'} de la catégorie « ${cat?.name || ''} » ?`, { title: 'Langue des groupes', confirmLabel: 'Appliquer' })) return;
+    body = { categoryId, onlyMissing, language };
+  }
+  try {
+    const n = await applyGroupLanguage(body);
+    groupLang.selected.clear();
+    await load();
+    notice(`${n} groupe(s) : ${label}.`);
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+$('#group-lang-suggest').onclick = async () => {
+  const categoryId = $('#group-lang-category').value;
+  const btn = $('#group-lang-suggest');
+  btn.disabled = true;
+  btn.textContent = 'Analyse des noms…';
+  try {
+    const r = await api('/groups/languages/suggest', { method: 'POST', body: JSON.stringify(categoryId ? { categoryId } : {}) });
+    const list = r.suggestions || [];
+    if (!list.length) return notice('Tous vos groupes actifs ont déjà une langue.');
+    $('#group-lang-suggestions').innerHTML = list
+      .map(
+        (s) =>
+          `<tr><td><input type="checkbox" data-sugg-check="${s.id}" ${s.language ? 'checked' : ''}></td><td>${esc(s.name)}</td>` +
+          `<td><select class="rule-lang" data-sugg-lang="${s.id}"><option value="">— ne pas changer</option>${Object.entries(LANG_NAMES).map(([c, n]) => `<option value="${c}" ${c === s.language ? 'selected' : ''}>${n}</option>`).join('')}</select></td>` +
+          `<td><small>${esc(s.by)}</small></td></tr>`,
+      )
+      .join('');
+    $('#group-lang-all').checked = true;
+    openModal('group-lang-modal');
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✨ Proposer les langues (IA)';
+  }
+};
+$('#group-lang-all').onchange = (e) => $$('[data-sugg-check]').forEach((c) => (c.checked = e.target.checked));
+$('#group-lang-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const byLang = {};
+  for (const c of $$('[data-sugg-check]')) {
+    if (!c.checked) continue;
+    const lang = $(`[data-sugg-lang="${c.dataset.suggCheck}"]`).value;
+    if (lang) (byLang[lang] ||= []).push(c.dataset.suggCheck);
+  }
+  if (!Object.keys(byLang).length) return notice('Aucune proposition cochée.', 'error');
+  try {
+    let n = 0;
+    for (const [language, groupIds] of Object.entries(byLang)) n += await applyGroupLanguage({ groupIds, language });
+    e.target.closest('dialog').close();
+    await load();
+    notice(`${n} groupe(s) mis à jour.`);
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 function renderPagination() {
   for (const resource of ['profiles', 'groups', 'articles', 'posts'])
     $(`#${resource}-pagination`).innerHTML = paginationBox(resource);
@@ -2774,7 +2924,10 @@ function openModal(id) {
           : id === 'user-modal'
             ? 'Nouveau compte'
             : 'Nouveau post';
-  if (id === 'group-modal') fillGroupProfiles([]);
+  if (id === 'group-modal') {
+    fillGroupProfiles([]);
+    fillLanguageSelect($('#group-language'), '', '— Non précisée');
+  }
   $('#post-category-label').hidden = false;
   $('#target-field').hidden = false;
   if (id === 'post-modal') {
@@ -3130,6 +3283,7 @@ $('#group-form').onsubmit = async (e) => {
   if (!profileIds.length)
     return notice('Sélectionnez au moins un profil.', 'error');
   if (!d.externalId) delete d.externalId;
+  d.language = d.language || null;
   try {
     if (id) {
       const group = state.groups.find((g) => g.id === id),
@@ -4464,6 +4618,7 @@ document.addEventListener('click', async (e) => {
     const f = $('#group-form');
     for (const k of ['id', 'name', 'externalId', 'url', 'status', 'categoryId'])
       f.elements[k].value = g[k] ?? '';
+    fillLanguageSelect(f.elements.language, g.language || '', '— Non précisée');
     fillGroupProfiles(g.profiles.map((x) => x.profileId));
     $('h2', $('#group-modal')).textContent = 'Modifier le groupe';
     return;

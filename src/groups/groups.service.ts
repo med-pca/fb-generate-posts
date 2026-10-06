@@ -79,8 +79,13 @@ export class GroupsService {
   async findCatalog(
     { page, limit }: PaginationDto,
     acting: CurrentUser | null,
+    /** Un code de langue, ou `none` : les groupes sans langue. */
+    language?: string,
   ) {
-    const scoped = groupWhere(scopeOf(acting));
+    const scoped: Prisma.GroupWhereInput = {
+      ...groupWhere(scopeOf(acting)),
+      ...(language === 'none' ? { language: null } : language ? { language } : {}),
+    };
     const [groups, total] = await this.prisma.$transaction([
       this.prisma.group.findMany({
         where: scoped,

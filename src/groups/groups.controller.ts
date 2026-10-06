@@ -15,6 +15,21 @@ import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { GroupsService } from './groups.service';
+import { GroupLanguagesService } from './group-languages.service';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn as IsInLang, IsOptional as IsOpt, IsString as IsStr, ValidateIf as VIf } from 'class-validator';
+import { LANGUAGES } from '../ingest/image-translator.service';
+
+export class GroupLanguagesDto {
+  @IsOpt() @IsArray() @ArrayMaxSize(1000) @IsStr({ each: true }) groupIds?: string[];
+  @IsOpt() @IsStr() categoryId?: string;
+  @IsOpt() @IsBoolean() onlyMissing?: boolean;
+  /** null = retirer la langue. */
+  @VIf((_d, v) => v !== null) @IsInLang(Object.keys(LANGUAGES)) language!: string | null;
+}
+
+export class SuggestLanguagesDto {
+  @IsOpt() @IsStr() categoryId?: string;
+}
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { SetJoinStatusDto } from './dto/update-join-status.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -76,14 +91,37 @@ export class GroupsController {
 @UseGuards(AdminAuthGuard)
 @Controller('groups')
 export class GroupsCatalogController {
-  constructor(private readonly groups: GroupsService) {}
+  constructor(
+    private readonly groups: GroupsService,
+    private readonly languages: GroupLanguagesService,
+  ) {}
 
   @Get()
   findAll(
     @Query() pagination: PaginationDto,
     @ActingUser() acting: CurrentUser,
+    @Query('language') language?: string,
   ) {
-    return this.groups.findCatalog(pagination, acting);
+    return this.groups.findCatalog(pagination, acting, language);
+  }
+
+  // Avant `:id` : « languages » serait pris pour un identifiant.
+  @Get('languages')
+  @ApiOperation({ summary: 'Langues des groupes : combien par langue, et sans langue' })
+  languageSummary(@ActingUser() acting: CurrentUser) {
+    return this.languages.summary(acting);
+  }
+
+  @Post('languages')
+  @ApiOperation({ summary: 'Appliquer une langue à des groupes choisis, ou à une catégorie (seulement ceux sans langue au choix)' })
+  setLanguages(@Body() dto: GroupLanguagesDto, @ActingUser() acting: CurrentUser) {
+    return this.languages.setMany(dto, acting);
+  }
+
+  @Post('languages/suggest')
+  @ApiOperation({ summary: 'Proposer la langue des groupes sans langue, d’après leur nom (rien n’est enregistré)' })
+  suggestLanguages(@Body() dto: SuggestLanguagesDto, @ActingUser() acting: CurrentUser) {
+    return this.languages.suggest(acting, dto.categoryId);
   }
 
   @Delete(':id')

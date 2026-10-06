@@ -2231,3 +2231,19 @@ dialog form small, dialog form .form-help, dialog form p { overflow-wrap: anywhe
 .visual-check { white-space: normal; align-items: flex-start; }
 .visual-check small { color: var(--muted); }
 .visual-chip { font-size: 0.68rem; padding: 1px 6px; background: #f3e8ff; color: #6b21a8; }
+
+/* Langues des groupes */
+.lang-panel { display: grid; gap: 10px; padding: 14px 16px; margin-bottom: 12px; }
+.lang-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.lang-head small { display: block; color: var(--muted, #6b7280); margin-top: 2px; }
+.lang-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lang-chip { cursor: pointer; border: 1px solid transparent; }
+.lang-chip b { margin-left: 4px; }
+.lang-chip.on { border-color: currentColor; font-weight: 600; }
+.lang-chip.missing { background: #fff4e5; color: #9a5b00; }
+.lang-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.85rem; }
+.lang-bulk select { width: auto; min-height: 32px; }
+.lang-bulk .inline-check { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+.rule-lang.missing { border-color: #f0b35a; }
+.lang-suggest-wrap { max-height: 55vh; overflow: auto; }
+#group-lang-modal { width: min(720px, calc(100vw - 32px)); }

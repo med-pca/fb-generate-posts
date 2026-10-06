@@ -170,13 +170,29 @@
               </button>
             </div>
           </div>
+          <div class="panel lang-panel">
+            <div class="lang-head">
+              <div><b>Langues des groupes</b><small>Un visuel « engagement » ne part que vers les groupes de sa langue. Cliquez une langue pour filtrer la liste.</small></div>
+              <button class="secondary" type="button" id="group-lang-suggest">✨ Proposer les langues (IA)</button>
+            </div>
+            <div id="group-lang-chips" class="lang-chips"></div>
+            <div class="lang-bulk">
+              <span id="group-lang-count">Cochez des groupes ci-dessous, ou choisissez une catégorie :</span>
+              <select id="group-lang-category" aria-label="Catégorie"></select>
+              <label class="inline-check"><input type="checkbox" id="group-lang-missing" checked /> seulement ceux sans langue</label>
+              <select id="group-lang-value" aria-label="Langue à appliquer"></select>
+              <button class="primary" type="button" id="group-lang-apply">Appliquer la langue</button>
+            </div>
+          </div>
           <div class="pagination" id="groups-pagination"></div>
           <div class="panel table-wrap">
             <table>
               <thead>
                 <tr>
+                  <th><input type="checkbox" id="group-check-all" aria-label="Tout cocher" /></th>
                   <th>Groupe</th>
                   <th>Catégorie</th>
+                  <th>Langue</th>
                   <th>Adresse</th>
                   <th>Profils liés</th>
                   <th>Posts</th>
@@ -1494,6 +1510,8 @@
         ><label
           >Catégorie<select name="categoryId" class="category-select" data-required required></select>
           <small id="group-category-help">Obligatoire : le groupe reçoit les articles des sites de cette catégorie.</small></label
+        ><label>Langue des membres<select name="language" id="group-language"></select>
+          <small>Les visuels « engagement » de cette langue y seront publiés.</small></label
         ><label>État<select name="status"><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select></label
         ><label>Identifiant externe<input name="externalId" /></label
         ><label
@@ -1506,6 +1524,28 @@
         <div class="actions">
           <button class="secondary" type="button" data-close>Annuler</button
           ><button class="primary">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="group-lang-modal">
+      <form id="group-lang-form">
+        <div class="modal-head">
+          <div>
+            <small>LANGUES DES GROUPES</small>
+            <h2>Propositions</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <p class="muted" id="group-lang-note">Rien n'est enregistré avant votre validation. Corrigez une proposition si besoin.</p>
+        <div class="table-wrap lang-suggest-wrap">
+          <table>
+            <thead><tr><th><input type="checkbox" id="group-lang-all" checked aria-label="Tout cocher" /></th><th>Groupe</th><th>Langue proposée</th><th>Source</th></tr></thead>
+            <tbody id="group-lang-suggestions"></tbody>
+          </table>
+        </div>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary" id="group-lang-save">Appliquer les cochés</button>
         </div>
       </form>
     </dialog>
