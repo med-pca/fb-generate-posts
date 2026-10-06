@@ -57,6 +57,7 @@ type RunnerRow = {
   running: boolean;
   lastSeenAt: Date | null;
   sleepUntil?: Date | null;
+  pausedUntil?: Date | null;
 };
 
 /** Une veille ne dure pas plus d'un jour : une heure aberrante (horloge
@@ -71,6 +72,15 @@ export function sleepUntilOf(raw: string | undefined, now = new Date()): Date | 
 function sleeping(runner: { sleepUntil?: Date | null } | null | undefined, now: Date) {
   return Boolean(runner?.sleepUntil && runner.sleepUntil.getTime() > now.getTime());
 }
+/** « 11/10 14:05 », à l'heure du profil. */
+function pauseEnd(at: Date, timezone: string) {
+  try {
+    return at.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: timezone });
+  } catch {
+    return at.toISOString().slice(0, 16).replace('T', ' ');
+  }
+}
+
 /** « 14:05 », à l'heure du profil. */
 function clock(at: Date, timezone: string) {
   try {
@@ -365,6 +375,10 @@ export class RunnersService {
     if (!publishingEnabled) return stop('automatisation coupée globalement');
     if (!profileActive) return stop('profil inactif');
     if (!runner) return stop('profil jamais piloté (à l’arrêt)');
+    // Limité par Facebook : en pause jusqu'à l'échéance, quel que soit le mode.
+    if (runner.pausedUntil && runner.pausedUntil.getTime() > now.getTime()) {
+      return stop(`en pause jusqu’au ${pauseEnd(runner.pausedUntil, runner.timezone)} — Facebook a limité ses publications`);
+    }
     if (mode === RunnerMode.OFF) return stop('arrêté depuis l’admin');
 
     const go = (reason: string) => ({
@@ -736,6 +750,10 @@ export class RunnersService {
           agent: runner?.agent ?? null,
           lastSeenAt: runner?.lastSeenAt ?? null,
           sleepUntil: sleeping(runner, now) ? runner!.sleepUntil : null,
+          // En pause après une limitation Facebook (et pourquoi).
+          pausedUntil: runner?.pausedUntil && runner.pausedUntil > now ? runner.pausedUntil : null,
+          dailyQuota: runner?.dailyQuota ?? null,
+          pauseReason: runner?.pausedUntil && runner.pausedUntil > now ? runner.pauseReason : null,
           browserState: runner?.browserState ?? BrowserState.STOPPED,
           browserSeenAt: runner?.browserSeenAt ?? null,
           browserMessage: runner?.browserMessage ?? null,
@@ -778,6 +796,7 @@ export class RunnersService {
       ...(dto.windowEnd !== undefined ? { windowEnd: dto.windowEnd } : {}),
       ...(dto.days !== undefined ? { days: dto.days || null } : {}),
       ...(dto.timezone !== undefined ? { timezone: dto.timezone } : {}),
+      ...(dto.dailyQuota !== undefined ? { dailyQuota: dto.dailyQuota } : {}),
       ...(dto.settings !== undefined
         ? { settings: (dto.settings ?? null) as Prisma.InputJsonValue }
         : {}),
@@ -798,6 +817,26 @@ export class RunnersService {
       ),
       profileId: profile.id,
     };
+  }
+
+  /** Lever la pause d'un profil limité par Facebook, avant l'échéance. */
+  async resume(profileId: string, acting: CurrentUser) {
+    const profile = await this.prisma.profile.findFirst({
+      where: { id: profileId, ...profileWhere(scopeOf(acting)) },
+      select: { id: true, name: true, isModerator: true, status: true },
+    });
+    if (!profile) throw new NotFoundException('Profil introuvable');
+    assertMayManage(profile, acting);
+    await this.prisma.profileRunner.updateMany({ where: { profileId }, data: { pausedUntil: null, pauseReason: null } });
+    await this.prisma.activityLog.create({
+      data: {
+        profileId,
+        eventType: 'PROFILE_PAUSE_LIFTED',
+        level: 'INFO',
+        message: `Pause de « ${profile.name} » levée par ${acting?.username ?? 'un administrateur'}`,
+      },
+    });
+    return { profileId, resumed: true };
   }
 
   /** Tout allumer ou tout éteindre d'un coup : ce qu'on cherche quand quelque

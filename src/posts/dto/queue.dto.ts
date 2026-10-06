@@ -129,3 +129,18 @@ export class PublishedQueryDto {
   @ApiPropertyOptional({ default: 1 }) @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
   @ApiPropertyOptional({ default: 50 }) @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(500) limit = 50;
 }
+
+/** Les règles d'un groupe : plafond par jour, heures de publication. */
+export class GroupLimitsDto {
+  @ApiPropertyOptional({ minimum: 0, maximum: 1000, nullable: true })
+  @IsOptional() @IsInt() @Min(0) @Max(1000)
+  dailyCap?: number | null;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: 1439, nullable: true })
+  @IsOptional() @IsInt() @Min(0) @Max(1439)
+  hoursStart?: number | null;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: 1439, nullable: true })
+  @IsOptional() @IsInt() @Min(0) @Max(1439)
+  hoursEnd?: number | null;
+}

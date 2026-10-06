@@ -7,6 +7,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JobStatus, JoinStatus, Prisma, TargetStatus } from '@prisma/client';
 import { normalizeFacebookUrl, trace } from '../trace/trace';
+import { startOfLocalDay } from '../insights/insights.service';
+import { localClock } from '../runners/window';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaimJobDto } from './dto/claim-job.dto';
 import { ClaimBatchDto } from './dto/claim-batch.dto';
@@ -58,7 +60,10 @@ export type EmptyReason =
   | 'not_joined' // n'a rejoint aucun de ses groupes
   | 'no_post' // rien en attente dans ses groupes rejoints
   | 'not_allowed' // des posts attendent, mais aucun ne lui est permis
-  | 'taken'; // pris entre-temps par d'autres profils
+  | 'taken' // pris entre-temps par d'autres profils
+  | 'paused' // en pause : Facebook a limité ses publications
+  | 'quota' // quota du jour du profil atteint
+  | 'group_limits'; // ses groupes sont fermés à cette heure, ou à leur plafond du jour
 
 /** Une entrée de réservation par lot : soit un job à confier à un thread,
  * soit la raison pour laquelle ce profil n'en reçoit pas. */
@@ -121,6 +126,11 @@ export function notForcedElsewhere(
   };
 }
 
+/** Le message de Facebook quand il limite un compte, dans les langues de nos
+ * profils (et le libellé que l'extension en fait). */
+export const RATE_LIMITED =
+  /publication bloqu|limit how often|try again later|temporarily blocked|limitons la fr[ée]quence|r[ée]essayez plus tard|temporairement bloqu|limitamos|int[ée]ntalo de nuevo m[aá]s tarde|wir begrenzen|حاول مرة أخرى لاحق|نحد من|محظور مؤقت/i;
+
 /** Un post qui n'est jamais parti repart seul dans la file au plus ce
  * nombre de fois (tentatives comptées à la réservation). */
 const MAX_AUTO_REQUEUE = 3;
@@ -163,6 +173,9 @@ export class JobsService {
   async claim(
     dto: ClaimJobDto,
     acting: CurrentUser | null = null,
+    /** Les règles du pilotage : jamais plus de N posts dans ce lot (plafond
+     * du groupe, quota du profil). */
+    limits: { maxCount?: number } = {},
   ): Promise<ClaimedJob | EmptyClaim> {
     // La clé d'un compte ne réserve que sur ses profils : sans cela, un
     // automate atteindrait la file de publication d'un autre.
@@ -194,9 +207,12 @@ export class JobsService {
         'Groupe introuvable ou pas encore rejoint par ce profil',
       );
 
-    const count = this.randomInt(
-      profile.minPostsPerJob,
-      profile.maxPostsPerJob,
+    const count = Math.max(
+      1,
+      Math.min(
+        this.randomInt(profile.minPostsPerJob, profile.maxPostsPerJob),
+        limits.maxCount ?? Number.POSITIVE_INFINITY,
+      ),
     );
     const ttlMinutes = Number(this.config.get<number>('CLAIM_TTL_MINUTES', 30));
     // Fixée une fois les posts choisis : la réservation doit couvrir le lot
@@ -451,6 +467,17 @@ export class JobsService {
       );
     }
 
+    // En pause : Facebook a limité ce compte. Rien à réserver avant l'échéance.
+    const paused = await this.pausedUntil(profile.id);
+    if (paused) {
+      return {
+        job: null,
+        posts: [],
+        reason: 'paused',
+        message: `Profil en pause jusqu’au ${paused.toISOString().slice(0, 16).replace('T', ' ')} UTC : Facebook a limité ses publications`,
+      };
+    }
+
     // Un profil correspond à un compte : lui confier un second job pendant
     // qu'il en traite un ferait publier deux threads sur le même compte.
     const active = await this.prisma.publicationJob.findFirst({
@@ -522,10 +549,30 @@ export class JobsService {
       };
     }
 
-    for (const group of await this.byTopPriority(groups, profile)) {
+    // Les règles du pilotage : quota du profil, heures et plafond des groupes.
+    const rules = await this.pilotRules(profile.id, groups.map((g) => g.id));
+    if (rules.quotaLeft !== null && rules.quotaLeft <= 0) {
+      return { job: null, posts: [], reason: 'quota', message: `Quota du jour atteint (${rules.quota} publication(s)) : il reprend demain` };
+    }
+    const usable = groups.filter((g) => {
+      const r = rules.groups.get(g.id);
+      return !r || (r.open && (r.left === null || r.left > 0));
+    });
+    if (!usable.length) {
+      return {
+        job: null,
+        posts: [],
+        reason: 'group_limits',
+        message: `Ses groupes sont fermés à cette heure ou ont atteint leur plafond du jour (${[...rules.groups.values()].map((r) => r.why).filter(Boolean).slice(0, 3).join(' ; ')})`,
+      };
+    }
+    for (const group of await this.byTopPriority(usable, profile)) {
+      const left = rules.groups.get(group.id)?.left ?? null;
+      const caps = [left, rules.quotaLeft].filter((n): n is number => n !== null);
       const result = await this.claim(
         { profileId: profile.id, groupId: group.id },
         acting,
+        caps.length ? { maxCount: Math.min(...caps) } : {},
       );
       // `jobId` distingue une réservation aboutie d'un groupe déjà vidé.
       if ('jobId' in result) return result;
@@ -678,6 +725,12 @@ export class JobsService {
     // Les groupes où CE profil est pré-approuvé (par le modérateur ou marqué
     // à la main) : ses posts y paraissent sans validation — à priorité égale,
     // il commence par là.
+    // La priorité des groupes (Pilotage → Règles & priorités).
+    const groupPriority = new Map(
+      (
+        await this.prisma.group.findMany({ where: { id: { in: groups.map((g) => g.id) } }, select: { id: true, priority: true } })
+      ).map((g) => [g.id, g.priority ?? 0]),
+    );
     const preApproved = new Set(
       (
         await this.prisma.profileGroup.findMany({
@@ -711,6 +764,7 @@ export class JobsService {
           forced: top?.forcedProfileId === profile.id ? 1 : 0,
           priority: top?.post.priority ?? 0,
           free: crowded.has(group.id) ? 0 : 1,
+          groupPriority: groupPriority.get(group.id) ?? 0,
           preApproved: preApproved.has(group.id) ? 1 : 0,
           tie: Math.random(),
         };
@@ -721,6 +775,7 @@ export class JobsService {
         (a, b) =>
           b.forced - a.forced ||
           b.free - a.free ||
+          b.groupPriority - a.groupPriority ||
           b.priority - a.priority ||
           b.preApproved - a.preApproved ||
           a.tie - b.tie,
@@ -856,11 +911,119 @@ export class JobsService {
     error: string,
     acting: CurrentUser | null = null,
     requeue = false,
+    blocked = false,
   ) {
     await this.reachableJob(jobId, acting);
     const item = await this.updateItem(jobId, postId, TargetStatus.FAILED, { error });
-    if (requeue) await this.requeueUnpublished(jobId, postId, error);
+    // Facebook limite ce compte : pause, et son travail passe aux autres —
+    // signalé par l'extension, ou reconnu au message (anciennes extensions).
+    if (blocked || RATE_LIMITED.test(error)) await this.pauseForRateLimit(jobId, error);
+    if (requeue || blocked) await this.requeueUnpublished(jobId, postId, error);
     return item;
+  }
+
+  /** « We limit how often you can post… » : continuer ne ferait qu'aggraver
+   * la sanction. Le profil passe en pause (durée réglée, 5 jours par défaut) :
+   *   - il ne réserve plus rien (le Pilotage le montre en pause) ;
+   *   - son lot en cours est libéré, ses posts retournent dans la file ;
+   *   - les publications forcées vers lui reviennent à la file normale ;
+   *   - ses posts propres deviennent des posts ouverts de son compte.
+   * Les autres profils actifs des groupes reprennent tout naturellement. */
+  async pauseForRateLimit(jobId: string, reason: string, now = new Date()) {
+    const job = await this.prisma.publicationJob.findUnique({
+      where: { id: jobId },
+      select: { profileId: true, profile: { select: { name: true, ownerId: true } } },
+    });
+    if (!job) return null;
+    const profileId = job.profileId;
+    const settings = await this.prisma.automationSetting.findUnique({ where: { id: 'global' }, select: { rateLimitPauseDays: true } });
+    const days = settings?.rateLimitPauseDays ?? 5;
+    const until = new Date(now.getTime() + days * 86_400_000);
+    const why = `Facebook limite ses publications : ${String(reason).slice(0, 300)}`;
+    await this.prisma.profileRunner.upsert({
+      where: { profileId },
+      create: { profileId, pausedUntil: until, pauseReason: why },
+      update: { pausedUntil: until, pauseReason: why },
+    });
+    const active = await this.prisma.publicationJob.findMany({
+      where: { profileId, status: JobStatus.CLAIMED },
+      select: { id: true },
+    });
+    let released = 0;
+    for (const j of active) {
+      const r = await this.release(j.id, null, `profil « ${job.profile.name} » limité par Facebook`).catch(() => null);
+      released += (r as { released?: number } | null)?.released ?? 0;
+    }
+    const [unforced, opened] = await this.prisma.$transaction([
+      this.prisma.postTarget.updateMany({
+        where: { forcedProfileId: profileId, status: { in: [TargetStatus.AVAILABLE, TargetStatus.FAILED] } },
+        data: { forcedProfileId: null, forcedAt: null },
+      }),
+      this.prisma.post.updateMany({
+        where: { profileId, status: 'AVAILABLE' },
+        data: { profileId: null, ownerId: job.profile.ownerId },
+      }),
+    ]);
+    await this.log({
+      profileId,
+      jobId,
+      eventType: 'PROFILE_RATE_LIMITED',
+      level: 'WARN',
+      message:
+        `« ${job.profile.name} » limité par Facebook : en pause ${days} jour(s), jusqu’au ${until.toISOString().slice(0, 10)}` +
+        ` — ${released} post(s) du lot rendus à la file, ${unforced.count} envoi(s) forcé(s) rendus, ${opened.count} post(s) ouverts aux autres profils`,
+      metadata: { until: until.toISOString(), days, released, unforced: unforced.count, opened: opened.count, reason: String(reason).slice(0, 500) },
+    });
+    return { until, released, unforced: unforced.count, opened: opened.count };
+  }
+
+  /** Les règles du pilotage pour ce profil et ces groupes, au jour et à
+   * l'heure du fuseau de l'objectif :
+   *   - quota du profil : publications du jour, et ce qu'il lui reste ;
+   *   - par groupe : ouvert à cette heure ? combien encore aujourd'hui
+   *     (publiés + en cours comptent) ? */
+  async pilotRules(profileId: string, groupIds: string[], now = new Date()) {
+    const [settings, runner, groupRows] = await Promise.all([
+      this.prisma.automationSetting.findUnique({ where: { id: 'global' }, select: { objectiveTimezone: true } }),
+      this.prisma.profileRunner.findUnique({ where: { profileId }, select: { dailyQuota: true } }),
+      this.prisma.group.findMany({ where: { id: { in: groupIds } }, select: { id: true, name: true, dailyCap: true, hoursStart: true, hoursEnd: true } }),
+    ]);
+    const tz = settings?.objectiveTimezone || 'Europe/Paris';
+    const dayStart = startOfLocalDay(now, tz);
+    const minutes = localClock(now, tz).minutes;
+    const quota = runner?.dailyQuota ?? null;
+    const publishedToday = quota === null ? 0 : await this.prisma.publicationJobItem.count({
+      where: { status: TargetStatus.PUBLISHED, publishedAt: { gte: dayStart }, job: { profileId } },
+    });
+    const capped = groupRows.filter((g) => g.dailyCap != null).map((g) => g.id);
+    const [done, inFlight] = capped.length
+      ? await Promise.all([
+          this.prisma.postTarget.groupBy({ by: ['groupId'], where: { groupId: { in: capped }, status: TargetStatus.PUBLISHED, publishedAt: { gte: dayStart } }, _count: { _all: true } }),
+          this.prisma.postTarget.groupBy({ by: ['groupId'], where: { groupId: { in: capped }, status: { in: [TargetStatus.CLAIMED, TargetStatus.CONSUMED] } }, _count: { _all: true } }),
+        ])
+      : [[], []];
+    const used = new Map<string, number>();
+    for (const row of [...done, ...inFlight]) used.set(row.groupId, (used.get(row.groupId) ?? 0) + row._count._all);
+    const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const groups = new Map<string, { open: boolean; left: number | null; why: string }>();
+    for (const g of groupRows) {
+      let open = true;
+      let why = '';
+      if (g.hoursStart != null && g.hoursEnd != null && g.hoursStart !== g.hoursEnd) {
+        open = g.hoursStart < g.hoursEnd ? minutes >= g.hoursStart && minutes < g.hoursEnd : minutes >= g.hoursStart || minutes < g.hoursEnd;
+        if (!open) why = `« ${g.name} » : publication de ${hhmm(g.hoursStart)} à ${hhmm(g.hoursEnd)}`;
+      }
+      const left = g.dailyCap == null ? null : Math.max(0, g.dailyCap - (used.get(g.id) ?? 0));
+      if (left === 0) why = `« ${g.name} » : plafond de ${g.dailyCap}/jour atteint`;
+      groups.set(g.id, { open, left, why });
+    }
+    return { quota, quotaLeft: quota === null ? null : Math.max(0, quota - publishedToday), groups, timeZone: tz };
+  }
+
+  /** En pause (limité par Facebook) : la date de fin, sinon null. */
+  private async pausedUntil(profileId: string, now = new Date()) {
+    const runner = await this.prisma.profileRunner.findUnique({ where: { profileId }, select: { pausedUntil: true } });
+    return runner?.pausedUntil && runner.pausedUntil > now ? runner.pausedUntil : null;
   }
 
   /** Un échec AVANT la publication (composeur absent, page muette, navigateur

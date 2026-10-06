@@ -8,6 +8,7 @@ import { RewriterService } from './rewriter.service';
 import { ScrapeController } from './scrape.controller';
 import { SourceReaderService } from './source-reader.service';
 import { WordpressWriterService } from './wordpress-writer.service';
+import { NewsService } from './news.service';
 
 /** La reprise d'une publication Facebook : collecte du post d'origine,
  * lecture de la page source, réécriture, puis dépôt WordPress. */
@@ -19,6 +20,7 @@ import { WordpressWriterService } from './wordpress-writer.service';
     SourceReaderService,
     RewriterService,
     WordpressWriterService,
+    NewsService,
   ],
   exports: [IngestService, SourceReaderService, RewriterService],
 })

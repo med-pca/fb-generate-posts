@@ -61,4 +61,12 @@ export class UpdateSettingsDto {
   @Min(REPEAT_LIMITS.minHours)
   @Max(REPEAT_LIMITS.maxHours)
   repeatEveryHours?: number;
+
+  /** Jours de pause d'un profil limité par Facebook. */
+  @ApiPropertyOptional({ minimum: 1, maximum: 60 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(60)
+  rateLimitPauseDays?: number;
 }

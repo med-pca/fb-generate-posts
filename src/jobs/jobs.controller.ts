@@ -133,7 +133,7 @@ export class JobsController {
     @Body() dto: FailJobItemDto,
     @ActingUser() acting: CurrentUser | null,
   ) {
-    return this.jobs.markFailed(jobId, postId, dto.error, acting, Boolean(dto.requeue));
+    return this.jobs.markFailed(jobId, postId, dto.error, acting, Boolean(dto.requeue), Boolean(dto.blocked));
   }
 
   @Post(':jobId/posts/:postId/commented')

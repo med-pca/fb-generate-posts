@@ -1629,6 +1629,56 @@ Côté WordPress, la colonne « Facebook » de la liste des articles dit où en 
 le renvoi (« En attente », « Réponse API invalide (HTTP …) », etc.).
 `ECHO_PULL_INTERVAL_MINUTES` (défaut 2, 0 = jamais) règle la relecture.
 
+## Profil limité par Facebook : pause automatique
+
+Message « We limit how often you can post… » (ou sa traduction) au moment de
+publier : l'extension Publication (≥ 1.7.0) le signale (`blocked: true`) et
+s'arrête ; la plateforme le reconnaît aussi au texte de l'erreur. Le profil
+est mis en **pause** `rateLimitPauseDays` jours (5 par défaut, Pilotage →
+Règles & priorités) : il ne réserve plus rien, son lot est libéré, les envois
+forcés vers lui reviennent à la file, ses posts propres sont ouverts aux autres
+profils de son compte. Journal `PROFILE_RATE_LIMITED` ; « ▶ Lever la pause »
+dans le menu ⋯ de sa ligne (`PROFILE_PAUSE_LIFTED`).
+
+## Pilotage → Règles & priorités
+
+- **Groupes** (`Group.priority`) : un profil qui cherche du travail commence par
+  le groupe le plus prioritaire où il peut publier (après un envoi forcé et un
+  groupe où personne ne publie en ce moment).
+- **Articles** (`Article.priority`) : la priorité est appliquée à tous ses posts
+  encore à publier, et héritée par ceux créés ensuite (une mise à jour de
+  l'article ne l'écrase pas).
+
+## Capture en mode « actualité » : notre propre article depuis une image
+
+Dans l'extension Capture (≥ 1.5.0), « 📰 Créer notre article » : pas de site
+source, l'image suffit (`mode: 'news'`). Le serveur :
+
+1. relève les titres d'actualité du moment (`NEWS_FEEDS`, sinon BBC monde et
+   économie + Google News ; 72 h au plus, gardés 30 min) — gardés sur la
+   reprise (`sourceText`) ;
+2. demande à un modèle **qui lit l'image** (OpenAI ou Gemini : `*_VISION`)
+   la consigne « journaliste viral » : rattacher l'image à l'actualité
+   internationale / économique / sociale tirée UNIQUEMENT de ces titres (aucun
+   fait inventé), 3 titres accrocheurs (le 1er devient le titre), une amorce
+   pour les réseaux, un article de 300–400 mots — en anglais par défaut ;
+3. dépose l'article sur le site choisi ; au retour de WordPress, les posts
+   portent l'amorce générée et ses mots-clés.
+
+Journal : `INGEST_NEWS_READ`, `INGEST_NEWS_TITLES` (les 3 titres et
+l'actualité retenue).
+
+## Règles du pilotage : plafonds, heures, quotas
+
+- **Groupe** : `dailyCap` (au plus N posts par jour, publiés + en cours),
+  `hoursStart`/`hoursEnd` (on n'y publie qu'entre ces heures, plage pouvant
+  passer minuit). Pilotage → Règles & priorités.
+- **Profil** : `dailyQuota` (au plus N publications par jour). Pilotage →
+  Réglages du profil.
+- Jour et heures : fuseau de l'objectif. À la réservation, un groupe fermé ou
+  plein est sauté, le lot est raboté à ce qui reste ; sinon la réponse dit
+  pourquoi (`quota`, `group_limits`).
+
 ## Audit des publications (Posts → Publiés)
 
 `GET /api/posts/published` (et `published.csv`, même filtre) : période à la

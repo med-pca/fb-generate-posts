@@ -53,6 +53,14 @@ export class UpdateRunnerDto {
   /** Réglages poussés au navigateur. Le contenu n'est pas validé ici : c'est
    * l'extension qui ne retient que les clés qu'elle connaît, sans quoi ajouter
    * un réglage demanderait de modifier l'API aussi. */
+  /** Quota : au plus N publications par jour. null = pas de quota. */
+  @ApiPropertyOptional({ minimum: 0, maximum: 1000, nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  dailyQuota?: number | null;
+
   @ApiPropertyOptional({ type: 'object', additionalProperties: true })
   @IsOptional()
   @IsObject()

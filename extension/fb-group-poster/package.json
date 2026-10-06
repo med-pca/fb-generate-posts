@@ -1,6 +1,6 @@
 {
   "name": "fb-group-poster-extension",
-  "version": "1.6.4",
+  "version": "1.7.0",
   "private": true,
   "description": "Extension Chrome : le worker de publication Facebook, sans Python ni NSTBrowser.",
   "type": "module",

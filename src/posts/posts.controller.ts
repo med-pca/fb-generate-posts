@@ -37,7 +37,8 @@ import {
 } from './dto/queue.dto';
 import { QueueService } from './queue.service';
 import { PublishedService } from './published.service';
-import { PublishedQueryDto } from './dto/queue.dto';
+import { PrioritiesService } from './priorities.service';
+import { GroupLimitsDto, PublishedQueryDto } from './dto/queue.dto';
 
 @ApiTags('posts')
 @ApiBearerAuth()
@@ -48,7 +49,32 @@ export class PostsController {
     private readonly posts: PostsService,
     private readonly queueService: QueueService,
     private readonly publishedService: PublishedService,
+    private readonly priorities: PrioritiesService,
   ) {}
+
+  @Get('priorities')
+  @ApiOperation({ summary: 'Règles & priorités du pilotage : groupes et articles, avec ce qui attend dans la file' })
+  prioritiesOverview(@ActingUser() acting: CurrentUser) {
+    return this.priorities.overview(acting);
+  }
+
+  @Patch('priorities/groups/:id')
+  @ApiOperation({ summary: 'Priorité d’un groupe (en tête, monter, descendre, remettre à zéro, ou une valeur)' })
+  groupPriority(@Param('id') id: string, @Body() dto: PriorityDto, @ActingUser() acting: CurrentUser) {
+    return this.priorities.setGroup(id, dto, acting);
+  }
+
+  @Patch('priorities/groups/:id/limits')
+  @ApiOperation({ summary: 'Plafond de posts par jour et heures de publication d’un groupe (null = aucun)' })
+  groupLimits(@Param('id') id: string, @Body() dto: GroupLimitsDto, @ActingUser() acting: CurrentUser) {
+    return this.priorities.setGroupLimits(id, dto, acting);
+  }
+
+  @Patch('priorities/articles/:id')
+  @ApiOperation({ summary: 'Priorité d’un article : appliquée à tous ses posts encore à publier' })
+  articlePriority(@Param('id') id: string, @Body() dto: PriorityDto, @ActingUser() acting: CurrentUser) {
+    return this.priorities.setArticle(id, dto, acting);
+  }
 
   // Avant `:id` : « published » serait pris pour un identifiant.
   @Get('published')

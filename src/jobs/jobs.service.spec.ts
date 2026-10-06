@@ -238,11 +238,18 @@ describe('JobsService — groupes rejoints uniquement', () => {
         })),
       },
       publicationJob: { findFirst: jest.fn(async () => null) },
+      // Sa ligne de pilotage : en pause ou non, quota du jour.
+      profileRunner: { findUnique: jest.fn(async (): Promise<{ pausedUntil?: Date | null; dailyQuota?: number | null } | null> => null) },
+      automationSetting: { findUnique: jest.fn(async () => ({ objectiveTimezone: 'Europe/Paris' })) },
       // Ce que les AUTRES profils publient en ce moment dans ces groupes.
-      publicationJobItem: { findMany: jest.fn(async (): Promise<Array<{ job: { groupId: string } }>> => []) },
+      publicationJobItem: {
+        findMany: jest.fn(async (): Promise<Array<{ job: { groupId: string } }>> => []),
+        count: jest.fn(async () => 0),
+      },
       postTarget: {
         updateMany: jest.fn(async () => ({ count: 0 })),
         count: jest.fn(async () => 0),
+        groupBy: jest.fn(async (): Promise<Array<{ groupId: string; _count: { _all: number } }>> => []),
       },
       // Les groupes liés au profil, pour le diagnostic d'un « rien à publier »,
       // et ceux où il est pré-approuvé.
@@ -372,6 +379,83 @@ describe('JobsService — groupes rejoints uniquement', () => {
     expect(tried[0]).toBe('pre-approuve');
   });
 
+  it('profil en pause (limité par Facebook) : il ne réserve rien', async () => {
+    const { service, prisma } = makeClaimHarness();
+    prisma.profileRunner.findUnique.mockResolvedValue({ pausedUntil: new Date(Date.now() + 86_400_000) });
+    const r: any = await service.claimByProfileExternalId('demo-profile');
+    expect(r.reason).toBe('paused');
+    expect(prisma.group.findMany).not.toHaveBeenCalled();
+  });
+
+  it('un groupe prioritaire passe avant les posts prioritaires d’un autre groupe', async () => {
+    const { service, prisma } = makeClaimHarness();
+    prisma.group.findMany.mockImplementation(async (args: any) =>
+      args?.select?.priority ? [{ id: 'normal', priority: 0 }, { id: 'vip', priority: 5 }] : [{ id: 'normal' }, { id: 'vip' }],
+    );
+    prisma.postTarget.findFirst = jest.fn(async ({ where }: any) => ({ post: { priority: where.groupId === 'normal' ? 9 : 0 } }));
+    const tried: string[] = [];
+    jest.spyOn(service, 'claim').mockImplementation(async (dto: any) => {
+      tried.push(dto.groupId);
+      return { job: null, posts: [] };
+    });
+    await service.claimByProfileExternalId('demo-profile');
+    expect(tried[0]).toBe('vip');
+  });
+
+  describe('règles du pilotage', () => {
+    function withRules(groupsRules: any[], extra: (prisma: any) => void = () => {}) {
+      const h = makeClaimHarness();
+      h.prisma.group.findMany.mockImplementation(async (args: any) =>
+        args?.select?.dailyCap ? groupsRules : args?.select?.priority ? groupsRules.map((g) => ({ id: g.id, priority: 0 })) : groupsRules.map((g) => ({ id: g.id })),
+      );
+      h.prisma.postTarget.findFirst = jest.fn(async () => ({ post: { priority: 0 } }));
+      extra(h.prisma);
+      const tried: Array<{ groupId: string; max?: number }> = [];
+      jest.spyOn(h.service, 'claim').mockImplementation(async (dto: any, _a: any, limits: any = {}) => {
+        tried.push({ groupId: dto.groupId, max: limits.maxCount });
+        return { job: null, posts: [] };
+      });
+      return { ...h, tried };
+    }
+    const g = (id: string, over: any = {}) => ({ id, name: id, dailyCap: null, hoursStart: null, hoursEnd: null, ...over });
+
+    it('quota du profil atteint : rien à réserver aujourd’hui', async () => {
+      const { service, tried } = withRules([g('a')], (p) => {
+        p.profileRunner.findUnique.mockResolvedValue({ pausedUntil: null, dailyQuota: 10 });
+        p.publicationJobItem.count.mockResolvedValue(10);
+      });
+      const r: any = await service.claimByProfileExternalId('demo-profile');
+      expect(r.reason).toBe('quota');
+      expect(tried).toEqual([]);
+    });
+
+    it('plafond du groupe : un groupe plein est sauté, l’autre limité à ce qu’il lui reste', async () => {
+      const { service, tried } = withRules([g('plein', { dailyCap: 5 }), g('presque', { dailyCap: 5 })], (p) => {
+        p.postTarget.groupBy.mockImplementation(async (args: any) =>
+          args.where.status === 'PUBLISHED' ? [{ groupId: 'plein', _count: { _all: 5 } }, { groupId: 'presque', _count: { _all: 3 } }] : [{ groupId: 'presque', _count: { _all: 1 } }],
+        );
+      });
+      await service.claimByProfileExternalId('demo-profile');
+      expect(tried).toEqual([{ groupId: 'presque', max: 1 }]);
+    });
+
+    it('heures réservées : hors de sa plage, le groupe est fermé', async () => {
+      const now = new Date();
+      const parisMinutes = Number(now.toLocaleString('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false })) % 24 * 60;
+      const closed = { hoursStart: (parisMinutes + 120) % 1440, hoursEnd: (parisMinutes + 180) % 1440 };
+      const { service, tried } = withRules([g('ferme', closed), g('ouvert')]);
+      await service.claimByProfileExternalId('demo-profile');
+      expect(tried.map((t) => t.groupId)).toEqual(['ouvert']);
+    });
+
+    it('tous fermés ou pleins : il le dit', async () => {
+      const { service } = withRules([g('plein', { dailyCap: 0 })]);
+      const r: any = await service.claimByProfileExternalId('demo-profile');
+      expect(r.reason).toBe('group_limits');
+      expect(r.message).toMatch(/plafond de 0\/jour/);
+    });
+  });
+
   it('un envoi forcé vers ce profil passe avant toute priorité', async () => {
     const { service, prisma } = makeClaimHarness();
     prisma.group.findMany.mockResolvedValue([{ id: 'prioritaire' }, { id: 'force' }]);
@@ -420,6 +504,7 @@ describe('JobsService — un lot ne bloque plus un profil pour rien', () => {
     const ops: Array<[string, any]> = [];
     const record = (name: string) => jest.fn((args: any) => { ops.push([name, args]); return args; });
     const prisma: any = {
+      profileRunner: { findUnique: jest.fn(async () => null) },
       publicationJob: {
         findFirst: jest.fn(async () => ({ id: 'job_1' })),
         findUnique: jest.fn(async () => ({ id: 'job_1', status: jobStatus, profileId: 'p1', groupId: 'g1', items })),
@@ -470,6 +555,7 @@ describe('JobsService — un lot terminé ne bloque pas le profil', () => {
   it('tous ses posts finis : il est clos, et le profil réserve à nouveau', async () => {
     const logs: any[] = [];
     const prisma: any = {
+      profileRunner: { findUnique: jest.fn(async () => null) },
       profile: { findFirst: jest.fn(async () => ({ id: 'p1', status: 'ACTIVE', ownerId: null })) },
       publicationJob: {
         findFirst: jest.fn(async () => ({ id: 'vieux_lot', claimExpiresAt: new Date(Date.now() + 600_000) })),
@@ -537,5 +623,49 @@ describe('JobsService — un post qui n’est jamais parti repart seul dans la f
     const { service, prisma } = harness(1);
     await service.markFailed('j1', 'post1', 'x', null, false);
     expect(prisma.publicationJobItem.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('JobsService — profil limité par Facebook', () => {
+  function harness() {
+    const prisma: any = {
+      publicationJob: {
+        findUnique: jest.fn(async () => ({ profileId: 'p1', profile: { name: 'Islam', ownerId: 'u1' } })),
+        findMany: jest.fn(async () => [{ id: 'j1' }]),
+      },
+      automationSetting: { findUnique: jest.fn(async () => ({ rateLimitPauseDays: 5 })) },
+      profileRunner: { upsert: jest.fn(async (a: any) => a) },
+      postTarget: { updateMany: jest.fn(async () => ({ count: 2 })) },
+      post: { updateMany: jest.fn(async () => ({ count: 1 })) },
+      activityLog: { create: jest.fn(async (a: any) => a) },
+      $transaction: jest.fn(async (ops: any[]) => Promise.all(ops)),
+    };
+    const service = new JobsService(prisma, {} as any);
+    jest.spyOn(service, 'release').mockResolvedValue({ jobId: 'j1', released: 3, inProgress: 0 } as any);
+    return { service, prisma };
+  }
+
+  it('reconnaît le message de Facebook, en plusieurs langues', () => {
+    const { RATE_LIMITED } = require('./jobs.service');
+    for (const text of [
+      'Facebook a refuse la publication (publication bloquee)',
+      'We limit how often you can post, comment or do other things in a given amount of time',
+      'Nous limitons la fréquence à laquelle vous pouvez publier',
+      'حاول مرة أخرى لاحقاً',
+    ]) expect(RATE_LIMITED.test(text)).toBe(true);
+    expect(RATE_LIMITED.test('the "Write something..." box is not on the page')).toBe(false);
+  });
+
+  it('pause de 5 jours, lot libéré, envois forcés rendus, posts propres ouverts aux autres', async () => {
+    const { service, prisma } = harness();
+    const now = new Date('2026-10-06T10:00:00Z');
+    const r: any = await service.pauseForRateLimit('j1', 'publication bloquee', now);
+    expect(prisma.profileRunner.upsert.mock.calls[0][0].update.pausedUntil).toEqual(new Date('2026-10-11T10:00:00Z'));
+    expect(service.release).toHaveBeenCalledWith('j1', null, expect.stringContaining('limité par Facebook'));
+    expect(prisma.postTarget.updateMany.mock.calls[0][0]).toMatchObject({ where: { forcedProfileId: 'p1' }, data: { forcedProfileId: null } });
+    expect(prisma.post.updateMany.mock.calls[0][0]).toMatchObject({ where: { profileId: 'p1' }, data: { profileId: null, ownerId: 'u1' } });
+    expect(r).toMatchObject({ released: 3, unforced: 2, opened: 1 });
+    expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('PROFILE_RATE_LIMITED');
   });
 });

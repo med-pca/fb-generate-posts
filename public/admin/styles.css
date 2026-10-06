@@ -2193,3 +2193,26 @@ dialog form small, dialog form .form-help, dialog form p { overflow-wrap: anywhe
 .pub-kpis small, .pub-top h4 small { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 0.76rem; }
 .pub-cols { justify-content: center; }
 .pub-col { max-width: 56px; }
+
+/* ── Pilotage → Règles & priorités ────────────────────────────────────── */
+.rules-panel { padding: 16px 18px; display: grid; gap: 10px; align-content: start; }
+.rules-panel .panel-head { padding: 0; border: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rules-panel .panel-head input { width: 220px; min-height: 34px; }
+.rules-pause { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rules-pause label { display: flex; align-items: center; gap: 8px; font-weight: 650; color: #344054; }
+.rules-pause input { width: 70px; min-height: 36px; }
+.rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; margin-top: 14px; }
+.rules-table td small { display: block; color: var(--muted); font-size: 0.74rem; }
+.rules-table td:nth-child(2) { width: 70px; text-align: center; font-weight: 700; }
+.rules-table td:last-child { width: 180px; }
+.rules-table tr.prioritised { background: #f5f8ff; }
+.rules-table .table-wrap { max-height: 520px; }
+@media (max-width: 760px) { .rules-grid { grid-template-columns: 1fr; } .rules-panel .panel-head input { width: 100%; } }
+.rules-table td small { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.rule-cap { white-space: nowrap; }
+.rule-cap span { margin-right: 4px; font-weight: 700; }
+.rule-cap input { width: 64px; min-height: 30px; padding: 3px 6px; }
+.rule-hours { white-space: nowrap; }
+.rule-hours span { margin: 0 4px; }
+.rule-hours input { width: auto; min-height: 30px; padding: 3px 6px; }
+.rules-grid { grid-template-columns: 1fr; }

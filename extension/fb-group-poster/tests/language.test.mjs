@@ -42,3 +42,11 @@ test('le nom du compte se lit aussi dans « التعليق باسم … »', () 
   assert.equal(D.authorFromLabel('التعليق باسم رحاب نكوس'), 'رحاب نكوس');
   assert.equal(D.authorFromLabel('Write a comment'), '');
 });
+
+test('limitation de Facebook reconnue (« We limit how often you can post… »), quelle que soit la langue', () => {
+  assert.ok(D.BLOCKED.test('we limit how often you can post, comment or do other things in a given amount of time in order to help protect the community from spam. you can try again later.'));
+  assert.ok(D.BLOCKED.test('Nous limitons la fréquence à laquelle vous pouvez publier, commenter ou faire d’autres choses. Réessayez plus tard.'));
+  assert.ok(D.BLOCKED.test('نحن نحد من عدد المرات التي يمكنك فيها النشر. حاول مرة أخرى لاحقاً.'));
+  assert.ok(D.BLOCKED.test('Limitamos la frecuencia con la que puedes publicar'));
+  assert.ok(!D.BLOCKED.test('Create post · Islam Houbous · Public group'), 'le composeur seul n’est pas un blocage');
+});

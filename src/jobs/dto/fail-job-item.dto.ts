@@ -9,4 +9,10 @@ export class FailJobItemDto {
   @IsOptional()
   @IsBoolean()
   requeue?: boolean;
+
+  /** Facebook limite ce compte (« We limit how often you can post… ») : la
+   * plateforme le met en pause et confie son travail aux autres profils. */
+  @IsOptional()
+  @IsBoolean()
+  blocked?: boolean;
 }

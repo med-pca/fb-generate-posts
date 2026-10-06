@@ -19,6 +19,7 @@ export const APP_ROUTES: Record<string, AppRoute> = {
   '/pilotage': { view: 'runners', title: 'Pilotage' },
   '/pilotage/objectif': { view: 'runners', title: 'Pilotage — objectif du jour' },
   '/pilotage/adhesions': { view: 'runners', title: 'Pilotage — nos profils dans les groupes' },
+  '/pilotage/regles': { view: 'runners', title: 'Pilotage — règles & priorités' },
   '/parametres': { view: 'settings', title: 'Paramètres' },
   '/comptes': { view: 'users', title: 'Comptes' },
   '/actions-en-masse': { view: 'bulk', title: 'Actions en masse' },

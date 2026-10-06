@@ -1,7 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
+  IsIn,
   IsOptional,
+  ValidateIf,
   IsString,
   IsUrl,
   Length,
@@ -23,10 +25,19 @@ export class CreateIngestDto {
   })
   facebookUrl!: string;
 
-  @ApiProperty({ example: 'https://exemple.com/article' })
+  /** `rewrite` (défaut) : réécrire l'article de `sourceUrl`. `news` : créer
+   * notre propre article depuis l'image, rapprochée de l'actualité — pas de
+   * site source. */
+  @ApiPropertyOptional({ enum: ['rewrite', 'news'], default: 'rewrite' })
+  @IsOptional()
+  @IsIn(['rewrite', 'news'])
+  mode?: 'rewrite' | 'news';
+
+  @ApiPropertyOptional({ example: 'https://exemple.com/article', description: 'Obligatoire, sauf en mode « news »' })
+  @ValidateIf((dto: CreateIngestDto) => dto.mode !== 'news' || Boolean(dto.sourceUrl))
   @IsUrl({ protocols: ['https'], require_protocol: true })
   @MaxLength(2000)
-  sourceUrl!: string;
+  sourceUrl?: string;
 
   @ApiPropertyOptional({
     description: 'Site WordPress de destination. Défaut : WORDPRESS_SITE_URL.',

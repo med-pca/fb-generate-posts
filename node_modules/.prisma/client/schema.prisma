@@ -243,6 +243,16 @@ model Group {
   categoryId      String?          @map("category_id")
   category        Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   status          RecordStatus     @default(ACTIVE)
+  /// Les groupes servis en premier : plus haut = un profil y va avant les
+  /// autres. 0 = normal. Réglé dans Pilotage → Règles & priorités.
+  priority        Int              @default(0)
+  /// Au plus N publications par jour dans ce groupe (jour du fuseau de
+  /// l'objectif). NULL = pas de plafond.
+  dailyCap        Int?             @map("daily_cap")
+  /// Heures où l'on publie dans ce groupe (minutes depuis minuit, fuseau de
+  /// l'objectif ; une plage peut passer minuit). NULL = à toute heure.
+  hoursStart      Int?             @map("hours_start")
+  hoursEnd        Int?             @map("hours_end")
   profiles        ProfileGroup[]
   targets         PostTarget[]
   publicationJobs PublicationJob[]
@@ -457,6 +467,8 @@ model Article {
   imagePrompt     String?       @map("image_prompt") @db.Text
   rawData         Json          @map("raw_data")
   status          RecordStatus  @default(ACTIVE)
+  /// Priorité de TOUS ses posts (les existants, et ceux créés ensuite).
+  priority        Int           @default(0)
   /// Posé à la première publication d'un de ses posts : l'article a servi,
   /// on n'en tire plus de nouveau post. Son post déjà créé finit sa tournée
   /// des groupes (chacun le reçoit une fois).
@@ -484,6 +496,10 @@ model SourceIngest {
   siteUrl     String @map("site_url")
   language    String @default("en")
 
+  /// `rewrite` : réécrire l'article d'un site source (sourceUrl).
+  /// `news`    : créer NOTRE article à partir de l'image seule, rapprochée de
+  ///             l'actualité du moment (sourceText garde les titres utilisés).
+  mode        String  @default("rewrite")
   /// Ce que l'extension rapporte du post d'origine.
   fbCaption   String? @map("fb_caption") @db.Text
   fbImageUrl  String? @map("fb_image_url")
@@ -541,6 +557,10 @@ model AutomationSetting {
   /// La duplication des contenus : combien de fois chaque post part dans un
   /// même groupe (1 = une seule fois, le cas par défaut), et l'écart entre
   /// deux publications. Un post peut avoir les siens (`Post.repeatTimes`).
+  /// Un profil que Facebook limite (« We limit how often you can post… »)
+  /// est mis en pause ce nombre de jours : il ne publie plus, ses posts
+  /// passent aux autres profils.
+  rateLimitPauseDays         Int      @default(5) @map("rate_limit_pause_days")
   repeatTimes                Int      @default(1) @map("repeat_times")
   repeatEveryHours           Int      @default(48) @map("repeat_every_hours")
   createdAt                  DateTime @default(now()) @map("created_at")
@@ -721,17 +741,24 @@ model ProfileRunner {
   keyRejectReason   String?   @map("key_reject_reason")
 
   /// Ce que l'extension rapporte a chaque battement.
-  lastSeenAt DateTime? @map("last_seen_at")
+  lastSeenAt  DateTime? @map("last_seen_at")
   /// L'extension a fermé son navigateur pour rendre la mémoire entre deux
   /// lots : l'agent local ne le rouvre qu'à cette heure-là. NULL = éveillé.
-  sleepUntil DateTime? @map("sleep_until")
-  running    Boolean   @default(false)
-  phase      String?
-  message    String?   @db.Text
-  published  Int       @default(0)
-  failed     Int       @default(0)
-  links      Int       @default(0)
-  agent      String?
+  sleepUntil  DateTime? @map("sleep_until")
+  /// En pause jusqu'à cette date : Facebook a limité ses publications. Il ne
+  /// réserve plus rien ; levée seule à l'échéance, ou par l'admin.
+  pausedUntil DateTime? @map("paused_until")
+  pauseReason String?   @map("pause_reason") @db.Text
+  /// Quota du profil : au plus N publications par jour (fuseau de l'objectif).
+  /// NULL = pas de quota.
+  dailyQuota  Int?      @map("daily_quota")
+  running     Boolean   @default(false)
+  phase       String?
+  message     String?   @db.Text
+  published   Int       @default(0)
+  failed      Int       @default(0)
+  links       Int       @default(0)
+  agent       String?
 
   /// Ce que l'agent local rapporte sur le navigateur lui-meme.
   browserState   BrowserState @default(STOPPED) @map("browser_state")

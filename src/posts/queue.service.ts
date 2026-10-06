@@ -144,6 +144,8 @@ export class QueueService {
           // passage. Puis l'ordre de la réservation : priorité, ancienneté.
           orderBy: [
             { forcedProfileId: { sort: 'asc', nulls: 'last' } },
+            // Les groupes prioritaires d'abord (Pilotage → Règles & priorités).
+            { group: { priority: 'desc' } },
             { post: { priority: 'desc' } },
             { post: { createdAt: 'asc' } },
             { createdAt: 'asc' },

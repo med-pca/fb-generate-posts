@@ -58,6 +58,12 @@ export class RunnersController {
     return this.runners.updateAll(dto, acting);
   }
 
+  @Post(':profileId/resume')
+  @ApiOperation({ summary: 'Lever la pause d’un profil limité par Facebook' })
+  resume(@Param('profileId') profileId: string, @ActingUser() acting: CurrentUser) {
+    return this.runners.resume(profileId, acting);
+  }
+
   @Post(':profileId/pair-code')
   @ApiOperation({
     summary: 'Émettre un code d’appairage pour ce profil',

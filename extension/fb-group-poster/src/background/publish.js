@@ -104,7 +104,9 @@ async function publishPostFocused(tabId, config, job) {
   }
 
   if (submitted.blocked) {
-    return result({ message: 'Facebook a refuse la publication (publication bloquee)', author });
+    // « We limit how often you can post… » : la plateforme met ce profil en
+    // pause et confie son travail aux autres. Rien n'est parti.
+    return result({ message: 'Facebook a refuse la publication (publication bloquee : limite de publication)', author, blocked: true });
   }
   if (!submitted.ok) {
     // A composer still on screen does NOT mean nothing was submitted. Verified

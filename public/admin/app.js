@@ -981,7 +981,7 @@ $('#pil-quick').addEventListener('click', (e) => {
   renderRunners();
 });
 
-const PIL_TABS = { profiles: '/pilotage', objective: '/pilotage/objectif', members: '/pilotage/adhesions' };
+const PIL_TABS = { profiles: '/pilotage', objective: '/pilotage/objectif', members: '/pilotage/adhesions', rules: '/pilotage/regles' };
 function showPilotTab(tab, { fromUrl = false } = {}) {
   if (!PIL_TABS[tab]) tab = 'profiles';
   state.pilotTab = tab;
@@ -989,9 +989,108 @@ function showPilotTab(tab, { fromUrl = false } = {}) {
   $('#pil-profiles').classList.toggle('hidden', tab !== 'profiles');
   $('#pil-objective').classList.toggle('hidden', tab !== 'objective');
   $('#pil-members').classList.toggle('hidden', tab !== 'members');
+  $('#pil-rules').classList.toggle('hidden', tab !== 'rules');
+  if (tab === 'rules') void loadRules();
   if (!fromUrl && location.pathname !== PIL_TABS[tab]) history.pushState({}, '', PIL_TABS[tab]);
 }
 $$('[data-pil-tab]').forEach((b) => (b.onclick = () => showPilotTab(b.dataset.pilTab)));
+
+/* ── Règles & priorités ─────────────────────────────────────────────── */
+async function loadRules() {
+  try {
+    state.rules = await api('/posts/priorities');
+    renderRules();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+}
+const prioControls = (kind, id, prio) =>
+  `<div class="prio-actions">` +
+  (prio ? `<span class="prio ${prio < 0 ? 'low' : ''}">${prio > 0 ? '+' : ''}${prio}</span>` : '<span class="muted">normal</span>') +
+  `<button class="edit" type="button" data-rule-${kind}="${id}" data-move="top" title="En tête">⤒</button>` +
+  `<button class="edit" type="button" data-rule-${kind}="${id}" data-move="up" title="Monter d’un cran">↑</button>` +
+  `<button class="edit" type="button" data-rule-${kind}="${id}" data-move="down" title="Descendre d’un cran">↓</button>` +
+  (prio ? `<button class="edit" type="button" data-rule-${kind}="${id}" data-move="reset" title="Priorité normale">×</button>` : '') +
+  `</div>`;
+function renderRules() {
+  const r = state.rules;
+  if (!r) return;
+  const f = $('#rules-pause');
+  if (!f.contains(document.activeElement)) f.elements.rateLimitPauseDays.value = r.settings.rateLimitPauseDays;
+  const gq = ($('#rules-group-search').value || '').trim().toLowerCase();
+  const aq = ($('#rules-article-search').value || '').trim().toLowerCase();
+  $('#rules-groups').innerHTML =
+    r.groups
+      .filter((g) => !gq || g.name.toLowerCase().includes(gq) || (g.category?.name || '').toLowerCase().includes(gq))
+      .map(
+        (g) =>
+          `<tr class="${g.priority ? 'prioritised' : ''}"><td><b>${esc(g.name)}</b><small>${esc(g.category?.name || 'sans catégorie')}</small></td>` +
+          `<td>${g.waiting}</td><td>${prioControls('group', g.id, g.priority)}</td>` +
+          `<td class="rule-cap"><span class="${g.dailyCap != null && g.publishedToday >= g.dailyCap ? 'bad' : ''}">${g.publishedToday} /</span>` +
+          `<input type="number" min="0" max="1000" placeholder="∞" value="${g.dailyCap ?? ''}" data-limit-group="${g.id}" data-field="dailyCap" aria-label="Plafond par jour"></td>` +
+          `<td class="rule-hours"><input type="time" value="${g.hoursStart != null ? minutesToTime(g.hoursStart) : ''}" data-limit-group="${g.id}" data-field="hoursStart" aria-label="De">` +
+          `<span>–</span><input type="time" value="${g.hoursEnd != null ? minutesToTime(g.hoursEnd) : ''}" data-limit-group="${g.id}" data-field="hoursEnd" aria-label="À"></td></tr>`,
+      )
+      .join('') || '<tr><td colspan="5" class="empty">Aucun groupe.</td></tr>';
+  $('#rules-articles').innerHTML =
+    r.articles
+      .filter((a) => !aq || a.title.toLowerCase().includes(aq) || (a.site || '').toLowerCase().includes(aq))
+      .map(
+        (a) =>
+          `<tr class="${a.priority ? 'prioritised' : ''}"><td><a href="${esc(a.articleUrl)}" target="_blank" rel="noreferrer"><b>${esc(a.title)}</b></a><small>${esc(a.site || '')}${a.publishedAt ? ` · ${esc(dateFr(a.publishedAt))}` : ''}</small></td>` +
+          `<td>${a.waiting}</td><td>${prioControls('article', a.id, a.priority)}</td></tr>`,
+      )
+      .join('') || '<tr><td colspan="3" class="empty">Aucun article avec des posts en file.</td></tr>';
+}
+$('#rules-group-search').addEventListener('input', renderRules);
+/** Plafond ou heures d'un groupe : enregistré dès qu'on quitte le champ. Une
+ * plage horaire n'est prise qu'entière (les deux heures). */
+$('#rules-groups').addEventListener('change', async (e) => {
+  const id = e.target.dataset.limitGroup;
+  if (!id) return;
+  const row = e.target.closest('tr');
+  const val = (field) => row.querySelector(`[data-field="${field}"]`).value;
+  const start = timeToMinutes(val('hoursStart'));
+  const end = timeToMinutes(val('hoursEnd'));
+  if ((start == null) !== (end == null) && e.target.dataset.field !== 'dailyCap') return; // l'autre heure arrive
+  try {
+    await api(`/posts/priorities/groups/${id}/limits`, {
+      method: 'PATCH',
+      body: JSON.stringify({ dailyCap: val('dailyCap') === '' ? null : Number(val('dailyCap')), hoursStart: start ?? null, hoursEnd: end ?? null }),
+    });
+    notice('Règles du groupe enregistrées.');
+    await loadRules();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+});
+$('#rules-article-search').addEventListener('input', renderRules);
+$('#pil-rules').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-rule-group], [data-rule-article]');
+  if (!b) return;
+  const kind = b.dataset.ruleGroup ? 'groups' : 'articles';
+  const id = b.dataset.ruleGroup || b.dataset.ruleArticle;
+  b.disabled = true;
+  try {
+    const r = await api(`/posts/priorities/${kind}/${id}`, { method: 'PATCH', body: JSON.stringify({ move: b.dataset.move }) });
+    notice(kind === 'articles' ? `Priorité ${r.priority} : ${r.posts} post(s) de l’article mis à jour.` : `Priorité du groupe : ${r.priority}.`);
+    await loadRules();
+  } catch (x) {
+    notice(x.message, 'error');
+    b.disabled = false;
+  }
+});
+$('#rules-pause').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('/settings', { method: 'PATCH', body: JSON.stringify({ rateLimitPauseDays: Number(e.target.elements.rateLimitPauseDays.value) }) });
+    notice('Durée de la pause enregistrée.');
+    document.activeElement?.blur?.();
+    await loadRules();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 
 /** L'état RÉEL de l'appairage, calculé par l'API : clé encore valable,
  * identifiant inchangé, battements reçus ou refusés. */
@@ -1325,7 +1424,9 @@ function renderRunners() {
   $('#runner-rows').innerHTML =
     shown
       .map((r) => {
-        const worker = r.sleepUntil
+        const worker = r.pausedUntil
+          ? `<span class="chip join-failed" title="${esc(r.pauseReason || 'Facebook a limité ses publications')}">⏸ en pause jusqu’au ${esc(new Date(r.pausedUntil).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · limité par Facebook</span>`
+          : r.sleepUntil
           ? `<span class="chip sleep" title="Navigateur fermé pour libérer la mémoire ; l’agent local le rouvre à l’heure">💤 en veille jusqu’à ${esc(new Date(r.sleepUntil).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</span>`
           : r.atWork
           ? `<span class="chip join-joined">au travail · ${esc(PHASE_LABELS[r.phase] || r.phase || '—')}</span>`
@@ -1349,9 +1450,12 @@ function renderRunners() {
           `<small class="muted">${esc(r.window)} · ${esc(r.timezone)}</small></td>` +
           `<td><div class="stack">${browser}${worker}</div><small>vu ${esc(ago(r.lastSeenAt || r.browserSeenAt))}${r.browserMessage ? ' · ' + esc(r.browserMessage) : ''}</small></td>` +
           `<td>${pairingCell(r)}</td>` +
-          `<td><span class="counts-cell"><b>${r.published}</b> publiés · <b class="${r.failed ? 'bad' : ''}">${r.failed}</b> échecs · <b>${r.links}</b> liens</span>${r.message ? `<small title="${esc(r.message)}">${esc(r.message)}</small>` : ''}</td>` +
+          `<td><span class="counts-cell"><b>${r.published}</b> publiés · <b class="${r.failed ? 'bad' : ''}">${r.failed}</b> échecs · <b>${r.links}</b> liens</span>` +
+          (r.dailyQuota != null ? `<small class="muted" title="Quota : au plus ${r.dailyQuota} publication(s) par jour">quota ${r.dailyQuota}/jour</small>` : '') +
+          `${r.message ? `<small title="${esc(r.message)}">${esc(r.message)}</small>` : ''}</td>` +
           `<td><div class="row-actions"><button class="edit" data-runner-edit="${r.profileId}">Réglages</button>` +
           rowMenu([
+            r.pausedUntil ? menuItem(`data-runner-resume="${r.profileId}" data-name="${esc(r.name)}"`, '▶ Lever la pause (limitation Facebook)') : '',
             menuItem(`data-runner-pair="${r.profileId}"`, r.pairedAt ? '🔑 Ré-appairer' : '🔑 Appairer'),
             menuItem(`data-fb-id="${r.profileId}" data-current="${esc(r.facebookUserId || '')}"`, r.facebookUserId ? '👤 Modifier l’identifiant Facebook' : '👤 Saisir l’identifiant Facebook'),
             menuItem(`data-goto="/profils/${r.profileId}"`, '📊 Page du profil'),
@@ -1374,6 +1478,19 @@ function renderRunners() {
   );
   $$('[data-runner-pair]').forEach(
     (button) => (button.onclick = () => askPairCode(button.dataset.runnerPair)),
+  );
+  $$('[data-runner-resume]').forEach(
+    (button) =>
+      (button.onclick = async () => {
+        if (!(await ask(`Lever la pause de « ${button.dataset.name} » ?\nFacebook l’avait limité : reprendre trop tôt peut prolonger la sanction.`, { tone: 'warn', confirmLabel: 'Lever la pause' }))) return;
+        try {
+          await api(`/runners/${button.dataset.runnerResume}/resume`, { method: 'POST' });
+          notice('Pause levée : il reprend au prochain battement, selon son mode.');
+          await loadRunners();
+        } catch (x) {
+          notice(x.message, 'error');
+        }
+      }),
   );
   $$('[data-fb-id]').forEach(
     (button) =>
@@ -1509,6 +1626,7 @@ function openRunnerModal(profileId) {
   form.elements.windowStart.value = minutesToTime(runner.windowStart);
   form.elements.windowEnd.value = minutesToTime(runner.windowEnd);
   form.elements.timezone.value = runner.timezone || '';
+  form.elements.dailyQuota.value = runner.dailyQuota ?? '';
   // La veille a sa case ; le reste des réglages poussés reste en JSON.
   const { closeWhenIdle, closeIfWaitMinutes, ...otherSettings } = runner.settings || {};
   form.elements.closeWhenIdle.checked = Boolean(closeWhenIdle);
@@ -1569,6 +1687,7 @@ $('#runner-form').onsubmit = async (e) => {
     windowEnd: timeToMinutes(form.elements.windowEnd.value),
     days,
     timezone: form.elements.timezone.value.trim() || 'Europe/Paris',
+    dailyQuota: form.elements.dailyQuota.value === '' ? null : Number(form.elements.dailyQuota.value),
     settings,
   });
   $('#runner-modal').close();
@@ -2175,6 +2294,7 @@ const ROUTES = {
   '/pilotage': { view: 'runners', pil: 'profiles' },
   '/pilotage/objectif': { view: 'runners', pil: 'objective' },
   '/pilotage/adhesions': { view: 'runners', pil: 'members' },
+  '/pilotage/regles': { view: 'runners', pil: 'rules' },
   '/parametres': { view: 'settings' },
   '/comptes': { view: 'users' },
   '/actions-en-masse': { view: 'bulk' },

@@ -72,8 +72,18 @@ export function ingestArticleFields(
   ingest: {
     fbCaption?: string | null;
     generated?: { caption?: string; hashtags?: string[] } | null;
+    mode?: string | null;
   } | null,
 ) {
+  // Notre propre article (mode « news ») : ses posts portent l'amorce écrite
+  // pour lui, avec ses mots-clés — pas le texte du post qui a fourni l'image.
+  if (ingest?.mode === 'news' && ingest.generated?.caption) {
+    return {
+      ...fields,
+      captions: [{ text: ingest.generated.caption, angle: 'news' }],
+      hashtags: ingest.generated.hashtags ?? [],
+    };
+  }
   const original = facebookCaption(ingest?.fbCaption ?? '');
   const fallback = ingest?.generated?.caption ?? '';
   const text = original || fallback;
@@ -274,6 +284,7 @@ export class WordpressService {
     const fields = ingestArticleFields(
       wordpressArticleFields(dto),
       ingest && {
+        mode: ingest.mode,
         fbCaption: ingest.fbCaption,
         generated: ingest.generated as {
           caption?: string;

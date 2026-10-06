@@ -102,12 +102,13 @@ describe('QueueService.queue', () => {
     });
   });
 
-  it('prend les prochains dans l’ordre de la réservation : priorité puis ancienneté', async () => {
+  it('prend les prochains dans l’ordre de la réservation : groupe prioritaire, priorité du post, ancienneté', async () => {
     const { service, findMany } = setup();
     await service.queue({ limit: 10, publishedLimit: 20 }, null);
     const upcoming = findMany.mock.calls.find(([args]: any) => args.where.status === 'AVAILABLE')![0];
     expect(upcoming.orderBy).toEqual([
       { forcedProfileId: { sort: 'asc', nulls: 'last' } },
+      { group: { priority: 'desc' } },
       { post: { priority: 'desc' } },
       { post: { createdAt: 'asc' } },
       { createdAt: 'asc' },

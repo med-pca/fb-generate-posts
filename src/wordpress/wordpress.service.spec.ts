@@ -637,6 +637,13 @@ describe('Réception d’un article issu d’une reprise', () => {
     expect(tx.sourceIngest.updateMany).not.toHaveBeenCalled();
   });
 
+  it('notre article (mode « news ») : les posts portent l’amorce générée, pas le texte d’origine', async () => {
+    const { service, tx } = setup({ ...ingest(), mode: 'news', generated: { caption: 'This picture explains the oil crisis.', hashtags: ['oil', 'inflation'] } } as any);
+    await service.publish(withRef);
+    const { description } = tx.post.create.mock.calls[0][0].data;
+    expect(description).toBe('This picture explains the oil crisis.\n\n#oil #inflation');
+  });
+
   it('ne consulte aucune reprise par référence quand le plugin n’en annonce pas', async () => {
     const { service, prisma } = setup(ingest());
     await service.publish(payload);

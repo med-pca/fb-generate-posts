@@ -19,6 +19,23 @@ export type GeneratedArticle = {
   hashtags: string[];
 };
 
+/** Notre propre article, né d'une image et de l'actualité du moment. */
+export type NewsArticle = GeneratedArticle & {
+  /** Les 3 titres proposés ; `title` est le premier. */
+  titles: string[];
+  /** Le titre d'actualité auquel l'image a été rattachée. */
+  newsHook: string;
+};
+
+export type NewsInput = {
+  image: { data: string; mimeType: string };
+  /** Le texte qui accompagnait l'image sur Facebook, s'il y en a un. */
+  fbCaption?: string | null;
+  /** Les titres d'actualité du moment, un par ligne. */
+  headlines: string;
+  language: string;
+};
+
 export type RewriteInput = {
   source: SourceArticle;
   /** La légende du post d'origine, comme indication de ton. */
@@ -206,6 +223,40 @@ const INSTRUCTIONS = [
   '"contentHtml": string, "caption": string, "hashtags": string[]}.',
 ].join(' ');
 
+const NEWS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    newsHook: { type: 'string', description: 'The headline from the list the article is tied to, copied as is' },
+    titles: { type: 'array', minItems: 3, maxItems: 3, items: { type: 'string' }, description: '3 ultra-catchy titles' },
+    slug: { type: 'string', description: 'lowercase-url-slug of the first title' },
+    excerpt: { type: 'string', description: '1–2 sentence summary' },
+    metaDescription: { type: 'string', description: 'SEO description, 150–160 characters' },
+    contentHtml: { type: 'string', description: '300–400 word article body, <h2> <p> <ul> <li> <strong> <em> only, no attributes' },
+    caption: { type: 'string', description: 'Short social media teaser, 2–3 sentences, no URL, no hashtag' },
+    hashtags: { type: 'array', minItems: 3, maxItems: 8, items: { type: 'string' }, description: 'Keywords without #' },
+  },
+  required: ['newsHook', 'titles', 'slug', 'excerpt', 'metaDescription', 'contentHtml', 'caption', 'hashtags'],
+} as const;
+
+/** La consigne du « journaliste viral » — celle de l'équipe, en anglais (nos
+ * articles le sont), avec un garde-fou : l'actualité vient UNIQUEMENT des
+ * titres fournis. Un modèle ne connaît pas l'actualité du jour ; sans cette
+ * règle, il inventerait des faits. */
+const NEWS_INSTRUCTIONS = [
+  'You are an expert journalist specialised in viral content and news analysis.',
+  'You receive an image (and sometimes the text that accompanied it on social media) and a numbered list of REAL headlines from the last few days.',
+  'Tie the image to the most relevant recent international, economic or social news (e.g. oil crisis, inflation, geopolitical tensions, cost of living…), chosen ONLY from the headlines list.',
+  'Never invent events, figures, quotes, names or dates that are not in the headlines. If no headline fits well, use the broad theme of the closest one, without specifics.',
+  'Then write:',
+  '1) 3 ultra-catchy titles (smart clickbait or journalistic style) — intriguing but honest, no ALL CAPS, no false promise;',
+  '2) a short teaser for social networks (2–3 sentences, no URL, no hashtag) in "caption", and a 1–2 sentence "excerpt";',
+  '3) the article body (300–400 words) linking the symbolism of the image to modern news: an engaging opening, 2–3 short sections with <h2> headings, a closing thought. HTML only: <h2>, <p>, <ul>, <li>, <strong>, <em> — no attribute, no link, no image.',
+  'Describe what the image shows accurately; do not claim things about people in it that the image does not show.',
+  'Answer with a single JSON object, nothing around it:',
+  '{"newsHook": string, "titles": [string, string, string], "slug": string, "excerpt": string, "metaDescription": string, "contentHtml": string, "caption": string, "hashtags": string[]}.',
+].join(' ');
+
 @Injectable()
 export class RewriterService {
   private readonly logger = new Logger(RewriterService.name);
@@ -228,6 +279,37 @@ export class RewriterService {
     }
     this.logger.log(`Article réécrit par ${provider}`);
     return generated;
+  }
+
+  /** Notre propre article : l'image, rapprochée de l'actualité du moment. */
+  async fromNews(input: NewsInput): Promise<NewsArticle> {
+    const language = !input.language || input.language === 'auto' ? 'en' : input.language;
+    const { value, provider } = await this.llm.completeJson<Omit<NewsArticle, 'title'> & { title?: string }>({
+      instructions: NEWS_INSTRUCTIONS,
+      input: [
+        `Write every field in this language: ${language}.`,
+        input.fbCaption?.trim() ? `Text that accompanied the image (tone only, do not copy): ${input.fbCaption.trim().slice(0, 1500)}` : '',
+        'Recent headlines (the ONLY news you may use):',
+        input.headlines || '(no headline available: stay on broad, timeless themes, no specific facts)',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      schemaName: 'news_article',
+      schema: NEWS_SCHEMA,
+      maxTokens: 4000,
+      image: input.image,
+    });
+    const titles = (Array.isArray(value.titles) ? value.titles : [])
+      .map((t) => String(t).replace(/^["“«\s]+|["”»\s]+$/g, '').trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    if (!titles.length) throw new ServiceUnavailableException('La génération est revenue sans titre');
+    const generated = normalizeGenerated({ ...(value as GeneratedArticle), title: titles[0] }, titles[0]);
+    if (!generated.contentHtml || !generated.caption) {
+      throw new ServiceUnavailableException('La génération est revenue sans corps d’article ou sans description');
+    }
+    this.logger.log(`Article d’actualité généré par ${provider}`);
+    return { ...generated, titles, newsHook: String(value.newsHook || '').slice(0, 300) };
   }
 
   private prompt({ source, fbCaption, language }: RewriteInput) {

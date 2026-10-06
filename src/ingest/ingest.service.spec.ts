@@ -32,6 +32,7 @@ const GENERATED = {
 
 const ingest = (over: Partial<SourceIngest> = {}): SourceIngest => ({
   id: 'ing_1',
+  mode: 'rewrite',
   facebookUrl: 'https://www.facebook.com/x/posts/1',
   sourceUrl: SOURCE.url,
   siteUrl: 'https://site.test',
@@ -179,6 +180,29 @@ describe('resumeStatus', () => {
     expect(
       resumeStatus({ generated: null, sourceText: null, fbCaption: null }),
     ).toBe(IngestStatus.PENDING_SCRAPE);
+  });
+});
+
+describe('Mode « news » : notre article depuis l’image et l’actualité', () => {
+  it('relève l’actualité, écrit l’article depuis l’image, puis le dépose — sans site source', async () => {
+    const t = setup(ingest({ mode: 'news', sourceUrl: '', status: IngestStatus.SCRAPED, fbCaption: null, fbImageUrl: 'https://scontent.test/img.jpg', language: 'en' }));
+    const news = { headlines: jest.fn(async () => [{ title: 'Oil prices jump', summary: '', source: 'bbc', publishedAt: '2026-10-05T08:00:00.000Z' }]) };
+    const writer = { ...t.wordpress, loadImage: jest.fn(async () => ({ data: 'AAAA', mimeType: 'image/jpeg', filename: 'img.jpg' })) };
+    const rewriter = { ...t.rewriter, fromNews: jest.fn(async () => ({ ...GENERATED, titles: ['A', 'B', 'C'], newsHook: 'Oil prices jump' })) };
+    const service = new IngestService(
+      t.prisma as unknown as PrismaService,
+      t.config as unknown as ConfigService,
+      t.reader as unknown as SourceReaderService,
+      rewriter as unknown as RewriterService,
+      writer as unknown as WordpressWriterService,
+      undefined,
+      news as never,
+    );
+    await service.advance('ing_1');
+    expect(t.reader.read).not.toHaveBeenCalled();
+    expect(rewriter.fromNews).toHaveBeenCalledWith(expect.objectContaining({ image: { data: 'AAAA', mimeType: 'image/jpeg' }, headlines: expect.stringContaining('Oil prices jump') }));
+    expect(writer.deposit).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: 'https://scontent.test/img.jpg' }));
+    expect(t.current()).toMatchObject({ status: IngestStatus.AWAITING_ECHO, sourceTitle: 'Actualité du moment' });
   });
 });
 

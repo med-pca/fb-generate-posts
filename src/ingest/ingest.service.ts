@@ -23,6 +23,7 @@ import { SourceReaderService } from './source-reader.service';
 import { WordpressWriterService } from './wordpress-writer.service';
 import { WordpressService } from '../wordpress/wordpress.service';
 import { isOnSite } from '../wordpress/article-url';
+import { NewsService, headlinesText } from './news.service';
 
 /** Passé ce nombre d'échecs, la reprise cesse de se relancer seule : une
  * erreur qui revient cinq fois demande qu'on la regarde. */
@@ -74,6 +75,8 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
     /** La réception WordPress : pour appliquer une capture à un article de
      * notre site déjà présent. Absente dans les tests qui ne s'en servent pas. */
     @Optional() private readonly site?: WordpressService,
+    /** L'actualité du moment (mode « news »). */
+    @Optional() private readonly news?: NewsService,
   ) {}
 
   async create(dto: CreateIngestDto, owner: CurrentUser | null = null) {
@@ -106,9 +109,12 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
     const ingest = await this.prisma.sourceIngest.create({
       data: {
         facebookUrl: dto.facebookUrl,
-        sourceUrl: dto.sourceUrl,
+        // Mode « news » : pas de site source, notre propre article.
+        mode: dto.mode ?? 'rewrite',
+        sourceUrl: dto.sourceUrl ?? '',
         siteUrl,
-        language: dto.language,
+        // Nos articles d'actualité sont en anglais, sauf langue imposée.
+        language: dto.mode === 'news' && (!dto.language || dto.language === 'auto') ? 'en' : dto.language,
         profileIds,
         groupIds,
         ownerId: owner?.id ?? null,
@@ -408,6 +414,11 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
   private async step(ingest: SourceIngest): Promise<SourceIngest | null> {
     switch (ingest.status) {
       case IngestStatus.SCRAPED:
+        // Mode « news » : pas de site source — on relève l'actualité du
+        // moment, à laquelle l'image sera rattachée.
+        if (ingest.mode === 'news') {
+          return this.guard(ingest, 'INGEST_NEWS_READ', 'Actualité du moment relevée', () => this.readNews(ingest));
+        }
         // L'URL donnée est celle d'un article de NOTRE site : il existe déjà,
         // rien à lire ni à réécrire — seule sa description change.
         if (isOnSite(ingest.sourceUrl, ingest.siteUrl)) {
@@ -419,6 +430,9 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
           this.readSource(ingest),
         );
       case IngestStatus.REWRITING:
+        if (ingest.mode === 'news') {
+          return this.guard(ingest, 'INGEST_NEWS_WRITTEN', 'Article d’actualité écrit depuis l’image', () => this.writeFromNews(ingest));
+        }
         return this.guard(ingest, 'INGEST_REWRITTEN', 'Article réécrit', () =>
           this.rewrite(ingest),
         );
@@ -507,6 +521,45 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
     const wanted = requested.trim().toLowerCase();
     if (wanted && wanted !== 'auto') return requested;
     return detected ?? 'auto';
+  }
+
+  /** Les titres d'actualité du moment, gardés sur la reprise : on sait à
+   * quoi l'article a été rattaché, et une relance ne les relit pas. */
+  private async readNews(ingest: SourceIngest) {
+    if (!ingest.fbImageUrl) throw new Error('Mode actualité : la capture n’a pas d’image');
+    const headlines = this.news ? await this.news.headlines() : [];
+    await this.log(ingest.id, 'INGEST_NEWS_READ', `${headlines.length} titre(s) d’actualité relevé(s)`, {
+      sample: headlines.slice(0, 5).map((h) => h.title),
+    });
+    return this.prisma.sourceIngest.update({
+      where: { id: ingest.id },
+      data: {
+        sourceTitle: 'Actualité du moment',
+        sourceText: headlinesText(headlines) || '(aucun titre disponible)',
+        status: IngestStatus.REWRITING,
+        lastError: null,
+      },
+    });
+  }
+
+  /** Notre article : l'image (lue par le modèle) rapprochée de l'actualité. */
+  private async writeFromNews(ingest: SourceIngest) {
+    if (!ingest.fbImageUrl) throw new Error('Mode actualité : la capture n’a pas d’image');
+    const image = await this.wordpress.loadImage(ingest.fbImageUrl);
+    const generated = await this.rewriter.fromNews({
+      image: { data: image.data, mimeType: image.mimeType },
+      fbCaption: ingest.fbCaption,
+      headlines: ingest.sourceText ?? '',
+      language: ingest.language,
+    });
+    await this.log(ingest.id, 'INGEST_NEWS_TITLES', `Titres proposés : ${generated.titles.map((t) => `« ${t} »`).join(' · ')}`, {
+      newsHook: generated.newsHook,
+      titles: generated.titles,
+    });
+    return this.prisma.sourceIngest.update({
+      where: { id: ingest.id },
+      data: { generated: generated as unknown as Prisma.InputJsonValue, status: IngestStatus.REWRITTEN, lastError: null },
+    });
   }
 
   private async rewrite(ingest: SourceIngest) {

@@ -458,6 +458,11 @@ async function doPublish(config, api, state) {
     return;
   }
 
+  // Limité par Facebook : failPost a déjà arrêté la boucle et rendu le lot.
+  if (published.blocked) {
+    await setState({ inFlight: null });
+    return;
+  }
   await setState({ inFlight: null, author: published.author || state.author, lastMessage: published.message });
   await linkRightAway(working.id, api, config, job, post, published);
   await nextPost(config, await getState(), job, post);
@@ -652,7 +657,13 @@ async function confirm(api, job, post, published, config, ids) {
 
   // Ni succès ni « peut-être publié » : l'échec est arrivé avant le clic
   // « Publier ». Rien n'est sur Facebook, le post peut repartir.
-  await failPost(api, job, post, config, published.message, ids, { requeue: true });
+  await failPost(api, job, post, config, published.message, ids, { requeue: true, blocked: Boolean(published.blocked) });
+  if (published.blocked) {
+    // Facebook limite ce compte : la plateforme l'a mis en pause et a rendu le
+    // reste du lot. Insister aggraverait la sanction : on s'arrête ici.
+    await setState({ job: null, index: 0, phase: 'claim' });
+    await stop('Facebook limite ce compte : profil en pause (voir le Pilotage)');
+  }
 }
 
 /* Tell the API which comment was written, so the link can reach it. Without
@@ -679,9 +690,9 @@ async function recordComment(api, job, post, published, ids) {
   }
 }
 
-async function failPost(api, job, post, config, reason, ids, { requeue = false } = {}) {
+async function failPost(api, job, post, config, reason, ids, { requeue = false, blocked = false } = {}) {
   await error(`Post ${post.id} en echec : ${reason}${requeue ? ' (rien n’est parti : il repart dans la file)' : ''}`);
-  await api.markFailed(job.jobId, post.id, reason, { requeue });
+  await api.markFailed(job.jobId, post.id, reason, { requeue, blocked });
   await api.log(EVENT_FAILED, reason, { level: 'ERROR', ...ids });
   await bumpStats({ failed: 1 });
 }

@@ -36,10 +36,26 @@
     <select id="site"><option value="">Chargement…</option></select>
     <p id="site-note" class="hint"></p>
 
-    <label for="source">URL de l'article</label>
-    <input id="source" type="url" placeholder="https://exemple.com/la-recette" />
-    <p class="hint">Un article d'un autre site est réécrit puis déposé sur le site choisi. L'URL d'un article
-      <b>déjà publié sur notre site</b> n'est pas réécrite : ses posts reprennent simplement la description ci-dessus.</p>
+    <!-- 3. Ce qu'on fait de la publication : réécrire un article existant, ou
+         créer NOTRE article depuis l'image, rapprochée de l'actualité. -->
+    <fieldset class="mode" id="mode">
+      <legend>Article</legend>
+      <label class="radio"><input type="radio" name="mode" value="rewrite" checked />
+        <span><b>Réécrire un article</b><small>depuis l'URL d'un site source</small></span></label>
+      <label class="radio"><input type="radio" name="mode" value="news" />
+        <span><b>📰 Créer notre article</b><small>depuis l'image, rapprochée de l'actualité du moment — sans site source</small></span></label>
+    </fieldset>
+
+    <div id="source-block">
+      <label for="source">URL de l'article</label>
+      <input id="source" type="url" placeholder="https://exemple.com/la-recette" />
+      <p class="hint">Un article d'un autre site est réécrit puis déposé sur le site choisi. L'URL d'un article
+        <b>déjà publié sur notre site</b> n'est pas réécrite : ses posts reprennent simplement la description ci-dessus.</p>
+    </div>
+    <p class="hint hidden" id="news-hint">Un journaliste « contenu viral » écrit <b>notre</b> article en anglais : il relie l'image
+      à l'actualité internationale, économique ou sociale la plus récente (titres du jour), propose 3 titres accrocheurs,
+      une amorce pour les réseaux et un article de 300 à 400 mots. L'article part sur le site choisi ; ses posts
+      reprendront l'amorce générée. <b>L'image est indispensable.</b></p>
 
     <button id="send" class="primary" disabled>Envoyer</button>
     <p id="status" role="status"></p>

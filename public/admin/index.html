@@ -887,7 +887,8 @@
             <div class="subtabs" role="tablist">
               <button class="subtab active" type="button" data-pil-tab="profiles" role="tab">Profils</button
               ><button class="subtab" type="button" data-pil-tab="objective" role="tab">Objectif du jour</button
-              ><button class="subtab" type="button" data-pil-tab="members" role="tab">Nos profils dans les groupes</button>
+              ><button class="subtab" type="button" data-pil-tab="members" role="tab">Nos profils dans les groupes</button
+              ><button class="subtab" type="button" data-pil-tab="rules" role="tab">⚙ Règles &amp; priorités</button>
             </div>
             <label class="switch-row publish-switch" title="Coupée : aucun profil ne publie, quel que soit son mode"
               ><input id="publishing-enabled" type="checkbox" /> <span>Publication autorisée</span></label>
@@ -995,6 +996,40 @@
               </div>
             </div>
           </div>
+          </div>
+
+          <!-- Le pilotage fin : quels groupes et quels articles d'abord, et la
+               conduite à tenir quand Facebook limite un profil. -->
+          <div class="pil-pane hidden" id="pil-rules">
+            <div class="panel rules-panel">
+              <div class="panel-head"><div><small>QUAND FACEBOOK LIMITE UN PROFIL</small><h2>Pause automatique</h2></div></div>
+              <p class="form-help">Quand Facebook affiche « <i>We limit how often you can post…</i> » (ou sa traduction), le profil est mis en pause : il ne publie plus jusqu’à la fin de la pause, son lot en cours et ses posts passent aux autres profils actifs. On peut lever la pause plus tôt depuis sa ligne (⋯ → ▶ Lever la pause).</p>
+              <form id="rules-pause" class="rules-pause">
+                <label>Pause de <input name="rateLimitPauseDays" type="number" min="1" max="60" required /> jour(s)</label>
+                <button class="primary" type="submit">Enregistrer</button>
+              </form>
+            </div>
+            <div class="rules-grid">
+              <div class="panel rules-panel">
+                <div class="panel-head"><div><small>PRIORITÉ DES GROUPES</small><h2>Quels groupes d’abord</h2></div>
+                  <input id="rules-group-search" type="search" placeholder="Chercher un groupe" /></div>
+                <p class="form-help">Un profil qui cherche du travail commence par le groupe le plus prioritaire où il peut publier. ⤒ en tête · ↑ ↓ un cran · × normal.
+                  <b>Plafond</b> : au plus N posts par jour dans le groupe (vide = sans limite). <b>Heures</b> : on n’y publie qu’entre ces heures (vide = à toute heure). Jour et heures : fuseau de l’objectif.</p>
+                <div class="table-wrap"><table class="rules-table">
+                  <thead><tr><th>Groupe</th><th>En file</th><th>Priorité</th><th>Aujourd’hui / plafond</th><th>Heures</th></tr></thead>
+                  <tbody id="rules-groups"></tbody>
+                </table></div>
+              </div>
+              <div class="panel rules-panel">
+                <div class="panel-head"><div><small>PRIORITÉ DES ARTICLES</small><h2>Quels articles d’abord</h2></div>
+                  <input id="rules-article-search" type="search" placeholder="Chercher un article" /></div>
+                <p class="form-help">La priorité d’un article s’applique à <b>tous ses posts</b> encore à publier, dans tous leurs groupes, et à ceux créés ensuite.</p>
+                <div class="table-wrap"><table class="rules-table">
+                  <thead><tr><th>Article</th><th>En file</th><th>Priorité</th></tr></thead>
+                  <tbody id="rules-articles"></tbody>
+                </table></div>
+              </div>
+            </div>
           </div>
 
           <div class="pil-pane hidden" id="pil-members">
@@ -1143,6 +1178,10 @@
             l’extension Publication (≥ 1.5.0) ferme tout le navigateur pour libérer la mémoire ; l’agent local
             (<code>python -m app.launcher</code>) le rouvre 3 min avant l’heure, et le travail reprend où il en était.</p>
         </div>
+        <label
+          >Quota : posts par jour <input name="dailyQuota" type="number" min="0" max="1000" placeholder="sans quota" />
+          <small>Au plus N publications par jour pour ce profil (fuseau de l’objectif). Vide = sans quota.</small></label
+        >
         <label
           >Réglages poussés au navigateur (JSON)<textarea
             name="settings"

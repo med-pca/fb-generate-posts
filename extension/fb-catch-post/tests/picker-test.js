@@ -142,5 +142,25 @@ function fakeChrome(store = {}) {
   check('réouverture : le site choisi est gardé, l’envoi prêt', r('site').value === 'https://tera.test' && r('send').disabled === false, [r('site').value, r('send').disabled]);
   check('réouverture : le brouillon est signalé', /Brouillon retrouvé/.test(r('status').textContent), r('status').textContent);
 
+  // ─── Mode « news » : notre article depuis l'image, sans site source ──
+  const news = rw.document.querySelector('input[name="mode"][value="news"]');
+  news.checked = true;
+  news.dispatchEvent(new rw.Event('change'));
+  r('source').value = '';
+  r('source').dispatchEvent(new rw.Event('input'));
+  check('mode actualité : pas d’URL à donner, le champ disparaît', r('source-block').classList.contains('hidden') && !r('news-hint').classList.contains('hidden'), null);
+  check('mode actualité : l’envoi est prêt avec l’image seule', r('send').disabled === false && /Créer notre article/.test(r('send').textContent), r('send').textContent);
+  let sentBody = null;
+  rw.fetch = async (url, options = {}) => {
+    if (String(url).includes('/scrape/capture')) {
+      sentBody = JSON.parse(options.body);
+      return { ok: true, status: 201, text: async () => JSON.stringify({ ingestId: 'ing_news' }) };
+    }
+    return pw.fetch(url, options);
+  };
+  r('send').click();
+  await wait(50);
+  check('mode actualité : envoyé en « news », en anglais, sans URL source', sentBody && sentBody.mode === 'news' && sentBody.language === 'en' && !('sourceUrl' in sentBody), sentBody);
+
   process.exit(ko ? 1 : 0);
 })();

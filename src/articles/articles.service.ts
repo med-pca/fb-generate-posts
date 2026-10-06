@@ -25,6 +25,8 @@ type ArticleRecord = {
   coverImageUrl: string | null;
   hashtags: string[];
   captions: Prisma.JsonValue;
+  /** Hérité par ses posts (Pilotage → Règles & priorités). */
+  priority?: number;
 };
 type ArticlePayload = {
   id: string;
@@ -240,6 +242,7 @@ export class ArticlesService {
       ),
       socialAngle: caption.angle,
       rawData: caption as Prisma.InputJsonValue,
+      priority: article.priority ?? 0,
     };
   }
 
@@ -247,7 +250,9 @@ export class ArticlesService {
    * propre (profil, délai, identité) : de quoi réaligner un post existant
    * quand l'article change de titre, de texte ou d'image. */
   postContent(article: ArticleRecord, slot = 0) {
-    const { profileId, delay, sourceType, externalId, ...content } =
+    // La priorité n'est pas du contenu : une mise à jour de l'article ne doit
+    // pas écraser celle qu'on a donnée à un post.
+    const { profileId, delay, sourceType, externalId, priority, ...content } =
       this.postDataForSlot(article, slot, {
         profileId: '',
         delayMin: 0,

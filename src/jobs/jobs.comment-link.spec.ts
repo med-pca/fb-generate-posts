@@ -383,6 +383,7 @@ describe('JobsService — l’URL post par post', () => {
 describe('JobsService — réservation par lot', () => {
   it('écarte un profil qui tient déjà un job', async () => {
     const prisma: any = {
+      profileRunner: { findUnique: jest.fn(async () => null) },
       profile: {
         findMany: jest.fn(async () => [
           { id: 'p1', name: 'Profil 1', externalId: 'demo-1' },
@@ -422,6 +423,7 @@ describe('JobsService — réservation par lot', () => {
 
   it('rend un profil libre mais sans stock comme « empty »', async () => {
     const prisma: any = {
+      profileRunner: { findUnique: jest.fn(async () => null) },
       profile: {
         findMany: jest.fn(async () => [
           { id: 'p1', name: 'Profil 1', externalId: 'demo-1' },

@@ -794,7 +794,18 @@ setTimeout(async () => {
         runner({ name: 'Omar', mode: 'OFF', pairedAt: null }),
         runner({ name: 'Yasmine', browserState: 'ERROR' }),
         runner({ name: 'Désactivée', status: 'INACTIVE', mode: 'OFF' }),
-      ] }) };
+      ].map((r) => (r.name === 'Nadia' ? { ...r, pausedUntil: '2026-10-11T10:00:00Z', pauseReason: 'Facebook limite ses publications : publication bloquee' } : r)) }) };
+    }
+    if (path === '/posts/priorities') {
+      return { ok: true, status: 200, json: async () => ({
+        settings: { rateLimitPauseDays: 5 },
+        groups: [{ id: 'g1', name: 'Recettes FR', priority: 0, waiting: 12, publishedToday: 6, dailyCap: 8, hoursStart: 480, hoursEnd: 1320, category: { id: 'c1', name: 'Recettes' } }, { id: 'g2', name: 'Desserts', priority: 3, waiting: 4, publishedToday: 2, dailyCap: null, hoursStart: null, hoursEnd: null, category: null }],
+        articles: [{ id: 'a1', title: 'Tarte au citron', articleUrl: 'https://site.test/tarte', priority: 0, waiting: 9, site: 'Tera', publishedAt: '2026-10-05T10:00:00Z' }],
+      }) };
+    }
+    if (path.startsWith('/posts/priorities/') || path.endsWith('/resume') || (path === '/settings' && options.method === 'PATCH')) {
+      memberCalls.push(`${options.method} ${path} ${options.body || ''}`);
+      return { ok: true, status: 200, json: async () => ({ id: 'x', priority: 1, posts: 9 }) };
     }
     if (path === '/admin/verify') {
       return { ok: true, status: 200, json: async () => ({ due: 0, verified: 0, republished: 0, review: [], members: {
@@ -843,6 +854,42 @@ setTimeout(async () => {
   check('« Nos profils dans les groupes » a son adresse', window.location.pathname === '/pilotage/adhesions' && !$('#pil-members').classList.contains('hidden'), window.location.pathname);
   $('[data-pil-tab="profiles"]').click();
   check('retour aux profils : /pilotage', window.location.pathname === '/pilotage', window.location.pathname);
+  // ─── Limitation Facebook : la pause se voit, et se lève ────────────
+  check('un profil limité par Facebook est affiché en pause', /en pause jusqu’au/.test($('#runner-rows').textContent) && /limité par Facebook/.test($('#runner-rows').textContent), null);
+  $('[data-runner-resume]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('« Lever la pause » appelle la plateforme', memberCalls.some((c) => c.startsWith('POST /runners/') && c.includes('/resume')), memberCalls);
+  // ─── Règles & priorités ────────────────────────────────────────────
+  $('[data-pil-tab="rules"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('« Règles & priorités » a son adresse', window.location.pathname === '/pilotage/regles' && !$('#pil-rules').classList.contains('hidden'), window.location.pathname);
+  if (process.env.PF_DUMP_RULES) require('fs').writeFileSync(process.env.PF_DUMP_RULES, $('#pil-rules').outerHTML);
+  check('durée de pause, groupes et articles avec ce qui attend', $('#rules-pause').elements.rateLimitPauseDays.value === '5' && /Recettes FR/.test($('#rules-groups').textContent) && /Tarte au citron/.test($('#rules-articles').textContent), null);
+  $('[data-rule-article="a1"][data-move="top"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('prioriser un article d’un clic (tous ses posts)', memberCalls.some((c) => c.startsWith('PATCH /posts/priorities/articles/a1') && c.includes('"move":"top"')), memberCalls.slice(-3));
+  $('[data-rule-group="g1"][data-move="up"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('monter un groupe d’un cran', memberCalls.some((c) => c.startsWith('PATCH /posts/priorities/groups/g1') && c.includes('"move":"up"')), memberCalls.slice(-3));
+  check('chaque groupe montre ses publications du jour, son plafond et ses heures', /6 \//.test($('#rules-groups').textContent) && $('[data-limit-group="g1"][data-field="dailyCap"]').value === '8' && $('[data-limit-group="g1"][data-field="hoursStart"]').value === '08:00', null);
+  const cap = $('[data-limit-group="g2"][data-field="dailyCap"]');
+  cap.value = '15';
+  cap.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('plafond par jour d’un groupe : enregistré au changement', memberCalls.some((c) => c.startsWith('PATCH /posts/priorities/groups/g2/limits') && c.includes('"dailyCap":15') && c.includes('"hoursStart":null')), memberCalls.slice(-3));
+  const from = $('[data-limit-group="g2"][data-field="hoursStart"]');
+  from.value = '09:00';
+  from.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const to = $('[data-limit-group="g2"][data-field="hoursEnd"]');
+  to.value = '13:30';
+  to.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('heures réservées d’un groupe : la plage entière part', memberCalls.some((c) => c.startsWith('PATCH /posts/priorities/groups/g2/limits') && c.includes('"hoursStart":540') && c.includes('"hoursEnd":810')), memberCalls.slice(-3));
+  $('#rules-pause').elements.rateLimitPauseDays.value = '7';
+  $('#rules-pause').dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  check('régler la durée de la pause', memberCalls.some((c) => c.startsWith('PATCH /settings') && c.includes('"rateLimitPauseDays":7')), memberCalls.slice(-3));
+  $('[data-pil-tab="profiles"]').click();
   // ─── Menu groupé par tâche ─────────────────────────────────────────
   check('le menu est groupé par tâche', [...window.document.querySelectorAll('.nav-group .nav-head')].map((h) => h.textContent.replace('▾', '').trim()).join('|') === 'Publication|Profils Facebook|Modération|Suivi & réglages', null);
   check('la section de la rubrique ouverte est dépliée', !$('.nav[data-view="runners"]').closest('.nav-group').classList.contains('collapsed'), null);

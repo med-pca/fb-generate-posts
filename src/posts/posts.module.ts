@@ -4,10 +4,11 @@ import { PostsService } from './posts.service';
 import { QueueService } from './queue.service';
 import { RepeatService } from './repeat.service';
 import { PublishedService } from './published.service';
+import { PrioritiesService } from './priorities.service';
 
 @Module({
   controllers: [PostsController],
-  providers: [PostsService, QueueService, RepeatService, PublishedService],
+  providers: [PostsService, QueueService, RepeatService, PublishedService, PrioritiesService],
   exports: [RepeatService],
 })
 export class PostsModule {}

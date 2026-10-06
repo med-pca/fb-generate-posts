@@ -30,6 +30,8 @@ export type LlmProvider = {
    * milliers de tokens avant d'écrire la première phrase : leur laisser le
    * budget d'un modèle ordinaire tronque la réponse. 0 = celui de l'appel. */
   maxTokens: number;
+  /** Sait lire une image jointe au message. */
+  vision: boolean;
 };
 
 export type JsonRequest = {
@@ -38,6 +40,9 @@ export type JsonRequest = {
   schemaName: string;
   schema: Record<string, unknown>;
   maxTokens: number;
+  /** Une image à montrer au modèle (base64). Seuls les fournisseurs qui
+   * savent lire une image sont alors interrogés. */
+  image?: { data: string; mimeType: string };
 };
 
 export type LlmTransport = (
@@ -58,6 +63,7 @@ const DEFAULTS = {
     tokenParam: 'max_tokens',
     maxTokens: 0,
     timeoutMs: 0,
+    vision: false,
   },
   openai: {
     baseURL: undefined,
@@ -66,6 +72,7 @@ const DEFAULTS = {
     tokenParam: 'max_completion_tokens',
     maxTokens: 0,
     timeoutMs: 0,
+    vision: true,
   },
   deepseek: {
     baseURL: 'https://api.deepseek.com/v1',
@@ -80,6 +87,7 @@ const DEFAULTS = {
     maxTokens: 8000,
     // Mesuré : 75 s pour un article complet, trop près du délai commun.
     timeoutMs: 180_000,
+    vision: false,
   },
   gemini: {
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
@@ -88,6 +96,7 @@ const DEFAULTS = {
     tokenParam: 'max_tokens',
     maxTokens: 0,
     timeoutMs: 0,
+    vision: true,
   },
 } as const;
 
@@ -111,7 +120,15 @@ export const chatCompletionsTransport: LlmTransport = async (
     [provider.tokenParam]: provider.maxTokens || request.maxTokens,
     messages: [
       { role: 'system', content: request.instructions },
-      { role: 'user', content: request.input },
+      {
+        role: 'user',
+        content: request.image
+          ? [
+              { type: 'text', text: request.input },
+              { type: 'image_url', image_url: { url: `data:${request.image.mimeType};base64,${request.image.data}` } },
+            ]
+          : request.input,
+      },
     ],
     response_format: provider.jsonSchema
       ? {
@@ -188,6 +205,9 @@ export class LlmService {
             Number.isFinite(budget) && budget > 0
               ? budget
               : DEFAULTS[name].maxTokens,
+          vision:
+            this.config.get<string>(`${prefix}_VISION`) === 'true' ||
+            (this.config.get<string>(`${prefix}_VISION`) !== 'false' && DEFAULTS[name].vision),
         };
       })
       .filter((provider): provider is LlmProvider => provider !== null);
@@ -198,7 +218,14 @@ export class LlmService {
    * n'importe quoi fait simplement passer au suivant ; on ne s'arrête que
    * quand la liste est épuisée. */
   async completeJson<T>(request: JsonRequest) {
-    const providers = this.providers();
+    const all = this.providers();
+    // Une image à lire : seuls les fournisseurs qui savent la voir.
+    const providers = request.image ? all.filter((p) => p.vision) : all;
+    if (request.image && all.length && !providers.length) {
+      throw new ServiceUnavailableException(
+        'Aucun fournisseur capable de lire une image : renseigner OPENAI_API_KEY ou GEMINI_API_KEY',
+      );
+    }
     if (!providers.length) {
       throw new ServiceUnavailableException(
         'Aucun fournisseur configuré : renseigner KIMI_API_KEY, OPENAI_API_KEY ou GEMINI_API_KEY',

@@ -86,6 +86,10 @@
   ]);
   const BLOCKED = phrases([
     "you can't post", "couldn't post", 'try again later', 'temporarily blocked',
+    // « We limit how often you can post, comment or do other things… »
+    'we limit how often', 'limit how often you can post', 'nous limitons la frequence', 'nous limitons le nombre',
+    'limitamos la frecuencia', 'limitamos a frequencia', 'wir begrenzen', 'limitiamo la frequenza',
+    'نحن نحد من', 'نقيد عدد المرات', 'نحد من عدد المرات',
     'vous ne pouvez pas publier', 'impossible de publier', 'réessayez plus tard', 'temporairement bloqu', 'nous avons limit',
     'no puedes publicar', 'inténtalo de nuevo más tarde', 'vorübergehend gesperrt',
     'لا يمكنك النشر', 'تعذر النشر', 'حاول مرة أخرى لاحقا', 'محظور مؤقتا', 'تم حظرك',

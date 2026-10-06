@@ -28,6 +28,8 @@ const els = {
   site: $('site'),
   siteNote: $('site-note'),
   source: $('source'),
+  sourceBlock: $('source-block'),
+  newsHint: $('news-hint'),
   send: $('send'),
   status: $('status'),
   done: $('done'),
@@ -63,13 +65,21 @@ const say = (message, kind = '') => {
 
 /** Le bouton n'est actif qu'avec tout ce qu'il faut : la publication lue,
  * un site prêt, et l'article à réécrire. */
+/** Réécrire un article (URL source) ou créer le nôtre depuis l'image. */
+const mode = () => document.querySelector('input[name="mode"]:checked')?.value || 'rewrite';
 function refresh() {
   const site = sites.find((item) => item.siteUrl === els.site.value);
+  const news = mode() === 'news';
+  els.sourceBlock.classList.toggle('hidden', news);
+  els.newsHint.classList.toggle('hidden', !news);
+  els.send.textContent = news ? '📰 Créer notre article' : 'Envoyer';
   els.send.disabled = !(
     chosen &&
     site?.ready &&
-    els.caption.value.trim().length >= 15 &&
-    /^https:\/\/\S+\.\S+/.test(els.source.value.trim())
+    (news
+      // L'image est tout l'objet de l'article ; le texte est facultatif.
+      ? Boolean(chosen.imageUrl)
+      : els.caption.value.trim().length >= 15 && /^https:\/\/\S+\.\S+/.test(els.source.value.trim()))
   );
 }
 
@@ -315,12 +325,15 @@ function sameSite(articleUrl, siteUrl) {
 async function send() {
   els.send.disabled = true;
   say('Envoi…');
+  const news = mode() === 'news';
   const body = {
     facebookUrl: chosen.facebookUrl || chosen.pageUrl,
     siteUrl: els.site.value,
-    sourceUrl: els.source.value.trim(),
     caption: els.caption.value.trim(),
-    language: config.language || 'auto',
+    // Nos articles d'actualité sont en anglais (la plateforme l'impose
+    // aussi quand la langue est « auto »).
+    language: news ? 'en' : config.language || 'auto',
+    ...(news ? { mode: 'news' } : { sourceUrl: els.source.value.trim() }),
   };
   if (chosen.imageUrl) body.imageUrl = chosen.imageUrl;
 
@@ -351,10 +364,14 @@ async function send() {
   draft = { caption: null, capturedAt: null, source: '' };
   chrome.action.setBadgeText({ text: '' });
   const { ingestId } = JSON.parse(text);
-  const own = sameSite(body.sourceUrl, body.siteUrl);
-  say(own ? 'Envoyé. La description sera reprise par les posts de cet article.' : 'Envoyé. La réécriture et la publication suivent côté serveur.', 'ok');
+  const own = !news && sameSite(body.sourceUrl, body.siteUrl);
+  say(news ? 'Envoyé. Notre article est en cours d’écriture côté serveur.' : own ? 'Envoyé. La description sera reprise par les posts de cet article.' : 'Envoyé. La réécriture et la publication suivent côté serveur.', 'ok');
   els.done.classList.remove('hidden');
-  els.done.innerHTML = own
+  els.done.innerHTML = news
+    ? 'Reprise <code></code><br>📰 Notre article est en préparation : actualité du moment, 3 titres, ' +
+      'amorce et article de 300 à 400 mots, puis dépôt sur le site choisi. Les posts suivront à son retour ' +
+      'de WordPress, avec l’amorce générée.'
+    : own
     ? 'Reprise <code></code><br>Article de notre site : pas de réécriture. Ses posts encore à publier prennent ' +
       'la description du post Facebook — tout de suite s’il est déjà dans la plateforme, sinon à sa prochaine ' +
       'synchronisation WordPress (le réenregistrer dans WordPress pour l’envoyer).'
@@ -368,7 +385,9 @@ async function send() {
 
 async function start() {
   chrome.action.setBadgeText({ text: '' });
-  const { [CAPTURE_KEY]: captured, [DRAFT_KEY]: saved } = await chrome.storage.local.get([CAPTURE_KEY, DRAFT_KEY]);
+  const { [CAPTURE_KEY]: captured, [DRAFT_KEY]: saved, 'fcp.mode': savedMode } = await chrome.storage.local.get([CAPTURE_KEY, DRAFT_KEY, 'fcp.mode']);
+  // Le dernier mode choisi est gardé : on enchaîne souvent les mêmes.
+  if (savedMode === 'news') document.querySelector('input[name="mode"][value="news"]').checked = true;
   if (saved) draft = { ...draft, ...saved };
   // L'URL collée revient toujours, même avant toute capture.
   if (draft.source) els.source.value = draft.source;
@@ -392,6 +411,12 @@ els.site.addEventListener('change', () => {
   describeSite();
 });
 els.source.addEventListener('input', () => { saveDraft(); refresh(); });
+document.querySelectorAll('input[name="mode"]').forEach((r) =>
+  r.addEventListener('change', () => {
+    void chrome.storage.local.set({ 'fcp.mode': mode() });
+    refresh();
+  }),
+);
 els.caption.addEventListener('input', () => { saveDraft(); refresh(); });
 els.send.addEventListener('click', () => void send());
 void loadSites();

@@ -235,6 +235,12 @@ export class WordpressWriterService {
   /** L'image part en base64 dans le corps : une URL de CDN Facebook est
    * signée et expire, et le site WordPress n'a pas à aller la chercher
    * lui-même — il n'a aucune raison d'y avoir accès. */
+  /** L'image d'une publication, en base64 : pour WordPress, et pour la
+   * montrer au modèle (mode « news »). */
+  loadImage(imageUrl: string) {
+    return this.fetchImage(imageUrl);
+  }
+
   private async fetchImage(imageUrl: string) {
     const url = await assertSafeRemoteUrl(imageUrl);
     let response: Response;

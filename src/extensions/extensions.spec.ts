@@ -68,7 +68,7 @@ describe('ExtensionsService', () => {
     const names = await service.syncAll(ROOT);
     const latest = (key: string) => created.filter((c) => c.key === key).pop();
     expect(['adhesion', 'capture', 'moderateur', 'publication'].every((k) => latest(k))).toBe(true);
-    expect(latest('capture').version).toBe('1.4.3');
+    expect(latest('capture').version).toBe('1.5.0');
     for (const c of created) {
       const paths = c.files.map((f: any) => f.path);
       expect(paths).toContain(c.key === 'wordpress' ? 'data-fb-posting.php' : 'manifest.json');
