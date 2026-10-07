@@ -443,6 +443,7 @@ async function load() {
     // la page de s'afficher.
     state.profileStats = await api('/insights/profiles').catch(() => ({}));
     document.body.classList.toggle('is-admin', me.role === 'ADMIN');
+    lockGlobalSettings(me.role === 'ADMIN');
     render();
     loadCounters();
   } catch (e) {
@@ -1005,7 +1006,7 @@ function render() {
     state.profiles
       .map(
         (p) =>
-          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${healthBadge(p.health)}</p>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
+          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${healthBadge(p.health)}${state.me?.role === 'ADMIN' ? ` <span class="chip" title="Compte qui pilote ce profil">👤 ${esc(p.owner ? p.owner.username : 'Administration')}</span>` : ''}</p>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
       )
       .join('') || '<div class="empty">Créez votre premier profil.</div>';
   $('#group-rows').innerHTML =
@@ -2297,6 +2298,93 @@ $('#language-form').onsubmit = async (e) => {
     notice(x.message, 'error');
   }
 };
+/* ── Confier des profils à un gestionnaire (admin) ───────────────────────
+ * Le gestionnaire voit et pilote les profils qu'on lui confie : mode,
+ * pause, appairage, objectif. Leurs groupes peuvent lui être partagés. */
+const ownerLabel = (p) => (p.owner ? p.owner.username : 'Administration');
+function renderAssignList() {
+  const q = ($('#assign-search').value || '').trim().toLowerCase();
+  const list = (state.profileOptions || []).filter((p) => !q || p.name.toLowerCase().includes(q) || ownerLabel(p).toLowerCase().includes(q));
+  $('#assign-rows').innerHTML =
+    list
+      .map(
+        (p) =>
+          `<tr><td><input type="checkbox" data-assign="${p.id}" ${state.assignSel.has(p.id) ? 'checked' : ''}></td>` +
+          `<td><b>${esc(p.name)}</b>${p.isModerator ? ' <span class="chip">modérateur</span>' : ''}${p.status === 'INACTIVE' ? ' <span class="muted">inactif</span>' : ''}<small>${esc(p.externalId || '')}</small></td>` +
+          `<td>${p.owner ? `<span class="chip">${esc(p.owner.username)}</span>` : '<span class="muted">Administration</span>'}</td></tr>`,
+      )
+      .join('') || '<tr><td colspan="3" class="empty">Aucun profil.</td></tr>';
+  $('#assign-count').textContent = `${state.assignSel.size} profil(s) coché(s)`;
+}
+$('#profiles-assign').onclick = () => {
+  state.assignSel = new Set();
+  const managers = (state.users || []).filter((u) => u.role !== 'ADMIN' && u.status === 'ACTIVE');
+  $('#assign-owner').innerHTML =
+    '<option value="">Choisir…</option>' +
+    managers.map((u) => `<option value="${u.id}">${esc(u.username)} (gestionnaire)</option>`).join('') +
+    '<option value="__admin">Administration (retirer au gestionnaire)</option>';
+  $('#assign-search').value = '';
+  renderAssignList();
+  openModal('assign-modal');
+  if (!managers.length) notice('Aucun gestionnaire actif : créez-en un dans Comptes.', 'error');
+};
+$('#assign-search').oninput = renderAssignList;
+$('#assign-rows').onchange = (e) => {
+  const id = e.target.dataset.assign;
+  if (!id) return;
+  e.target.checked ? state.assignSel.add(id) : state.assignSel.delete(id);
+  $('#assign-count').textContent = `${state.assignSel.size} profil(s) coché(s)`;
+};
+$('#assign-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const value = $('#assign-owner').value;
+  if (!value) return notice('Choisissez à qui confier les profils.', 'error');
+  if (!state.assignSel.size) return notice('Cochez au moins un profil.', 'error');
+  const ownerId = value === '__admin' ? null : value;
+  try {
+    const r = await api('/profiles/assign', {
+      method: 'POST',
+      body: JSON.stringify({ profileIds: [...state.assignSel], ownerId, shareGroups: $('#assign-share').checked }),
+    });
+    e.target.closest('dialog').close();
+    await load();
+    const who = r.owner ? r.owner.username : 'l’administration';
+    if (r.repair?.length) {
+      await pfDialog({
+        title: `${r.updated} profil(s) confié(s) à ${who}`,
+        tone: 'warn',
+        message: `Ces profils appartenaient à un autre gestionnaire : leur extension Publication garde l’ancienne clé, qui ne les voit plus. Réappairez-les (Pilotage → ⋯ → Appairer) :\n${r.repair.map((n) => `• ${n}`).join('\n')}`,
+        confirmLabel: 'Compris',
+        cancelLabel: '',
+      });
+    } else {
+      notice(`${r.updated} profil(s) confié(s) à ${who}${r.groupsShared ? ` · ${r.groupsShared} groupe(s) partagé(s)` : ''}.`);
+    }
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+/** Les réglages communs à tous les comptes : un gestionnaire les voit, sans
+ * pouvoir les changer (le serveur refuse de toute façon). */
+const GLOBAL_SETTINGS = ['#objective-form', '#rules-mode', '#rules-pause', '#rules-image', '#sites-paging', '#repeat-form', '#publishing-enabled'];
+function lockGlobalSettings(admin) {
+  for (const sel of GLOBAL_SETTINGS) {
+    const el = $(sel);
+    if (!el) continue;
+    const fields = el.matches('input, select, button') ? [el] : [...el.querySelectorAll('input, select, button, textarea')];
+    fields.forEach((f) => (f.disabled = !admin));
+    const form = el.closest('form') || el;
+    let note = form.parentElement?.querySelector(`.locked-note[data-for="${sel}"]`);
+    if (!admin && !note) {
+      note = document.createElement('p');
+      note.className = 'form-help locked-note';
+      note.dataset.for = sel;
+      note.textContent = '🔒 Réglage commun à tous les comptes : seul l’administrateur peut le changer.';
+      form.insertAdjacentElement('afterend', note);
+    }
+    if (admin && note) note.remove();
+  }
+}
 function renderPagination() {
   for (const resource of ['profiles', 'groups', 'articles', 'posts'])
     $(`#${resource}-pagination`).innerHTML = paginationBox(resource);

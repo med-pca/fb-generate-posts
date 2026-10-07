@@ -122,6 +122,7 @@
             <p>Configurez les profils et la taille de leurs lots. Cliquez sur un profil pour ouvrir sa page.</p>
             <div class="toolbar-group">
               <button class="secondary" type="button" data-goto="/actions-en-masse">⧉ Lier des groupes en masse</button>
+              <button class="secondary admin-only" type="button" id="profiles-assign">👤 Confier à un gestionnaire</button>
               <button class="primary" data-open="profile-modal">
                 + Nouveau profil
               </button>
@@ -1572,6 +1573,29 @@
         <div class="actions">
           <button class="secondary hidden" type="button" id="language-cancel-edit">Annuler</button
           ><button class="primary" id="language-submit">+ Ajouter</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="assign-modal">
+      <form id="assign-form">
+        <div class="modal-head">
+          <div>
+            <small>PROFILS</small>
+            <h2>Confier à un gestionnaire</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <p class="muted">Le gestionnaire verra ces profils et pourra les piloter : mode (arrêt, auto, marche), pause, appairage de l’extension, objectif. Il ne voit jamais les profils des autres comptes.</p>
+        <input id="assign-search" type="search" placeholder="Chercher un profil ou un gestionnaire" />
+        <div class="table-wrap lang-suggest-wrap">
+          <table><thead><tr><th></th><th>Profil</th><th>Aujourd’hui à</th></tr></thead><tbody id="assign-rows"></tbody></table>
+        </div>
+        <small id="assign-count"></small>
+        <label>Confier à<select id="assign-owner"></select></label>
+        <label class="inline-check"><input type="checkbox" id="assign-share" checked /> lui partager aussi les groupes de ces profils (pour qu’il les voie dans le pilotage ; il peut y publier, pas les modifier)</label>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary">Confier</button>
         </div>
       </form>
     </dialog>

@@ -12,6 +12,15 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
+import { AdminRoleGuard } from '../auth/admin-role.guard';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsOptional, IsString, ValidateIf } from 'class-validator';
+
+export class AssignProfilesDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500) @IsString({ each: true }) profileIds!: string[];
+  /** null = rendre à l'administration. */
+  @ValidateIf((_d, v) => v !== null) @IsString() ownerId!: string | null;
+  @IsOptional() @IsBoolean() shareGroups?: boolean;
+}
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
 import { CreateProfileDto } from './dto/create-profile.dto';
@@ -33,6 +42,13 @@ export class ProfilesController {
   @Post()
   create(@Body() dto: CreateProfileDto, @ActingUser() acting: CurrentUser) {
     return this.profiles.create(dto, acting);
+  }
+
+  @Post('assign')
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Confier des profils à un gestionnaire, ou les rendre à l’administration (ADMIN)' })
+  assign(@Body() dto: AssignProfilesDto, @ActingUser() acting: CurrentUser) {
+    return this.profiles.assign(dto, acting);
   }
 
   @Get()
