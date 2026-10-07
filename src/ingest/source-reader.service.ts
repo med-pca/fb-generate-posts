@@ -24,6 +24,12 @@ export type SourceArticle = {
   /** Les pages lues, dans l'ordre : un article coupé en « page suivante »
    * est lu en entier, pas seulement sa première page. */
   pageUrls?: string[];
+  /** Pourquoi la lecture s'est arrêtée là : sans ça, un article lu à moitié
+   * ne se voit qu'au résultat. */
+  pageStop?: string;
+  /** Le nombre de pages de l'article quand il est lu d'un bloc (API
+   * WordPress) plutôt que page après page. */
+  pages?: number;
 };
 
 /** Au-delà, on s'arrête : un article en 30 pages est une galerie, et une
@@ -139,6 +145,43 @@ export function findNextPage(document: Document, currentUrl: string, visited: Se
   return best ? best.toString() : null;
 }
 
+/** Ce qui entoure un article sans en faire partie. Laissé en place, il
+ * trompe l'extraction : sur une page courte, le formulaire « Leave a Reply »
+ * pèse plus lourd que le texte et passe pour l'article (vu sur
+ * tastykitchen.delicedcook.com : pages 13 à 19 perdues). */
+const NOISE = [
+  'script', 'style', 'noscript', 'iframe', 'ins', 'form', 'nav', 'aside',
+  '#comments', '#respond', '.comments-area', '.comment-respond', '.comment-list',
+  '.post-navigation', '.navigation', '.post-page-nav', '.page-links', '.pagination',
+  '.sharedaddy', '.jp-relatedposts', '.related-posts', '.yarpp-related', '.crp_related',
+].join(', ');
+/** Le bloc du texte, chez WordPress et les thèmes courants. */
+const CONTENT = '[itemprop="articleBody"], .entry-content, .post-content, .td-post-content, .single-content, .article-content, .post-body';
+/** Les étiquettes posées au-dessus des emplacements publicitaires. */
+const AD_LABEL = /^(publicidad|publicité|publicite|advertisement|advertisements|anuncio|werbung|pubblicità|publicidade|reklame|annonce|sponsored|ad|ads)$/i;
+
+/** L'adresse de l'article dans l'API WordPress, quand la page en est une :
+ * le lien que WordPress déclare lui-même, sinon l'identifiant de l'article
+ * (`?p=3428`, lien court, classe `postid-3428`). Toujours sur le même site. */
+export function wordpressRestUrl(document: Document, pageUrl: string): string | null {
+  const page = new URL(pageUrl);
+  const declared = document.querySelector('link[rel="alternate"][type="application/json"]')?.getAttribute('href');
+  if (declared && /wp\/v2\/posts\/\d+/.test(declared)) {
+    try {
+      const url = new URL(declared, page);
+      if (url.host === page.host) return url.toString();
+    } catch {
+      // adresse illisible : on cherche l'identifiant autrement
+    }
+  }
+  const shortlink = document.querySelector('link[rel="shortlink"]')?.getAttribute('href') || '';
+  const id =
+    /[?&]p=(\d+)/.exec(shortlink)?.[1] ||
+    /(?:^|\s)postid-(\d+)(?:\s|$)/.exec(document.body?.className || '')?.[1] ||
+    page.searchParams.get('p');
+  return id && /^\d+$/.test(id) ? `${page.origin}/?rest_route=/wp/v2/posts/${id}` : null;
+}
+
 const MAX_BYTES = 2_000_000;
 const MAX_REDIRECTS = 5;
 const TIMEOUT_MS = 15_000;
@@ -176,37 +219,76 @@ export class SourceReaderService {
     const siteName = this.meta(document, 'og:site_name');
     const visited = new Set([url.replace(/#.*$/, ''), sourceUrl.replace(/#.*$/, '')]);
     let next = findNextPage(document, url, visited);
+    // Un article WordPress se lit d'un bloc par son API : toutes les pages,
+    // sans publicités ni pages vides. Des sites servent des pages HTML
+    // incomplètes (page 4 = page 3, pages 13 à 19 vides) alors que l'API a
+    // tout le texte.
+    const restUrl = wordpressRestUrl(document, url);
+    const whole = restUrl ? await this.readWordPress(restUrl).catch(() => null) : null;
     // Readability vide le document en l'analysant : tout ce qui vient de
     // `document` doit être lu avant.
+    const own = this.contentText(document, MIN_TEXT_LENGTH);
     const article = new Readability(document).parse();
-    const text = article ? this.textFromHtml(article.content ?? '') : '';
+    const text = own ?? (article ? this.textFromHtml(article.content ?? '') : '');
     if (!article || text.length < MIN_TEXT_LENGTH) {
       throw new BadRequestException(
         'Aucun article exploitable sur cette page : vérifier que l’URL pointe bien vers le contenu',
       );
+    }
+    if (whole && whole.text.length >= Math.max(MIN_TEXT_LENGTH, text.length)) {
+      return {
+        url,
+        title: this.cleanTitle(article.title || title || '', siteName),
+        text: whole.text.slice(0, MAX_TOTAL_TEXT),
+        pageUrls: [url],
+        pages: whole.pages,
+        pageStop: `lu en entier par l'API WordPress (${whole.pages} page(s))`,
+        excerpt: article.excerpt ? normalizeText(article.excerpt) : null,
+        leadImageUrl,
+        siteName: siteName || article.siteName || null,
+        language,
+      };
     }
     // Un article coupé en pages (« page suivante ») : on lit la suite, page
     // après page, tant qu'il y en a une et qu'elle apporte du texte neuf.
     const parts = [text];
     const pageUrls = [url];
     let total = text.length;
+    let pageStop = next ? '' : 'aucun lien « page suivante » trouvé';
+    let useless = 0;
     while (next && !visited.has(next) && pageUrls.length < MAX_PAGES && total < MAX_TOTAL_TEXT) {
       visited.add(next);
-      const page = await this.readPage(next).catch(() => null);
+      const target: string = next;
+      const page = await this.readPage(target).catch((e: unknown) => {
+        pageStop = `page ${pageUrls.length + 1} illisible (${target}) : ${e instanceof Error ? e.message : String(e)}`;
+        return null;
+      });
       if (!page) break;
       visited.add(page.url.replace(/#.*$/, ''));
-      // Un site qui renvoie la page 1 pour un numéro inconnu : on s'arrête.
-      if (!page.text || parts.some((part) => part === page.text)) break;
+      // Une page vide ou répétée est sautée (certains sites en servent au
+      // milieu d'un article) ; trois d'affilée, et on s'arrête : le site
+      // renvoie sans doute toujours la même page.
+      if (!page.text || parts.some((part) => part === page.text)) {
+        useless += 1;
+        pageStop = `page ${page.url} vide ou identique`;
+        if (useless >= 3 || !page.next) break;
+        next = page.next;
+        continue;
+      }
+      useless = 0;
       parts.push(page.text);
       pageUrls.push(page.url);
       total += page.text.length;
       next = page.next;
+      pageStop = next ? '' : 'dernière page atteinte';
     }
+    if (!pageStop) pageStop = pageUrls.length >= MAX_PAGES ? `limite de ${MAX_PAGES} pages` : total >= MAX_TOTAL_TEXT ? 'limite de texte atteinte' : 'lien déjà lu';
     return {
       url,
       title: this.cleanTitle(article.title || title || '', siteName),
       text: parts.join('\n\n').slice(0, MAX_TOTAL_TEXT),
       pageUrls,
+      pageStop,
       excerpt: article.excerpt ? normalizeText(article.excerpt) : null,
       leadImageUrl,
       siteName: siteName || article.siteName || null,
@@ -221,18 +303,53 @@ export class SourceReaderService {
     const { html, url } = await this.fetchHtml(pageUrl);
     const { document } = new JSDOM(html, { url, virtualConsole: new VirtualConsole() }).window;
     const next = findNextPage(document, url, new Set([url, pageUrl]));
-    const article = new Readability(document).parse();
-    const text = article ? this.textFromHtml(article.content ?? '') : '';
+    // Une page suivante peut être courte : quelques lignes suffisent.
+    const own = this.contentText(document, 1);
+    const article = own === null ? new Readability(document).parse() : null;
+    const text = own ?? (article ? this.textFromHtml(article.content ?? '') : '');
     return { url, text, next };
+  }
+
+  /** L'article entier par l'API WordPress : le texte de toutes ses pages
+   * (`<!--nextpage-->`), nettoyé comme une page. */
+  private async readWordPress(restUrl: string) {
+    const { html: body } = await this.fetchHtml(restUrl, 'json');
+    const post = JSON.parse(body) as { content?: { rendered?: string; protected?: boolean } };
+    const rendered = post.content?.rendered;
+    if (!rendered || post.content?.protected) return null;
+    const pages = rendered.split('<!--nextpage-->').length;
+    const { document } = new JSDOM(`<body><div class="entry-content">${rendered.replace(/<!--nextpage-->/g, '')}</div></body>`, {
+      virtualConsole: new VirtualConsole(),
+    }).window;
+    const text = this.contentText(document, 1);
+    return text ? { text, pages } : null;
+  }
+
+  /** Retire de la page ce qui n'est pas l'article (commentaires, navigation,
+   * publicités, articles voisins), puis rend le texte du bloc de contenu du
+   * thème s'il y en a un — null sinon, et Readability prend le relais sur
+   * la page nettoyée. À appeler APRÈS la recherche de la page suivante :
+   * les liens de pagination sont retirés ici. */
+  private contentText(document: Document, minLength: number): string | null {
+    document.querySelectorAll(NOISE).forEach((el) => el.remove());
+    document.querySelectorAll('p, span, div, small, figcaption').forEach((el) => {
+      if (!el.children.length && AD_LABEL.test((el.textContent || '').trim())) el.remove();
+    });
+    let best: string | null = null;
+    document.querySelectorAll(CONTENT).forEach((el) => {
+      const text = this.textFromHtml(el.innerHTML);
+      if (text.length >= minLength && (!best || text.length > best.length)) best = text;
+    });
+    return best;
   }
 
   /** Suit les redirections à la main : chaque étape repasse par le garde-fou.
    * Laisser `fetch` les suivre reviendrait à ne contrôler que la première
    * URL, alors qu'un hôte public peut rediriger vers une adresse interne. */
-  private async fetchHtml(sourceUrl: string) {
+  private async fetchHtml(sourceUrl: string, kind: 'html' | 'json' = 'html') {
     let target = await assertSafeRemoteUrl(sourceUrl);
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-      const response = await this.get(target);
+      const response = await this.get(target, kind);
       const location = response.headers.get('location');
       if (response.status >= 300 && response.status < 400 && location) {
         // Le corps d'une redirection ne sert à rien : le libérer évite de
@@ -249,7 +366,7 @@ export class SourceReaderService {
         );
       }
       const type = response.headers.get('content-type') || '';
-      if (!/text\/html|application\/xhtml\+xml/i.test(type)) {
+      if (!(kind === 'json' ? /application\/(.+\+)?json/i : /text\/html|application\/xhtml\+xml/i).test(type)) {
         throw new BadRequestException(
           `La source ne renvoie pas une page HTML (${type.split(';')[0] || 'type inconnu'})`,
         );
@@ -262,13 +379,13 @@ export class SourceReaderService {
     throw new BadGatewayException('La source enchaîne trop de redirections');
   }
 
-  private async get(url: URL) {
+  private async get(url: URL, kind: 'html' | 'json' = 'html') {
     try {
       return await fetch(url, {
         redirect: 'manual',
         signal: AbortSignal.timeout(TIMEOUT_MS),
         headers: {
-          accept: 'text/html,application/xhtml+xml',
+          accept: kind === 'json' ? 'application/json' : 'text/html,application/xhtml+xml',
           'accept-language': '*',
           'user-agent': USER_AGENT,
         },

@@ -210,16 +210,19 @@ const SCHEMA = {
   ],
 } as const;
 
+// En anglais : une consigne en français tirait le modèle vers le français,
+// même pour un article source en anglais.
 const INSTRUCTIONS = [
-  'Tu réécris un article : même contenu, mots neufs.',
-  'Suis les notes pas à pas — mêmes informations, même ordre, même niveau de détail.',
-  'Reformule chaque phrase ; n’en recopie aucune telle quelle.',
-  'N’ajoute ni fait, ni section, ni développement absent des notes, et n’en retire aucun.',
-  'Des notes brèves donnent un article bref : ne comble pas, n’étoffe pas, n’invente pas.',
-  'Le corps est en HTML simple : <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>.',
-  'Aucun attribut, aucun lien, aucune image, aucun titre de niveau 1.',
-  'La légende accompagne une image sur Facebook : 2 à 4 phrases, sans URL ni hashtag.',
-  'Réponds par un seul objet JSON, sans texte autour, de la forme :',
+  'You rewrite an article: same content, new words.',
+  'Follow the notes step by step: same information, same order, same level of detail.',
+  'Rephrase every sentence; copy none of them as is.',
+  'Add no fact, section or development that is not in the notes, and remove none.',
+  'Short notes make a short article: do not pad, do not expand, do not invent.',
+  'The body is simple HTML: <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>.',
+  'No attribute, no link, no image, no level-1 heading.',
+  'The caption goes with an image on Facebook: 2 to 4 sentences, no URL, no hashtag.',
+  'Write in the language named at the top of the message, and only in it.',
+  'Answer with a single JSON object, nothing around it, of the form:',
   '{"title": string, "slug": string, "excerpt": string, "metaDescription": string,',
   '"contentHtml": string, "caption": string, "hashtags": string[]}.',
 ].join(' ');
@@ -257,6 +260,40 @@ const NEWS_INSTRUCTIONS = [
   'Answer with a single JSON object, nothing around it:',
   '{"newsHook": string, "titles": [string, string, string], "slug": string, "excerpt": string, "metaDescription": string, "contentHtml": string, "caption": string, "hashtags": string[]}.',
 ].join(' ');
+
+/** Mots très fréquents : assez pour reconnaître la langue d'un article. */
+const STOPWORDS: Record<string, string[]> = {
+  en: ['the', 'and', 'with', 'for', 'this', 'that', 'you', 'your', 'is', 'are', 'of', 'to', 'it', 'until', 'into'],
+  fr: ['le', 'la', 'les', 'et', 'avec', 'pour', 'dans', 'est', 'une', 'des', 'du', 'vous', 'votre', 'pas', 'sur'],
+  es: ['el', 'los', 'las', 'y', 'con', 'para', 'una', 'del', 'es', 'que', 'por', 'su', 'muy', 'como', 'hasta'],
+  de: ['der', 'die', 'das', 'und', 'mit', 'für', 'ist', 'ein', 'eine', 'nicht', 'auf', 'den', 'sie', 'zu', 'bis'],
+  it: ['il', 'lo', 'gli', 'e', 'con', 'per', 'una', 'del', 'della', 'che', 'non', 'sono', 'di', 'alla', 'fino'],
+  pt: ['o', 'os', 'as', 'e', 'com', 'para', 'uma', 'do', 'da', 'que', 'não', 'em', 'seu', 'sua', 'até'],
+  nl: ['de', 'het', 'een', 'en', 'met', 'voor', 'van', 'is', 'niet', 'op', 'je', 'zijn', 'dat', 'tot', 'ook'],
+};
+
+/** La langue d'un texte, d'après ses mots les plus fréquents. null si le
+ * texte est trop court ou trop mêlé pour trancher. */
+export function guessLanguage(text: string): string | null {
+  if (/[\u0600-\u06FF]/.test(text.slice(0, 2000))) return 'ar';
+  const words = text.toLowerCase().slice(0, 6000).match(/\p{L}+/gu) ?? [];
+  const scores = Object.entries(STOPWORDS).map(([code, list]) => {
+    const set = new Set(list);
+    return [code, words.filter((w) => set.has(w)).length] as const;
+  });
+  scores.sort((a, b) => b[1] - a[1]);
+  const [[best, top], [, second]] = scores;
+  return top >= 8 && top >= second * 1.5 ? best : null;
+}
+
+/** La langue d'écriture d'une réécriture : celle imposée, sinon celle du
+ * TEXTE de l'article (une page WordPress déclare souvent `fr-FR` pour un
+ * contenu anglais), sinon celle que la page déclare, sinon l'anglais. */
+export function writingLanguage(requested: string | null | undefined, declared: string | null | undefined, text: string) {
+  const wanted = (requested ?? '').trim().toLowerCase();
+  if (wanted && wanted !== 'auto') return wanted;
+  return guessLanguage(text) ?? declared ?? 'en';
+}
 
 @Injectable()
 export class RewriterService {
@@ -380,25 +417,17 @@ export class RewriterService {
 
   private prompt({ source, fbCaption, language }: RewriteInput) {
     const notes = source.text.slice(0, MAX_SOURCE_CHARS);
-    // Réécrire n'est pas traduire : sans langue imposée, celle que la page
-    // source déclare l'emporte. La consigne système étant en français, une
-    // simple invitation à « garder la langue des notes » ne suffit pas — le
-    // modèle repart en français. Il faut la nommer.
-    const wanted = language.trim().toLowerCase();
-    const effective =
-      !wanted || wanted === 'auto' ? (source.language ?? '') : language;
+    const target = languageName(writingLanguage(language, source.language, notes));
     return [
-      effective
-        ? `Langue de rédaction : ${effective}. CHAQUE champ du JSON est ` +
-          'dans cette langue, sans exception — y compris metaDescription — ' +
-          'et rien n’est traduit.'
-        : 'Rédige dans la langue des notes ci-dessous, sans en changer, et ' +
-          'quelle que soit la langue de cette consigne.',
-      `Titre de la source : ${source.title}`,
+      // Réécrire n'est pas traduire : la langue est celle de l'article source,
+      // nommée en toutes lettres et étendue à TOUS les champs.
+      `Writing language: ${target}. EVERY field of the JSON (title, slug, excerpt, metaDescription, contentHtml, caption, hashtags) ` +
+        `is in ${target}, without exception, whatever the language of these instructions or of the Facebook post.`,
+      `Source title: ${source.title}`,
       fbCaption?.trim()
-        ? `Ton de la publication d’origine, à ne pas recopier : ${fbCaption.trim()}`
+        ? `Tone of the original Facebook post, not to be copied: ${fbCaption.trim()}`
         : '',
-      'Notes issues de la page source :',
+      'Notes from the source page:',
       notes,
     ]
       .filter(Boolean)

@@ -18,7 +18,7 @@ import { paginated } from '../common/paginated';
 import { CaptureIngestDto } from './dto/capture-ingest.dto';
 import { CreateIngestDto } from './dto/create-ingest.dto';
 import { ScrapeResultDto } from './dto/scrape-result.dto';
-import { GeneratedArticle, RewriterService } from './rewriter.service';
+import { GeneratedArticle, RewriterService, writingLanguage } from './rewriter.service';
 import { SourceReaderService } from './source-reader.service';
 import { WordpressWriterService } from './wordpress-writer.service';
 import { WordpressService } from '../wordpress/wordpress.service';
@@ -505,15 +505,15 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
     // « auto » se résout ici, une fois pour toutes : la langue déclarée par
     // la page est enregistrée, donc une relance ne la redemande pas et la
     // fiche dit dans quelle langue l'article a été écrit.
-    const resolved = this.resolvedLanguage(ingest.language, source.language);
-    const pages = source.pageUrls?.length ?? 1;
+    const resolved = writingLanguage(ingest.language, source.language, source.text);
+    const pages = source.pages ?? source.pageUrls?.length ?? 1;
     await this.log(
       ingest.id,
       'INGEST_SOURCE_READ',
-      pages > 1
+      (pages > 1
         ? `Article source lu sur ${pages} pages (${source.text.length} caractères)`
-        : `Article source lu (${source.text.length} caractères)`,
-      { pages: source.pageUrls ?? [source.url] },
+        : `Article source lu (${source.text.length} caractères)`) + (source.pageStop ? ` — ${source.pageStop}` : ''),
+      { pages: source.pageUrls ?? [source.url], pageStop: source.pageStop ?? null },
     );
     return this.prisma.sourceIngest.update({
       where: { id: ingest.id },
@@ -530,11 +530,6 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
   /** Une langue demandée explicitement l'emporte : c'est une décision. Sinon
    * on prend celle de la page ; si elle n'en déclare aucune, « auto » reste,
    * et la consigne demandera au modèle de s'aligner sur les notes. */
-  private resolvedLanguage(requested: string, detected: string | null) {
-    const wanted = requested.trim().toLowerCase();
-    if (wanted && wanted !== 'auto') return requested;
-    return detected ?? 'auto';
-  }
 
   /** Le mode « engagement », d'un bout à l'autre :
    *   1. les groupes visés : actifs, de la langue choisie, de la catégorie du

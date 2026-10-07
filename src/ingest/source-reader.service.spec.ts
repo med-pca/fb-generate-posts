@@ -251,3 +251,46 @@ describe('pageOf', () => {
     expect(pageOf('https://a.test/recipes/48213').page).toBe(1);
   });
 });
+
+/** Cas réel (tastykitchen.delicedcook.com/?p=3428) : les pages HTML du site
+ * sont incomplètes — page 4 = page 3, pages 13 à 19 vides, formulaire de
+ * commentaire pris pour l'article — alors que l'API WordPress a tout. */
+describe('SourceReaderService — article WordPress', () => {
+  const para = (label: string, n = 6) =>
+    Array.from({ length: n }, (_, i) => `<p>${label}, paragraph ${i}: a sentence long enough to be kept as real article content here.</p>`).join('');
+  const wpPage = (n: number, body: string) => `<!doctype html><html lang="en"><head><title>Story | Site</title>
+    <link rel="shortlink" href="https://wp.test/?p=3428"></head><body class="single postid-3428">
+    <article><div class="entry-content">${body}<p>Publicidad</p>
+    <nav class="post-page-nav"><a href="https://wp.test/?p=3428&amp;page=${n + 1}">Next Page →</a> Page ${n} of 3</nav></div></article>
+    <div id="comments" class="comments-area"><h3>Leave a Reply</h3><form><textarea></textarea></form></div></body></html>`;
+
+  it('lit l’article entier par l’API WordPress, toutes pages, sans publicités', async () => {
+    fetchMock.mockImplementation(async (url: URL) => {
+      const u = url.toString();
+      if (u.includes('rest_route=/wp/v2/posts/3428'))
+        return html(JSON.stringify({ content: { rendered: `${para('One')}<!--nextpage-->${para('Two')}<p>Publicidad</p><!--nextpage-->${para('Three')}`, protected: false } }), 200, 'application/json; charset=UTF-8');
+      return html(wpPage(1, para('One')));
+    });
+    const article = await read('https://wp.test/?p=3428');
+    expect(article.pages).toBe(3);
+    expect(article.text).toContain('Three, paragraph 5');
+    expect(article.text).not.toMatch(/Publicidad|Leave a Reply|Next Page/);
+    expect(article.pageStop).toContain('API WordPress');
+  });
+
+  it('sans API : saute une page répétée ou vide au lieu de s’arrêter, et ignore les commentaires', async () => {
+    const pages: Record<string, string> = {
+      'https://wp.test/?p=3428': wpPage(1, para('One')),
+      'https://wp.test/?p=3428&page=2': wpPage(2, para('One')), // le site répète la page 1
+      'https://wp.test/?p=3428&page=3': wpPage(3, para('Three')),
+    };
+    fetchMock.mockImplementation(async (url: URL) => {
+      const body = pages[url.toString()];
+      return body ? html(body) : html('', 404);
+    });
+    const article = await read('https://wp.test/?p=3428');
+    expect(article.text).toContain('Three, paragraph 0');
+    expect(article.text).not.toMatch(/Leave a Reply|Publicidad|Next Page/);
+    expect(article.pageUrls).toEqual(['https://wp.test/?p=3428', 'https://wp.test/?p=3428&page=3']);
+  });
+});

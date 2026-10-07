@@ -6,8 +6,7 @@ import {
   normalizeHashtags,
   normalizeSlug,
   RewriterService,
-  sanitizeArticleHtml,
-} from './rewriter.service';
+  sanitizeArticleHtml, guessLanguage, writingLanguage } from './rewriter.service';
 
 describe('normalizeSlug', () => {
   it('réduit un titre latin à des mots séparés par un tiret', () => {
@@ -203,41 +202,40 @@ describe('RewriterService', () => {
 
   // Imposer une langue ferait traduire l'article au passage : réécrire n'est
   // pas traduire.
-  it('garde la langue de la source par défaut', async () => {
+  it('garde la langue de la source par défaut, nommée en toutes lettres', async () => {
     const { input } = await askedWith('auto', 'en');
-    expect(input).toContain('Langue de rédaction : en');
+    expect(input).toContain('Writing language: English');
   });
 
-  /** La consigne système est en français : une simple invitation à « garder
-   * la langue des notes » laissait le modèle repartir en français. La langue
-   * doit être nommée. */
-  it('nomme la langue plutôt que d’y faire allusion', async () => {
-    const { input } = await askedWith('auto', 'en');
-    expect(input).not.toContain('la langue des notes');
+  /** Une consigne en français tirait le modèle vers le français, même pour
+   * un article anglais : elle est en anglais. */
+  it('donne une consigne en anglais', async () => {
+    const { instructions } = await askedWith('auto', 'en');
+    expect(instructions).toContain('You rewrite an article');
+    expect(instructions).not.toMatch(/Tu réécris|Réponds/);
   });
 
   /** Énumérer les champs en laissait passer un : metaDescription sortait en
    * français pendant que le reste était en anglais. */
-  it('étend la langue à tous les champs, pas à une liste', async () => {
+  it('étend la langue à tous les champs', async () => {
     const { input } = await askedWith('auto', 'en');
-    expect(input).toContain('CHAQUE champ du JSON');
+    expect(input).toContain('EVERY field of the JSON');
     expect(input).toContain('metaDescription');
   });
 
-  it('se rabat sur les notes quand la page ne déclare rien', async () => {
+  it('sans langue déclarée ni texte reconnaissable : anglais', async () => {
     const { input } = await askedWith('auto', null);
-    expect(input).toContain('la langue des notes');
-    expect(input).toContain('quelle que soit la langue de cette consigne');
+    expect(input).toContain('Writing language: English');
   });
 
   it('accepte malgré tout une langue imposée', async () => {
     const { input } = await askedWith('fr', 'en');
-    expect(input).toContain('Langue de rédaction : fr');
+    expect(input).toContain('Writing language: French');
   });
 
   it('traite une langue absente comme « auto »', async () => {
     const { input } = await askedWith('', 'es');
-    expect(input).toContain('Langue de rédaction : es');
+    expect(input).toContain('Writing language: Spanish');
   });
 
   /** L'objectif est de réécrire l'article de la source, pas d'en produire
@@ -245,9 +243,8 @@ describe('RewriterService', () => {
    * notes, pas de repartir d'un plan neuf. */
   it('demande une réécriture fidèle, pas un article neuf', async () => {
     const { instructions } = await askedWith('auto');
-    expect(instructions).toContain('même ordre');
-    expect(instructions).toContain('n’étoffe pas');
-    expect(instructions).not.toContain('entièrement nouveaux');
+    expect(instructions).toContain('same order');
+    expect(instructions).toContain('do not pad');
   });
 
   it('renormalise ce que le fournisseur rend', async () => {
@@ -287,5 +284,29 @@ describe('RewriterService', () => {
         }),
       ).rewrite({ source, language: 'fr' }),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+});
+
+describe('writingLanguage', () => {
+  const english = 'Preheat the oven and mix the flour with the sugar. This is the cake that your family will love, and it is ready in an hour with the best butter for you.';
+  const french = 'Préchauffez le four et mélangez la farine avec le sucre. Voici le gâteau que toute la famille adore, prêt en une heure dans votre cuisine pour les fêtes et pour vous.';
+
+  /** Le cas réel : un WordPress réglé en fr-FR qui publie en anglais. */
+  it('suit le texte de l’article plutôt que la langue déclarée par la page', () => {
+    expect(writingLanguage('auto', 'fr', english)).toBe('en');
+    expect(writingLanguage('auto', 'en', french)).toBe('fr');
+  });
+
+  it('garde la langue déclarée quand le texte ne tranche pas, puis l’anglais', () => {
+    expect(writingLanguage('auto', 'de', 'Kurz.')).toBe('de');
+    expect(writingLanguage(null, null, 'ok')).toBe('en');
+  });
+
+  it('une langue imposée l’emporte toujours', () => {
+    expect(writingLanguage('es', 'fr', english)).toBe('es');
+  });
+
+  it('reconnaît l’arabe à son écriture', () => {
+    expect(guessLanguage('وصفة الكعكة السهلة')).toBe('ar');
   });
 });
