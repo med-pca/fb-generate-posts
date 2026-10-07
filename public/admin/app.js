@@ -1173,6 +1173,7 @@ const prioControls = (kind, id, prio) =>
   (prio ? `<button class="edit" type="button" data-rule-${kind}="${id}" data-move="reset" title="Priorité normale">×</button>` : '') +
   `</div>`;
 function renderRules() {
+  renderPilotMode();
   const r = state.rules;
   if (!r) return;
   const f = $('#rules-pause');
@@ -1281,6 +1282,25 @@ $('#rules-image').onsubmit = async (e) => {
     notice(x.message, 'error');
   }
 };
+function renderPilotMode() {
+  const mode = state.settings?.pilotMode || 'article';
+  $$('#rules-mode input[name="pilotMode"]').forEach((r) => (r.checked = r.value === mode));
+  $('#rules-mode-help').textContent =
+    mode === 'article'
+      ? 'Actif : un article dans tous ses groupes, puis le suivant. Pour pousser un article, mettez-le en tête (Priorité des articles) ; pour servir un groupe d’abord, mettez-le en tête (Priorité des groupes).'
+      : 'Actif : des lots de plusieurs articles par groupe.';
+}
+$('#rules-mode').onchange = async (e) => {
+  const pilotMode = e.target.value;
+  try {
+    state.settings = await api('/settings', { method: 'PATCH', body: JSON.stringify({ pilotMode }) });
+    renderPilotMode();
+    notice(pilotMode === 'article' ? 'Article par article : chaque article part dans tous ses groupes avant le suivant.' : 'Groupe par groupe : lots de plusieurs articles par groupe.');
+  } catch (x) {
+    notice(x.message, 'error');
+    renderPilotMode();
+  }
+};
 $('#rules-pause').onsubmit = async (e) => {
   e.preventDefault();
   try {
@@ -1365,6 +1385,20 @@ function renderObjective() {
     ? `<div class="obj-bar"><i class="done ${tone}" style="width:${pct(p.published)}%"></i>` +
       `<b class="expected" style="left:${pct(p.expected)}%" title="Attendu à cette heure : ${p.expected}"></b></div>`
     : '';
+
+  // Le plan du jour, en articles : un article part dans tous les groupes de
+  // sa catégorie, donc objectif ÷ groupes = articles à diffuser.
+  const pl = o.plan;
+  $('#obj-plan').innerHTML = pl && pl.articlesPerDay
+    ? `<div class="plan-head"><b>Plan du jour : ${pl.articlesPerDay} article(s)</b>` +
+      `<span>${p.target} posts ÷ ${pl.postsPerArticle} groupe(s) par article · un nouvel article toutes les ~${pl.everyMinutes} min · à cette heure : ${pl.expectedNow} commencé(s) attendu(s)</span></div>` +
+      `<div class="plan-steps" role="img" aria-label="${pl.done} terminés, ${pl.inProgress} en cours, ${pl.ready} prêts, ${pl.missing} à importer">` +
+      [['done', pl.done, 'terminé(s)'], ['progress', pl.inProgress, 'en cours'], ['ready', pl.ready, 'prêt(s)'], ['missing', pl.missing, 'à importer']]
+        .filter(([, n]) => n > 0)
+        .map(([cls, n, label]) => `<i class="${cls}" style="flex:${Math.max(n, 0.6)}" title="${n} ${label}">${n} ${label}</i>`)
+        .join('') +
+      `</div>`
+    : '<p class="muted">Réglez un objectif de posts par jour pour voir le plan en articles.</p>';
 
   const kpi = (value, labelText, sub = '', cls = '') =>
     `<div class="obj-kpi ${cls}"><strong>${value}</strong><span>${labelText}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;

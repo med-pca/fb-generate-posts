@@ -176,7 +176,7 @@ export class JobsService {
     acting: CurrentUser | null = null,
     /** Les règles du pilotage : jamais plus de N posts dans ce lot (plafond
      * du groupe, quota du profil). */
-    limits: { maxCount?: number } = {},
+    limits: { maxCount?: number; postId?: string } = {},
   ): Promise<ClaimedJob | EmptyClaim> {
     // La clé d'un compte ne réserve que sur ses profils : sans cela, un
     // automate atteindrait la file de publication d'un autre.
@@ -235,6 +235,7 @@ export class JobsService {
         LEFT JOIN articles a ON a.id = p.article_id
         WHERE pt.group_id = ${dto.groupId}
           AND pt.status = 'AVAILABLE'::"TargetStatus"
+          ${limits.postId ? Prisma.sql`AND pt.post_id = ${limits.postId}` : Prisma.empty}
           -- Une cible forcée vers un autre profil lui est réservée.
           AND (pt.forced_profile_id IS NULL OR pt.forced_profile_id = ${dto.profileId})
           -- Republication d'un post incomplet : pas par le profil qui l'avait raté
@@ -576,7 +577,31 @@ export class JobsService {
         message: `Ses groupes sont fermés à cette heure ou ont atteint leur plafond du jour (${[...rules.groups.values()].map((r) => r.why).filter(Boolean).slice(0, 3).join(' ; ')})`,
       };
     }
-    for (const group of await this.byTopPriority(usable, profile)) {
+    const ordered = await this.byTopPriority(usable, profile);
+    // Article par article : l'article en tête de file part dans tous ses
+    // groupes avant le suivant. Chaque lot = ce post dans UN groupe ; le
+    // lot suivant le porte dans le groupe suivant (le plus prioritaire
+    // d'abord). Un groupe imposé par l'extension garde l'ancien mode.
+    if (!groupExternalId && (await this.pilotMode()) === 'article') {
+      for (const postId of await this.currentArticles(profile, usable.map((g) => g.id))) {
+        const where = await this.prisma.postTarget.findMany({
+          where: { postId, status: TargetStatus.AVAILABLE, groupId: { in: usable.map((g) => g.id) }, ...notForcedElsewhere(profile.id) },
+          select: { groupId: true },
+        });
+        const inGroups = new Set(where.map((t) => t.groupId));
+        for (const group of ordered.filter((g) => inGroups.has(g.id))) {
+          const result = await this.claim({ profileId: profile.id, groupId: group.id }, acting, { maxCount: 1, postId });
+          if ('jobId' in result) return result;
+        }
+      }
+      return {
+        job: null,
+        posts: [],
+        reason: 'taken',
+        message: 'Les posts disponibles viennent d’être réservés par d’autres profils : réessayer au prochain passage',
+      };
+    }
+    for (const group of ordered) {
       const left = rules.groups.get(group.id)?.left ?? null;
       const caps = [left, rules.quotaLeft].filter((n): n is number => n !== null);
       const result = await this.claim(
@@ -706,6 +731,39 @@ export class JobsService {
     };
   }
 
+  private async pilotMode() {
+    const settings = await this.prisma.automationSetting
+      .findUnique({ where: { id: 'global' }, select: { pilotMode: true } })
+      .catch(() => null);
+    return settings?.pilotMode === 'group' ? 'group' : 'article';
+  }
+
+  /** Les articles (posts) en tête de la file que CE profil peut publier dans
+   * l'un de ses groupes : forcés vers lui d'abord, puis par priorité, puis
+   * le plus ancien. Les premiers seulement : si le premier vient d'être pris
+   * partout, on passe au suivant. */
+  private async currentArticles(profile: { id: string; ownerId: string | null }, groupIds: string[]) {
+    const targets = await this.prisma.postTarget.findMany({
+      where: {
+        groupId: { in: groupIds },
+        status: TargetStatus.AVAILABLE,
+        post: {
+          status: 'AVAILABLE',
+          AND: [claimablePostWhere(profile), { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] }],
+        },
+        ...notForcedElsewhere(profile.id),
+      },
+      orderBy: [
+        { forcedProfileId: { sort: 'asc', nulls: 'last' } },
+        { post: { priority: 'desc' } },
+        { post: { createdAt: 'asc' } },
+      ],
+      select: { postId: true },
+      take: 200,
+    });
+    return [...new Set(targets.map((t) => t.postId))].slice(0, 3);
+  }
+
   /** Le groupe qui porte le post le plus prioritaire passe d'abord : sans
    * cela, un post mis en tête attendrait que le hasard tombe sur son groupe.
    * À égalité, le hasard répartit toujours la charge entre les groupes. */
@@ -784,8 +842,11 @@ export class JobsService {
       .sort(
         (a, b) =>
           b.forced - a.forced ||
-          b.free - a.free ||
+          // La priorité donnée par l'admin passe AVANT « groupe libre » :
+          // l'inverse faisait tomber un groupe prioritaire en dernier dès
+          // qu'un autre profil venait d'y publier.
           b.groupPriority - a.groupPriority ||
+          b.free - a.free ||
           b.priority - a.priority ||
           b.preApproved - a.preApproved ||
           a.tie - b.tie,

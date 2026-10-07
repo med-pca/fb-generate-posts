@@ -240,7 +240,9 @@ describe('JobsService — groupes rejoints uniquement', () => {
       publicationJob: { findFirst: jest.fn(async () => null) },
       // Sa ligne de pilotage : en pause ou non, quota du jour.
       profileRunner: { findUnique: jest.fn(async (): Promise<{ pausedUntil?: Date | null; dailyQuota?: number | null } | null> => null) },
-      automationSetting: { findUnique: jest.fn(async () => ({ objectiveTimezone: 'Europe/Paris' })) },
+      // Mode « groupe » (lots par groupe) : celui que ces tests décrivent ; le
+      // mode « article » a les siens plus bas.
+      automationSetting: { findUnique: jest.fn(async (): Promise<Record<string, unknown>> => ({ objectiveTimezone: 'Europe/Paris', pilotMode: 'group' })) },
       // Ce que les AUTRES profils publient en ce moment dans ces groupes.
       publicationJobItem: {
         findMany: jest.fn(async (): Promise<Array<{ job: { groupId: string } }>> => []),
@@ -400,6 +402,79 @@ describe('JobsService — groupes rejoints uniquement', () => {
     });
     await service.claimByProfileExternalId('demo-profile');
     expect(tried[0]).toBe('vip');
+  });
+
+  describe('article par article', () => {
+    function articleHarness() {
+      const h = makeClaimHarness();
+      h.prisma.automationSetting.findUnique.mockResolvedValue({ objectiveTimezone: 'Europe/Paris', pilotMode: 'article' });
+      h.prisma.group.findMany.mockImplementation(async (args: any) =>
+        args?.select?.priority ? [{ id: 'g1', priority: 0 }, { id: 'vip', priority: 5 }, { id: 'g3', priority: 0 }] : [{ id: 'g1' }, { id: 'vip' }, { id: 'g3' }],
+      );
+      h.prisma.postTarget.findFirst = jest.fn(async () => ({ post: { priority: 0 } }));
+      // A : en tête de file, attend dans g1 et vip ; B ensuite, dans g1 et g3.
+      const where: Record<string, string[]> = { A: ['g1', 'vip'], B: ['g1', 'g3'] };
+      h.prisma.postTarget.findMany = jest.fn(async (args: any) =>
+        args.where.postId ? where[args.where.postId].map((groupId) => ({ groupId })) : [{ postId: 'A' }, { postId: 'A' }, { postId: 'B' }],
+      );
+      const tried: Array<[string, string, number]> = [];
+      return { ...h, tried };
+    }
+
+    it('publie l’article en tête dans tous ses groupes (le prioritaire d’abord) avant le suivant, un post par lot', async () => {
+      const { service, tried } = articleHarness();
+      jest.spyOn(service, 'claim').mockImplementation(async (dto: any, _a: any, limits: any = {}) => {
+        tried.push([dto.groupId, limits.postId, limits.maxCount]);
+        return { job: null, posts: [] };
+      });
+      const r: any = await service.claimByProfileExternalId('demo-profile');
+      // A d'abord, dans tous ses groupes (vip, le prioritaire, en tête) ; puis B.
+      // g1 et g3 sont à égalité : le hasard les départage.
+      expect(tried.slice(0, 2)).toEqual([['vip', 'A', 1], ['g1', 'A', 1]]);
+      expect(tried.slice(2).map((t) => t[1])).toEqual(['B', 'B']);
+      expect(tried.slice(2).map((t) => t[0]).sort()).toEqual(['g1', 'g3']);
+      expect(tried.every((t) => t[2] === 1)).toBe(true);
+      expect(r.reason).toBe('taken');
+    });
+
+    it('s’arrête au premier lot réservé', async () => {
+      const { service, tried } = articleHarness();
+      jest.spyOn(service, 'claim').mockImplementation(async (dto: any, _a: any, limits: any = {}) => {
+        tried.push([dto.groupId, limits.postId, limits.maxCount]);
+        return { jobId: 'job_1', posts: [] } as any;
+      });
+      const r: any = await service.claimByProfileExternalId('demo-profile');
+      expect(r.jobId).toBe('job_1');
+      expect(tried).toEqual([['vip', 'A', 1]]);
+    });
+
+    it('la file des articles : forcé vers lui, puis priorité, puis le plus ancien', async () => {
+      const { service, prisma } = articleHarness();
+      jest.spyOn(service, 'claim').mockImplementation(async () => ({ job: null, posts: [] }));
+      await service.claimByProfileExternalId('demo-profile');
+      const call = prisma.postTarget.findMany.mock.calls.find((c: any) => c[0].select?.postId)[0];
+      expect(call.orderBy).toEqual([
+        { forcedProfileId: { sort: 'asc', nulls: 'last' } },
+        { post: { priority: 'desc' } },
+        { post: { createdAt: 'asc' } },
+      ]);
+    });
+  });
+
+  it('un groupe prioritaire reste en tête même si un autre profil vient d’y publier', async () => {
+    const { service, prisma } = makeClaimHarness();
+    prisma.group.findMany.mockImplementation(async (args: any) =>
+      args?.select?.priority ? [{ id: 'libre', priority: 0 }, { id: 'vip', priority: 5 }] : [{ id: 'libre' }, { id: 'vip' }],
+    );
+    prisma.postTarget.findFirst = jest.fn(async () => ({ post: { priority: 0 } }));
+    prisma.publicationJobItem.findMany.mockResolvedValue([{ job: { groupId: 'vip' } }]);
+    const tried: string[] = [];
+    jest.spyOn(service, 'claim').mockImplementation(async (dto: any) => {
+      tried.push(dto.groupId);
+      return { job: null, posts: [] };
+    });
+    await service.claimByProfileExternalId('demo-profile');
+    expect(tried).toEqual(['vip', 'libre']);
   });
 
   describe('règles du pilotage', () => {

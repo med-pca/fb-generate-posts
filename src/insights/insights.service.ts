@@ -275,7 +275,7 @@ export class InsightsService {
         select: {
           publishedAt: true,
           job: { select: { profileId: true } },
-          postTarget: { select: { groupId: true } },
+          postTarget: { select: { groupId: true, postId: true } },
         },
       }),
       this.prisma.postTarget.groupBy({
@@ -460,8 +460,25 @@ export class InsightsService {
       };
     });
 
+    const plan = await this.articlePlan({
+      target: settings.dailyTarget,
+      start: settings.objectiveStart,
+      end: settings.objectiveEnd,
+      nowMinutes,
+      postsPerArticle: averagePostsPerArticle,
+      publishableGroupIds: publishable.map((g) => g.id),
+      publishedPosts: [...new Set(items.map((i) => i.postTarget.postId))],
+      acting,
+    });
+
     // Ce qu'il faut faire, dans l'ordre où ça compte.
     const advice: Array<{ level: 'ok' | 'warn' | 'error'; text: string }> = [];
+    if (plan.articlesPerDay && plan.missing > 0) {
+      advice.push({
+        level: plan.ready + plan.inProgress === 0 ? 'error' : 'warn',
+        text: `Plan du jour : ${plan.articlesPerDay} article(s) (${settings.dailyTarget} posts ÷ ${plan.postsPerArticle} groupes). ${plan.done} terminé(s), ${plan.inProgress} en cours, ${plan.ready} prêt(s) : il manque ${plan.missing} article(s) à importer aujourd’hui.`,
+      });
+    }
     if (!settings.dailyTarget) {
       advice.push({ level: 'warn', text: 'Aucun objectif réglé : indiquez un nombre de posts par jour.' });
     }
@@ -514,6 +531,7 @@ export class InsightsService {
       pace: result,
       hourly,
       stock: { publishable: stockPublishable, blocked: stockBlocked, deficit },
+      plan,
       articles: { today: articlesToday, needed: articlesNeeded, postsPerArticle: averagePostsPerArticle },
       profiles: {
         participating: participating.length,
@@ -524,6 +542,57 @@ export class InsightsService {
       categories,
       groups: groupRows.sort((a, b) => Number(Boolean(a.blocked)) - Number(Boolean(b.blocked)) || b.stock - a.stock),
       advice,
+    };
+  }
+
+  /** Le plan du jour, en articles : un article part dans tous les groupes
+   * de sa catégorie, donc objectif ÷ groupes = articles à diffuser
+   * (300 posts ÷ 20 groupes = 15 articles). Avec, pour la journée :
+   *  - terminés : publiés aujourd'hui, plus rien à faire dans un groupe prêt ;
+   *  - en cours : publiés aujourd'hui dans une partie de leurs groupes ;
+   *  - prêts : en file, pas encore commencés ;
+   *  - à importer : ce qui manque pour tenir le plan ;
+   *  - cadence : un nouvel article toutes les N minutes sur la plage. */
+  private async articlePlan(input: {
+    target: number;
+    start: number;
+    end: number;
+    nowMinutes: number;
+    postsPerArticle: number;
+    publishableGroupIds: string[];
+    publishedPosts: string[];
+    acting: CurrentUser | null;
+  }) {
+    const postsPerArticle = Math.round(input.postsPerArticle);
+    const articlesPerDay = input.target && postsPerArticle ? Math.ceil(input.target / postsPerArticle) : 0;
+    const waiting = input.publishableGroupIds.length
+      ? await this.prisma.postTarget.groupBy({
+          by: ['postId'],
+          where: { ...this.upcomingWhere(input.acting), groupId: { in: input.publishableGroupIds } },
+          _count: { _all: true },
+        })
+      : [];
+    const waitingPosts = new Set(waiting.map((w) => w.postId));
+    const started = new Set(input.publishedPosts);
+    const inProgress = [...started].filter((id) => waitingPosts.has(id)).length;
+    const done = started.size - inProgress;
+    const ready = [...waitingPosts].filter((id) => !started.has(id)).length;
+    const missing = Math.max(0, articlesPerDay - done - inProgress - ready);
+    const windowMinutes = Math.max(0, input.end - input.start);
+    return {
+      postsPerArticle,
+      articlesPerDay,
+      done,
+      inProgress,
+      ready,
+      missing,
+      // Un nouvel article toutes les N minutes pour tenir le plan sur la plage.
+      everyMinutes: articlesPerDay && windowMinutes ? Math.round(windowMinutes / articlesPerDay) : 0,
+      // Où l'on devrait en être à cette heure (articles commencés).
+      expectedNow:
+        articlesPerDay && windowMinutes
+          ? Math.min(articlesPerDay, Math.max(0, Math.ceil(((input.nowMinutes - input.start) / windowMinutes) * articlesPerDay)))
+          : 0,
     };
   }
 }

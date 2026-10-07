@@ -586,6 +586,10 @@ model AutomationSetting {
   /// Le découpage des articles déposés sur WordPress : « page suivante »
   /// tous les N paragraphes (0 = article d'un seul tenant), et jamais une
   /// page de moins de M mots (des répliques d'une ligne se regroupent).
+  /// La façon de distribuer : `article` (un article part dans tous ses
+  /// groupes, puis le suivant — un post par lot) ou `group` (un lot de
+  /// plusieurs posts dans un même groupe).
+  pilotMode                  String   @default("article") @map("pilot_mode")
   articleParagraphsPerPage   Int      @default(2) @map("article_paragraphs_per_page")
   articleMinWordsPerPage     Int      @default(60) @map("article_min_words_per_page")
   createdAt                  DateTime @default(now()) @map("created_at")

@@ -85,3 +85,33 @@ describe('InsightsService.objective', () => {
     expect(startOfLocalDay(now, 'Europe/Paris').toISOString()).toBe('2026-09-29T22:00:00.000Z');
   });
 });
+
+/** L'exemple de l'équipe : 20 groupes, objectif 300 posts → 15 articles. */
+describe('InsightsService.objective — plan du jour en articles', () => {
+  it('300 posts ÷ 20 groupes = 15 articles, avec terminés, en cours, prêts et à importer', async () => {
+    const groups = Array.from({ length: 20 }, (_, i) => group(`g${i}`, 'Recettes', [{ id: 'salim', mode: 'AUTO' }]));
+    // Aujourd'hui : A dans les 20 groupes (terminé), B dans 5 (en cours).
+    const items = [
+      ...groups.map((g) => ({ publishedAt: new Date(now.getTime() - 3_600_000), job: { profileId: 'salim' }, postTarget: { groupId: g.id, postId: 'A' } })),
+      ...groups.slice(0, 5).map((g) => ({ publishedAt: new Date(now.getTime() - 600_000), job: { profileId: 'salim' }, postTarget: { groupId: g.id, postId: 'B' } })),
+    ];
+    const prisma: any = {
+      automationSetting: { upsert: async () => ({ dailyTarget: 300, objectiveStart: 480, objectiveEnd: 1320, objectiveTimezone: 'Europe/Paris' }) },
+      publicationJobItem: { findMany: async () => items },
+      postTarget: {
+        groupBy: async (args: any) =>
+          args.by[0] === 'postId'
+            ? [{ postId: 'B', _count: { _all: 15 } }, { postId: 'C', _count: { _all: 20 } }, { postId: 'D', _count: { _all: 20 } }]
+            : groups.map((g) => ({ groupId: g.id, _count: { _all: 3 } })),
+      },
+      group: { findMany: async () => groups },
+      profile: { findMany: async () => [{ id: 'salim', name: 'Salim', runner: { mode: 'AUTO', running: true, lastSeenAt: now }, _count: { profileGroups: 20 } }] },
+      article: { count: async () => 0 },
+    };
+    const o: any = await new InsightsService(prisma).objective(null, now);
+    expect(o.plan).toMatchObject({ postsPerArticle: 20, articlesPerDay: 15, done: 1, inProgress: 1, ready: 2, missing: 11 });
+    // Plage 8 h → 22 h = 840 min : un article toutes les 56 min.
+    expect(o.plan.everyMinutes).toBe(56);
+    expect(o.advice.map((a: any) => a.text).join(' | ')).toMatch(/il manque 11 article\(s\) à importer/);
+  });
+});

@@ -2251,3 +2251,21 @@ dialog form small, dialog form .form-help, dialog form p { overflow-wrap: anywhe
 .language-form { display: grid; grid-template-columns: 120px 1fr auto; gap: 10px; align-items: end; margin-top: 12px; }
 .language-form .actions { margin: 0; }
 @media (max-width: 560px) { .language-form { grid-template-columns: 1fr; } }
+
+/* Mode de distribution (Pilotage → Règles) */
+.pilot-modes { display: grid; gap: 8px; }
+.pilot-mode { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; cursor: pointer; font-weight: 400; }
+.pilot-mode:has(input:checked) { border-color: var(--accent, #2563eb); background: color-mix(in srgb, var(--accent, #2563eb) 6%, transparent); }
+.pilot-mode input { width: auto; margin-top: 3px; }
+.pilot-mode small { display: block; color: var(--muted, #6b7280); margin-top: 3px; line-height: 1.4; }
+
+/* Plan du jour en articles (objectif) */
+.obj-plan { margin: 12px 0; display: grid; gap: 8px; }
+.plan-head b { display: block; }
+.plan-head span { color: var(--muted, #6b7280); font-size: 0.85rem; }
+.plan-steps { display: flex; gap: 2px; min-height: 30px; border-radius: 8px; overflow: hidden; }
+.plan-steps i { font-style: normal; font-size: 0.78rem; display: flex; align-items: center; justify-content: center; padding: 0 6px; white-space: nowrap; overflow: hidden; color: var(--text, #111827); }
+.plan-steps .done { background: color-mix(in srgb, #16a34a 30%, transparent); }
+.plan-steps .progress { background: color-mix(in srgb, #2563eb 28%, transparent); }
+.plan-steps .ready { background: color-mix(in srgb, #64748b 22%, transparent); }
+.plan-steps .missing { background: repeating-linear-gradient(135deg, color-mix(in srgb, #dc2626 22%, transparent) 0 6px, transparent 6px 10px); border: 1px dashed #dc2626; }

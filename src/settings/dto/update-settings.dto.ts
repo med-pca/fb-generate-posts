@@ -71,6 +71,13 @@ export class UpdateSettingsDto {
   @Max(60)
   rateLimitPauseDays?: number;
 
+  /** `article` : un article dans tous ses groupes, puis le suivant.
+   * `group` : des lots de plusieurs posts par groupe. */
+  @ApiPropertyOptional({ enum: ['article', 'group'] })
+  @IsOptional()
+  @IsIn(['article', 'group'])
+  pilotMode?: 'article' | 'group';
+
   /** « Page suivante » tous les N paragraphes (0 = un seul tenant). */
   @ApiPropertyOptional({ minimum: 0, maximum: 30 })
   @IsOptional()

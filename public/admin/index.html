@@ -1024,6 +1024,7 @@
             <div class="objective-body">
               <div class="obj-status" id="obj-status"></div>
               <div class="obj-progress" id="obj-progress" role="img"></div>
+              <div class="obj-plan" id="obj-plan"></div>
               <div class="obj-kpis" id="obj-kpis"></div>
               <ul class="obj-advice" id="obj-advice"></ul>
               <div class="obj-grid">
@@ -1053,6 +1054,16 @@
           <!-- Le pilotage fin : quels groupes et quels articles d'abord, et la
                conduite à tenir quand Facebook limite un profil. -->
           <div class="pil-pane hidden" id="pil-rules">
+            <div class="panel rules-panel">
+              <div class="panel-head"><div><small>DISTRIBUTION</small><h2>Comment les profils avancent</h2></div></div>
+              <form id="rules-mode" class="pilot-modes">
+                <label class="pilot-mode"><input type="radio" name="pilotMode" value="article" />
+                  <span><b>Article par article</b> (recommandé)<small>L’article en tête de la file part dans <b>tous</b> ses groupes, puis le suivant. Chaque profil publie cet article dans ses groupes, du plus prioritaire au moins prioritaire, un post à la fois ; plusieurs profils se partagent les groupes du même article. Ordre des articles : envoi forcé, puis priorité de l’article, puis le plus ancien.</small></span></label>
+                <label class="pilot-mode"><input type="radio" name="pilotMode" value="group" />
+                  <span><b>Groupe par groupe</b><small>Un profil prend un groupe et y publie un lot de plusieurs articles différents (taille du lot : réglage du profil), puis passe à un autre groupe.</small></span></label>
+              </form>
+              <p class="form-help" id="rules-mode-help"></p>
+            </div>
             <div class="panel rules-panel">
               <div class="panel-head"><div><small>QUAND FACEBOOK LIMITE UN PROFIL</small><h2>Pause automatique</h2></div></div>
               <p class="form-help">Quand Facebook affiche « <i>We limit how often you can post…</i> » (ou sa traduction), le profil est mis en pause : il ne publie plus jusqu’à la fin de la pause, son lot en cours et ses posts passent aux autres profils actifs. On peut lever la pause plus tôt depuis sa ligne (⋯ → ▶ Lever la pause).</p>
