@@ -1,4 +1,4 @@
-import { continueLabel, NEXT_PAGE, paginateHtml } from './paginate';
+import { continueLabel, NEXT_PAGE, paginateByParagraphs, paginateHtml } from './paginate';
 
 /** Un article de la forme que le réécriveur produit : des sections menées
  * par un <h2>, avec assez de texte pour mériter d'être coupé. */
@@ -106,5 +106,46 @@ describe('paginateHtml', () => {
   it('rend le texte inchangé quand il n’y a rien à découper', () => {
     expect(paginateHtml('<p>Seul.</p>', 3, 'fr')).toBe('<p>Seul.</p>');
     expect(paginateHtml('', 3, 'fr')).toBe('');
+  });
+});
+
+describe('paginateByParagraphs', () => {
+  const p = (words: number, label = 'mot') => `<p>${Array.from({ length: words }, (_, i) => `${label}${i}`).join(' ')}</p>`;
+  const pages = (html: string) => html.split(NEXT_PAGE);
+
+  it('met « page suivante » tous les 2 paragraphes : un article long fait beaucoup de pages', () => {
+    const html = Array.from({ length: 20 }, () => p(40)).join('\n');
+    const out = paginateByParagraphs(html, 2, 60, 'en');
+    expect(pages(out)).toHaveLength(10);
+    expect(pages(out)[0]).toContain('Continued on the next page');
+    expect(pages(out).at(-1)).not.toContain('Continued on the next page');
+  });
+
+  it('regroupe des répliques d’une ligne jusqu’au minimum de mots', () => {
+    const html = Array.from({ length: 30 }, () => p(5)).join('\n');
+    const out = paginateByParagraphs(html, 2, 60, 'en');
+    for (const page of pages(out)) {
+      const words = page.replace(/<[^>]*>/g, ' ').split(/\s+/).filter((w) => /^mot/.test(w)).length;
+      expect(words).toBeGreaterThanOrEqual(30); // la dernière peut être plus courte, jamais vide
+    }
+    expect(pages(out).length).toBeLessThan(15);
+  });
+
+  it('un intertitre ouvre une page, il ne la ferme jamais', () => {
+    const html = [p(40), p(40), '<h2>Étape 2</h2>', p(40), p(40), '<h2>Étape 3</h2>', p(40), p(40)].join('\n');
+    for (const page of pages(paginateByParagraphs(html, 2, 0, 'fr'))) {
+      expect(page.trim()).not.toMatch(/<\/h2>\s*(<p>Suite à la page suivante<\/p>)?\s*$/);
+    }
+  });
+
+  it('une dernière page trop maigre rejoint la précédente', () => {
+    const html = [p(40), p(40), p(40), p(40), p(3)].join('\n');
+    expect(pages(paginateByParagraphs(html, 2, 60, 'en'))).toHaveLength(2);
+  });
+
+  it('0 paragraphe ou un seul bloc : article inchangé', () => {
+    const html = [p(40), p(40)].join('\n');
+    expect(paginateByParagraphs(html, 0, 60, 'en')).toBe(html);
+    expect(paginateByParagraphs(p(40), 2, 60, 'en')).toBe(p(40));
   });
 });

@@ -2,10 +2,12 @@ import {
   BadGatewayException,
   Injectable,
   ServiceUnavailableException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { assertSafeRemoteUrl } from '../common/safe-fetch';
-import { paginateHtml } from './paginate';
+import { paginateByParagraphs, paginateHtml } from './paginate';
+import { PrismaService } from '../prisma/prisma.service';
 import { GeneratedArticle } from './rewriter.service';
 
 /** Ce que le plugin renvoie une fois l'article déposé. `imageWarning` dit
@@ -80,13 +82,20 @@ export function plainText(html: string | undefined | null, max = 100_000) {
     .trim();
   return text.slice(0, max);
 }
-/** Pages par article. Chaque page vue en est une de plus pour la régie
- * publicitaire ; 1 rend l'article d'un seul tenant. */
-const DEFAULT_PAGES = 3;
-
 @Injectable()
 export class WordpressWriterService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly prisma?: PrismaService,
+  ) {}
+
+  /** Le découpage réglé dans la plateforme (Sites → Découpage en pages). */
+  private async splitting() {
+    const settings = await this.prisma?.automationSetting
+      .findUnique({ where: { id: 'global' }, select: { articleParagraphsPerPage: true, articleMinWordsPerPage: true } })
+      .catch(() => null);
+    return settings ? { perPage: settings.articleParagraphsPerPage, minWords: settings.articleMinWordsPerPage } : { perPage: 2, minWords: 60 };
+  }
 
   async deposit(input: DepositInput): Promise<WordpressDeposit> {
     const key = input.apiKey || this.config.get<string>('WORDPRESS_API_KEY');
@@ -98,15 +107,15 @@ export class WordpressWriterService {
     }
     // Le découpage se fait ici, pas à la réécriture : le texte conservé sur
     // la reprise reste d'un seul tenant, et un nouveau dépôt peut le
-    // redécouper autrement.
-    const pages = Number(
-      this.config.get<string>('ARTICLE_PAGES') ?? DEFAULT_PAGES,
-    );
-    const contentHtml = paginateHtml(
-      input.article.contentHtml,
-      Number.isFinite(pages) ? pages : DEFAULT_PAGES,
-      input.language,
-    );
+    // redécouper autrement. « Page suivante » tous les N paragraphes ;
+    // ARTICLE_PAGES (nombre fixe de pages) reste possible quand N = 0 et
+    // qu'il est renseigné.
+    const { perPage, minWords } = await this.splitting();
+    const fixed = Number(this.config.get<string>('ARTICLE_PAGES') ?? 0);
+    const contentHtml =
+      perPage > 0
+        ? paginateByParagraphs(input.article.contentHtml, perPage, minWords, input.language)
+        : paginateHtml(input.article.contentHtml, Number.isFinite(fixed) ? fixed : 0, input.language);
     const image = input.imageUrl ? await this.fetchImage(input.imageUrl) : null;
     const endpoint = `${input.siteUrl}/wp-json/dfb/v1/articles`;
     let response: Response;

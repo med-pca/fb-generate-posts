@@ -2329,7 +2329,31 @@ function pluginCell(s) {
     `</td>`
   );
 }
+/** Le découpage des articles en pages, réglé une fois pour tous les sites. */
+function renderSitesPaging() {
+  const f = $('#sites-paging');
+  if (!f || !state.settings || f.contains(document.activeElement)) return;
+  f.elements.articleParagraphsPerPage.value = state.settings.articleParagraphsPerPage ?? 2;
+  f.elements.articleMinWordsPerPage.value = state.settings.articleMinWordsPerPage ?? 60;
+}
+$('#sites-paging').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  try {
+    state.settings = await api('/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ articleParagraphsPerPage: Number(f.articleParagraphsPerPage.value), articleMinWordsPerPage: Number(f.articleMinWordsPerPage.value) }),
+    });
+    document.activeElement?.blur?.();
+    renderSitesPaging();
+    const per = Number(f.articleParagraphsPerPage.value);
+    notice(per ? `Page suivante tous les ${per} paragraphe(s), au moins ${f.articleMinWordsPerPage.value} mots par page.` : 'Articles d’un seul tenant.');
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 function renderSites() {
+  renderSitesPaging();
   $('#site-rows').innerHTML =
     state.sites
       .map(

@@ -583,6 +583,11 @@ model AutomationSetting {
   imageProvider              String   @default("auto") @map("image_provider")
   repeatTimes                Int      @default(1) @map("repeat_times")
   repeatEveryHours           Int      @default(48) @map("repeat_every_hours")
+  /// Le découpage des articles déposés sur WordPress : « page suivante »
+  /// tous les N paragraphes (0 = article d'un seul tenant), et jamais une
+  /// page de moins de M mots (des répliques d'une ligne se regroupent).
+  articleParagraphsPerPage   Int      @default(2) @map("article_paragraphs_per_page")
+  articleMinWordsPerPage     Int      @default(60) @map("article_min_words_per_page")
   createdAt                  DateTime @default(now()) @map("created_at")
   updatedAt                  DateTime @updatedAt @map("updated_at")
 

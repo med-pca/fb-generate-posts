@@ -268,6 +268,15 @@
               <button class="primary" data-open="site-modal">+ Nouveau site</button>
             </div>
           </div>
+          <div class="panel rules-panel">
+            <div class="panel-head"><div><small>ARTICLES DÉPOSÉS SUR WORDPRESS</small><h2>Découpage en pages (« page suivante »)</h2></div></div>
+            <p class="form-help">Le lecteur lit un peu, puis clique « page suivante » : chaque page vue compte pour la publicité. Un article long donne donc beaucoup de pages. Une page a au moins le nombre de mots indiqué : des répliques d'une ligne se regroupent au lieu de faire une page presque vide. 0 paragraphe = article d'un seul tenant. S'applique aux prochains dépôts.</p>
+            <form id="sites-paging" class="rules-pause">
+              <label>« Page suivante » tous les <input name="articleParagraphsPerPage" type="number" min="0" max="30" required /> paragraphe(s)</label>
+              <label>au moins <input name="articleMinWordsPerPage" type="number" min="0" max="1000" step="10" required /> mots par page</label>
+              <button class="primary" type="submit">Enregistrer</button>
+            </form>
+          </div>
           <div class="panel table-wrap">
             <table>
               <thead>

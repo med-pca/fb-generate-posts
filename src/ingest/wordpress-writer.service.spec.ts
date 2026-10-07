@@ -217,3 +217,25 @@ describe('fetchArticle : relire un article sans attendre le plugin', () => {
     expect(article.postId).toBe('5');
   });
 });
+
+describe('WordpressWriterService — découpage réglé dans la plateforme', () => {
+  const long = Array.from({ length: 8 }, (_, i) => `<p>${'word '.repeat(40)}${i}</p>`).join('\n');
+  const withSettings = (settings: unknown) =>
+    new WordpressWriterService(
+      { get: () => 'cle-wp' } as unknown as ConfigService,
+      { automationSetting: { findUnique: jest.fn().mockResolvedValue(settings) } } as never,
+    );
+  const sent = () => JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string).contentHtml as string;
+
+  it('coupe tous les N paragraphes', async () => {
+    fetchMock.mockResolvedValue(ok({ postId: '1', permalink: 'https://site.test/x' }));
+    await withSettings({ articleParagraphsPerPage: 2, articleMinWordsPerPage: 60 }).deposit({ siteUrl: 'https://site.test', ingestRef: 'i', article: { ...ARTICLE, contentHtml: long }, imageUrl: null, language: 'en' });
+    expect(sent().split('<!--nextpage-->')).toHaveLength(4);
+  });
+
+  it('0 = article d’un seul tenant', async () => {
+    fetchMock.mockResolvedValue(ok({ postId: '1', permalink: 'https://site.test/x' }));
+    await withSettings({ articleParagraphsPerPage: 0, articleMinWordsPerPage: 60 }).deposit({ siteUrl: 'https://site.test', ingestRef: 'i', article: { ...ARTICLE, contentHtml: long }, imageUrl: null });
+    expect(sent()).not.toContain('<!--nextpage-->');
+  });
+});

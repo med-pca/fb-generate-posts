@@ -119,3 +119,62 @@ export function paginateHtml(
   });
   return out.join('\n');
 }
+
+const wordCount = (html: string) =>
+  html.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
+/** Au-delà, un article devient un diaporama : on regroupe davantage. */
+const MAX_PAGES = 100;
+
+/** Découpe l'article en pages courtes : « page suivante » tous les
+ * `perPage` paragraphes, pour que le lecteur lise un peu puis clique.
+ *
+ * - une page a au moins `minWords` mots : des répliques d'une ligne se
+ *   regroupent au lieu de faire chacune une page vide ;
+ * - un intertitre ouvre toujours la page suivante, jamais n'en ferme une ;
+ * - une dernière page trop maigre rejoint la précédente.
+ * Rend le texte inchangé quand il n'y a pas de quoi couper. */
+export function paginateByParagraphs(
+  html: string,
+  perPage: number,
+  minWords: number,
+  language?: string | null,
+) {
+  if (!Number.isFinite(perPage) || perPage < 1) return html;
+  const blocks = html.match(BLOCK);
+  if (!blocks || blocks.length < 2) return html;
+  if (blocks.join('') !== html.replace(/\s+(?=<)/g, '')) {
+    const rebuilt = blocks.join('\n');
+    if (textLength(rebuilt) !== textLength(html)) return html;
+  }
+  const heading = (b: string) => /^<h[23]\b/i.test(b);
+  const build = (per: number) => {
+    const pages: string[][] = [[]];
+    let paragraphs = 0;
+    let words = 0;
+    blocks.forEach((block, index) => {
+      pages[pages.length - 1].push(block);
+      if (heading(block)) return;
+      paragraphs += 1;
+      words += wordCount(block);
+      const next = blocks[index + 1];
+      if (next !== undefined && paragraphs >= per && words >= minWords) {
+        pages.push([]);
+        paragraphs = 0;
+        words = 0;
+      }
+    });
+    if (!pages[pages.length - 1].length) pages.pop();
+    // Une dernière page trop maigre rejoint la précédente.
+    if (pages.length > 1 && wordCount(pages[pages.length - 1].join(' ')) < minWords / 2) {
+      const last = pages.pop()!;
+      pages[pages.length - 1].push(...last);
+    }
+    return pages;
+  };
+  let per = perPage;
+  let pages = build(per);
+  while (pages.length > MAX_PAGES) pages = build(++per);
+  if (pages.length < 2) return html;
+  const teaser = `<p>${continueLabel(language)}</p>`;
+  return pages.map((page) => page.join('\n')).join(`\n${teaser}\n${NEXT_PAGE}\n`);
+}

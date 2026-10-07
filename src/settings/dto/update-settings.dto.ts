@@ -71,6 +71,22 @@ export class UpdateSettingsDto {
   @Max(60)
   rateLimitPauseDays?: number;
 
+  /** « Page suivante » tous les N paragraphes (0 = un seul tenant). */
+  @ApiPropertyOptional({ minimum: 0, maximum: 30 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(30)
+  articleParagraphsPerPage?: number;
+
+  /** Mots minimum par page. */
+  @ApiPropertyOptional({ minimum: 0, maximum: 1000 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  articleMinWordsPerPage?: number;
+
   /** L'IA qui traduit le texte d'une image (mode « engagement »). */
   @ApiPropertyOptional({ enum: ['auto', 'openai', 'qwen', 'seedream'] })
   @IsOptional()
