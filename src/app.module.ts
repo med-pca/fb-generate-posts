@@ -25,6 +25,7 @@ import { VerifyModule } from './verify/verify.module';
 import { BulkModule } from './bulk/bulk.module';
 import { ModeratorsModule } from './moderators/moderators.module';
 import { ExtensionsModule } from './extensions/extensions.module';
+import { LanguagesModule } from './languages/languages.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { ExtensionsModule } from './extensions/extensions.module';
     BulkModule,
     ModeratorsModule,
     ExtensionsModule,
+    LanguagesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

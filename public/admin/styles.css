@@ -2247,3 +2247,7 @@ dialog form small, dialog form .form-help, dialog form p { overflow-wrap: anywhe
 .rule-lang.missing { border-color: #f0b35a; }
 .lang-suggest-wrap { max-height: 55vh; overflow: auto; }
 #group-lang-modal { width: min(720px, calc(100vw - 32px)); }
+#languages-modal { width: min(680px, calc(100vw - 32px)); }
+.language-form { display: grid; grid-template-columns: 120px 1fr auto; gap: 10px; align-items: end; margin-top: 12px; }
+.language-form .actions { margin: 0; }
+@media (max-width: 560px) { .language-form { grid-template-columns: 1fr; } }

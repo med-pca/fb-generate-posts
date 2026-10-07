@@ -4,9 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { groupManageWhere, groupWhere, scopeOf } from '../auth/scope';
 import { LlmService } from '../llm/llm.service';
-import { LANGUAGES } from '../ingest/image-translator.service';
-
-const CODES = Object.keys(LANGUAGES);
+import { LANGUAGES, isKnownLanguage } from '../languages/languages.registry';
 /** Une écriture qui suffit à dire la langue, sans IA. */
 const SCRIPTS: Array<[RegExp, string]> = [
   [/[؀-ۿ]/, 'ar'],
@@ -32,7 +30,7 @@ export class GroupLanguagesService {
       _count: { _all: true },
     });
     return {
-      languages: LANGUAGES,
+      languages: { ...LANGUAGES },
       counts: rows
         .map((r) => ({ code: r.language, groups: r._count._all }))
         .sort((a, b) => (a.code === null ? 1 : b.code === null ? -1 : b.groups - a.groups)),
@@ -45,7 +43,7 @@ export class GroupLanguagesService {
     dto: { groupIds?: string[]; categoryId?: string; onlyMissing?: boolean; language: string | null },
     acting: CurrentUser | null,
   ) {
-    if (dto.language !== null && !CODES.includes(dto.language)) throw new BadRequestException('Langue inconnue');
+    if (dto.language !== null && !isKnownLanguage(dto.language)) throw new BadRequestException('Langue inconnue');
     if (!dto.groupIds?.length && !dto.categoryId) throw new BadRequestException('Choisissez des groupes ou une catégorie');
     const where: Prisma.GroupWhereInput = {
       ...groupManageWhere(scopeOf(acting)),
@@ -84,7 +82,7 @@ export class GroupLanguagesService {
         const { value, provider } = await this.llm.completeJson<{ groups: Array<{ id: string; language: string }> }>({
           instructions:
             'You guess the main language of the members of Facebook groups from their names. ' +
-            `Answer with one ISO 639-1 code among: ${CODES.join(', ')}; or "unknown" when the name does not tell. ` +
+            `Answer with one code among: ${Object.entries(LANGUAGES).map(([c, n]) => `${c} (${n})`).join(', ')}; or "unknown" when the name does not tell. ` +
             'Use the language the name is written in (an English name about a French dish is English). ' +
             'Answer with a single JSON object: {"groups": [{"id": string, "language": string}]}.',
           input: unknown.map((g) => `${g.id}\t${g.name}`).join('\n'),
@@ -106,7 +104,7 @@ export class GroupLanguagesService {
         const guessed = new Map((value.groups || []).map((g) => [g.id, String(g.language || '').toLowerCase()]));
         for (const g of unknown) {
           const code = guessed.get(g.id);
-          out.push({ ...g, language: code && CODES.includes(code) ? code : null, by: code && CODES.includes(code) ? `IA (${provider})` : 'indécis' });
+          out.push({ ...g, language: isKnownLanguage(code) ? code! : null, by: isKnownLanguage(code) ? `IA (${provider})` : 'indécis' });
         }
       } catch {
         for (const g of unknown) out.push({ ...g, language: null, by: 'IA indisponible' });
@@ -114,6 +112,6 @@ export class GroupLanguagesService {
     } else {
       for (const g of unknown) out.push({ ...g, language: null, by: 'indécis' });
     }
-    return { suggestions: out, languages: LANGUAGES };
+    return { suggestions: out, languages: { ...LANGUAGES } };
   }
 }

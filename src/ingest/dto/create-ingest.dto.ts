@@ -10,7 +10,7 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
-import { LANGUAGES } from '../image-translator.service';
+import { IsKnownLanguage } from '../../languages/languages.registry';
 
 /** Les hôtes que Facebook sert : la reprise part d'une publication, pas
  * d'une page quelconque collée par erreur. */
@@ -38,7 +38,7 @@ export class CreateIngestDto {
    * groupes de cette langue). */
   @ApiPropertyOptional({ example: 'fr' })
   @ValidateIf((dto: CreateIngestDto) => dto.mode === 'engagement')
-  @IsIn(Object.keys(LANGUAGES))
+  @IsKnownLanguage()
   targetLanguage?: string;
 
   @ApiPropertyOptional({ example: 'https://exemple.com/article', description: 'Obligatoire, sauf en mode « news »' })

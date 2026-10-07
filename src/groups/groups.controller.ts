@@ -16,15 +16,15 @@ import type { CurrentUser } from '../auth/current-user';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { GroupsService } from './groups.service';
 import { GroupLanguagesService } from './group-languages.service';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn as IsInLang, IsOptional as IsOpt, IsString as IsStr, ValidateIf as VIf } from 'class-validator';
-import { LANGUAGES } from '../ingest/image-translator.service';
+import { ArrayMaxSize, IsArray, IsBoolean, IsOptional as IsOpt, IsString as IsStr, ValidateIf as VIf } from 'class-validator';
+import { IsKnownLanguage } from '../languages/languages.registry';
 
 export class GroupLanguagesDto {
   @IsOpt() @IsArray() @ArrayMaxSize(1000) @IsStr({ each: true }) groupIds?: string[];
   @IsOpt() @IsStr() categoryId?: string;
   @IsOpt() @IsBoolean() onlyMissing?: boolean;
   /** null = retirer la langue. */
-  @VIf((_d, v) => v !== null) @IsInLang(Object.keys(LANGUAGES)) language!: string | null;
+  @VIf((_d, v) => v !== null) @IsKnownLanguage() language!: string | null;
 }
 
 export class SuggestLanguagesDto {

@@ -173,7 +173,10 @@
           <div class="panel lang-panel">
             <div class="lang-head">
               <div><b>Langues des groupes</b><small>Un visuel « engagement » ne part que vers les groupes de sa langue. Cliquez une langue pour filtrer la liste.</small></div>
-              <button class="secondary" type="button" id="group-lang-suggest">✨ Proposer les langues (IA)</button>
+              <div class="toolbar-group">
+                <button class="secondary admin-only" type="button" id="group-lang-manage">⚙ Gérer les langues</button>
+                <button class="secondary" type="button" id="group-lang-suggest">✨ Proposer les langues (IA)</button>
+              </div>
             </div>
             <div id="group-lang-chips" class="lang-chips"></div>
             <div class="lang-bulk">
@@ -1524,6 +1527,31 @@
         <div class="actions">
           <button class="secondary" type="button" data-close>Annuler</button
           ><button class="primary">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="languages-modal">
+      <div class="modal-head">
+        <div>
+          <small>LANGUES</small>
+          <h2>Gérer les langues</h2>
+        </div>
+        <button class="close" type="button" data-close>×</button>
+      </div>
+      <p class="muted">Chaque langue a un <b>code ISO</b> (sv, pt-br…) et <b>un seul nom, en anglais</b> (Swedish) : c'est ce nom que l'IA reçoit pour traduire les images et écrire les descriptions.</p>
+      <div class="table-wrap lang-suggest-wrap">
+        <table>
+          <thead><tr><th>Code</th><th>Nom (anglais)</th><th>Groupes</th><th>Visuels</th><th></th></tr></thead>
+          <tbody id="language-rows"></tbody>
+        </table>
+      </div>
+      <form id="language-form" class="language-form">
+        <input type="hidden" name="original" />
+        <label>Code ISO<input name="code" required maxlength="8" pattern="[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,4})?" placeholder="sv" /></label>
+        <label>Nom en anglais<input name="name" required maxlength="40" placeholder="Swedish" /></label>
+        <div class="actions">
+          <button class="secondary hidden" type="button" id="language-cancel-edit">Annuler</button
+          ><button class="primary" id="language-submit">+ Ajouter</button>
         </div>
       </form>
     </dialog>

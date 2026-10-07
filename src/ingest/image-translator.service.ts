@@ -9,11 +9,8 @@ export type ImageProviderName = (typeof IMAGE_PROVIDER_NAMES)[number];
 const TIMEOUT_MS = 180_000;
 
 /** Les noms des langues, pour la consigne. */
-export const LANGUAGES: Record<string, string> = {
-  en: 'English', fr: 'French', ar: 'Arabic', es: 'Spanish', de: 'German', it: 'Italian', pt: 'Portuguese',
-  nl: 'Dutch', tr: 'Turkish', pl: 'Polish', ro: 'Romanian', ru: 'Russian', hi: 'Hindi', id: 'Indonesian',
-};
-export const languageName = (code: string) => LANGUAGES[code] ?? code;
+export { LANGUAGES, languageName } from '../languages/languages.registry';
+import { languageName } from '../languages/languages.registry';
 
 /** La consigne de retouche : traduire le texte, ne rien changer d'autre. */
 export function editPrompt(language: string, texts: string[] = []) {

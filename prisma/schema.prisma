@@ -869,6 +869,17 @@ model ExtensionRelease {
 /// Une image produite par la plateforme (image traduite d'un post
 /// « engagement »). Servie publiquement sous un jeton imprévisible : les
 /// extensions la téléchargent pour la publier.
+/// Une langue de groupe : code ISO et nom en anglais (un seul nom, celui que
+/// lit l'IA). Gérées dans la plateforme (Groupes → Gérer les langues).
+model Language {
+  code      String   @id
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("languages")
+}
+
 model GeneratedImage {
   id        String   @id @default(cuid())
   token     String   @unique

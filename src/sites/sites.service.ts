@@ -1,3 +1,4 @@
+import { languageName } from '../languages/languages.registry';
 import {
   BadRequestException,
   ConflictException,
@@ -159,7 +160,7 @@ export class SitesService {
           reason: blocker,
           languages: byLanguage
             .filter((row) => row.categoryId === site.categoryId && row.language)
-            .map((row) => ({ code: row.language as string, groups: row._count._all })),
+            .map((row) => ({ code: row.language as string, name: languageName(row.language as string), groups: row._count._all })),
         };
       }),
     };

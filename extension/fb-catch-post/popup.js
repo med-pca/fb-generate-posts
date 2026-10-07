@@ -93,8 +93,8 @@ function refresh() {
   );
 }
 
-/** Les langues proposées : celles des groupes de la catégorie du site. */
-const LANGUAGE_NAMES = { en: 'Anglais', fr: 'Français', ar: 'Arabe', es: 'Espagnol', de: 'Allemand', it: 'Italien', pt: 'Portugais', nl: 'Néerlandais', tr: 'Turc', pl: 'Polonais', ro: 'Roumain', ru: 'Russe', hi: 'Hindi', id: 'Indonésien' };
+/** Les langues proposées : celles des groupes de la catégorie du site,
+ * avec le nom (anglais) géré dans la plateforme. */
 function fillLanguages(site) {
   const langs = (site && site.languages) || [];
   const key = langs.map((l) => `${l.code}:${l.groups}`).join(',') + (site ? site.siteUrl : '');
@@ -102,7 +102,7 @@ function fillLanguages(site) {
   els.language.dataset.key = key;
   const current = els.language.value;
   els.language.innerHTML = langs.length
-    ? '<option value="">Choisir la langue…</option>' + langs.map((l) => `<option value="${l.code}">${LANGUAGE_NAMES[l.code] || l.code} — ${l.groups} groupe(s)</option>`).join('')
+    ? '<option value="">Choisir la langue…</option>' + langs.map((l) => `<option value="${l.code}">${l.name || l.code} — ${l.groups} groupe(s)</option>`).join('')
     : '<option value="">Aucun groupe avec une langue dans cette catégorie</option>';
   if (langs.some((l) => l.code === current)) els.language.value = current;
 }

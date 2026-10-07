@@ -111,7 +111,8 @@ function facebookIdFrom(raw) {
 }
 
 /* ── Rubrique Articles : articles | visuels ─────────────────────────────── */
-const LANG_NAMES = { en: 'Anglais', fr: 'Français', ar: 'Arabe', es: 'Espagnol', de: 'Allemand', it: 'Italien', pt: 'Portugais', nl: 'Néerlandais', tr: 'Turc', pl: 'Polonais', ro: 'Roumain', ru: 'Russe', hi: 'Hindi', id: 'Indonésien' };
+/** code → nom anglais, rechargé depuis /languages (Groupes → Gérer les langues). */
+const LANG_NAMES = { en: 'English', fr: 'French', ar: 'Arabic', es: 'Spanish', de: 'German', it: 'Italian', pt: 'Portuguese', nl: 'Dutch', tr: 'Turkish', pl: 'Polish', ro: 'Romanian', ru: 'Russian', hi: 'Hindi', id: 'Indonesian' };
 function showArticlesTab(tab, { fromUrl = false } = {}) {
   state.articlesTab = tab === 'visuals' ? 'visuals' : 'articles';
   $$('[data-articles-tab]').forEach((b) => b.classList.toggle('active', b.dataset.articlesTab === state.articlesTab));
@@ -402,6 +403,7 @@ async function load() {
       sites,
       me,
       categories,
+      languages,
     ] = await Promise.all([
       api(`/profiles?${profileQuery()}`),
       api(`/groups?page=${state.page.groups}&limit=12${groupLang.filter ? `&language=${groupLang.filter}` : ''}`),
@@ -414,6 +416,7 @@ async function load() {
       api('/sites'),
       api('/me'),
       api('/categories'),
+      api('/languages').catch(() => null),
     ]);
     state.profiles = profiles.data;
     state.meta.profiles = profiles.meta;
@@ -431,6 +434,7 @@ async function load() {
     state.settings = settings;
     state.sites = sites;
     state.categories = categories;
+    if (languages) setLanguageNames(languages);
     state.me = me;
     // Les comptes ne regardent que les administrateurs : les demander en
     // gestionnaire rendrait un 403 et ferait échouer tout le chargement.
@@ -2044,7 +2048,9 @@ function renderGroupLangBulk() {
     cat.dataset.filled = String(cats.length);
   }
   const lang = $('#group-lang-value');
-  if (!lang.options.length) {
+  const langKey = Object.keys(LANG_NAMES).join(',');
+  if (lang.dataset.filled !== langKey) {
+    lang.dataset.filled = langKey;
     fillLanguageSelect(lang, '', 'Langue…');
     lang.insertAdjacentHTML('beforeend', '<option value="none">Retirer la langue</option>');
   }
@@ -2100,7 +2106,7 @@ $('#group-lang-apply').onclick = async () => {
     if (!categoryId) return notice('Cochez des groupes ou choisissez une catégorie.', 'error');
     const onlyMissing = $('#group-lang-missing').checked;
     const cat = (state.categories || []).find((c) => c.id === categoryId);
-    if (!await ask(`Appliquer « ${label} » à ${onlyMissing ? 'tous les groupes sans langue' : 'tous les groupes'} de la catégorie « ${cat?.name || ''} » ?`, { title: 'Langue des groupes', confirmLabel: 'Appliquer' })) return;
+    if (!await ask(`Appliquer « ${label} » à ${onlyMissing ? 'tous les groupes sans langue' : 'tous les groupes'} de la catégorie « ${cat?.name || ''} » ?`, { confirmLabel: 'Appliquer' })) return;
     body = { categoryId, onlyMissing, language };
   }
   try {
@@ -2154,6 +2160,105 @@ $('#group-lang-form').onsubmit = async (e) => {
     e.target.closest('dialog').close();
     await load();
     notice(`${n} groupe(s) mis à jour.`);
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+/* ── Les langues elles-mêmes (admin) ─────────────────────────────────────
+ * Un code ISO et UN nom, en anglais : c'est ce nom que l'IA reçoit. */
+function setLanguageNames(list) {
+  if (!Array.isArray(list)) return;
+  for (const k of Object.keys(LANG_NAMES)) delete LANG_NAMES[k];
+  for (const l of list) LANG_NAMES[l.code] = l.name;
+  state.languages = list;
+}
+function renderLanguages() {
+  $('#language-rows').innerHTML =
+    (state.languages || [])
+      .map(
+        (l) =>
+          `<tr><td><code>${esc(l.code)}</code></td><td><b>${esc(l.name)}</b></td><td>${l.groups}</td><td>${l.visuals}</td>` +
+          `<td><div class="row-actions"><button class="edit" type="button" data-edit-language="${esc(l.code)}">Modifier</button><button class="danger" type="button" data-delete-language="${esc(l.code)}">Supprimer</button></div></td></tr>`,
+      )
+      .join('') || '<tr><td colspan="5" class="empty">Aucune langue : ajoutez-en une ci-dessous.</td></tr>';
+}
+function resetLanguageForm() {
+  const f = $('#language-form');
+  f.reset();
+  f.elements.original.value = '';
+  $('#language-submit').textContent = '+ Ajouter';
+  $('#language-cancel-edit').classList.add('hidden');
+}
+async function reloadLanguages() {
+  setLanguageNames(await api('/languages'));
+  renderLanguages();
+}
+$('#group-lang-manage').onclick = async () => {
+  resetLanguageForm();
+  renderLanguages();
+  openModal('languages-modal');
+  try {
+    await reloadLanguages();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+$('#language-rows').onclick = async (e) => {
+  const edit = e.target.dataset.editLanguage;
+  if (edit) {
+    const l = state.languages.find((x) => x.code === edit);
+    const f = $('#language-form');
+    f.elements.original.value = l.code;
+    f.elements.code.value = l.code;
+    f.elements.name.value = l.name;
+    $('#language-submit').textContent = 'Enregistrer';
+    $('#language-cancel-edit').classList.remove('hidden');
+    f.elements.name.focus();
+    return;
+  }
+  const del = e.target.dataset.deleteLanguage;
+  if (!del) return;
+  const l = state.languages.find((x) => x.code === del);
+  const used = l.groups + l.visuals;
+  const ok = await ask(
+    used
+      ? `Supprimer ${l.name} ? Elle est utilisée par ${l.groups} groupe(s) et ${l.visuals} visuel(s).\nIls resteront « sans langue » : les visuels « engagement » ne partiront plus vers ces groupes tant qu'une autre langue ne leur est pas donnée.`
+      : `Supprimer la langue ${l.name} (${l.code}) ?`,
+    { tone: 'danger', confirmLabel: 'Supprimer' },
+  );
+  if (!ok) return;
+  try {
+    await api(`/languages/${encodeURIComponent(del)}${used ? '?detach=true' : ''}`, { method: 'DELETE' });
+    await reloadLanguages();
+    await load();
+    notice(`Langue ${l.name} supprimée.`);
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+$('#language-cancel-edit').onclick = resetLanguageForm;
+$('#language-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const original = f.elements.original.value;
+  const body = { code: f.elements.code.value.trim().toLowerCase(), name: f.elements.name.value.trim() };
+  if (!/^[A-Za-z][A-Za-z '()-]{1,39}$/.test(body.name))
+    return notice('Écrivez le nom en anglais, en lettres latines : « Swedish », pas « Suédois ».', 'error');
+  try {
+    if (original) {
+      const l = state.languages.find((x) => x.code === original);
+      if (body.code !== original && l && l.groups + l.visuals) {
+        if (!await ask(`Changer le code ${original} → ${body.code} ? Les ${l.groups} groupe(s) et ${l.visuals} visuel(s) suivront.`, { confirmLabel: 'Changer' })) return;
+      }
+      await api(`/languages/${encodeURIComponent(original)}`, { method: 'PATCH', body: JSON.stringify(body) });
+      notice(`Langue ${body.name} enregistrée.`);
+    } else {
+      await api('/languages', { method: 'POST', body: JSON.stringify(body) });
+      notice(`Langue ${body.name} ajoutée.`);
+    }
+    resetLanguageForm();
+    await reloadLanguages();
+    await load();
   } catch (x) {
     notice(x.message, 'error');
   }

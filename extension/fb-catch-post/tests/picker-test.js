@@ -92,7 +92,7 @@ function fakeChrome(store = {}) {
     json: async () => ({
       sites: [
         { name: 'Food Time', siteUrl: 'https://foodtime.test', ready: false, reason: 'extension WordPress à mettre à jour (1.3.0)', category: null },
-        { name: 'Tera', siteUrl: 'https://tera.test', ready: true, category: 'Recettes', languages: [{ code: 'fr', groups: 3 }, { code: 'ar', groups: 2 }] },
+        { name: 'Tera', siteUrl: 'https://tera.test', ready: true, category: 'Recettes', languages: [{ code: 'fr', name: 'French', groups: 3 }, { code: 'ar', name: 'Arabic', groups: 2 }] },
         { name: 'Nord', siteUrl: 'https://nord.test', ready: false, reason: 'sans catégorie : aucun post', category: null },
       ],
     }),
@@ -166,7 +166,7 @@ function fakeChrome(store = {}) {
   const eng = rw.document.querySelector('input[name="mode"][value="engagement"]');
   eng.checked = true;
   eng.dispatchEvent(new rw.Event('change'));
-  check('engagement : les langues des groupes de la catégorie sont proposées', /Français — 3 groupe/.test(r('language').textContent) && /Arabe — 2 groupe/.test(r('language').textContent), r('language').textContent);
+  check('engagement : les langues des groupes de la catégorie sont proposées', /French — 3 groupe/.test(r('language').textContent) && /Arabic — 2 groupe/.test(r('language').textContent), r('language').textContent);
   check('engagement : il faut choisir la langue avant d’envoyer', r('send').disabled === true, null);
   r('language').value = 'ar';
   r('language').dispatchEvent(new rw.Event('change'));

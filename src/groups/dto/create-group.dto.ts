@@ -1,6 +1,5 @@
 import { RecordStatus } from '@prisma/client';
 import {
-  IsIn,
   ValidateIf,
   IsEnum,
   IsNotEmpty,
@@ -8,7 +7,7 @@ import {
   IsString,
   IsUrl,
 } from 'class-validator';
-import { LANGUAGES } from '../../ingest/image-translator.service';
+import { IsKnownLanguage } from '../../languages/languages.registry';
 
 export class CreateGroupDto {
   @IsOptional()
@@ -34,6 +33,6 @@ export class CreateGroupDto {
    * « engagement » ne vont qu'aux groupes de la langue choisie. */
   @IsOptional()
   @ValidateIf((_dto, value) => value !== null)
-  @IsIn(Object.keys(LANGUAGES))
+  @IsKnownLanguage()
   language?: string | null;
 }

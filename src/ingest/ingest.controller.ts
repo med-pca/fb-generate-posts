@@ -31,7 +31,7 @@ export class IngestController {
   @Get('image-providers')
   @ApiOperation({ summary: 'IA d’image (mode « engagement ») : celles configurées sur le serveur, et les langues' })
   imageProviders() {
-    return { providers: this.images.providers(), languages: LANGUAGES };
+    return { providers: this.images.providers(), languages: { ...LANGUAGES } };
   }
 
   @Post()

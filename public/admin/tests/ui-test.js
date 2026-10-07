@@ -718,7 +718,7 @@ setTimeout(async () => {
   await new Promise((resolve) => setTimeout(resolve, 80));
   check('Articles a deux onglets : les visuels ont leur adresse', window.location.pathname === '/articles/visuels' && !$('#articles-pane-visuals').classList.contains('hidden') && $('#articles-pane-articles').classList.contains('hidden'), window.location.pathname);
   const vtext = $('#visual-cards').textContent;
-  check('un visuel montre sa langue, son origine et sa diffusion', /Français/.test(vtext) && /Capturé/.test(vtext) && /1\/3 groupe/.test(vtext) && /Texte traduit/.test(vtext), vtext.slice(0, 160));
+  check('un visuel montre sa langue, son origine et sa diffusion', /French/.test(vtext) && /Capturé/.test(vtext) && /1\/3 groupe/.test(vtext) && /Texte traduit/.test(vtext), vtext.slice(0, 160));
   $('[data-visual-posts="v1"]').click();
   await new Promise((resolve) => setTimeout(resolve, 80));
   check('« Créer les posts » d’un visuel', visCalls.some((c) => c.startsWith('POST /visuals/v1/posts')), visCalls);

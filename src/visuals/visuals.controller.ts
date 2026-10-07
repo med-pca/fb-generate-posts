@@ -5,7 +5,7 @@ import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, 
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
-import { LANGUAGES } from '../ingest/image-translator.service';
+import { IsKnownLanguage } from '../languages/languages.registry';
 import { VisualsService } from './visuals.service';
 
 /** Une image importée dans la plateforme. */
@@ -16,7 +16,7 @@ export class UploadVisualDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200) title?: string;
   /** Vide : écrite par l'IA dans la langue choisie. */
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(3000) caption?: string;
-  @ApiPropertyOptional({ example: 'fr' }) @IsOptional() @ValidateIf((_d, v) => v !== null) @IsIn(Object.keys(LANGUAGES)) language?: string | null;
+  @ApiPropertyOptional({ example: 'fr' }) @IsOptional() @ValidateIf((_d, v) => v !== null) @IsKnownLanguage() language?: string | null;
   @ApiPropertyOptional() @IsOptional() @IsString() categoryId?: string;
   @ApiPropertyOptional({ type: [String] }) @IsOptional() @IsArray() @ArrayMaxSize(500) @IsString({ each: true }) groupIds?: string[];
   /** Traduire le texte de l'image dans la langue choisie. */
@@ -33,7 +33,7 @@ export class UpdateVisualDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200) title?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(3000) caption?: string;
   @ApiPropertyOptional({ enum: ['ACTIVE', 'INACTIVE'] }) @IsOptional() @IsIn(['ACTIVE', 'INACTIVE']) status?: 'ACTIVE' | 'INACTIVE';
-  @ApiPropertyOptional() @IsOptional() @ValidateIf((_d, v) => v !== null) @IsIn(Object.keys(LANGUAGES)) language?: string | null;
+  @ApiPropertyOptional() @IsOptional() @ValidateIf((_d, v) => v !== null) @IsKnownLanguage() language?: string | null;
 }
 
 export class VisualQueryDto {
