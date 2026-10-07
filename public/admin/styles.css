@@ -2269,3 +2269,17 @@ dialog form small, dialog form .form-help, dialog form p { overflow-wrap: anywhe
 .plan-steps .progress { background: color-mix(in srgb, #2563eb 28%, transparent); }
 .plan-steps .ready { background: color-mix(in srgb, #64748b 22%, transparent); }
 .plan-steps .missing { background: repeating-linear-gradient(135deg, color-mix(in srgb, #dc2626 22%, transparent) 0 6px, transparent 6px 10px); border: 1px dashed #dc2626; }
+
+/* Une case à cocher dans un tableau garde sa taille : à `width: 100%` (règle
+ * des champs), elle élargissait la colonne et poussait la fenêtre de côté. */
+td > input[type="checkbox"], th > input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; vertical-align: middle; }
+td:has(> input[type="checkbox"]:only-child), th:has(> input[type="checkbox"]:only-child) { width: 32px; }
+dialog .inline-check { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; font-weight: 500; white-space: normal; }
+dialog .inline-check input { width: 16px; height: 16px; min-height: 0; margin: 2px 0 0; flex: none; }
+dialog td small { display: block; overflow-wrap: anywhere; color: var(--muted, #6b7280); font-weight: 400; }
+#assign-modal { width: min(680px, calc(100vw - 32px)); }
+#assign-modal table { table-layout: fixed; }
+#assign-modal th:last-child, #assign-modal td:last-child { width: 150px; }
+#assign-modal td:last-child .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
+#assign-modal th:first-child, #assign-modal td:first-child { width: 44px; padding-left: 14px; padding-right: 6px; }
+#assign-modal th, #assign-modal td { padding-top: 10px; padding-bottom: 10px; }
