@@ -14,7 +14,7 @@ import {
   siteWhere,
 } from '../auth/scope';
 import { localClock } from '../runners/window';
-import { pace } from './objective';
+import { adaptiveGap, minutesIntoWindow, pace, PUBLISH_MINUTES, windowLength } from './objective';
 
 /** Au-delà, un profil qui dit travailler ne compte plus comme au travail :
  * même seuil que le Pilotage. */
@@ -460,6 +460,23 @@ export class InsightsService {
       };
     });
 
+    // La cadence adaptative : ce que les profils reçoivent comme attente
+    // entre deux posts (le même calcul que la réservation).
+    const working = profiles.filter(
+      (p) => (p.runner?.mode ?? 'OFF') !== 'OFF' && p.runner?.running && p.runner.lastSeenAt && now.getTime() - p.runner.lastSeenAt.getTime() < AT_WORK_SECONDS * 1000,
+    ).length;
+    const gap = settings.adaptivePacing
+      ? adaptiveGap({ neededPerHour: result.neededPerHour, ratePerHour: result.ratePerHour, profiles: working, minGap: settings.minPostGapMinutes, status: result.status })
+      : null;
+    const pacing = {
+      enabled: settings.adaptivePacing,
+      minGap: settings.minPostGapMinutes,
+      profiles: working,
+      gapMinutes: gap,
+      // Au mieux, avec ces profils et ce minimum : de quoi dire si le besoin est tenable.
+      maxPerHour: working ? Math.floor((60 * working) / (settings.minPostGapMinutes + PUBLISH_MINUTES)) : 0,
+    };
+
     const plan = await this.articlePlan({
       target: settings.dailyTarget,
       start: settings.objectiveStart,
@@ -506,6 +523,12 @@ export class InsightsService {
           .join(', ')}${blocked.length > 5 ? '…' : ''}).`,
       });
     }
+    if (result.status === 'late' && settings.adaptivePacing && pacing.profiles && result.neededPerHour > pacing.maxPerHour) {
+      advice.push({
+        level: 'error',
+        text: `Même au plus vite (un post toutes les ${settings.minPostGapMinutes} min par profil), ${pacing.profiles} profil(s) font au plus ${pacing.maxPerHour}/h : il faut ${result.neededPerHour}/h. Allumez d’autres profils.`,
+      });
+    }
     if (result.status === 'late') {
       advice.push({
         level: 'error',
@@ -532,6 +555,7 @@ export class InsightsService {
       hourly,
       stock: { publishable: stockPublishable, blocked: stockBlocked, deficit },
       plan,
+      pacing,
       articles: { today: articlesToday, needed: articlesNeeded, postsPerArticle: averagePostsPerArticle },
       profiles: {
         participating: participating.length,
@@ -578,7 +602,9 @@ export class InsightsService {
     const done = started.size - inProgress;
     const ready = [...waitingPosts].filter((id) => !started.has(id)).length;
     const missing = Math.max(0, articlesPerDay - done - inProgress - ready);
-    const windowMinutes = Math.max(0, input.end - input.start);
+    // Une plage qui passe minuit, ou de 24 h (bornes égales), compte entière.
+    const windowMinutes = windowLength(input.start, input.end);
+    const into = minutesIntoWindow(input.nowMinutes, input.start, input.end);
     return {
       postsPerArticle,
       articlesPerDay,
@@ -591,7 +617,7 @@ export class InsightsService {
       // Où l'on devrait en être à cette heure (articles commencés).
       expectedNow:
         articlesPerDay && windowMinutes
-          ? Math.min(articlesPerDay, Math.max(0, Math.ceil(((input.nowMinutes - input.start) / windowMinutes) * articlesPerDay)))
+          ? Math.min(articlesPerDay, Math.max(0, Math.ceil((into / windowMinutes) * articlesPerDay)))
           : 0,
     };
   }

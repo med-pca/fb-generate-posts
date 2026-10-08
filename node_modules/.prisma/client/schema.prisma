@@ -590,6 +590,11 @@ model AutomationSetting {
   /// groupes, puis le suivant — un post par lot) ou `group` (un lot de
   /// plusieurs posts dans un même groupe).
   pilotMode                  String   @default("article") @map("pilot_mode")
+  /// La cadence adaptative : en retard sur l'objectif, l'attente entre deux
+  /// posts d'un profil est raccourcie pour tenir le rythme nécessaire — sans
+  /// descendre sous `minPostGapMinutes` (sécurité anti-limitation Facebook).
+  adaptivePacing             Boolean  @default(true) @map("adaptive_pacing")
+  minPostGapMinutes          Int      @default(5) @map("min_post_gap_minutes")
   articleParagraphsPerPage   Int      @default(2) @map("article_paragraphs_per_page")
   articleMinWordsPerPage     Int      @default(60) @map("article_min_words_per_page")
   createdAt                  DateTime @default(now()) @map("created_at")

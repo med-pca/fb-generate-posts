@@ -1401,6 +1401,23 @@ function renderObjective() {
       `</div>`
     : '<p class="muted">Réglez un objectif de posts par jour pour voir le plan en articles.</p>';
 
+  // La cadence adaptative, d'après les profils au travail.
+  const pc = o.pacing;
+  if (pc) {
+    const pf = $('#pacing-form');
+    if (!pf.contains(document.activeElement)) {
+      pf.elements.adaptivePacing.checked = pc.enabled;
+      pf.elements.minPostGapMinutes.value = pc.minGap;
+    }
+    $('#pacing-status').textContent = !pc.enabled
+      ? 'Désactivée : chaque post garde son délai prévu (10 à 60 min).'
+      : !pc.profiles
+        ? 'Aucun profil au travail : rien à cadencer.'
+        : pc.gapMinutes === null
+          ? `${pc.profiles} profil(s) au travail · rythme suffisant : délais prévus conservés.`
+          : `${pc.profiles} profil(s) au travail → un post toutes les ~${pc.gapMinutes + 3} min par profil (attente ${pc.gapMinutes} min + publication), soit ~${Math.round((60 * pc.profiles) / (pc.gapMinutes + 3))}/h. Au plus vite : ${pc.maxPerHour}/h.`;
+  }
+
   const kpi = (value, labelText, sub = '', cls = '') =>
     `<div class="obj-kpi ${cls}"><strong>${value}</strong><span>${labelText}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
   $('#obj-kpis').innerHTML =
@@ -1482,6 +1499,18 @@ function showObjectiveZoneNow() {
   }
 }
 $('#objective-tz').addEventListener('change', showObjectiveZoneNow);
+$('#pacing-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  try {
+    await api('/settings', { method: 'PATCH', body: JSON.stringify({ adaptivePacing: f.adaptivePacing.checked, minPostGapMinutes: Number(f.minPostGapMinutes.value) }) });
+    notice(f.adaptivePacing.checked ? `Cadence adaptative : au moins ${f.minPostGapMinutes.value} min entre deux posts d’un profil.` : 'Cadence adaptative désactivée.');
+    document.activeElement?.blur?.();
+    await loadObjective();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 $('#objective-form').onsubmit = async (e) => {
   e.preventDefault();
   const f = e.target.elements;
@@ -2366,7 +2395,7 @@ $('#assign-form').onsubmit = async (e) => {
 };
 /** Les réglages communs à tous les comptes : un gestionnaire les voit, sans
  * pouvoir les changer (le serveur refuse de toute façon). */
-const GLOBAL_SETTINGS = ['#objective-form', '#rules-mode', '#rules-pause', '#rules-image', '#sites-paging', '#repeat-form', '#publishing-enabled'];
+const GLOBAL_SETTINGS = ['#objective-form', '#pacing-form', '#rules-mode', '#rules-pause', '#rules-image', '#sites-paging', '#repeat-form', '#publishing-enabled'];
 function lockGlobalSettings(admin) {
   for (const sel of GLOBAL_SETTINGS) {
     const el = $(sel);

@@ -1026,6 +1026,12 @@
               <div class="obj-status" id="obj-status"></div>
               <div class="obj-progress" id="obj-progress" role="img"></div>
               <div class="obj-plan" id="obj-plan"></div>
+              <form id="pacing-form" class="pacing-form">
+                <label class="inline-check"><input type="checkbox" name="adaptivePacing" /> <span><b>Cadence adaptative</b> : en retard, les profils au travail raccourcissent leur attente entre deux posts pour tenir le rythme</span></label>
+                <label>au moins <input name="minPostGapMinutes" type="number" min="2" max="120" required /> min entre deux posts d’un profil</label>
+                <button class="secondary" type="submit">Enregistrer</button>
+                <p class="form-help" id="pacing-status"></p>
+              </form>
               <div class="obj-kpis" id="obj-kpis"></div>
               <ul class="obj-advice" id="obj-advice"></ul>
               <div class="obj-grid">

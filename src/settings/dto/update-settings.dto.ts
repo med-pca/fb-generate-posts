@@ -78,6 +78,20 @@ export class UpdateSettingsDto {
   @IsIn(['article', 'group'])
   pilotMode?: 'article' | 'group';
 
+  /** Accélérer automatiquement pour tenir l'objectif. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  adaptivePacing?: boolean;
+
+  /** Minutes minimum entre deux posts d'un même profil. */
+  @ApiPropertyOptional({ minimum: 2, maximum: 120 })
+  @IsOptional()
+  @IsInt()
+  @Min(2)
+  @Max(120)
+  minPostGapMinutes?: number;
+
   /** « Page suivante » tous les N paragraphes (0 = un seul tenant). */
   @ApiPropertyOptional({ minimum: 0, maximum: 30 })
   @IsOptional()

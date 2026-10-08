@@ -2283,3 +2283,8 @@ dialog td small { display: block; overflow-wrap: anywhere; color: var(--muted, #
 #assign-modal td:last-child .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
 #assign-modal th:first-child, #assign-modal td:first-child { width: 44px; padding-left: 14px; padding-right: 6px; }
 #assign-modal th, #assign-modal td { padding-top: 10px; padding-bottom: 10px; }
+.pacing-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 8px 0 12px; font-size: 0.85rem; }
+.pacing-form label { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 500; }
+.pacing-form input[type="number"] { width: 70px; min-height: 32px; }
+.pacing-form .inline-check input { width: 16px; height: 16px; min-height: 0; flex: none; }
+.pacing-form .form-help { flex-basis: 100%; margin: 0; }

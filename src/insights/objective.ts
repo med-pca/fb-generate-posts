@@ -95,3 +95,24 @@ export function pace(input: {
     projection,
   };
 }
+
+/** Temps moyen d'une publication (ouvrir le groupe, écrire, publier). */
+export const PUBLISH_MINUTES = 3;
+
+/** La cadence adaptative : combien de minutes un profil attend entre deux
+ * posts pour tenir le rythme nécessaire.
+ *
+ * Il faut `neededPerHour` posts/h, partagés entre `profiles` profils au
+ * travail : chacun publie toutes les 60 × profils ÷ besoin minutes, temps de
+ * publication compris. Jamais sous `minGap` (un compte qui poste trop vite se
+ * fait limiter par Facebook), jamais au-dessus du délai prévu par le post :
+ * on accélère pour rattraper, on ne ralentit pas.
+ * `null` = rien à adapter (pas d'objectif, en avance, personne au travail). */
+export function adaptiveGap(input: { neededPerHour: number; ratePerHour: number; profiles: number; minGap: number; status: PaceStatus }) {
+  const { neededPerHour, ratePerHour, profiles, minGap, status } = input;
+  if (!neededPerHour || profiles < 1) return null;
+  if (!['late', 'on_track', 'ahead'].includes(status)) return null;
+  if (status === 'ahead' && ratePerHour >= neededPerHour) return null;
+  const every = (60 * profiles) / neededPerHour;
+  return Math.max(minGap, Math.floor(every - PUBLISH_MINUTES));
+}

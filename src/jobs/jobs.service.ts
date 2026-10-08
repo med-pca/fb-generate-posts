@@ -9,6 +9,7 @@ import { JobStatus, JoinStatus, Prisma, TargetStatus } from '@prisma/client';
 import { normalizeFacebookUrl, trace } from '../trace/trace';
 import { startOfLocalDay } from '../insights/insights.service';
 import { localClock } from '../runners/window';
+import { adaptiveGap, pace } from '../insights/objective';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaimJobDto } from './dto/claim-job.dto';
 import { ClaimBatchDto } from './dto/claim-batch.dto';
@@ -317,6 +318,8 @@ export class JobsService {
     });
 
     if (!job) return { job: null, posts: [] };
+    // En retard sur l'objectif : l'attente après chaque post est raccourcie.
+    const gap = await this.pacedGap();
     return {
       jobId: job.id,
       claimExpiresAt: job.claimExpiresAt,
@@ -340,7 +343,7 @@ export class JobsService {
         title: post.title,
         description: post.description,
         image: post.imageUrl ?? job.profile.defaultImageUrl,
-        delay: post.delay,
+        delay: gap === null ? post.delay : Math.min(post.delay, gap),
         // Post « engagement » : image et description seules — l'extension
         // (≥ 1.8.0) ne pose pas de premier commentaire. `comment` reste là
         // pour les anciennes versions, qui le lisent.
@@ -729,6 +732,33 @@ export class JobsService {
       message: 'Les posts disponibles viennent d’être réservés par d’autres profils : réessayer au prochain passage.',
       diagnosis,
     };
+  }
+
+  /** La cadence adaptative, recalculée au plus toutes les 2 minutes : le
+   * même chiffre pour tous les profils, d'après l'objectif du jour, ce qui
+   * est publié, et les profils au travail. */
+  private paced: { at: number; gap: number | null } = { at: 0, gap: null };
+  private async pacedGap(now = new Date()): Promise<number | null> {
+    if (now.getTime() - this.paced.at < 120_000) return this.paced.gap;
+    let gap: number | null = null;
+    try {
+      const s = await this.prisma.automationSetting.findUnique({ where: { id: 'global' } });
+      if (s?.adaptivePacing && s.dailyTarget > 0) {
+        const tz = s.objectiveTimezone || 'Europe/Paris';
+        const dayStart = startOfLocalDay(now, tz);
+        const [published, lastHour, profiles] = await Promise.all([
+          this.prisma.postTarget.count({ where: { status: TargetStatus.PUBLISHED, publishedAt: { gte: dayStart } } }),
+          this.prisma.postTarget.count({ where: { status: TargetStatus.PUBLISHED, publishedAt: { gte: new Date(now.getTime() - 3_600_000) } } }),
+          this.prisma.profileRunner.count({ where: { running: true, lastSeenAt: { gte: new Date(now.getTime() - 180_000) }, mode: { not: 'OFF' } } }),
+        ]);
+        const p = pace({ target: s.dailyTarget, start: s.objectiveStart, end: s.objectiveEnd, nowMinutes: localClock(now, tz).minutes, published, lastHour });
+        gap = adaptiveGap({ neededPerHour: p.neededPerHour, ratePerHour: p.ratePerHour, profiles, minGap: s.minPostGapMinutes, status: p.status });
+      }
+    } catch {
+      gap = null;
+    }
+    this.paced = { at: now.getTime(), gap };
+    return gap;
   }
 
   private async pilotMode() {

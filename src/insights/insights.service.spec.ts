@@ -115,3 +115,52 @@ describe('InsightsService.objective — plan du jour en articles', () => {
     expect(o.advice.map((a: any) => a.text).join(' | ')).toMatch(/il manque 11 article\(s\) à importer/);
   });
 });
+
+import { adaptiveGap } from './objective';
+
+/** Le cas vu en production : 7/h, il faut 19/h, 7 profils au travail. */
+describe('adaptiveGap — cadence selon les profils au travail', () => {
+  const base = { ratePerHour: 7, minGap: 5, status: 'late' as const };
+
+  it('7 profils, besoin 19/h → un post toutes les ~22 min par profil (19 min d’attente + publication)', () => {
+    expect(adaptiveGap({ ...base, neededPerHour: 19, profiles: 7 })).toBe(19);
+  });
+
+  it('moins de profils au travail → chacun attend moins ; plus de profils → chacun attend plus', () => {
+    const three = adaptiveGap({ ...base, neededPerHour: 19, profiles: 3 })!;
+    const ten = adaptiveGap({ ...base, neededPerHour: 19, profiles: 10 })!;
+    expect(three).toBeLessThan(19);
+    expect(ten).toBeGreaterThan(19);
+  });
+
+  it('jamais sous le minimum de sécurité', () => {
+    expect(adaptiveGap({ ...base, neededPerHour: 200, profiles: 2 })).toBe(5);
+  });
+
+  it('rien à adapter : en avance et au rythme, aucun profil, pas d’objectif, plage finie', () => {
+    expect(adaptiveGap({ ...base, neededPerHour: 10, ratePerHour: 15, profiles: 5, status: 'ahead' })).toBeNull();
+    expect(adaptiveGap({ ...base, neededPerHour: 19, profiles: 0 })).toBeNull();
+    expect(adaptiveGap({ ...base, neededPerHour: 0, profiles: 7 })).toBeNull();
+    expect(adaptiveGap({ ...base, neededPerHour: 19, profiles: 7, status: 'missed' })).toBeNull();
+  });
+});
+
+describe('InsightsService.objective — plage de 24 h', () => {
+  it('le plan donne une vraie cadence quand la plage va de minuit à minuit', async () => {
+    const groups = Array.from({ length: 10 }, (_, i) => group(`g${i}`, 'Recettes', [{ id: 'salim', mode: 'AUTO' }]));
+    const prisma: any = {
+      automationSetting: { upsert: async () => ({ dailyTarget: 200, objectiveStart: 0, objectiveEnd: 0, objectiveTimezone: 'Europe/Paris', adaptivePacing: true, minPostGapMinutes: 5 }) },
+      publicationJobItem: { findMany: async () => [] },
+      postTarget: { groupBy: async () => [] },
+      group: { findMany: async () => groups },
+      profile: { findMany: async () => [{ id: 'salim', name: 'Salim', runner: { mode: 'AUTO', running: true, lastSeenAt: now }, _count: { profileGroups: 10 } }] },
+      article: { count: async () => 0 },
+    };
+    const o: any = await new InsightsService(prisma).objective(null, now);
+    expect(o.plan.articlesPerDay).toBe(20);
+    expect(o.plan.everyMinutes).toBe(72); // 1440 min ÷ 20
+    expect(o.plan.expectedNow).toBeGreaterThan(0); // 15 h à Paris
+    expect(o.pacing).toMatchObject({ enabled: true, profiles: 1, minGap: 5 });
+    expect(o.pacing.gapMinutes).not.toBeNull();
+  });
+});
