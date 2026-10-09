@@ -138,6 +138,9 @@ export function paginateByParagraphs(
   perPage: number,
   minWords: number,
   language?: string | null,
+  /** Jamais plus de pages : un article très long est alors coupé en
+   * `maxPages` pages équilibrées (de préférence sur un intertitre). */
+  maxPages = MAX_PAGES,
 ) {
   if (!Number.isFinite(perPage) || perPage < 1) return html;
   const blocks = html.match(BLOCK);
@@ -171,9 +174,10 @@ export function paginateByParagraphs(
     }
     return pages;
   };
-  let per = perPage;
-  let pages = build(per);
-  while (pages.length > MAX_PAGES) pages = build(++per);
+  const pages = build(perPage);
+  const cap = Math.max(1, Math.min(MAX_PAGES, Math.floor(maxPages) || MAX_PAGES));
+  // Trop de pages : le découpage équilibré en `cap` pages prend le relais.
+  if (pages.length > cap) return paginateHtml(html, cap, language);
   if (pages.length < 2) return html;
   const teaser = `<p>${continueLabel(language)}</p>`;
   return pages.map((page) => page.join('\n')).join(`\n${teaser}\n${NEXT_PAGE}\n`);

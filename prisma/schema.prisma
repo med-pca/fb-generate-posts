@@ -597,6 +597,9 @@ model AutomationSetting {
   minPostGapMinutes          Int      @default(5) @map("min_post_gap_minutes")
   articleParagraphsPerPage   Int      @default(2) @map("article_paragraphs_per_page")
   articleMinWordsPerPage     Int      @default(60) @map("article_min_words_per_page")
+  /// Jamais plus de pages par article : un article très long est coupé en
+  /// autant de pages équilibrées.
+  articleMaxPages            Int      @default(3) @map("article_max_pages")
   createdAt                  DateTime @default(now()) @map("created_at")
   updatedAt                  DateTime @updatedAt @map("updated_at")
 

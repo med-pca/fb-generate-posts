@@ -2486,6 +2486,7 @@ function renderSitesPaging() {
   if (!f || !state.settings || f.contains(document.activeElement)) return;
   f.elements.articleParagraphsPerPage.value = state.settings.articleParagraphsPerPage ?? 2;
   f.elements.articleMinWordsPerPage.value = state.settings.articleMinWordsPerPage ?? 60;
+  f.elements.articleMaxPages.value = state.settings.articleMaxPages ?? 3;
 }
 $('#sites-paging').onsubmit = async (e) => {
   e.preventDefault();
@@ -2493,12 +2494,12 @@ $('#sites-paging').onsubmit = async (e) => {
   try {
     state.settings = await api('/settings', {
       method: 'PATCH',
-      body: JSON.stringify({ articleParagraphsPerPage: Number(f.articleParagraphsPerPage.value), articleMinWordsPerPage: Number(f.articleMinWordsPerPage.value) }),
+      body: JSON.stringify({ articleParagraphsPerPage: Number(f.articleParagraphsPerPage.value), articleMinWordsPerPage: Number(f.articleMinWordsPerPage.value), articleMaxPages: Number(f.articleMaxPages.value) }),
     });
     document.activeElement?.blur?.();
     renderSitesPaging();
     const per = Number(f.articleParagraphsPerPage.value);
-    notice(per ? `Page suivante tous les ${per} paragraphe(s), au moins ${f.articleMinWordsPerPage.value} mots par page.` : 'Articles d’un seul tenant.');
+    notice(per ? `Page suivante tous les ${per} paragraphe(s), au moins ${f.articleMinWordsPerPage.value} mots et au plus ${f.articleMaxPages.value} pages par article.` : 'Articles d’un seul tenant.');
   } catch (x) {
     notice(x.message, 'error');
   }

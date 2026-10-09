@@ -92,9 +92,11 @@ export class WordpressWriterService {
   /** Le découpage réglé dans la plateforme (Sites → Découpage en pages). */
   private async splitting() {
     const settings = await this.prisma?.automationSetting
-      .findUnique({ where: { id: 'global' }, select: { articleParagraphsPerPage: true, articleMinWordsPerPage: true } })
+      .findUnique({ where: { id: 'global' }, select: { articleParagraphsPerPage: true, articleMinWordsPerPage: true, articleMaxPages: true } })
       .catch(() => null);
-    return settings ? { perPage: settings.articleParagraphsPerPage, minWords: settings.articleMinWordsPerPage } : { perPage: 2, minWords: 60 };
+    return settings
+      ? { perPage: settings.articleParagraphsPerPage, minWords: settings.articleMinWordsPerPage, maxPages: settings.articleMaxPages }
+      : { perPage: 2, minWords: 60, maxPages: 3 };
   }
 
   async deposit(input: DepositInput): Promise<WordpressDeposit> {
@@ -110,11 +112,11 @@ export class WordpressWriterService {
     // redécouper autrement. « Page suivante » tous les N paragraphes ;
     // ARTICLE_PAGES (nombre fixe de pages) reste possible quand N = 0 et
     // qu'il est renseigné.
-    const { perPage, minWords } = await this.splitting();
+    const { perPage, minWords, maxPages } = await this.splitting();
     const fixed = Number(this.config.get<string>('ARTICLE_PAGES') ?? 0);
     const contentHtml =
       perPage > 0
-        ? paginateByParagraphs(input.article.contentHtml, perPage, minWords, input.language)
+        ? paginateByParagraphs(input.article.contentHtml, perPage, minWords, input.language, maxPages)
         : paginateHtml(input.article.contentHtml, Number.isFinite(fixed) ? fixed : 0, input.language);
     const image = input.imageUrl ? await this.fetchImage(input.imageUrl) : null;
     const endpoint = `${input.siteUrl}/wp-json/dfb/v1/articles`;

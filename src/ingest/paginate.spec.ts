@@ -149,3 +149,27 @@ describe('paginateByParagraphs', () => {
     expect(paginateByParagraphs(p(40), 2, 60, 'en')).toBe(p(40));
   });
 });
+
+describe('paginateByParagraphs — au plus N pages', () => {
+  const p = (words: number) => `<p>${Array.from({ length: words }, (_, i) => `mot${i}`).join(' ')}</p>`;
+  const count = (html: string) => html.split(NEXT_PAGE).length;
+
+  it('un article très long est coupé en 5 pages équilibrées, pas en 30', () => {
+    const html = Array.from({ length: 60 }, () => p(40)).join('\n');
+    const out = paginateByParagraphs(html, 2, 60, 'en', 5);
+    expect(count(out)).toBe(5);
+    const sizes = out.split(NEXT_PAGE).map((page) => page.replace(/<[^>]*>/g, ' ').split(/\s+/).filter((w) => /^mot/.test(w)).length);
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(80); // équilibrées, à 2 paragraphes près
+  });
+
+  it('un article court garde la logique « tous les 2 paragraphes »', () => {
+    const html = Array.from({ length: 6 }, () => p(40)).join('\n');
+    expect(count(paginateByParagraphs(html, 2, 60, 'en', 5))).toBe(3);
+  });
+});
+
+it('au plus 3 pages : un article très long en 3 pages équilibrées', () => {
+  const p = (words: number) => `<p>${Array.from({ length: words }, (_, i) => `mot${i}`).join(' ')}</p>`;
+  const html = Array.from({ length: 60 }, () => p(40)).join('\n');
+  expect(paginateByParagraphs(html, 2, 60, 'en', 3).split(NEXT_PAGE)).toHaveLength(3);
+});

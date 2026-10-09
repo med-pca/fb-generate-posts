@@ -100,6 +100,14 @@ export class UpdateSettingsDto {
   @Max(30)
   articleParagraphsPerPage?: number;
 
+  /** Pages au plus par article. */
+  @ApiPropertyOptional({ minimum: 1, maximum: 100 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  articleMaxPages?: number;
+
   /** Mots minimum par page. */
   @ApiPropertyOptional({ minimum: 0, maximum: 1000 })
   @IsOptional()
