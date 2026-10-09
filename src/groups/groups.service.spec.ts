@@ -160,3 +160,24 @@ describe('GroupsService — adhésions', () => {
     expect(logs[0].message).toMatch(/REQUESTED → JOINED/);
   });
 });
+
+import { groupFilters } from './groups.service';
+
+describe('groupFilters — la barre de filtres de la page Groupes', () => {
+  const scope = { ownerId: 'u1' };
+  it('combine la portée et chaque filtre choisi', () => {
+    const and = groupFilters({ search: 'recette', categoryId: 'none', status: 'ACTIVE', language: 'en', profileId: 'p1', join: 'pending', stock: 'with' }, scope);
+    expect(and[0]).toBe(scope);
+    expect(and).toEqual(expect.arrayContaining([
+      { categoryId: null },
+      { status: 'ACTIVE' },
+      { language: 'en' },
+      { profiles: { some: { profileId: 'p1', status: 'ACTIVE' } } },
+      { profiles: { some: { status: 'ACTIVE', joinStatus: { in: ['REQUESTED', 'QUESTIONS'] } } } },
+    ]));
+    expect(JSON.stringify(and)).toContain('"contains":"recette"');
+  });
+  it('sans filtre : seulement la portée', () => {
+    expect(groupFilters({}, scope)).toEqual([scope]);
+  });
+});

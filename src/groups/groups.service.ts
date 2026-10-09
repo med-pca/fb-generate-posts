@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { JoinStatus, Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { QueryGroupsDto } from './dto/query-groups.dto';
 import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../auth/current-user';
 import {
@@ -21,6 +22,32 @@ import { UpdateGroupDto } from './dto/update-group.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
 import { UpdateJoinStatusDto } from './dto/update-join-status.dto';
+
+/** Les filtres de la page Groupes, ajoutés à la portée de l'appelant. */
+export function groupFilters(q: Partial<QueryGroupsDto>, scope: Prisma.GroupWhereInput): Prisma.GroupWhereInput[] {
+  const and: Prisma.GroupWhereInput[] = [scope];
+  const search = q.search?.trim();
+  if (search) {
+    and.push({
+      OR: [
+        { name: { contains: search, mode: 'insensitive' } },
+        { url: { contains: search, mode: 'insensitive' } },
+        { externalId: { contains: search, mode: 'insensitive' } },
+      ],
+    });
+  }
+  if (q.categoryId) and.push({ categoryId: q.categoryId === 'none' ? null : q.categoryId });
+  if (q.status) and.push({ status: q.status });
+  if (q.language) and.push({ language: q.language === 'none' ? null : q.language });
+  if (q.profileId) and.push({ profiles: { some: { profileId: q.profileId, status: 'ACTIVE' } } });
+  if (q.join === 'joined') and.push({ profiles: { some: { status: 'ACTIVE', joinStatus: 'JOINED' } } });
+  if (q.join === 'none') and.push({ profiles: { none: { status: 'ACTIVE', joinStatus: 'JOINED' } } });
+  if (q.join === 'pending') and.push({ profiles: { some: { status: 'ACTIVE', joinStatus: { in: ['REQUESTED', 'QUESTIONS'] } } } });
+  const waiting: Prisma.PostTargetWhereInput = { status: 'AVAILABLE', post: { status: 'AVAILABLE' } };
+  if (q.stock === 'with') and.push({ targets: { some: waiting } });
+  if (q.stock === 'none') and.push({ targets: { none: waiting } });
+  return and;
+}
 
 @Injectable()
 export class GroupsService {
@@ -77,15 +104,13 @@ export class GroupsService {
   }
 
   async findCatalog(
-    { page, limit }: PaginationDto,
+    query: PaginationDto & Partial<QueryGroupsDto>,
     acting: CurrentUser | null,
-    /** Un code de langue, ou `none` : les groupes sans langue. */
-    language?: string,
   ) {
-    const scoped: Prisma.GroupWhereInput = {
-      ...groupWhere(scopeOf(acting)),
-      ...(language === 'none' ? { language: null } : language ? { language } : {}),
-    };
+    const { page, limit } = query;
+    const scoped: Prisma.GroupWhereInput = { AND: groupFilters(query, groupWhere(scopeOf(acting))) };
+    const orderBy: Prisma.GroupOrderByWithRelationInput[] =
+      query.sort === 'name' ? [{ name: 'asc' }] : query.sort === 'priority' ? [{ priority: 'desc' }, { name: 'asc' }] : [{ createdAt: 'desc' }];
     const [groups, total] = await this.prisma.$transaction([
       this.prisma.group.findMany({
         where: scoped,
@@ -94,7 +119,7 @@ export class GroupsService {
           category: { select: { id: true, name: true } },
           _count: { select: { targets: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip: (page - 1) * limit,
         take: limit,
       }),

@@ -15,6 +15,7 @@ import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { GroupsService } from './groups.service';
+import { QueryGroupsDto } from './dto/query-groups.dto';
 import { GroupLanguagesService } from './group-languages.service';
 import { ArrayMaxSize, IsArray, IsBoolean, IsOptional as IsOpt, IsString as IsStr, ValidateIf as VIf } from 'class-validator';
 import { IsKnownLanguage } from '../languages/languages.registry';
@@ -32,7 +33,6 @@ export class SuggestLanguagesDto {
 }
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { SetJoinStatusDto } from './dto/update-join-status.dto';
-import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('groups')
 @ApiBearerAuth()
@@ -97,12 +97,8 @@ export class GroupsCatalogController {
   ) {}
 
   @Get()
-  findAll(
-    @Query() pagination: PaginationDto,
-    @ActingUser() acting: CurrentUser,
-    @Query('language') language?: string,
-  ) {
-    return this.groups.findCatalog(pagination, acting, language);
+  findAll(@Query() query: QueryGroupsDto, @ActingUser() acting: CurrentUser) {
+    return this.groups.findCatalog(query, acting);
   }
 
   // Avant `:id` : « languages » serait pris pour un identifiant.

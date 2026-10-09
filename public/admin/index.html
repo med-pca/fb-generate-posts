@@ -188,6 +188,32 @@
               <button class="primary" type="button" id="group-lang-apply">Appliquer la langue</button>
             </div>
           </div>
+          <div class="toolbar profile-filters">
+            <div class="toolbar-group">
+              <input id="gf-search" type="search" placeholder="Nom, adresse Facebook ou identifiant"
+              /><select id="gf-category"><option value="">Toutes les catégories</option></select
+              ><select id="gf-status">
+                <option value="">Actifs et inactifs</option>
+                <option value="ACTIVE">Actifs</option>
+                <option value="INACTIVE">Inactifs</option></select
+              ><select id="gf-profile"><option value="">Tous les profils</option></select
+              ><select id="gf-join">
+                <option value="">Toutes les adhésions</option>
+                <option value="joined">Rejoint par au moins un profil</option>
+                <option value="none">Rejoint par aucun profil</option>
+                <option value="pending">Demande d’adhésion en attente</option></select
+              ><select id="gf-stock">
+                <option value="">Avec ou sans posts</option>
+                <option value="with">Des posts attendent</option>
+                <option value="none">Rien à publier</option></select
+              ><select id="gf-sort">
+                <option value="recent">Plus récents</option>
+                <option value="name">Nom</option>
+                <option value="priority">Priorité</option></select>
+            </div>
+            <button class="link" id="gf-reset" type="button" hidden>Effacer les filtres</button>
+          </div>
+          <p class="runner-count" id="gf-count"></p>
           <div class="pagination" id="groups-pagination"></div>
           <div class="panel table-wrap">
             <table>

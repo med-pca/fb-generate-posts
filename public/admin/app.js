@@ -41,6 +41,7 @@ const API = '/api',
     postFilters: { profileId: '', articleId: '', groupId: '' },
     // Les filtres de la page Profils (appliqués par l'API).
     profileFilters: { search: '', status: '', health: '', activity: '', categoryId: '', sort: 'recent' },
+    groupFilters: { search: '', categoryId: '', status: '', profileId: '', join: '', stock: '', sort: 'recent' },
     // Les filtres du Pilotage survivent au rafraîchissement automatique.
     runnerFilters: { search: '', mode: '', state: '' },
     // La file de publication : ses filtres et combien on en montre.
@@ -406,7 +407,7 @@ async function load() {
       languages,
     ] = await Promise.all([
       api(`/profiles?${profileQuery()}`),
-      api(`/groups?page=${state.page.groups}&limit=12${groupLang.filter ? `&language=${groupLang.filter}` : ''}`),
+      api(`/groups?${groupQuery()}`),
       api(`/articles?page=${state.page.articles}&limit=12`),
       api(`/posts?${postQuery}`),
       api('/profiles?page=1&limit=100&withModerators=true'),
@@ -539,6 +540,46 @@ function groupProfilesCell(g) {
 
 /* ── Profils : filtres ──────────────────────────────────────────────── */
 const PROFILE_FILTER_DEFAULTS = { search: '', status: '', health: '', activity: '', categoryId: '', sort: 'recent' };
+/** Les filtres de la page Groupes (la langue vient des pastilles). */
+const GROUP_FILTER_DEFAULTS = { search: '', categoryId: '', status: '', profileId: '', join: '', stock: '', sort: 'recent' };
+function groupQuery() {
+  const q = new URLSearchParams({ page: state.page.groups, limit: 12 });
+  for (const [k, v] of Object.entries(state.groupFilters)) if (v && !(k === 'sort' && v === 'recent')) q.set(k, v);
+  if (groupLang.filter) q.set('language', groupLang.filter);
+  return q;
+}
+function renderGroupFilters() {
+  const f = state.groupFilters;
+  $('#gf-search').value = f.search;
+  $('#gf-status').value = f.status;
+  $('#gf-join').value = f.join;
+  $('#gf-stock').value = f.stock;
+  $('#gf-sort').value = f.sort;
+  $('#gf-category').innerHTML =
+    '<option value="">Toutes les catégories</option><option value="none">À ranger (sans catégorie)</option>' +
+    (state.categories || []).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  $('#gf-category').value = f.categoryId;
+  $('#gf-profile').innerHTML =
+    '<option value="">Tous les profils</option>' +
+    (state.profileOptions || []).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  $('#gf-profile').value = f.profileId;
+  const filtered = Object.entries(GROUP_FILTER_DEFAULTS).some(([k, v]) => f[k] !== v) || Boolean(groupLang.filter);
+  $('#gf-reset').hidden = !filtered;
+  $('#gf-count').textContent = filtered ? `${state.meta.groups?.total ?? 0} groupe(s) pour ces filtres` : '';
+}
+[['#gf-search', 'search'], ['#gf-category', 'categoryId'], ['#gf-status', 'status'], ['#gf-profile', 'profileId'], ['#gf-join', 'join'], ['#gf-stock', 'stock'], ['#gf-sort', 'sort']].forEach(([id, key]) => {
+  $(id).onchange = (e) => {
+    state.groupFilters[key] = e.target.value.trim();
+    state.page.groups = 1;
+    load();
+  };
+});
+$('#gf-reset').onclick = () => {
+  state.groupFilters = { ...GROUP_FILTER_DEFAULTS };
+  groupLang.filter = '';
+  state.page.groups = 1;
+  load();
+};
 function profileQuery() {
   const q = new URLSearchParams({ page: state.page.profiles, limit: 12 });
   for (const [k, v] of Object.entries(state.profileFilters)) if (v && !(k === 'sort' && v === 'recent')) q.set(k, v);
@@ -1016,9 +1057,10 @@ function render() {
           `<tr class="${g.status === 'INACTIVE' ? 'inactive' : ''}"><td><input type="checkbox" data-group-check="${g.id}" ${groupLang.selected.has(g.id) ? 'checked' : ''} aria-label="Cocher"></td><td><strong>${esc(g.name)}</strong><small>${g.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'} · ${esc(g.externalId || '—')}</small></td><td>${g.category ? `<span class="chip">${esc(g.category.name)}</span>` : '<span class="chip join-questions" title="Modifiez le groupe pour lui choisir une catégorie : sans elle, il ne reçoit aucun article">À ranger</span>'}</td><td><select class="rule-lang ${g.language ? '' : 'missing'}" data-group-lang-inline="${g.id}" aria-label="Langue du groupe"><option value="">— aucune</option>${Object.entries(LANG_NAMES).map(([c, n]) => `<option value="${c}" ${c === g.language ? 'selected' : ''}>${n}</option>`).join('')}</select></td><td><a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a></td><td>${groupProfilesCell(g)}</td><td>${g._count.targets}</td><td><span class="stock ${g.availablePosts <= 4 ? 'low' : ''}">${g.availablePosts}</span></td><td><div class="row-actions"><button class="edit" data-toggle-group="${g.id}">${g.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-share-group="${g.id}">Partager</button><button class="edit" data-edit-group="${g.id}">Modifier</button><button class="danger" data-clear-group="${g.id}" ${g._count.targets ? '' : 'disabled'}>Retirer les posts</button><button class="danger" data-delete-group="${g.id}">Supprimer</button></div></td></tr>`,
       )
       .join('') ||
-    `<tr><td colspan="9"><div class="empty">${groupLang.filter ? 'Aucun groupe dans cette langue' : 'Aucun groupe'}</div></td></tr>`;
+    `<tr><td colspan="9"><div class="empty">${groupLang.filter || Object.entries(GROUP_FILTER_DEFAULTS).some(([k, v]) => state.groupFilters[k] !== v) ? 'Aucun groupe pour ces filtres' : 'Aucun groupe'}</div></td></tr>`;
   $('#group-check-all').checked = state.groups.length > 0 && state.groups.every((g) => groupLang.selected.has(g.id));
   renderGroupLangBulk();
+  renderGroupFilters();
   renderProfileFilters();
   renderArticles();
   renderSettings();
