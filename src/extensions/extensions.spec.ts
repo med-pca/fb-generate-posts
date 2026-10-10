@@ -71,7 +71,7 @@ describe('ExtensionsService', () => {
     expect(latest('capture').version).toBe('1.6.1');
     for (const c of created) {
       const paths = c.files.map((f: any) => f.path);
-      expect(paths).toContain(c.key === 'wordpress' ? 'data-fb-posting.php' : 'manifest.json');
+      expect(paths).toContain(c.key === 'wordpress' ? 'data-fb-posting.php' : c.key === 'agent' ? 'postflow_agent.py' : 'manifest.json');
       expect(paths.some((p: string) => /(^|\/)tests?\//.test(p) || p.endsWith('.zip') || p.endsWith('README.md'))).toBe(false);
     }
     const pub = latest('publication');

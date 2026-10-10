@@ -30,6 +30,8 @@ COPY extension ./extension
 # Le plugin WordPress (sa carte sur la même page) : le dossier seul, sans
 # ses tests ni l'ancien ZIP.
 COPY wordpress/data-fb-posting ./wordpress/data-fb-posting
+# L'agent local, téléchargeable depuis la page Extensions.
+COPY agent ./agent
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \

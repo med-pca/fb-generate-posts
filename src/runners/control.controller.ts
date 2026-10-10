@@ -5,8 +5,7 @@ import {
   Headers,
   Param,
   Post,
-  UseGuards,
-} from '@nestjs/common';
+  UseGuards, Query } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { ActingUser } from '../auth/current-user';
@@ -88,7 +87,15 @@ export class ControlController {
       'extension en train de publier ne doit pas voir son navigateur se ' +
       'fermer sous elle, même quand l’ordre vient de passer à l’arrêt.',
   })
-  launcher(@ActingUser() acting: CurrentUser | null) {
+  launcher(
+    @ActingUser() acting: CurrentUser | null,
+    @Query('agent') agent?: string,
+    @Query('version') version?: string,
+    @Query('os') os?: string,
+    @Query('running') running?: string,
+  ) {
+    // L'agent se signale à chaque tour : le Pilotage montre qu'il tourne.
+    if (agent) void this.runners.noteAgent(acting, { host: agent, version, os, running: Number(running) || 0 });
     return this.runners.launcherPlan(acting);
   }
 

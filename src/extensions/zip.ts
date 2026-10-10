@@ -50,7 +50,8 @@ export function buildZip(files: Array<{ path: string; data: Buffer }>, when = ne
 
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
-    central.writeUInt16LE(20, 4);
+    // « Fait sous Unix » : les droits ci-dessous sont alors lus au dézippage.
+    central.writeUInt16LE((3 << 8) | 20, 4);
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(0x0800, 8);
     central.writeUInt16LE(8, 10);
@@ -60,6 +61,10 @@ export function buildZip(files: Array<{ path: string; data: Buffer }>, when = ne
     central.writeUInt32LE(compressed.length, 20);
     central.writeUInt32LE(file.data.length, 24);
     central.writeUInt16LE(name.length, 28);
+    // Un lanceur (.command, .sh) doit rester exécutable une fois dézippé :
+    // sans cela, le double-clic sur Mac échoue.
+    const mode = /\.(command|sh)$/.test(file.path) ? 0o100755 : 0o100644;
+    central.writeUInt32LE((mode << 16) >>> 0, 38);
     central.writeUInt32LE(offset, 42);
     centrals.push(central, name);
     offset += local.length + name.length + compressed.length;

@@ -21,8 +21,8 @@ export type ExtensionDef = {
   exclude: RegExp;
   /** Le fichier de configuration, et comment le remplir. */
   preset?: { file: string; fill: (text: string, ctx: PresetContext) => string };
-  /** Extension Chrome (défaut) ou plugin WordPress. */
-  kind?: 'chrome' | 'wordpress';
+  /** Extension Chrome (défaut), plugin WordPress, ou agent local. */
+  kind?: 'chrome' | 'wordpress' | 'agent';
   /** La version, quand elle n'est pas dans manifest.json. */
   versionOf?: (read: (path: string) => string | undefined) => string;
   /** Dossier racine dans le ZIP : WordPress installe un plugin depuis
@@ -110,6 +110,36 @@ export const EXTENSIONS: ExtensionDef[] = [
     preset: {
       file: 'config.js',
       fill: (text, ctx) => setField(setField(text, 'apiBase', ctx.origin), 'apiKey', ctx.apiKey),
+    },
+  },
+  {
+    key: 'agent',
+    kind: 'agent',
+    name: 'Agent local · PostFlow',
+    letter: 'L',
+    color: '#0f766e',
+    dir: 'agent',
+    role: 'Ouvre automatiquement les navigateurs NSTBrowser selon le Pilotage, les rouvre après la veille, et synchronise les profils (nouveaux, noms).',
+    installOn: 'Chaque ordinateur où tourne NSTBrowser — une fois par ordinateur, avec la clé du compte.',
+    installHint:
+      'Python 3 requis (python.org). Dézippez, puis double-cliquez « Lancer l’agent PostFlow (Mac).command » ou « (Windows).bat », ' +
+      'et laissez la fenêtre ouverte. Le Pilotage affiche alors « Agent local : actif ». Mode d’emploi : LISEZMOI.txt.',
+    nstKey: 'required',
+    nstKeyWhy: 'L’agent ne pourra pas ouvrir les navigateurs : réglez d’abord votre clé NSTBrowser (en haut de la plateforme).',
+    exclude: /(^|\/)(tests?|__pycache__)(\/|$)|\.DS_Store$|\.pyc$|(^|\/)agent\.log(\.\d+)?$/,
+    zipRoot: 'postflow-agent/',
+    versionOf: (read) => /^AGENT_VERSION\s*=\s*"([\w.+-]+)"/m.exec(read('postflow_agent.py') ?? '')?.[1] ?? '0.0.0',
+    preset: {
+      file: 'agent.config.json',
+      fill: (text, ctx) => {
+        let cfg: Record<string, unknown> = {};
+        try {
+          cfg = JSON.parse(text || '{}');
+        } catch {
+          cfg = {};
+        }
+        return `${JSON.stringify({ ...cfg, apiBaseUrl: `${ctx.origin}/api`, apiKey: ctx.apiKey }, null, 2)}\n`;
+      },
     },
   },
   {

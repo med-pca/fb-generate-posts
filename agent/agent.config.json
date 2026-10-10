@@ -1,0 +1,9 @@
+{
+  "apiBaseUrl": "",
+  "apiKey": "",
+  "nstApiAddress": "http://localhost:8848/api/v2",
+  "nstApiKey": "",
+  "maxBrowsers": 0,
+  "closeBrowsers": false,
+  "syncEverySeconds": 600
+}

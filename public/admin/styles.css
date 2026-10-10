@@ -2288,3 +2288,9 @@ dialog td small { display: block; overflow-wrap: anywhere; color: var(--muted, #
 .pacing-form input[type="number"] { width: 70px; min-height: 32px; }
 .pacing-form .inline-check input { width: 16px; height: 16px; min-height: 0; flex: none; }
 .pacing-form .form-help { flex-basis: 100%; margin: 0; }
+
+/* Agent local (Pilotage) */
+.agent-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 14px; margin-bottom: 12px; border-radius: 10px; font-size: 0.85rem; border: 1px solid var(--line, #e5e7eb); }
+.agent-strip.ok { background: color-mix(in srgb, #16a34a 7%, transparent); }
+.agent-strip.warn { background: #fff4e5; border-color: #f0b35a; color: #7a4a00; }
+.agent-strip:empty { display: none; }

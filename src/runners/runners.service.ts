@@ -531,6 +531,43 @@ export class RunnersService {
    * publier ne doit pas voir son navigateur se fermer sous elle, même quand
    * l'ordre vient de passer à l'arrêt. Le profil se referme au battement
    * suivant, une fois son post fini. */
+  /** Un agent local vient de passer : machine, version, navigateurs ouverts. */
+  async noteAgent(acting: CurrentUser | null, info: { host: string; version?: string; os?: string; running: number }, now = new Date()) {
+    const ownerKey = acting?.id ?? 'global';
+    const host = String(info.host).slice(0, 80);
+    await this.prisma.agentHeartbeat
+      .upsert({
+        where: { ownerKey_host: { ownerKey, host } },
+        create: { ownerKey, ownerId: acting?.id ?? null, host, version: info.version?.slice(0, 20) ?? null, os: info.os?.slice(0, 20) ?? null, runningBrowsers: info.running, lastSeenAt: now },
+        update: { version: info.version?.slice(0, 20) ?? null, os: info.os?.slice(0, 20) ?? null, runningBrowsers: info.running, lastSeenAt: now },
+      })
+      .catch(() => undefined);
+  }
+
+  /** Les agents vus ces 7 derniers jours : les siens pour un gestionnaire. */
+  private async agents(acting: CurrentUser | null, now: Date) {
+    const scope = scopeOf(acting);
+    const rows = await Promise.resolve(
+      this.prisma.agentHeartbeat?.findMany({
+        where: { lastSeenAt: { gte: new Date(now.getTime() - 7 * 86_400_000) }, ...(scope ? { ownerId: scope.ownerId } : {}) },
+        orderBy: { lastSeenAt: 'desc' },
+      }),
+    ).catch(() => null);
+    if (!rows) return [];
+    const owners = await this.prisma.user.findMany({ where: { id: { in: rows.map((r) => r.ownerId).filter((x): x is string => Boolean(x)) } }, select: { id: true, username: true } });
+    const name = new Map(owners.map((o) => [o.id, o.username]));
+    return rows.map((r) => ({
+      host: r.host,
+      owner: r.ownerId ? name.get(r.ownerId) ?? null : 'clé globale',
+      version: r.version,
+      os: r.os,
+      runningBrowsers: r.runningBrowsers,
+      lastSeenAt: r.lastSeenAt,
+      // Il interroge la plateforme au moins toutes les 5 minutes.
+      alive: now.getTime() - r.lastSeenAt.getTime() < 6 * 60_000,
+    }));
+  }
+
   async launcherPlan(acting: CurrentUser | null = null, now = new Date()) {
     const settings = await this.globalSettings();
     const profiles = await this.prisma.profile.findMany({
@@ -740,6 +777,7 @@ export class RunnersService {
     });
     const currentKeys = this.currentKeyHashes(profiles);
     return {
+      agents: await this.agents(acting, now),
       publishingEnabled: settings.publishingEnabled,
       serverTime: now.toISOString(),
       profiles: profiles.map((profile) => {

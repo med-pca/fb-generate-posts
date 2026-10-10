@@ -1,0 +1,43 @@
+AGENT LOCAL POSTFLOW
+====================
+
+À quoi il sert
+--------------
+Il ouvre automatiquement les navigateurs NSTBrowser de vos profils quand le
+Pilotage de la plateforme le demande (modes « Auto » et « Marche forcée »),
+les rouvre après la veille, et synchronise vos profils NSTBrowser avec la
+plateforme (nouveaux profils, changements de nom).
+
+Sans lui, la publication fonctionne quand même, mais il faut ouvrir les
+navigateurs à la main et désactiver la veille dans l'extension Publication.
+
+Ce qu'il faut
+-------------
+1. NSTBrowser installé et OUVERT sur cet ordinateur.
+2. Python 3 (gratuit) : https://www.python.org/downloads/
+   Sur Windows, cochez « Add python.exe to PATH » pendant l'installation.
+3. Votre clé NSTBrowser enregistrée dans la plateforme
+   (en haut de la plateforme : bouton « Clé NSTBrowser »).
+
+Lancer
+------
+- Mac     : double-cliquez « Lancer l'agent PostFlow (Mac).command ».
+            La première fois, macOS peut refuser (« développeur non identifié ») :
+            clic droit sur le fichier → Ouvrir → Ouvrir.
+- Windows : double-cliquez « Lancer l'agent PostFlow (Windows).bat ».
+            Si Windows affiche « Windows a protégé votre ordinateur » :
+            Informations complémentaires → Exécuter quand même.
+
+Laissez la fenêtre ouverte : l'agent travaille tant qu'elle l'est.
+Dans la plateforme, Pilotage affiche « Agent local : actif » avec le nom de
+cet ordinateur.
+
+Un seul agent par ordinateur, avec la clé de VOTRE compte : ce paquet a été
+préconfiguré avec elle au téléchargement — ne le partagez pas.
+
+En cas de problème
+------------------
+Diagnostic : ouvrez un terminal dans ce dossier et tapez
+    python3 postflow_agent.py --check        (Windows : py -3 postflow_agent.py --check)
+Il dit si la plateforme accepte la clé et si NSTBrowser répond.
+Le journal de l'agent est dans le fichier agent.log de ce dossier.

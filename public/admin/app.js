@@ -1704,7 +1704,25 @@ async function loadRunners() {
     notice(e.message, 'error');
   }
 }
+/** Les agents locaux : sans eux, aucun navigateur ne s'ouvre tout seul. */
+function renderAgents() {
+  const agents = state.runners?.agents;
+  if (!Array.isArray(agents)) return;
+  const alive = agents.filter((a) => a.alive);
+  const ago_ = (t) => ago(t);
+  $('#agent-strip').className = `agent-strip ${alive.length ? 'ok' : 'warn'}`;
+  $('#agent-strip').innerHTML = alive.length
+    ? `<b>🖥 Agent local actif</b> ` +
+      alive
+        .map((a) => `<span class="chip join-joined" title="${esc(`${a.os || ''} · version ${a.version || '?'} · compte ${a.owner || '?'}`)}">${esc(a.host)} · ${a.runningBrowsers} navigateur(s) · ${esc(ago_(a.lastSeenAt))}</span>`)
+        .join(' ') +
+      (agents.length > alive.length ? ` <span class="muted">${agents.length - alive.length} autre(s) muet(s)</span>` : '')
+    : `<b>⚠ Aucun agent local actif</b> : les navigateurs ne s’ouvrent pas tout seuls et ne se rouvrent pas après la veille. ` +
+      (agents.length ? `Dernier vu : ${esc(agents[0].host)}, ${esc(ago_(agents[0].lastSeenAt))}. ` : '') +
+      `<a href="/extensions" data-goto="/extensions">Télécharger l’agent (page Extensions)</a>`;
+}
 function renderRunners() {
+  renderAgents();
   const data = state.runners;
   if (!data) return;
   $('#publishing-enabled').checked = data.publishingEnabled;

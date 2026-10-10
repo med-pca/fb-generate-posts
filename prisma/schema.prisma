@@ -963,3 +963,23 @@ model Visual {
   @@index([ownerId])
   @@map("visuals")
 }
+
+/// Un agent local (postflow_agent.py) vu par la plateforme : sur quelle
+/// machine, pour quel compte, quand pour la dernière fois. C'est lui qui ouvre
+/// les navigateurs NSTBrowser ; sans agent, rien ne s'ouvre ni ne se rouvre
+/// après la veille. Une ligne par compte et par machine.
+model AgentHeartbeat {
+  id              String   @id @default(cuid())
+  /// L'id du compte, ou `global` pour la clé d'automatisation globale.
+  ownerKey        String   @map("owner_key")
+  ownerId         String?  @map("owner_id")
+  host            String
+  version         String?
+  os              String?
+  runningBrowsers Int      @default(0) @map("running_browsers")
+  lastSeenAt      DateTime @map("last_seen_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([ownerKey, host])
+  @@map("agent_heartbeats")
+}
