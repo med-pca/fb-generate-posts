@@ -14,6 +14,8 @@ import * as tab from './tab.js';
 import * as cdp from './cdp.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Tentatives au plus pour chaque étape vérifiée, avant de passer à la suite. */
+export const MAX_TRIES = 3;
 
 const result = (fields) => ({
   success: false,
@@ -193,23 +195,39 @@ async function afterSubmit(tabId, config, job, submitted) {
     await tab.navigate(tabId, permalink, config);
     await run('verifyPublished', { content });
   }
-  await info('Ajout du premier commentaire...');
-  let written = await run('writeComment', { postContent: content, comment: firstComment });
-  if (!written.ok && permalink) {
-    // Sending a comment can take the tab elsewhere (Facebook follows the
-    // focused link on some layouts). The post's own page has the answer.
-    await info('Reouverture du post pour confirmer le commentaire...');
-    await tab.navigate(tabId, permalink, config);
-    const landed = await run('commentPosted', { postContent: content, comment: firstComment });
-    if (landed.ok) written = { ok: true };
+  // Chaque étape est vérifiée et refaite si elle n'a pas eu lieu (souris
+  // bougée, saisie perdue) — 3 tentatives au plus, puis on passe à la suite.
+  let written = { ok: false, reason: 'not tried' };
+  for (let attempt = 1; attempt <= MAX_TRIES && !written.ok; attempt += 1) {
+    if (attempt > 1) {
+      if (!permalink) break;
+      await info(`Premier commentaire absent : tentative ${attempt}/${MAX_TRIES}...`);
+      await tab.navigate(tabId, permalink, config);
+      // Peut-être posé malgré tout : on regarde avant de réécrire.
+      const there = await run('commentPosted', { postContent: content, comment: firstComment, stepTimeoutMs: 8000 });
+      if (there.ok) { written = { ok: true }; break; }
+    } else {
+      await info('Ajout du premier commentaire...');
+    }
+    written = await run('writeComment', { postContent: content, comment: firstComment });
+    if (written.ok && permalink) {
+      // Confirmé sur une page rechargée, pas seulement à l'écran.
+      await tab.navigate(tabId, permalink, config);
+      const landed = await run('commentPosted', { postContent: content, comment: firstComment, stepTimeoutMs: 15000 });
+      if (!landed.ok) written = { ok: false, reason: `absent apres rechargement : ${landed.reason}` };
+    }
   }
   if (!written.ok) {
-    return { ...published, success: false, message: `Post publie, mais le premier commentaire a echoue : ${written.reason}` };
+    return { ...published, success: false, message: `Post publie, mais le premier commentaire a echoue apres ${MAX_TRIES} tentatives : ${written.reason}` };
   }
 
-  const identifiedComment = await run('readCommentId', { comment: firstComment });
+  let identifiedComment = { ok: false, reason: 'not read' };
+  for (let attempt = 1; attempt <= MAX_TRIES && !identifiedComment.ok; attempt += 1) {
+    if (attempt > 1 && permalink) await tab.navigate(tabId, permalink, config);
+    identifiedComment = await run('readCommentId', { comment: firstComment });
+  }
   if (identifiedComment.ok) await info(`Commentaire ${identifiedComment.id} enregistre`);
-  else await warn(`ID du commentaire illisible : ${identifiedComment.reason}`);
+  else await warn(`ID du commentaire illisible apres ${MAX_TRIES} tentatives : ${identifiedComment.reason}`);
 
   return {
     ...published,

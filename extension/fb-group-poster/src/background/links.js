@@ -14,6 +14,7 @@ import { composeFirstComment } from '../common/text.js';
 import { info, warn, error } from '../common/log.js';
 import * as tab from './tab.js';
 import * as cdp from './cdp.js';
+import { MAX_TRIES } from './publish.js';
 
 const EVENT_PLACED = 'WORKER_LINK_PLACED';
 const EVENT_FAILED = 'WORKER_LINK_FAILED';
@@ -92,24 +93,48 @@ async function placeOne(tabId, api, config, update, tally, trusted) {
     return;
   }
 
-  const target = where.includes('comment_id=')
-    ? where
-    : `${where}${where.includes('?') ? '&' : '?'}comment_id=${update.commentExternalId}`;
+  const postUrl = where.replace(/[?&]comment_id=[^&]*/, '');
+  const targetOf = (commentId) => `${postUrl}${postUrl.includes('?') ? '&' : '?'}comment_id=${commentId}`;
+  const stepMs = config.stepTimeoutSeconds * 1000;
 
-  let saved;
+  let saved = { ok: false, reason: 'not tried' };
   try {
-    await info(`Pose du lien dans le commentaire ${update.commentExternalId}`);
-    await tab.navigate(tabId, target, config);
-    if (config.focusWorkTab) await tab.focus(tabId);
-    const stepMs = config.stepTimeoutSeconds * 1000;
-    saved = trusted
-      ? await editTrusted(tabId, update.commentExternalId, link, stepMs, config)
-      : await tab.step(
-        tabId,
-        'editCommentById',
-        { commentId: update.commentExternalId, newText: link, stepTimeoutMs: stepMs },
-        stepMs + 20000,
-      );
+    // Chaque tour : le commentaire est-il là ? (sinon le retrouver ou le
+    // reposer), le modifier, puis vérifier l'URL sur une page RECHARGÉE.
+    // 3 tours au plus, puis on passe à la suite (nouvel essai à la clôture).
+    for (let round = 1; round <= MAX_TRIES; round += 1) {
+      if (round > 1) await info(`Lien absent du commentaire : tentative ${round}/${MAX_TRIES}`);
+      await info(`Pose du lien dans le commentaire ${update.commentExternalId}`);
+      await tab.navigate(tabId, targetOf(update.commentExternalId), config);
+      if (config.focusWorkTab) await tab.focus(tabId);
+
+      const present = await tab.step(tabId, 'locateComment', { commentId: update.commentExternalId, timeoutMs: 15000 }, 25000);
+      if (!present.ok) {
+        const found = await ensureComment(tabId, api, config, update, postUrl);
+        if (!found.ok) { saved = found; continue; }
+        update.commentExternalId = found.id;
+        await tab.navigate(tabId, targetOf(found.id), config);
+      }
+
+      saved = trusted
+        ? await editTrusted(tabId, update.commentExternalId, link, stepMs, config)
+        : await tab.step(
+          tabId,
+          'editCommentById',
+          { commentId: update.commentExternalId, newText: link, stepTimeoutMs: stepMs },
+          stepMs + 20000,
+        );
+      if (!saved.ok) {
+        if (saved.skipped) break;
+        continue;
+      }
+      // Vérification sur une page rechargée : l'écran peut montrer une saisie
+      // que Facebook n'a pas gardée.
+      await tab.navigate(tabId, targetOf(update.commentExternalId), config);
+      const kept = await until(tabId, 'commentHoldsText', { commentId: update.commentExternalId, text: link }, 15000);
+      if (kept.ok) break;
+      saved = { ok: false, reason: `apres rechargement, le commentaire ne porte pas le lien : ${kept.reason}` };
+    }
   } catch (err) {
     tally.failed += 1;
     tally.errors.push(`${update.postId}: ${err.message}`);
@@ -148,6 +173,40 @@ async function placeOne(tabId, api, config, update, tally, trusted) {
   await api.log(EVENT_PLACED, `Link placed: ${link}`, ids);
 }
 
+/* Le premier commentaire n'est plus là où on l'a enregistré : chercher un
+ * « . » de notre compte sous le post (il existe peut-être sous un autre id),
+ * sinon en poser un nouveau. Le nouvel id est enregistré sur la plateforme
+ * (il remplace l'ancien), puis le lien y est posé. 3 tentatives au plus. */
+export async function ensureComment(tabId, api, config, update, postUrl) {
+  const placeholder = String(config.firstCommentText || '').trim() || '.';
+  const stepMs = config.stepTimeoutSeconds * 1000;
+  const run = (name, args = {}) => tab.step(tabId, name, { stepTimeoutMs: stepMs, ...args }, stepMs + 20000);
+  let reason = 'not tried';
+  for (let attempt = 1; attempt <= MAX_TRIES; attempt += 1) {
+    await tab.navigate(tabId, postUrl, config);
+    let found = await run('readCommentId', { comment: placeholder, stepTimeoutMs: 8000 });
+    if (!found.ok) {
+      await warn(`Premier commentaire introuvable sous le post ${update.postId} : pose d'un nouveau « ${placeholder} » (${attempt}/${MAX_TRIES})`);
+      const written = await run('writeComment', { postContent: '', comment: placeholder });
+      if (!written.ok) { reason = written.reason; continue; }
+      await tab.navigate(tabId, postUrl, config);
+      found = await run('readCommentId', { comment: placeholder });
+      if (!found.ok) { reason = found.reason; continue; }
+    } else {
+      await info(`Premier commentaire retrouve : ${found.id}`);
+    }
+    if (found.id === update.commentExternalId) return { ok: true, id: found.id };
+    try {
+      await api.markCommented(update.jobId, update.postId, found.id, { replace: true });
+    } catch (err) {
+      reason = `nouveau commentaire non enregistre : ${err.message}`;
+      continue;
+    }
+    return { ok: true, id: found.id };
+  }
+  return { ok: false, reason: `premier commentaire introuvable et non repose apres ${MAX_TRIES} tentatives : ${reason}` };
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 const SHORT_MS = 5000;
@@ -184,7 +243,7 @@ async function editTrusted(tabId, commentId, newText, stepMs, config) {
   const deadline = Date.now() + stepMs;
   let reason = 'the comment never became editable';
   let attempt = 0;
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && attempt < MAX_TRIES) {
     attempt += 1;
     if (attempt > 1) await cdp.pressEscape(tabId).catch(() => null);
 

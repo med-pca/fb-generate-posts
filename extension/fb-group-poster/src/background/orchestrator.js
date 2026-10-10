@@ -19,9 +19,11 @@ import { info, warn, error } from '../common/log.js';
 import { JobApi, ApiError, ClaimLostError } from './api.js';
 import { fetchImage, ImageError } from './media.js';
 import { publishPost, findPublished } from './publish.js';
-import { placeLinks, placeLinkNow } from './links.js';
+import { placeLinks, placeLinkNow, ensureComment } from './links.js';
+import { checkApprovals } from './approvals.js';
 import { askControl, applyPushedSettings } from './control.js';
 import * as tab from './tab.js';
+import { SUSPENDED_KEY } from './tab.js';
 import { sleepPlan, fallAsleep } from './sleep.js';
 
 // Event types written to the API's activity log (same names as the Python).
@@ -221,6 +223,20 @@ async function drive() {
       return;
     }
     const api = new JobApi(config.apiBaseUrl, config.apiKey);
+    // Une page de suspension a été vue : la plateforme arrête le profil et
+    // confie son travail aux autres ; ici, on s'arrête net.
+    const seen = (await chrome.storage.local.get(SUSPENDED_KEY))[SUSPENDED_KEY];
+    if (seen) {
+      try {
+        await api.reportSuspension(config.profileExternalId, seen);
+        await chrome.storage.local.remove(SUSPENDED_KEY);
+      } catch (err) {
+        await warn(`Suspension non signalee a la plateforme : ${err.message} (nouvel essai au prochain demarrage)`);
+      }
+      await setState({ job: null, index: 0, phase: 'claim', inFlight: null });
+      await stop(seen.kind === 'disabled' ? 'Compte suspendu par Facebook : profil arrete (voir Profils)' : 'Facebook demande une verification du compte : profil arrete (voir Profils)');
+      return;
+    }
     switch (state.phase) {
       case 'recover': await recover(config, api, state); break;
       case 'claim': await doClaim(config, api, state); break;
@@ -245,6 +261,16 @@ async function doClaim(config, api, state) {
   if (state.once && (state.stats.published || state.stats.failed)) {
     await stop('Un seul lot demande, termine');
     return;
+  }
+
+  // Le lot précédent est fini : ses posts en attente de validation sont-ils
+  // visibles maintenant ? Si oui, on finit leur travail avant d'en prendre d'autres.
+  if (!config.groupExternalId) {
+    try {
+      await checkApprovals(config, api);
+    } catch (err) {
+      await warn(`Revérification des posts en attente interrompue : ${err.message}`);
+    }
   }
 
   let claimed;
@@ -465,14 +491,27 @@ async function doPublish(config, api, state) {
     return;
   }
   await setState({ inFlight: null, author: published.author || state.author, lastMessage: published.message });
-  await linkRightAway(working.id, api, config, job, post, published);
+  await linkRightAway(working.id, api, config, job, post, published, firstComment);
   await nextPost(config, await getState(), job, post);
 }
 
 /* Publish -> comment -> the comment takes its URL, then the next post. A
  * failure here never stops the batch: the post is live and recorded, and the
  * pass at the end of the job retries whatever is still waiting. */
-async function linkRightAway(tabId, api, config, job, post, published) {
+async function linkRightAway(tabId, api, config, job, post, published, firstComment = '') {
+  if (!published.commentId && firstComment && post.willReceiveLink && published.permalink && published.postPublished) {
+    // L'id du premier commentaire n'a pas pu être lu (ou il n'a pas été posé) :
+    // le retrouver ou le reposer, puis continuer comme d'habitude.
+    const found = await ensureComment(tabId, api, { ...config, firstCommentText: firstComment }, { jobId: job.jobId, postId: post.id, commentExternalId: '' }, published.permalink)
+      .catch((err) => ({ ok: false, reason: err.message }));
+    if (!found.ok) {
+      await warn(`Premier commentaire du post ${post.id} : ${found.reason} (nouvel essai a la cloture du job)`);
+      return;
+    }
+    published.commentId = found.id;
+    const saved = await api.markCommented(job.jobId, post.id, found.id).catch(() => null);
+    published.linkUrl = saved && saved.url ? String(saved.url) : published.linkUrl;
+  }
   if (!published.commentId) return;
   if (!published.linkUrl) {
     if (post.willReceiveLink) {
@@ -643,7 +682,9 @@ async function confirm(api, job, post, published, config, ids) {
     const message = String(published.message || '').toLowerCase();
     const pending = message.includes('validation') || message.includes('approval') || message.includes('moderateur');
     const linkMissing = message.includes('commentaire');
-    await api.markPublished(job.jobId, post.id, published.permalink);
+    // En attente de validation : la plateforme le garde en attente, et ce
+    // profil reviendra voir après chacun de ses lots.
+    await api.markPublished(job.jobId, post.id, published.permalink, { pendingApproval: pending });
     await recordComment(api, job, post, published, ids);
     await api.log(
       pending ? EVENT_PENDING : linkMissing ? EVENT_LINK_NOT_ADDED : EVENT_PARTIAL,

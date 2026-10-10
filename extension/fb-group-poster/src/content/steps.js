@@ -213,6 +213,26 @@
 
   steps.ping = async () => ({ ok: true, url: location.href, author: D.getAuthor() });
 
+  /* Le compte est-il utilisable ? `disabled` : « Nous avons suspendu votre
+   * compte » ; `checkpoint` : Facebook demande de confirmer l'identité. Une
+   * « limite de publication » n'est PAS une suspension (traitée ailleurs). */
+  steps.accountState = async () => {
+    const text = D.norm((document.body && document.body.innerText) || '').slice(0, 6000);
+    const url = location.href;
+    const disabled = /we suspended your account|your account (has been|was) (disabled|suspended)|account disabled|nous avons suspendu votre compte|votre compte a (été|ete) (désactivé|desactive|suspendu)|hemos suspendido tu cuenta|tu cuenta (fue|ha sido) (inhabilitada|suspendida|desactivada)|suspendemos (a )?sua conta|sua conta foi (desativada|suspensa)|لقد (قمنا ب)?تعليق حسابك|تم (تعطيل|تعليق) حسابك/i;
+    const checkpoint = /confirm (it'?s you|your identity)|we need more information|help us confirm|confirmez votre identit|confirmez qu.il s.agit bien de vous|nous avons besoin de plus d.informations|confirma tu identidad|necesitamos m[aá]s informaci[oó]n|confirme sua identidade|تأكيد هويتك|نحتاج إلى مزيد من المعلومات/i;
+    const match = (re) => (text.match(re) || [''])[0];
+    // Une page de suspension est courte, ou à une adresse de vérification :
+    // la même phrase dans un post d'un groupe (fil long) ne compte pas.
+    const gate = /\/checkpoint\/|\/disabled|account_status|suspended/i.test(url) || text.length < 4000;
+    if (!gate) return { ok: true, state: 'ok', url };
+    if (disabled.test(text)) return { ok: true, state: 'disabled', detail: match(disabled), url };
+    if (/\/checkpoint\//.test(url) || checkpoint.test(text)) {
+      return { ok: true, state: 'checkpoint', detail: match(checkpoint) || 'page de vérification Facebook', url };
+    }
+    return { ok: true, state: 'ok', url };
+  };
+
   steps.setAuthor = async ({ name }) => {
     D.setAuthor(name || '');
     return { ok: true, author: D.getAuthor() };

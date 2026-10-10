@@ -177,6 +177,14 @@ model Profile {
   defaultImageUrl          String?          @map("default_image_url")
   minPostsPerJob           Int              @default(2) @map("min_posts_per_job")
   maxPostsPerJob           Int              @default(6) @map("max_posts_per_job")
+  /// Suspendu par Facebook, vu par l'extension Publication : `disabled`
+  /// (« Nous avons suspendu votre compte ») ou `checkpoint` (vérification
+  /// demandée, souvent récupérable). Le profil ne travaille plus, ses posts
+  /// passent aux autres. Une « limite de publication » n'est PAS une
+  /// suspension (c'est la pause de ProfileRunner).
+  facebookSuspension       String?          @map("facebook_suspension")
+  suspendedAt              DateTime?        @map("suspended_at")
+  suspensionDetail         String?          @map("suspension_detail") @db.Text
   /// Seuils d'alimentation propres au profil. NULL = suivre le réglage global.
   minimumAvailable         Int?             @map("minimum_available")
   minimumAvailablePerGroup Int?             @map("minimum_available_per_group")
@@ -312,6 +320,13 @@ model ProfileGroup {
   /// Réservé par un vérificateur jusqu'à cette heure (ou repoussé).
   memberClaimedUntil   DateTime?    @map("member_claimed_until")
   memberAttempts       Int          @default(0) @map("member_attempts")
+  /// Retrait d'un profil suspendu (« Nous avons suspendu votre compte ») de
+  /// ce groupe, demandé par un administrateur et fait par le modérateur.
+  removalRequestedAt   DateTime?    @map("removal_requested_at")
+  removalClaimedUntil  DateTime?    @map("removal_claimed_until")
+  removalAttempts      Int          @default(0) @map("removal_attempts")
+  removalError         String?      @map("removal_error") @db.Text
+  removedAt            DateTime?    @map("removed_at")
   /// L'admin a demandé cette action au modérateur (accepter / pré-approuver) :
   /// elle passe en tête de sa file. Effacé au rapport.
   memberRequestedAt    DateTime?    @map("member_requested_at")
@@ -607,55 +622,65 @@ model AutomationSetting {
 }
 
 model PostTarget {
-  id                 String               @id @default(cuid())
-  postId             String               @map("post_id")
-  post               Post                 @relation(fields: [postId], references: [id], onDelete: Cascade)
-  groupId            String               @map("group_id")
-  group              Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  status             TargetStatus         @default(AVAILABLE)
-  claimedAt          DateTime?            @map("claimed_at")
-  claimExpiresAt     DateTime?            @map("claim_expires_at")
-  consumedAt         DateTime?            @map("consumed_at")
-  publishedAt        DateTime?            @map("published_at")
-  commentExternalId  String?              @map("comment_external_id")
-  commentedAt        DateTime?            @map("commented_at")
-  linkUpdatedAt      DateTime?            @map("link_updated_at")
-  attemptsCount      Int                  @default(0) @map("attempts_count")
-  lastError          String?              @map("last_error") @db.Text
+  id                      String               @id @default(cuid())
+  postId                  String               @map("post_id")
+  post                    Post                 @relation(fields: [postId], references: [id], onDelete: Cascade)
+  groupId                 String               @map("group_id")
+  group                   Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status                  TargetStatus         @default(AVAILABLE)
+  claimedAt               DateTime?            @map("claimed_at")
+  claimExpiresAt          DateTime?            @map("claim_expires_at")
+  consumedAt              DateTime?            @map("consumed_at")
+  publishedAt             DateTime?            @map("published_at")
+  commentExternalId       String?              @map("comment_external_id")
+  commentedAt             DateTime?            @map("commented_at")
+  linkUpdatedAt           DateTime?            @map("link_updated_at")
+  /// Soumis, mais le groupe exige la validation d'un administrateur : le post
+  /// n'est pas encore visible. Il reste PUBLISHED (jamais republié), ne compte
+  /// pas dans l'objectif, et son profil revient voir après chaque lot ; validé,
+  /// le travail continue (« . » puis URL). Au bout d'1 jour : non validé.
+  approvalPendingSince    DateTime?            @map("approval_pending_since")
+  approvalCheckedAt       DateTime?            @map("approval_checked_at")
+  approvalChecks          Int                  @default(0) @map("approval_checks")
+  /// Le modérateur (administrateur du groupe) valide lui-même le post.
+  approvalModClaimedUntil DateTime?            @map("approval_mod_claimed_until")
+  approvalModAttempts     Int                  @default(0) @map("approval_mod_attempts")
+  attemptsCount           Int                  @default(0) @map("attempts_count")
+  lastError               String?              @map("last_error") @db.Text
   /// Envoi forcé : ce profil prend cette cible en premier à son prochain
   /// passage, et aucun autre ne la prend entre-temps. NULL = file normale.
-  forcedProfileId    String?              @map("forced_profile_id")
-  forcedProfile      Profile?             @relation("ForcedTargets", fields: [forcedProfileId], references: [id], onDelete: SetNull)
-  forcedAt           DateTime?            @map("forced_at")
+  forcedProfileId         String?              @map("forced_profile_id")
+  forcedProfile           Profile?             @relation("ForcedTargets", fields: [forcedProfileId], references: [id], onDelete: SetNull)
+  forcedAt                DateTime?            @map("forced_at")
   /// La vérification par le profil vérificateur : NULL = pas encore vérifié.
   /// Un post republié (REPUBLISHED) repasse en vérification une fois publié.
-  verifyStatus       VerifyStatus?        @map("verify_status")
-  verifiedAt         DateTime?            @map("verified_at")
-  verifyDetail       String?              @map("verify_detail") @db.Text
+  verifyStatus            VerifyStatus?        @map("verify_status")
+  verifiedAt              DateTime?            @map("verified_at")
+  verifyDetail            String?              @map("verify_detail") @db.Text
   /// Réservé par un vérificateur jusqu'à cette heure (ou repoussé : en
   /// attente de modération, page injoignable).
-  verifyClaimedUntil DateTime?            @map("verify_claimed_until")
-  verifyAttempts     Int                  @default(0) @map("verify_attempts")
+  verifyClaimedUntil      DateTime?            @map("verify_claimed_until")
+  verifyAttempts          Int                  @default(0) @map("verify_attempts")
   /// Combien de fois la vérification l'a remis dans la file : plafonné, pour
   /// ne pas republier sans fin dans un groupe qui refuse.
-  republishCount     Int                  @default(0) @map("republish_count")
+  republishCount          Int                  @default(0) @map("republish_count")
   /// Le profil qui a publié une version incomplète (photo sans commentaire,
   /// « . » jamais remplacé par le lien) : la republication va à un AUTRE
   /// profil du groupe. NULL = n'importe lequel.
-  avoidProfileId     String?              @map("avoid_profile_id")
+  avoidProfileId          String?              @map("avoid_profile_id")
   /// Combien de fois la duplication l'a remis dans la file, une fois l'écart
   /// écoulé : publications faites dans ce groupe = repeatRound + 1.
-  repeatRound        Int                  @default(0) @map("repeat_round")
+  repeatRound             Int                  @default(0) @map("repeat_round")
   /// L'adresse Facebook de la publication en ligne : donnée par l'extension
   /// de publication, retrouvée par le vérificateur, ou collée par l'admin.
   /// Effacée quand la publication est remise dans la file ; l'ancienne reste
   /// dans l'historique (`traces`).
-  facebookUrl        String?              @map("facebook_url") @db.Text
-  jobItems           PublicationJobItem[]
-  logs               ActivityLog[]
-  traces             PublicationTrace[]
-  createdAt          DateTime             @default(now()) @map("created_at")
-  updatedAt          DateTime             @updatedAt @map("updated_at")
+  facebookUrl             String?              @map("facebook_url") @db.Text
+  jobItems                PublicationJobItem[]
+  logs                    ActivityLog[]
+  traces                  PublicationTrace[]
+  createdAt               DateTime             @default(now()) @map("created_at")
+  updatedAt               DateTime             @updatedAt @map("updated_at")
 
   @@unique([postId, groupId])
   @@index([groupId, status])

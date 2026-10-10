@@ -1047,7 +1047,7 @@ function render() {
     state.profiles
       .map(
         (p) =>
-          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${healthBadge(p.health)}${state.me?.role === 'ADMIN' ? ` <span class="chip" title="Compte qui pilote ce profil">👤 ${esc(p.owner ? p.owner.username : 'Administration')}</span>` : ''}</p>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
+          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${p.facebookSuspension ? `<span class="chip ${p.facebookSuspension === 'disabled' ? 'join-failed' : 'join-requested'}" title="${esc(p.suspensionDetail || '')}">${p.facebookSuspension === 'disabled' ? '🚫 Suspendu par Facebook' : '⚠ Vérification Facebook'}</span> ` : ''}${healthBadge(p.health)}${state.me?.role === 'ADMIN' ? ` <span class="chip" title="Compte qui pilote ce profil">👤 ${esc(p.owner ? p.owner.username : 'Administration')}</span>` : ''}</p>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
       )
       .join('') || '<div class="empty">Créez votre premier profil.</div>';
   $('#group-rows').innerHTML =
@@ -1468,7 +1468,8 @@ function renderObjective() {
     kpi(p.projection, 'projection fin de plage', p.target ? (p.projection >= p.target ? 'objectif tenu' : `manque ${p.target - p.projection}`) : '', p.target && p.projection < p.target ? 'bad' : '') +
     kpi(o.stock.publishable, 'posts prêts', o.stock.blocked ? `+${o.stock.blocked} bloqués` : 'dans des groupes actifs', o.stock.deficit ? 'bad' : '') +
     kpi(o.articles.needed, 'articles à importer', `${o.articles.today} reçu(s) aujourd’hui`, o.articles.needed ? 'bad' : '') +
-    kpi(`${o.profiles.atWork}/${o.profiles.participating}`, 'profils au travail', o.profiles.share ? `${o.profiles.share} posts chacun` : '');
+    kpi(`${o.profiles.atWork}/${o.profiles.participating}`, 'profils au travail', o.profiles.share ? `${o.profiles.share} posts chacun` : '') +
+    (o.awaitingApproval ? kpi(o.awaitingApproval, '⏳ en attente de validation', 'comptés une fois validés') : '');
 
   $('#obj-advice').innerHTML = o.advice
     .map((a) => `<li class="${a.level}"><span>${a.level === 'ok' ? '✓' : a.level === 'error' ? '✕' : '!'}</span>${esc(a.text)}</li>`)
@@ -1731,7 +1732,9 @@ function renderRunners() {
   $('#runner-rows').innerHTML =
     shown
       .map((r) => {
-        const worker = r.pausedUntil
+        const worker = r.facebookSuspension
+          ? `<span class="chip join-failed" title="${esc(r.suspensionDetail || '')}">${r.facebookSuspension === 'disabled' ? '🚫 suspendu par Facebook' : '⚠ vérification Facebook demandée'}</span>`
+          : r.pausedUntil
           ? `<span class="chip join-failed" title="${esc(r.pauseReason || 'Facebook a limité ses publications')}">⏸ en pause jusqu’au ${esc(new Date(r.pausedUntil).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · limité par Facebook</span>`
           : r.sleepUntil
           ? `<span class="chip sleep" title="Navigateur fermé pour libérer la mémoire ; l’agent local le rouvre à l’heure">💤 en veille jusqu’à ${esc(new Date(r.sleepUntil).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</span>`
@@ -5427,8 +5430,71 @@ $('#member-actions').addEventListener('click', async (e) => {
   await loadMemberActions();
 });
 
+/* ── Nos profils suspendus par Facebook ─────────────────────────────────── */
+const SUSPENSION_LABELS = { disabled: ['join-failed', '🚫 Suspendu par Facebook'], checkpoint: ['join-requested', '⚠ Vérification demandée'] };
+async function loadSuspended() {
+  let rows;
+  try {
+    rows = await api('/admin/verify/suspended');
+  } catch {
+    return;
+  }
+  if (!Array.isArray(rows)) rows = [];
+  const admin = isAdminUser();
+  $('#suspended-rows').innerHTML =
+    rows
+      .map((p) => {
+        const [tone, label] = SUSPENSION_LABELS[p.kind] || ['', p.kind];
+        const since = p.suspendedAt ? new Date(p.suspendedAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+        const progress = p.requested
+          ? `<span class="chip join-requested">${p.requested} en cours</span>${p.failing ? ` <span class="chip join-failed" title="${esc(p.lastError || '')}">${p.failing} en échec</span>` : ''}`
+          : p.removed
+            ? `<span class="chip join-joined">${p.removed} retiré(s)</span>`
+            : '<span class="muted">—</span>';
+        const actions = !admin
+          ? ''
+          : (p.kind === 'disabled' && p.groups
+              ? `<button class="danger" type="button" data-suspend-remove="${p.id}" data-name="${esc(p.name)}" data-groups="${p.groups}" ${p.facebookUserId ? '' : 'disabled title="Identifiant Facebook inconnu : renseignez-le d’abord"'}>🚫 Retirer de nos groupes (${p.groups})</button>`
+              : '') +
+            `<button class="edit" type="button" data-suspend-clear="${p.id}" data-name="${esc(p.name)}">↺ Marquer rétabli</button>`;
+        return (
+          `<tr><td><b>${esc(p.name)}</b><small>${esc(p.facebookUserId ? `Facebook ${p.facebookUserId}` : 'identifiant Facebook inconnu')}</small></td>` +
+          `<td><span class="chip ${tone}">${label}</span><small>${esc(since)}${p.detail ? ` · ${esc(p.detail.slice(0, 120))}` : ''}</small>` +
+          `${p.kind === 'checkpoint' ? '<small>Récupérable : confirmez l’identité sur Facebook, puis « Marquer rétabli ».</small>' : ''}</td>` +
+          `<td>${p.groups} groupe(s)</td><td>${progress}</td><td><div class="row-actions">${actions}</div></td></tr>`
+        );
+      })
+      .join('') || '<tr><td colspan="5" class="empty">Aucun profil suspendu par Facebook 🎉</td></tr>';
+}
+$('#suspended-rows').onclick = async (e) => {
+  const remove = e.target.closest('[data-suspend-remove]');
+  const clear = e.target.closest('[data-suspend-clear]');
+  if (remove) {
+    const { suspendRemove: id, name, groups } = remove.dataset;
+    if (!await ask(`Retirer « ${name} » de ses ${groups} groupe(s) ?\nLe modérateur le retire de chaque groupe sur Facebook, à rythme humain, et le lien est délié dans la plateforme. S’il récupère son compte plus tard, il devra redemander chaque groupe.`, { tone: 'danger', confirmLabel: 'Retirer' })) return;
+    try {
+      const r = await api(`/profiles/${id}/remove-from-groups`, { method: 'POST' });
+      notice(`Retrait demandé au modérateur : ${r.requested} groupe(s).`);
+      await loadSuspended();
+    } catch (x) {
+      notice(x.message, 'error');
+    }
+  } else if (clear) {
+    const { suspendClear: id, name } = clear.dataset;
+    if (!await ask(`Marquer « ${name} » rétabli ?\nIl pourra de nouveau publier : rallumez son mode dans le Pilotage. Les retraits pas encore faits sont annulés.`, { confirmLabel: 'Marquer rétabli' })) return;
+    try {
+      await api(`/profiles/${id}/suspension/clear`, { method: 'POST' });
+      notice(`« ${name} » rétabli.`);
+      await loadSuspended();
+    } catch (x) {
+      notice(x.message, 'error');
+    }
+  }
+};
+
 async function loadModerators() {
   void loadAudit();
+  void loadSuspended();
   void loadMemberActions();
   let d;
   try {

@@ -29,6 +29,7 @@ function setup() {
       findMany: async () => [...published(40, 'g1', 'salim'), ...published(20, 'g2', 'nadia', 30)],
     },
     postTarget: {
+      count: async () => 0,
       groupBy: async () => [
         { groupId: 'g1', _count: { _all: 30 } },
         { groupId: 'g2', _count: { _all: 10 } },
@@ -99,6 +100,7 @@ describe('InsightsService.objective — plan du jour en articles', () => {
       automationSetting: { upsert: async () => ({ dailyTarget: 300, objectiveStart: 480, objectiveEnd: 1320, objectiveTimezone: 'Europe/Paris' }) },
       publicationJobItem: { findMany: async () => items },
       postTarget: {
+        count: async () => 0,
         groupBy: async (args: any) =>
           args.by[0] === 'postId'
             ? [{ postId: 'B', _count: { _all: 15 } }, { postId: 'C', _count: { _all: 20 } }, { postId: 'D', _count: { _all: 20 } }]
@@ -151,7 +153,7 @@ describe('InsightsService.objective — plage de 24 h', () => {
     const prisma: any = {
       automationSetting: { upsert: async () => ({ dailyTarget: 200, objectiveStart: 0, objectiveEnd: 0, objectiveTimezone: 'Europe/Paris', adaptivePacing: true, minPostGapMinutes: 5 }) },
       publicationJobItem: { findMany: async () => [] },
-      postTarget: { groupBy: async () => [] },
+      postTarget: { count: async () => 0, groupBy: async () => [] },
       group: { findMany: async () => groups },
       profile: { findMany: async () => [{ id: 'salim', name: 'Salim', runner: { mode: 'AUTO', running: true, lastSeenAt: now }, _count: { profileGroups: 10 } }] },
       article: { count: async () => 0 },

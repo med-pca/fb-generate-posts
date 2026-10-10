@@ -12,10 +12,11 @@ export class QueryProfilesDto extends PaginationDto {
   @MaxLength(200)
   search?: string;
 
-  @ApiPropertyOptional({ enum: ['ACTIVE', 'INACTIVE'] })
+  /** `SUSPENDED` : suspendus par Facebook (ou vérification demandée). */
+  @ApiPropertyOptional({ enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'] })
   @IsOptional()
-  @IsIn(['ACTIVE', 'INACTIVE'])
-  status?: 'ACTIVE' | 'INACTIVE';
+  @IsIn(['ACTIVE', 'INACTIVE', 'SUSPENDED'])
+  status?: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 
   /** Santé sur 14 jours ; `deactivate` = ceux qu'il vaudrait mieux désactiver. */
   @ApiPropertyOptional({ enum: ['good', 'watch', 'bad', 'new', 'deactivate'] })

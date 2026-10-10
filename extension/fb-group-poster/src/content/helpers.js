@@ -224,7 +224,9 @@
 
   const findPost = (text) => {
     const wanted = postKey(text);
-    if (!wanted) return null;
+    // Sans texte (la pose du lien ne le connaît pas) : sur la page d'UN post,
+    // la zone principale est ce post.
+    if (!wanted) return onePostPage() ? document.querySelector('[role="main"]') || document.body : null;
     // Newest first, so the first container holding the text is the new post.
     const hit = postContainers().find((c) => lettersOnly(c.innerText).includes(wanted) && byUs(c));
     if (hit) return hit;

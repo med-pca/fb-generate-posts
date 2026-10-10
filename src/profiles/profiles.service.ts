@@ -50,7 +50,8 @@ export class ProfilesService {
         ],
       });
     }
-    if (query.status) and.push({ status: query.status });
+    if (query.status === 'SUSPENDED') and.push({ facebookSuspension: { not: null } });
+    else if (query.status) and.push({ status: query.status });
     // Les modérateurs ont leur rubrique : ils ne se mêlent pas aux profils
     // qui publient (sauf pour les listes de filtres, qui les demandent).
     if (!query.withModerators) and.push({ isModerator: false });
@@ -114,6 +115,49 @@ export class ProfilesService {
         };
       });
     return paginated(data, kept.length, page, limit);
+  }
+
+  /** Retirer de nos groupes un profil que Facebook a SUSPENDU (« Nous avons
+   * suspendu votre compte ») — sur clic d'un administrateur. Le modérateur
+   * le retire de chaque groupe (Facebook) et le lien passe « retiré » dans la
+   * plateforme. Jamais pour une limite de publication ni une vérification
+   * demandée (récupérable : le compte devrait redemander chaque groupe). */
+  async requestGroupRemoval(id: string, acting: CurrentUser | null) {
+    const profile = await this.prisma.profile.findFirst({
+      where: { id, ...profileWhere(scopeOf(acting)) },
+      select: { id: true, name: true, facebookSuspension: true, facebookUserId: true },
+    });
+    if (!profile) throw new NotFoundException('Profil introuvable');
+    if (profile.facebookSuspension !== 'disabled') {
+      throw new BadRequestException('Seul un compte suspendu par Facebook (« Nous avons suspendu votre compte ») peut être retiré des groupes');
+    }
+    if (!profile.facebookUserId) {
+      throw new BadRequestException('Identifiant Facebook inconnu : le modérateur ne pourrait pas le reconnaître sûrement. Renseignez-le d’abord.');
+    }
+    const { count } = await this.prisma.profileGroup.updateMany({
+      where: { profileId: id, status: 'ACTIVE', removedAt: null },
+      data: { removalRequestedAt: new Date(), removalAttempts: 0, removalClaimedUntil: null, removalError: null },
+    });
+    await this.prisma.activityLog.create({
+      data: { profileId: id, eventType: 'PROFILE_REMOVAL_REQUESTED', message: `Retrait de « ${profile.name} » (suspendu par Facebook) de ${count} groupe(s) demandé au modérateur`, metadata: { groups: count, by: acting?.username ?? 'clé globale' } },
+    });
+    return { requested: count };
+  }
+
+  /** Le compte est récupéré : il peut reprendre (son mode reste à rallumer
+   * dans le Pilotage). Les retraits pas encore faits sont annulés. */
+  async clearSuspension(id: string, acting: CurrentUser | null) {
+    const profile = await this.prisma.profile.findFirst({ where: { id, ...profileWhere(scopeOf(acting)) }, select: { id: true, name: true } });
+    if (!profile) throw new NotFoundException('Profil introuvable');
+    await this.prisma.profile.update({ where: { id }, data: { facebookSuspension: null, suspendedAt: null, suspensionDetail: null } });
+    const { count } = await this.prisma.profileGroup.updateMany({
+      where: { profileId: id, removalRequestedAt: { not: null }, removedAt: null },
+      data: { removalRequestedAt: null, removalClaimedUntil: null },
+    });
+    await this.prisma.activityLog.create({
+      data: { profileId: id, eventType: 'PROFILE_SUSPENSION_CLEARED', message: `« ${profile.name} » marqué rétabli${count ? ` (${count} retrait(s) annulé(s))` : ''}`, metadata: { cancelled: count, by: acting?.username ?? 'clé globale' } },
+    });
+    return { cleared: true, cancelledRemovals: count };
   }
 
   /** Confier des profils à un gestionnaire (ADMIN seulement) : il les voit,

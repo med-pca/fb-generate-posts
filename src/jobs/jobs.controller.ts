@@ -24,6 +24,8 @@ import { CommentJobItemDto } from './dto/comment-job-item.dto';
 import { FailJobItemDto } from './dto/fail-job-item.dto';
 import { LinkUpdatedJobItemDto } from './dto/link-updated-job-item.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
+import { ApprovalReportDto } from './dto/approval-report.dto';
+import { SuspensionReportDto } from './dto/suspension.dto';
 import { JobsService } from './jobs.service';
 
 @ApiTags('jobs')
@@ -105,6 +107,37 @@ export class JobsController {
       groupExternalId,
       acting,
     );
+  }
+
+  @Post('profiles/:profileExternalId/suspended')
+  @ApiOperation({ summary: 'L’extension a vu le compte suspendu par Facebook (ou une vérification demandée) : arrêt et réaffectation' })
+  suspended(
+    @Param('profileExternalId') profileExternalId: string,
+    @Body() dto: SuspensionReportDto,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.jobs.suspendProfile(profileExternalId, dto, acting);
+  }
+
+  @Get('approvals/profile/:profileExternalId')
+  @ApiOperation({ summary: 'Posts de ce profil en attente de validation, à revérifier maintenant (après son lot)' })
+  approvalsDue(
+    @Param('profileExternalId') profileExternalId: string,
+    @ActingUser() acting: CurrentUser | null,
+    @Query('limit') limit?: string,
+  ) {
+    const n = Number(limit);
+    return this.jobs.approvalsDue(profileExternalId, acting, Number.isInteger(n) && n > 0 ? Math.min(n, 10) : 2);
+  }
+
+  @Post('approvals/:targetId')
+  @ApiOperation({ summary: 'Résultat d’une revérification : validé (visible) ou encore en attente' })
+  reportApproval(
+    @Param('targetId') targetId: string,
+    @Body() dto: ApprovalReportDto,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.jobs.reportApproval(targetId, dto, acting);
   }
 
   @Post(':jobId/posts/:postId/consumed')

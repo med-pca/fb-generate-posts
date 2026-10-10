@@ -540,6 +540,7 @@ export class RunnersService {
         name: true,
         externalId: true,
         status: true,
+        facebookSuspension: true,
         runner: true,
         owner: { select: { nstApiKey: true, status: true } },
       },
@@ -554,9 +555,10 @@ export class RunnersService {
         Boolean(profile.externalId),
       )
       .map((profile) => {
+        // Suspendu par Facebook : jamais rouvert, quoi que dise son mode.
         const decision = this.decide(
           profile.runner,
-          profile.status === 'ACTIVE',
+          profile.status === 'ACTIVE' && !profile.facebookSuspension,
           settings.publishingEnabled,
           now,
         );
@@ -702,6 +704,9 @@ export class RunnersService {
         isModerator: true,
         facebookUserId: true,
         facebookName: true,
+        facebookSuspension: true,
+        suspendedAt: true,
+        suspensionDetail: true,
         runner: true,
         owner: { select: { automationKey: true, status: true } },
       },
@@ -714,7 +719,7 @@ export class RunnersService {
       profiles: profiles.map((profile) => {
         const decision = this.decide(
           profile.runner,
-          profile.status === 'ACTIVE',
+          profile.status === 'ACTIVE' && !profile.facebookSuspension,
           settings.publishingEnabled,
           now,
         );
@@ -729,6 +734,10 @@ export class RunnersService {
           isModerator: profile.isModerator,
           facebookUserId: profile.facebookUserId,
           facebookName: profile.facebookName,
+          // Suspendu par Facebook (« disabled ») ou vérification demandée.
+          facebookSuspension: profile.facebookSuspension,
+          suspendedAt: profile.suspendedAt,
+          suspensionDetail: profile.suspensionDetail,
           mode: decision.mode,
           shouldRun: decision.run,
           reason: decision.reason,

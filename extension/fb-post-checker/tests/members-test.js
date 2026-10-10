@@ -8,6 +8,7 @@
 const path = require('path');
 const fs = require('fs');
 const { JSDOM } = require(path.join(__dirname, '../../../node_modules/jsdom'));
+const HUMAN = fs.readFileSync(path.join(__dirname, '../human.js'), 'utf8');
 const MEMBERS = fs.readFileSync(path.join(__dirname, '../members.js'), 'utf8');
 
 let ko = 0;
@@ -20,6 +21,8 @@ function page(body, url) {
   const w = dom.window;
   Object.defineProperty(w.HTMLElement.prototype, 'innerText', { get() { return this.textContent; } });
   w.scrollBy = () => {};
+  // Sans canal vers l'extension, human.js retombe sur les gestes simulés.
+  w.eval(HUMAN);
   w.eval(MEMBERS);
   return w;
 }

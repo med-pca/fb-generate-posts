@@ -455,3 +455,44 @@ describe('JobsService — réservation par lot', () => {
     expect(result.skipped[0].status).toBe('empty');
   });
 });
+
+/** Le premier commentaire a disparu : l'extension en repose un, qui remplace
+ * l'ancien tant que le lien n'est pas posé. */
+describe('JobsService — remplacer un premier commentaire disparu', () => {
+  function harness(over: Record<string, unknown>) {
+    const tx: any = {
+      publicationJobItem: { update: jest.fn(async ({ data }: any) => ({ id: 'item_1', ...data })) },
+      postTarget: { update: jest.fn(async () => ({})) },
+      activityLog: { create: jest.fn(async () => ({})) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
+    };
+    const prisma: any = {
+      publicationJob: { findFirst: jest.fn(async () => ({ id: 'job_1' })) },
+      publicationJobItem: {
+        findUnique: jest.fn(async () => ({
+          ...item({ commentExternalId: 'c-old', commentedAt: new Date(), linkUpdatedAt: null, ...over }),
+          job: { id: 'job_1', status: JobStatus.COMPLETED, claimExpiresAt: new Date(0) },
+          postTarget: { id: 'target_1', status: TargetStatus.PUBLISHED, claimExpiresAt: null },
+        })),
+      },
+      activityLog: { create: jest.fn(async () => ({})) },
+      $transaction: jest.fn(async (cb: any) => cb(tx)),
+    };
+    return { svc: service(prisma) as any, tx };
+  }
+
+  it('avec replace : le nouvel id remplace l’ancien, même lot clos', async () => {
+    const { svc, tx } = harness({});
+    const r = await svc.markCommented('job_1', 'post_1', { commentExternalId: 'c-new', replace: true });
+    expect(r.commentExternalId).toBe('c-new');
+    expect(tx.activityLog.create.mock.calls[0][0].data.eventType).toBe('COMMENT_REPLACED');
+  });
+
+  it('sans replace, ou lien déjà posé : l’ancien est gardé', async () => {
+    let h = harness({});
+    expect((await h.svc.markCommented('job_1', 'post_1', { commentExternalId: 'c-new' })).commentExternalId).toBe('c-old');
+    h = harness({ linkUpdatedAt: new Date() });
+    expect((await h.svc.markCommented('job_1', 'post_1', { commentExternalId: 'c-new', replace: true })).commentExternalId).toBe('c-old');
+    expect(h.tx.publicationJobItem.update).not.toHaveBeenCalled();
+  });
+});

@@ -13,7 +13,8 @@ import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
-import { AuditResultDto, MemberResultDto, ModeratorDto, ResolveDto, VerifyClaimDto, VerifyResultDto } from './dto/verify.dto';
+import { AuditResultDto, MemberResultDto, ModeratorDto, PostApprovalResultDto, RemovalResultDto, ResolveDto, VerifyClaimDto, VerifyResultDto } from './dto/verify.dto';
+import { GroupTasksService } from './group-tasks.service';
 import { AuditService } from './audit.service';
 import { VerifyService } from './verify.service';
 import { MembersService } from './members.service';
@@ -28,7 +29,36 @@ export class VerifyController {
     private readonly verify: VerifyService,
     private readonly members: MembersService,
     private readonly audit: AuditService,
+    private readonly groupTasks: GroupTasksService,
   ) {}
+
+  @Post('removals/claim')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Réserver les retraits de groupes demandés pour nos profils suspendus par Facebook' })
+  claimRemovals(@Body() dto: VerifyClaimDto, @ActingUser() acting: CurrentUser | null) {
+    return this.groupTasks.claimRemovals(dto.profileExternalId, dto.limit ?? 2, acting);
+  }
+
+  @Post('removals/:taskId/result')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Rapporter un retrait de groupe (fait, plus membre, pas la permission…)' })
+  removalResult(@Param('taskId') taskId: string, @Body() dto: RemovalResultDto, @ActingUser() acting: CurrentUser | null) {
+    return this.groupTasks.reportRemoval(taskId, dto, acting);
+  }
+
+  @Post('post-approvals/claim')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Réserver nos posts en attente de validation, à valider dans les groupes' })
+  claimPostApprovals(@Body() dto: VerifyClaimDto, @ActingUser() acting: CurrentUser | null) {
+    return this.groupTasks.claimApprovals(dto.profileExternalId, dto.limit ?? 2, acting);
+  }
+
+  @Post('post-approvals/:taskId/result')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Rapporter la validation d’un de nos posts en attente' })
+  postApprovalResult(@Param('taskId') taskId: string, @Body() dto: PostApprovalResultDto, @ActingUser() acting: CurrentUser | null) {
+    return this.groupTasks.reportApproval(taskId, dto, acting);
+  }
 
   @Post('members/audit/claim')
   @HttpCode(200)
@@ -105,7 +135,14 @@ export class AdminVerifyController {
   constructor(
     private readonly verify: VerifyService,
     private readonly members: MembersService,
+    private readonly groupTasks: GroupTasksService,
   ) {}
+
+  @Get('suspended')
+  @ApiOperation({ summary: 'Nos profils suspendus par Facebook, et le retrait de nos groupes' })
+  suspended(@ActingUser() acting: CurrentUser) {
+    return this.groupTasks.suspendedOverview(acting);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Bilan de la vérification et publications à traiter' })

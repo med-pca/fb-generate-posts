@@ -144,7 +144,7 @@
       MORE_COMMENTS.some((re) => re.test(textOf(el).trim())),
     );
     for (const b of buttons.slice(0, 3)) {
-      b.click();
+      await self.FPH.click(b);
       await sleep(1500);
     }
     return buttons.length > 0;
@@ -284,15 +284,15 @@
       MENU_BUTTON.some((re) => re.test(unmark(el.getAttribute('aria-label')))),
     );
     if (!menuButton) return { deleted: false, detail: 'menu du post introuvable' };
-    menuButton.click();
+    await self.FPH.click(menuButton);
     const item = await waitFor(() =>
       [...document.querySelectorAll('[role="menuitem"]')].find((el) => DELETE_ITEM.some((re) => re.test(label(el)))),
     );
     if (!item) {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await self.FPH.key('Escape');
       return { deleted: false, detail: 'pas d’option de suppression : le vérificateur est-il administrateur du groupe ?' };
     }
-    item.click();
+    await self.FPH.click(item);
     const confirm = await waitFor(() => {
       const dialogs = [...document.querySelectorAll('[role="dialog"]')];
       for (const d of dialogs.reverse()) {
@@ -304,7 +304,7 @@
       return null;
     });
     if (!confirm) return { deleted: false, detail: 'fenêtre de confirmation introuvable' };
-    confirm.click();
+    await self.FPH.click(confirm);
     await sleep(3000);
     return { deleted: true, detail: 'supprimé' };
   }

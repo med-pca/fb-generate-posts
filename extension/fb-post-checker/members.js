@@ -127,7 +127,7 @@
     const hit = await scrollFor(() => rowOf(member.facebookUserId, APPROVE));
     if (!hit) return { outcome: 'not_found', detail: 'aucune demande à cet identifiant' };
     if (hit.ambiguous) return { outcome: 'unreachable', detail: 'ligne ambiguë (plusieurs personnes) : rien cliqué' };
-    hit.button.click();
+    await self.FPH.click(hit.button);
     await sleep(2500);
     // La ligne disparaît, ou n'a plus de bouton « Approuver ».
     const still = rowOf(member.facebookUserId, APPROVE);
@@ -139,7 +139,7 @@
   /** Ouvrir un menu et y chercher une entrée. Rend l'entrée, ou la liste de
    * ce qu'on a vu (pour comprendre une langue ou une interface inconnue). */
   async function openMenuWith(trigger, wanted) {
-    trigger.click();
+    await self.FPH.click(trigger);
     await sleep(1200);
     const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"], [role="dialog"] [role="menuitem"], [role="listbox"] [role="option"]')];
     const seen = items.map((i) => labelOf(i)).filter(Boolean).slice(0, 15);
@@ -147,7 +147,7 @@
     const item = items.find((i) => hasLabel(i, wanted) && !hasPhrase(i, ALREADY_PREAPPROVED));
     return { item, already, seen };
   }
-  const closeMenus = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const closeMenus = () => self.FPH.key('Escape');
 
   async function confirmIfAsked() {
     await sleep(1200);
@@ -155,7 +155,7 @@
     for (const d of dialogs) {
       const ok = buttons(d).find((b) => isLabel(b, CONFIRM) && b.getAttribute('aria-disabled') !== 'true');
       if (ok) {
-        ok.click();
+        await self.FPH.click(ok);
         await sleep(1500);
         return true;
       }
@@ -184,7 +184,7 @@
         return { outcome: 'already', detail: 'déjà pré-approuvé' };
       }
       if (menu.item) {
-        menu.item.click();
+        await self.FPH.click(menu.item);
         await confirmIfAsked();
         return { outcome: 'done', detail: 'pré-approuvé depuis sa page de membre' };
       }
@@ -215,7 +215,7 @@
         return { outcome: 'already', detail: 'déjà pré-approuvé' };
       }
       if (menu.item) {
-        menu.item.click();
+        await self.FPH.click(menu.item);
         await confirmIfAsked();
         return { outcome: 'done', detail: 'pré-approuvé depuis ses publications en attente' };
       }
@@ -224,7 +224,7 @@
     // Pas d'option, mais le post en attente est le nôtre : on l'approuve.
     const approveButton = buttons(hit.row).find((b) => isLabel(b, APPROVE));
     if (approveButton) {
-      approveButton.click();
+      await self.FPH.click(approveButton);
       await sleep(2000);
     }
     return {
@@ -251,7 +251,7 @@
     if (!triggers.length) return { outcome: 'no_permission', detail: 'aucun menu de gestion sur sa page : le modérateur est-il admin/modérateur du groupe ?' };
     const seen = [];
     for (const t of triggers) {
-      t.click();
+      await self.FPH.click(t);
       await sleep(1200);
       const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"], [role="dialog"] [role="menuitem"], [role="listbox"] [role="option"]')];
       const labels = items.map((i) => rawLabel(i)).filter(Boolean);
@@ -320,13 +320,9 @@
       (i) => i.type === 'search' || SEARCH_WORDS.test(`${i.getAttribute('aria-label') || ''} ${i.getAttribute('placeholder') || ''}`),
     );
     if (!input || !name) return false;
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
-    input.focus();
-    if (setter) setter.call(input, name);
-    else input.value = name;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+    // Taper le nom lettre par lettre, puis Entrée — comme quelqu'un.
+    await self.FPH.type(input, name);
+    await self.FPH.key('Enter');
     await sleep(3000);
     return true;
   }
@@ -394,7 +390,7 @@
   }
 
   async function openRowMenu(hit) {
-    hit.menu.click();
+    await self.FPH.click(hit.menu);
     await sleep(1200);
     const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"], [role="dialog"] [role="menuitem"], [role="listbox"] [role="option"]')];
     return {
@@ -427,7 +423,7 @@
     const seen = buttons(dialog).map((b) => rawLabel(b)).filter(Boolean).slice(0, 8);
     if (!ok) return { asked: true, clicked: null, closed: false, seen };
     const label = rawLabel(ok);
-    ok.click();
+    await self.FPH.click(ok);
     for (let i = 0; i < 24; i += 1) {
       await sleep(250);
       if (!dialog.isConnected || !openDialogs().includes(dialog)) return { asked: true, clicked: label, closed: true, seen };
@@ -471,11 +467,11 @@
       };
     }
     const label = rawLabel(menu.offered);
-    menu.offered.click();
+    await self.FPH.click(menu.offered);
     const confirm = await confirmPreapproval();
     if (confirm.asked && !confirm.closed) {
       // La fenêtre est restée ouverte : on la ferme, et ce n'est PAS fait.
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await self.FPH.key('Escape');
       return {
         outcome: 'not_found',
         detail: confirm.clicked
@@ -510,7 +506,73 @@
     };
   }
 
+  /* ── Retirer de nos groupes un de NOS profils suspendus par Facebook ──
+   * Sur la ligne qui porte SON identifiant (ou son nom exact, s'il est seul
+   * à le porter), menu « … » → « Retirer du groupe » → confirmer. Aucune
+   * case « bloquer » ni « supprimer son activité » n'est cochée. */
+  const REMOVE = words(['remove member', 'remove from group', 'remove', 'retirer du groupe', 'retirer le membre', 'retirer', 'supprimer du groupe', 'eliminar del grupo', 'eliminar miembro', 'remover do grupo', 'remover membro', 'aus der gruppe entfernen', 'rimuovi dal gruppo', 'إزالة من المجموعة', 'إزالة العضو', 'إزالة']);
+  const menuItems = () => [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"], [role="dialog"] [role="menuitem"], [role="listbox"] [role="option"]')];
+
+  async function removeFromPeople(member) {
+    const hit = await findOnPeople(member);
+    if (hit.error) return hit.error;
+    await self.FPH.click(hit.menu);
+    await sleep(1200);
+    const items = menuItems();
+    const item = items.find((i) => hasLabel(i, REMOVE) && !/block|bloquer|bloquear|حظر/i.test(rawLabel(i)));
+    if (!item) {
+      const seen = items.map((i) => rawLabel(i)).filter(Boolean).slice(0, 12);
+      await closeMenus();
+      return { outcome: 'no_permission', detail: `pas d’option « Retirer du groupe » (vu : ${seen.join(' | ') || 'menu vide'}) : le modérateur est-il administrateur ?` };
+    }
+    await self.FPH.click(item);
+    // La fenêtre de confirmation : son bouton principal, jamais « Annuler ».
+    let ok = null;
+    for (let i = 0; i < 20 && !ok; i += 1) {
+      await sleep(300);
+      const dialog = [...document.querySelectorAll('[role="dialog"]')].filter((d) => d.isConnected).pop();
+      if (!dialog) continue;
+      ok = buttons(dialog).find((b) => (hasLabel(b, REMOVE) || isLabel(b, CONFIRM)) && !isLabel(b, CANCEL) && b.getAttribute('aria-disabled') !== 'true');
+    }
+    if (!ok) return { outcome: 'unreachable', detail: 'fenêtre de confirmation du retrait introuvable : rien confirmé' };
+    await self.FPH.click(ok);
+    await sleep(3000);
+    const still = peopleRow(member);
+    return still && still.row
+      ? { outcome: 'unreachable', detail: 'retrait demandé, mais il apparaît encore dans les membres' }
+      : { outcome: 'done', detail: 'retiré du groupe' };
+  }
+
+  /* ── Valider un de NOS posts en attente (page « publications en attente »
+   * du groupe). Le post est reconnu à son texte (et à son auteur quand on
+   * le connaît) ; seul SON bouton « Approuver » est cliqué. */
+  async function approvePendingPost(task) {
+    if (unavailable()) return { outcome: 'no_permission', detail: 'publications en attente inaccessibles' };
+    if (!/pending_posts|pending/.test(location.pathname)) return { outcome: 'unreachable', detail: 'la page des publications en attente n’est pas ouverte' };
+    const want = self.FPC.lettersOnly(String(task.content || '')).slice(0, 80);
+    if (!want) return { outcome: 'unreachable', detail: 'texte du post inconnu' };
+    const author = fold(task.author?.name || '');
+    const find = () => {
+      const blocks = [...document.querySelectorAll('[role="article"], [role="main"] [data-pagelet], [role="main"] > div div[class]')]
+        .filter((b) => self.FPC.lettersOnly(b.innerText || '').includes(want))
+        .filter((b) => !author || fold(b.innerText || '').includes(author));
+      // Le plus petit bloc qui contient le texte ET un bouton « Approuver ».
+      for (const b of blocks.sort((x, y) => (x.innerText || '').length - (y.innerText || '').length)) {
+        const approveBtn = buttons(b).find((el) => isLabel(el, APPROVE) || hasPhrase(el, APPROVE));
+        if (approveBtn) return { block: b, approveBtn };
+      }
+      return null;
+    };
+    const hit = (await scrollFor(find, 5)) || find();
+    if (!hit) return { outcome: 'not_found', detail: 'post introuvable dans les publications en attente (déjà validé, refusé, ou pas admin)' };
+    await self.FPH.click(hit.approveBtn);
+    await sleep(3000);
+    return find() ? { outcome: 'unreachable', detail: 'clic sur « Approuver » sans effet visible' } : { outcome: 'done', detail: 'post validé' };
+  }
+
   self.FPM = {
+    removeFromPeople,
+    approvePendingPost,
     preapproveFromPeople,
     auditFromPeople,
     auditPreapproval, approve, preapproveFromMemberPage, preapproveFromPending, memberIdsIn, idOfHref, fold };

@@ -134,7 +134,8 @@
               /><select id="pf-status">
                 <option value="">Actifs et inactifs</option>
                 <option value="ACTIVE">Actifs</option>
-                <option value="INACTIVE">Inactifs</option></select
+                <option value="INACTIVE">Inactifs</option>
+                <option value="SUSPENDED">🚫 Suspendus par Facebook</option></select
               ><select id="pf-health">
                 <option value="">Toutes les santés</option>
                 <option value="deactivate">⚠ À désactiver ?</option>
@@ -805,6 +806,17 @@
             <p class="form-help">Le modérateur doit être <b>administrateur ou modérateur</b> des groupes sur Facebook. Il ne touche qu’à nos profils, reconnus par leur identifiant Facebook. Ces demandes passent en tête de sa file : il s’y met dans la minute.</p>
             <div class="member-actions" id="member-actions"></div>
             <div id="member-result" class="bulk-result" hidden></div>
+          </div>
+
+          <div class="panel pp-panel" id="suspended-panel">
+            <div class="panel-head">
+              <div><small>NOS PROFILS SUSPENDUS PAR FACEBOOK</small><h2>Retirer de nos groupes</h2></div>
+            </div>
+            <p class="form-help">Vus par l’extension Publication : <b>« Nous avons suspendu votre compte »</b> (🚫) ou <b>vérification demandée</b> (⚠, souvent récupérable). Ils ne publient plus et leurs posts sont passés aux autres profils. Seul un compte <b>suspendu</b> peut être retiré de nos groupes — par le modérateur sur Facebook, et délié dans la plateforme. Jamais un profil en « limite de publication ».</p>
+            <div class="table-wrap"><table class="pp-table">
+              <thead><tr><th>Profil</th><th>État Facebook</th><th>Groupes</th><th>Retrait</th><th></th></tr></thead>
+              <tbody id="suspended-rows"></tbody>
+            </table></div>
           </div>
 
           <div class="panel pp-panel" id="audit-panel">

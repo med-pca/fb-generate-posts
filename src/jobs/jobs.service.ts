@@ -16,6 +16,7 @@ import { ClaimBatchDto } from './dto/claim-batch.dto';
 import { CommentJobItemDto } from './dto/comment-job-item.dto';
 import { LinkUpdatedJobItemDto } from './dto/link-updated-job-item.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
+import { ApprovalReportDto } from './dto/approval-report.dto';
 import type { CurrentUser } from '../auth/current-user';
 import { jobWhere, profileWhere, scopeOf } from '../auth/scope';
 
@@ -64,6 +65,7 @@ export type EmptyReason =
   | 'not_allowed' // des posts attendent, mais aucun ne lui est permis
   | 'taken' // pris entre-temps par d'autres profils
   | 'paused' // en pause : Facebook a limité ses publications
+  | 'suspended' // compte suspendu par Facebook (ou vérification demandée)
   | 'quota' // quota du jour du profil atteint
   | 'group_limits'; // ses groupes sont fermés à cette heure, ou à leur plafond du jour
 
@@ -139,6 +141,10 @@ const MAX_AUTO_REQUEUE = 3;
 
 /** Écart voulu entre deux profils qui publient dans le même groupe. */
 const GROUP_GAP_MINUTES = 3;
+/** Un post en attente de validation : revérifié après chaque lot du profil,
+ * pas plus d'une fois toutes les 10 minutes, et abandonné au bout d'1 jour. */
+const APPROVAL_RECHECK_MINUTES = 10;
+const APPROVAL_MAX_HOURS = 24;
 
 @Injectable()
 export class JobsService {
@@ -481,6 +487,15 @@ export class JobsService {
       );
     }
 
+    if (profile.facebookSuspension) {
+      return {
+        job: null,
+        posts: [],
+        reason: 'suspended',
+        message: profile.facebookSuspension === 'disabled' ? 'Compte suspendu par Facebook : il ne publie plus' : 'Facebook demande une vérification du compte : il ne publie plus en attendant',
+      };
+    }
+
     // En pause : Facebook a limité ce compte. Rien à réserver avant l'échéance.
     const paused = await this.pausedUntil(profile.id);
     if (paused) {
@@ -747,8 +762,8 @@ export class JobsService {
         const tz = s.objectiveTimezone || 'Europe/Paris';
         const dayStart = startOfLocalDay(now, tz);
         const [published, lastHour, profiles] = await Promise.all([
-          this.prisma.postTarget.count({ where: { status: TargetStatus.PUBLISHED, publishedAt: { gte: dayStart } } }),
-          this.prisma.postTarget.count({ where: { status: TargetStatus.PUBLISHED, publishedAt: { gte: new Date(now.getTime() - 3_600_000) } } }),
+          this.prisma.postTarget.count({ where: { status: TargetStatus.PUBLISHED, approvalPendingSince: null, publishedAt: { gte: dayStart } } }),
+          this.prisma.postTarget.count({ where: { status: TargetStatus.PUBLISHED, approvalPendingSince: null, publishedAt: { gte: new Date(now.getTime() - 3_600_000) } } }),
           this.prisma.profileRunner.count({ where: { running: true, lastSeenAt: { gte: new Date(now.getTime() - 180_000) }, mode: { not: 'OFF' } } }),
         ]);
         const p = pace({ target: s.dailyTarget, start: s.objectiveStart, end: s.objectiveEnd, nowMinutes: localClock(now, tz).minutes, published, lastHour });
@@ -984,8 +999,111 @@ export class JobsService {
       TargetStatus.PUBLISHED,
       { publishedAt, externalPostUrl: dto.externalPostUrl },
     );
+    if (dto.pendingApproval) await this.notePendingApproval(result.postTargetId, jobId, postId, publishedAt);
     await this.archiveArticleOf(postId, publishedAt);
     return result;
+  }
+
+  /* ── En attente de validation par l'administrateur du groupe ─────────────
+   *
+   * Le post est soumis mais invisible. Il reste PUBLISHED (jamais republié en
+   * double), ne compte pas dans l'objectif, et son profil revient voir après
+   * chaque lot ; validé, le travail continue (« . » puis URL). */
+  private async notePendingApproval(postTargetId: string, jobId: string, postId: string, at: Date) {
+    await this.prisma.postTarget.update({ where: { id: postTargetId }, data: { approvalPendingSince: at, approvalCheckedAt: at } });
+    await trace(this.prisma, { postTargetId, kind: 'APPROVAL_PENDING', jobId });
+    await this.log({ jobId, postId, eventType: 'POST_APPROVAL_PENDING', level: 'WARN', message: 'Soumis : en attente de validation par l’administrateur du groupe (revérifié après chaque lot du profil)' });
+  }
+
+  /** Les posts de CE profil en attente de validation, à revérifier : les plus
+   * anciennement vérifiés d'abord, pas deux fois en 10 minutes. Ceux qui
+   * attendent depuis plus d'1 jour passent « non validés » (en échec). */
+  async approvalsDue(profileExternalId: string, acting: CurrentUser | null, limit = 2, now = new Date()) {
+    const profile = await this.prisma.profile.findFirst({
+      where: { externalId: profileExternalId, ...profileWhere(scopeOf(acting)) },
+      select: { id: true },
+    });
+    if (!profile) throw new NotFoundException(`Profil introuvable pour externalId=${profileExternalId}`);
+    await this.expireApprovals(profile.id, now);
+    const items = await this.prisma.publicationJobItem.findMany({
+      where: {
+        status: TargetStatus.PUBLISHED,
+        job: { profileId: profile.id },
+        postTarget: {
+          status: TargetStatus.PUBLISHED,
+          approvalPendingSince: { not: null },
+          OR: [{ approvalCheckedAt: null }, { approvalCheckedAt: { lt: new Date(now.getTime() - APPROVAL_RECHECK_MINUTES * 60_000) } }],
+        },
+      },
+      orderBy: { postTarget: { approvalCheckedAt: 'asc' } },
+      take: limit,
+      select: {
+        jobId: true,
+        postId: true,
+        postTargetId: true,
+        post: { select: { description: true, url: true, noComment: true } },
+        job: { select: { group: { select: { externalId: true, url: true, name: true } } } },
+        postTarget: { select: { approvalPendingSince: true, approvalChecks: true } },
+      },
+    });
+    return items.map((i) => ({
+      targetId: i.postTargetId,
+      jobId: i.jobId,
+      postId: i.postId,
+      content: i.post.description,
+      willReceiveLink: Boolean(i.post.url),
+      noComment: i.post.noComment,
+      group: i.job.group,
+      pendingSince: i.postTarget.approvalPendingSince,
+      checks: i.postTarget.approvalChecks,
+    }));
+  }
+
+  private async expireApprovals(profileId: string, now: Date) {
+    const stale = await this.prisma.publicationJobItem.findMany({
+      where: {
+        status: TargetStatus.PUBLISHED,
+        job: { profileId },
+        postTarget: { status: TargetStatus.PUBLISHED, approvalPendingSince: { lt: new Date(now.getTime() - APPROVAL_MAX_HOURS * 3_600_000) } },
+      },
+      select: { id: true, jobId: true, postId: true, postTargetId: true },
+    });
+    const error = `Non validé par l’administrateur du groupe en ${APPROVAL_MAX_HOURS} h`;
+    for (const s of stale) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.publicationJobItem.update({ where: { id: s.id }, data: { status: TargetStatus.FAILED, error } });
+        await tx.postTarget.update({ where: { id: s.postTargetId }, data: { status: TargetStatus.FAILED, lastError: error, approvalPendingSince: null } });
+        await trace(tx, { postTargetId: s.postTargetId, kind: 'NOT_APPROVED', jobId: s.jobId, detail: error });
+      });
+      await this.log({ jobId: s.jobId, postId: s.postId, eventType: 'POST_NOT_APPROVED', level: 'WARN', message: error });
+    }
+  }
+
+  /** Le profil est revenu voir : validé (visible, avec son adresse) ou encore
+   * en attente. Validé, il compte dans l'objectif à partir de maintenant. */
+  async reportApproval(targetId: string, dto: ApprovalReportDto, acting: CurrentUser | null, now = new Date()) {
+    const item = await this.prisma.publicationJobItem.findFirst({
+      where: { postTargetId: targetId, status: TargetStatus.PUBLISHED, job: jobWhere(scopeOf(acting)) },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, jobId: true, postId: true, postTarget: { select: { approvalPendingSince: true } }, job: { select: { profileId: true } } },
+    });
+    if (!item) throw new NotFoundException('Publication introuvable');
+    if (!item.postTarget.approvalPendingSince) return { result: 'not_pending' };
+    if (dto.outcome === 'pending') {
+      await this.prisma.postTarget.update({ where: { id: targetId }, data: { approvalCheckedAt: now, approvalChecks: { increment: 1 } } });
+      return { result: 'still_pending' };
+    }
+    const facebookUrl = normalizeFacebookUrl(dto.externalPostUrl) ?? dto.externalPostUrl ?? null;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.publicationJobItem.update({ where: { id: item.id }, data: { publishedAt: now, ...(facebookUrl ? { externalPostUrl: facebookUrl } : {}) } });
+      await tx.postTarget.update({
+        where: { id: targetId },
+        data: { approvalPendingSince: null, approvalCheckedAt: now, approvalChecks: { increment: 1 }, publishedAt: now, ...(facebookUrl ? { facebookUrl } : {}) },
+      });
+      await trace(tx, { postTargetId: targetId, kind: 'APPROVED', facebookUrl, profileId: item.job.profileId, jobId: item.jobId });
+    });
+    await this.log({ jobId: item.jobId, postId: item.postId, eventType: 'POST_APPROVED', message: 'Validé par l’administrateur du groupe : visible, le travail continue (commentaire puis URL)' });
+    return { result: 'approved', jobId: item.jobId, postId: item.postId, externalPostUrl: facebookUrl };
   }
 
   /** Le premier post publié d'un article l'archive : il a servi, on n'en
@@ -1076,6 +1194,50 @@ export class JobsService {
       metadata: { until: until.toISOString(), days, released, unforced: unforced.count, opened: opened.count, reason: String(reason).slice(0, 500) },
     });
     return { until, released, unforced: unforced.count, opened: opened.count };
+  }
+
+  /** Facebook a suspendu ce compte (ou demande une vérification) : vu par
+   * l'extension Publication. Le profil s'arrête pour de bon — pas de date de
+   * fin, à la différence d'une limite de publication — et son travail passe
+   * aux autres. Il ne repart que si un administrateur le marque rétabli. */
+  async suspendProfile(
+    profileExternalId: string,
+    input: { kind: 'disabled' | 'checkpoint'; detail?: string; url?: string },
+    acting: CurrentUser | null,
+  ) {
+    const profile = await this.prisma.profile.findFirst({
+      where: { externalId: profileExternalId, ...profileWhere(scopeOf(acting)) },
+      select: { id: true, name: true, ownerId: true, facebookSuspension: true },
+    });
+    if (!profile) throw new NotFoundException(`Profil introuvable pour externalId=${profileExternalId}`);
+    const detail = [input.detail, input.url].filter(Boolean).join(' — ').slice(0, 1000);
+    // « disabled » l'emporte sur « checkpoint », jamais l'inverse.
+    const kind = profile.facebookSuspension === 'disabled' ? 'disabled' : input.kind;
+    await this.prisma.profile.update({ where: { id: profile.id }, data: { facebookSuspension: kind, suspendedAt: new Date(), suspensionDetail: detail || null } });
+    await this.prisma.profileRunner.updateMany({ where: { profileId: profile.id }, data: { mode: 'OFF' } });
+    const active = await this.prisma.publicationJob.findMany({ where: { profileId: profile.id, status: JobStatus.CLAIMED }, select: { id: true } });
+    let released = 0;
+    for (const j of active) {
+      const r = await this.release(j.id, null, `profil « ${profile.name} » suspendu par Facebook`).catch(() => null);
+      released += (r as { released?: number } | null)?.released ?? 0;
+    }
+    const [unforced, opened] = await this.prisma.$transaction([
+      this.prisma.postTarget.updateMany({
+        where: { forcedProfileId: profile.id, status: { in: [TargetStatus.AVAILABLE, TargetStatus.FAILED] } },
+        data: { forcedProfileId: null, forcedAt: null },
+      }),
+      this.prisma.post.updateMany({ where: { profileId: profile.id, status: 'AVAILABLE' }, data: { profileId: null, ownerId: profile.ownerId } }),
+    ]);
+    await this.log({
+      profileId: profile.id,
+      eventType: kind === 'disabled' ? 'PROFILE_SUSPENDED_FACEBOOK' : 'PROFILE_CHECKPOINT_FACEBOOK',
+      level: 'ERROR',
+      message:
+        (kind === 'disabled' ? `« ${profile.name} » : compte suspendu par Facebook` : `« ${profile.name} » : Facebook demande une vérification du compte`) +
+        ` — arrêté, ${released} post(s) du lot rendus à la file, ${opened.count} post(s) ouverts aux autres profils`,
+      metadata: { kind, detail, released, unforced: unforced.count, opened: opened.count },
+    });
+    return { kind, released, opened: opened.count };
   }
 
   /** Les règles du pilotage pour ce profil et ces groupes, au jour et à
@@ -1286,7 +1448,11 @@ export class JobsService {
         'Le post doit être confirmé publié avant d’enregistrer son commentaire',
       );
     }
-    if (item.commentedAt) {
+    // Remplacer un commentaire disparu par celui que l'extension vient de
+    // reposer : le lien pourra ainsi y être placé.
+    const replacing =
+      Boolean(dto.replace) && Boolean(item.commentedAt) && !item.linkUpdatedAt && item.commentExternalId !== dto.commentExternalId;
+    if (item.commentedAt && !replacing) {
       if (item.commentExternalId !== dto.commentExternalId) {
         await this.log({
           jobId,
@@ -1302,7 +1468,9 @@ export class JobsService {
       }
       return { ...item, url: item.post.url };
     }
-    if (!this.stillOwnsTarget(item.job, item.postTarget)) {
+    // Un lot clos ne peut plus être repris : le contrôle ne vaut que pour un
+    // lot en cours (cas d'un post validé plus tard par l'administrateur).
+    if (!replacing && item.job.status === JobStatus.CLAIMED && !this.stillOwnsTarget(item.job, item.postTarget)) {
       await this.logLostClaim(jobId, postId, item.postTargetId, item.status);
       throw new ConflictException(
         'La réservation de ce post a expiré et a été reprise. ' +
@@ -1338,9 +1506,13 @@ export class JobsService {
           profileId: item.job.profileId,
           groupId: item.job.groupId,
           facebookUrl: item.externalPostUrl,
-          eventType: 'POST_COMMENTED',
-          message: 'Commentaire posé, en attente de l’URL',
-          metadata: { commentExternalId: dto.commentExternalId },
+          eventType: replacing ? 'COMMENT_REPLACED' : 'POST_COMMENTED',
+          message: replacing
+            ? 'Premier commentaire introuvable : un nouveau a été posé, en attente de l’URL'
+            : 'Commentaire posé, en attente de l’URL',
+          metadata: replacing
+            ? { commentExternalId: dto.commentExternalId, remplace: item.commentExternalId }
+            : { commentExternalId: dto.commentExternalId },
         },
       });
       // L'URL part avec la réponse : le post est en ligne et son commentaire

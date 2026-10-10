@@ -66,8 +66,38 @@ export class JobApi {
     return this.request('POST', `/jobs/${jobId}/posts/${postId}/consumed`);
   }
 
-  markPublished(jobId, postId, permalink = '') {
-    return this.request('POST', `/jobs/${jobId}/posts/${postId}/published`, permalink ? { externalPostUrl: permalink } : {});
+  /* `pendingApproval` : soumis, mais le groupe doit encore le valider. */
+  markPublished(jobId, postId, permalink = '', { pendingApproval = false } = {}) {
+    return this.request('POST', `/jobs/${jobId}/posts/${postId}/published`, {
+      ...(permalink ? { externalPostUrl: permalink } : {}),
+      ...(pendingApproval ? { pendingApproval: true } : {}),
+    });
+  }
+
+  /* Ses posts en attente de validation, à revérifier maintenant. Une API plus
+   * ancienne n'a pas cette route : rien à revérifier. */
+  async approvalsDue(profileExternalId, limit = 2) {
+    try {
+      const rows = await this.request('GET', `/jobs/approvals/profile/${encodeURIComponent(profileExternalId)}?limit=${limit}`);
+      return Array.isArray(rows) ? rows : [];
+    } catch (err) {
+      // Route inconnue (« Cannot GET ») : plateforme pas encore mise à jour.
+      if (/HTTP 404/.test(String(err.message)) && /Cannot GET/i.test(String(err.message))) return [];
+      throw err;
+    }
+  }
+
+  /* Compte suspendu par Facebook, ou vérification demandée. */
+  reportSuspension(profileExternalId, { kind, detail = '', url = '' }) {
+    return this.request('POST', `/jobs/profiles/${encodeURIComponent(profileExternalId)}/suspended`, {
+      kind,
+      ...(detail ? { detail: String(detail).slice(0, 500) } : {}),
+      ...(url ? { url: String(url).slice(0, 500) } : {}),
+    });
+  }
+
+  reportApproval(targetId, outcome, externalPostUrl = '') {
+    return this.request('POST', `/jobs/approvals/${targetId}`, { outcome, ...(externalPostUrl ? { externalPostUrl } : {}) });
   }
 
   /* `requeue` : rien n'est parti sur Facebook -- la plateforme remet le post
@@ -83,8 +113,12 @@ export class JobApi {
 
   /* Record the comment that was written, by its own identifier. Without it the
    * comment can never be found again to receive the link. */
-  markCommented(jobId, postId, commentExternalId) {
-    return this.request('POST', `/jobs/${jobId}/posts/${postId}/commented`, { commentExternalId: String(commentExternalId).slice(0, 512) });
+  /* `replace` : le commentaire enregistré a disparu, celui-ci le remplace. */
+  markCommented(jobId, postId, commentExternalId, { replace = false } = {}) {
+    return this.request('POST', `/jobs/${jobId}/posts/${postId}/commented`, {
+      commentExternalId: String(commentExternalId).slice(0, 512),
+      ...(replace ? { replace: true } : {}),
+    });
   }
 
   /* Close the job. Every post must already be published or failed. */

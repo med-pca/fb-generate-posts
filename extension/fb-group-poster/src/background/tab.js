@@ -21,6 +21,17 @@ const CONTENT_FILES = [
 
 export class TabError extends Error {}
 
+/* Facebook a suspendu ce compte, ou demande une vérification : ne plus rien
+ * tenter. Le constat est gardé en stockage ; la boucle le signale à la
+ * plateforme et s'arrête (orchestrator). */
+export const SUSPENDED_KEY = 'fbx.suspended';
+export class AccountSuspendedError extends Error {
+  constructor(kind, detail) {
+    super(kind === 'disabled' ? `Compte suspendu par Facebook : ${detail}` : `Facebook demande une verification du compte : ${detail}`);
+    this.kind = kind;
+  }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function remembered() {
@@ -138,6 +149,13 @@ export async function navigate(tabId, url, config) {
   if (!loaded) await warn(`La page n'a pas fini de charger dans les ${config.navigationTimeoutSeconds}s : ${url}`);
   const ready = await waitForContentScript(tabId, Math.max(15000, timeoutMs / 2));
   if (!ready) throw new TabError(`L'onglet ne repond pas apres l'ouverture de ${url}`);
+  // Le compte est-il encore utilisable ? Une page de suspension ou de
+  // vérification arrête tout : insister aggraverait la situation.
+  const account = await step(tabId, 'accountState', {}, 10000).catch(() => null);
+  if (account && (account.state === 'disabled' || account.state === 'checkpoint')) {
+    await chrome.storage.local.set({ [SUSPENDED_KEY]: { kind: account.state, detail: account.detail || '', url: account.url || url, at: Date.now() } });
+    throw new AccountSuspendedError(account.state, account.detail || account.url || url);
+  }
   // Chaque page chargée doit pouvoir recevoir la saisie (texte du post,
   // premier commentaire), même si un autre profil a la main sur l'écran.
   if (config.focusWorkTab) await focus(tabId);

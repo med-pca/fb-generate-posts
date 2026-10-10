@@ -271,6 +271,8 @@ export class InsightsService {
           status: TargetStatus.PUBLISHED,
           publishedAt: { gte: dayStart },
           job: jobWhere(scope),
+          // En attente de validation : invisible, ne compte qu'une fois validé.
+          postTarget: { approvalPendingSince: null },
         },
         select: {
           publishedAt: true,
@@ -477,6 +479,10 @@ export class InsightsService {
       maxPerHour: working ? Math.floor((60 * working) / (settings.minPostGapMinutes + PUBLISH_MINUTES)) : 0,
     };
 
+    const awaitingApproval = await this.prisma.postTarget.count({
+      where: { status: TargetStatus.PUBLISHED, approvalPendingSince: { not: null }, post: postWhere(scope) },
+    });
+
     const plan = await this.articlePlan({
       target: settings.dailyTarget,
       start: settings.objectiveStart,
@@ -556,6 +562,7 @@ export class InsightsService {
       stock: { publishable: stockPublishable, blocked: stockBlocked, deficit },
       plan,
       pacing,
+      awaitingApproval,
       articles: { today: articlesToday, needed: articlesNeeded, postsPerArticle: averagePostsPerArticle },
       profiles: {
         participating: participating.length,

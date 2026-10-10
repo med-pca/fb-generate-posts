@@ -104,6 +104,77 @@ async function readLikeHuman(tabId, cfg) {
 /** Le temps qu'on met avant un geste qui compte. */
 const beforeAction = () => sleep(rand(2000, 5000));
 
+/* ── De vrais gestes (chrome.debugger) ──────────────────────────────────
+ * La page (human.js) dit où viser ; ici, la souris y va en courbe, à vitesse
+ * variable, appuie puis relâche ; le texte se tape lettre par lettre, avec
+ * des hésitations. Des événements « de confiance », comme une main. */
+const attached = new Set();
+const pointer = new Map();
+const cdp = (tabId, method, params = {}) => chrome.debugger.sendCommand({ tabId }, method, params);
+
+async function attach(tabId) {
+  if (attached.has(tabId)) return;
+  await chrome.debugger.attach({ tabId }, '1.3');
+  attached.add(tabId);
+}
+async function releaseInput(tabId) {
+  pointer.delete(tabId);
+  if (!attached.has(tabId)) return;
+  attached.delete(tabId);
+  await chrome.debugger.detach({ tabId }).catch(() => null);
+}
+chrome.debugger?.onDetach?.addListener((source) => { attached.delete(source.tabId); pointer.delete(source.tabId); });
+
+/** Un trajet de souris : une courbe de Bézier, quelques à-coups, plus lent
+ * à l'arrivée. */
+async function moveTo(tabId, x, y) {
+  const from = pointer.get(tabId) || { x: x + rand(-300, 300), y: y + rand(-200, 200) };
+  const ctrl = { x: (from.x + x) / 2 + rand(-120, 120), y: (from.y + y) / 2 + rand(-90, 90) };
+  const steps = 14 + Math.floor(Math.random() * 18);
+  for (let i = 1; i <= steps; i += 1) {
+    const t = i / steps;
+    const ease = 1 - (1 - t) * (1 - t);
+    const px = (1 - ease) * (1 - ease) * from.x + 2 * (1 - ease) * ease * ctrl.x + ease * ease * x;
+    const py = (1 - ease) * (1 - ease) * from.y + 2 * (1 - ease) * ease * ctrl.y + ease * ease * y;
+    await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: px, y: py });
+    await sleep(rand(6, 22));
+  }
+  pointer.set(tabId, { x, y });
+}
+
+const KEYS = { Enter: { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' }, Escape: { code: 'Escape', windowsVirtualKeyCode: 27 }, Tab: { code: 'Tab', windowsVirtualKeyCode: 9 } };
+
+async function humanInput(tabId, msg) {
+  if (!tabId) return { ok: false, reason: 'pas d’onglet' };
+  await attach(tabId);
+  if (msg.action === 'move' || msg.action === 'click') {
+    await moveTo(tabId, msg.x, msg.y);
+    if (msg.action === 'click') {
+      await sleep(rand(60, 220));
+      await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: msg.x, y: msg.y, button: 'left', clickCount: 1 });
+      await sleep(rand(55, 140));
+      await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: msg.x, y: msg.y, button: 'left', clickCount: 1 });
+    }
+    return { ok: true };
+  }
+  if (msg.action === 'type') {
+    for (const ch of String(msg.text || '')) {
+      await cdp(tabId, 'Input.insertText', { text: ch });
+      await sleep(Math.random() < 0.06 ? rand(350, 900) : rand(70, 210));
+    }
+    return { ok: true };
+  }
+  if (msg.action === 'key') {
+    const k = KEYS[msg.key];
+    if (!k) return { ok: false, reason: `touche inconnue : ${msg.key}` };
+    await cdp(tabId, 'Input.dispatchKeyEvent', { type: 'keyDown', key: msg.key, ...k });
+    await sleep(rand(40, 110));
+    await cdp(tabId, 'Input.dispatchKeyEvent', { type: 'keyUp', key: msg.key, code: k.code, windowsVirtualKeyCode: k.windowsVirtualKeyCode });
+    return { ok: true };
+  }
+  return { ok: false, reason: 'geste inconnu' };
+}
+
 /** La mission en cours : ses journaux et son état vont dans sa rubrique. */
 let currentCat = 'posts';
 const today = () => new Date().toISOString().slice(0, 10);
@@ -194,7 +265,7 @@ async function open(tabId, url) {
 }
 
 async function inPage(tabId, func, args = []) {
-  await chrome.scripting.executeScript({ target: { tabId }, files: ['check.js', 'members.js'] });
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['human.js', 'check.js', 'members.js'] });
   const [result] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
   return result?.result;
 }
@@ -335,6 +406,102 @@ async function memberRound(cfg, tabId, reason) {
     await humanPause(cfg);
   }
   return done;
+}
+
+/* ── Nos profils suspendus : les retirer de nos groupes ───────────────
+ * Demandé par un administrateur, pour un compte que Facebook a suspendu
+ * (« Nous avons suspendu votre compte ») — jamais une limite de publication.
+ * Retiré sur Facebook ; la plateforme le délie de son côté. */
+async function removalRound(cfg, tabId) {
+  let claim;
+  try {
+    claim = await api(cfg, '/verify/removals/claim', { profileExternalId: cfg.profileExternalId, limit: await batchFor(cfg) });
+  } catch (err) {
+    // Plateforme pas encore à jour : la mission n'existe pas encore.
+    if (!/404/.test(String(err.message))) await log('error', `Retraits : réservation refusée : ${err.message}`);
+    return 0;
+  }
+  let done = 0;
+  for (const task of claim.tasks || []) {
+    if (!(await mayAct(cfg))) break;
+    const base = groupBase(task.group.url);
+    await setStatus({ state: 'busy', message: `Retrait · ${task.member.name} · ${task.group.name}`, at: new Date().toISOString() });
+    let verdict;
+    try {
+      if (!base) throw new Error('adresse du groupe inconnue');
+      await open(tabId, `${base}/people`);
+      await readLikeHuman(tabId, cfg);
+      await beforeAction();
+      verdict = (await inPage(tabId, (m) => self.FPM.removeFromPeople(m), [task.member])) || { outcome: 'unreachable', detail: 'page des membres illisible' };
+    } catch (err) {
+      verdict = { outcome: 'unreachable', detail: `erreur : ${err.message}` };
+    }
+    try {
+      await api(cfg, `/verify/removals/${task.taskId}/result`, {
+        profileExternalId: cfg.profileExternalId,
+        outcome: verdict.outcome,
+        facebookUserId: task.member.facebookUserId,
+        detail: verdict.detail,
+      });
+      const ok = ['done', 'already', 'not_found'].includes(verdict.outcome);
+      await log(ok ? 'ok' : 'warn', `Retrait · ${task.member.name} · ${task.group.name} · ${verdict.detail || verdict.outcome}`, { count: ok ? 'removed' : 'failed' });
+    } catch (err) {
+      await log('error', `Retrait : rapport refusé (${task.group.name}) : ${err.message}`, { count: 'failed' });
+    }
+    done += 1;
+    await spend();
+    await humanPause(cfg);
+  }
+  return done;
+}
+
+/* ── Nos posts en attente de validation : les valider ─────────────────
+ * Le modérateur est administrateur du groupe : il valide lui-même le post ;
+ * l'extension Publication le voit ensuite et pose le « . » puis l'URL. */
+async function postApprovalRound(cfg, tabId) {
+  let claim;
+  try {
+    claim = await api(cfg, '/verify/post-approvals/claim', { profileExternalId: cfg.profileExternalId, limit: await batchFor(cfg) });
+  } catch (err) {
+    if (!/404/.test(String(err.message))) await log('error', `Validations : réservation refusée : ${err.message}`);
+    return 0;
+  }
+  let done = 0;
+  for (const task of claim.tasks || []) {
+    if (!(await mayAct(cfg))) break;
+    const base = groupBase(task.group.url);
+    await setStatus({ state: 'busy', message: `Validation d’un de nos posts · ${task.group.name}`, at: new Date().toISOString() });
+    let verdict;
+    try {
+      if (!base) throw new Error('adresse du groupe inconnue');
+      await open(tabId, `${base}/pending_posts`);
+      await readLikeHuman(tabId, cfg);
+      await beforeAction();
+      verdict = (await inPage(tabId, (t) => self.FPM.approvePendingPost(t), [task])) || { outcome: 'unreachable', detail: 'page illisible' };
+    } catch (err) {
+      verdict = { outcome: 'unreachable', detail: `erreur : ${err.message}` };
+    }
+    try {
+      await api(cfg, `/verify/post-approvals/${task.taskId}/result`, { profileExternalId: cfg.profileExternalId, outcome: verdict.outcome, detail: verdict.detail });
+      const ok = verdict.outcome === 'done' || verdict.outcome === 'already';
+      await log(ok ? 'ok' : 'warn', `Validation · ${task.group.name} · ${verdict.detail || verdict.outcome}`, { count: ok ? 'approved_post' : 'failed' });
+    } catch (err) {
+      await log('error', `Validation : rapport refusé (${task.group.name}) : ${err.message}`, { count: 'failed' });
+    }
+    done += 1;
+    await spend();
+    await humanPause(cfg);
+  }
+  return done;
+}
+
+/** Un moment sans action : ouvrir le fil d'actualité ou ses groupes, lire,
+ * défiler. Une personne ne se connecte pas seulement pour agir. */
+async function browseNeutral(tabId, cfg) {
+  const where = ['https://www.facebook.com/', 'https://www.facebook.com/groups/feed/', 'https://www.facebook.com/notifications'];
+  await open(tabId, where[Math.floor(Math.random() * where.length)]);
+  const reads = 1 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < reads; i += 1) await readLikeHuman(tabId, cfg);
 }
 
 /* ── Contrôle de la pré-approbation (demandé par l'admin) ───────────── */
@@ -489,14 +656,26 @@ async function doRound(kind, reason) {
   const tab = await chrome.tabs.create({ url: 'about:blank', active: true });
   let done = 0;
   try {
+    // Une fois sur deux, on commence par lire sans rien faire.
+    if (Math.random() < 0.5) await browseNeutral(tab.id, cfg).catch(() => null);
     if (kind === 'posts') {
       done = await postsRound(cfg, tab.id, reason);
     } else {
-      // Les contrôles demandés par l'admin passent avant le reste.
+      // Les contrôles demandés par l'admin passent avant le reste ; les autres
+      // missions viennent dans un ordre différent à chaque passage.
       done += await auditRound(cfg, tab.id, reason);
-      done += await memberRound(cfg, tab.id, reason);
+      const missions = [
+        () => memberRound(cfg, tab.id, reason),
+        () => removalRound(cfg, tab.id),
+        () => postApprovalRound(cfg, tab.id),
+      ].sort(() => Math.random() - 0.5);
+      for (const mission of missions) {
+        done += await mission();
+        if (Math.random() < 0.25) await browseNeutral(tab.id, cfg).catch(() => null);
+      }
     }
   } finally {
+    await releaseInput(tab.id);
     chrome.tabs.remove(tab.id).catch(() => {});
   }
   await setStatus({
@@ -580,7 +759,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 chrome.runtime.onInstalled.addListener(schedule);
 chrome.runtime.onStartup.addListener(schedule);
-chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (msg?.type === 'pf-input') {
+    humanInput(sender.tab?.id, msg).then(reply, (err) => reply({ ok: false, reason: err.message }));
+    return true;
+  }
   if (msg?.type === 'schedule') schedule().then(() => reply({ ok: true }));
   else if (msg?.type === 'run-now') {
     runRound(msg.kind === 'members' ? 'members' : 'posts', 'manuel');

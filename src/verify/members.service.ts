@@ -61,6 +61,7 @@ export class MembersService {
       profile: {
         status: 'ACTIVE',
         facebookUserId: { not: null },
+        facebookSuspension: null,
         // Un modérateur ne se pré-approuve pas lui-même, ni un autre.
         isModerator: false,
         ...(moderatorId ? { id: { not: moderatorId } } : {}),

@@ -44,6 +44,20 @@ export class ProfilesController {
     return this.profiles.create(dto, acting);
   }
 
+  @Post(':id/remove-from-groups')
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Compte suspendu par Facebook : le modérateur le retire de nos groupes (ADMIN)' })
+  removeFromGroups(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.profiles.requestGroupRemoval(id, acting);
+  }
+
+  @Post(':id/suspension/clear')
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Marquer rétabli un compte suspendu ou en vérification (ADMIN)' })
+  clearSuspension(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.profiles.clearSuspension(id, acting);
+  }
+
   @Post('assign')
   @UseGuards(AdminRoleGuard)
   @ApiOperation({ summary: 'Confier des profils à un gestionnaire, ou les rendre à l’administration (ADMIN)' })

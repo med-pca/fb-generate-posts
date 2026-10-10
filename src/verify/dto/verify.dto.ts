@@ -1,3 +1,4 @@
+import { GROUP_TASK_OUTCOMES, type GroupTaskOutcome } from '../group-tasks.service';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ArrayMinSize, ArrayMaxSize } from 'class-validator';
 import { VERIFY_OUTCOMES } from '../verify.service';
@@ -173,4 +174,20 @@ export class MemberRequestDto {
   @IsOptional()
   @IsString()
   profileId?: string;
+}
+
+/** Retrait d'un profil suspendu d'un groupe : rapport du modérateur. */
+export class RemovalResultDto {
+  @ApiProperty() @IsString() @MinLength(1) @MaxLength(200) profileExternalId!: string;
+  @ApiProperty({ enum: GROUP_TASK_OUTCOMES }) @IsIn(GROUP_TASK_OUTCOMES as unknown as string[]) outcome!: GroupTaskOutcome;
+  /** Le compte retiré : doit être celui de la tâche. */
+  @ApiProperty({ example: '100089123456789' }) @Matches(/^\d{5,20}$/) facebookUserId!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) detail?: string;
+}
+
+/** Validation d'un de nos posts en attente : rapport du modérateur. */
+export class PostApprovalResultDto {
+  @ApiProperty() @IsString() @MinLength(1) @MaxLength(200) profileExternalId!: string;
+  @ApiProperty({ enum: GROUP_TASK_OUTCOMES }) @IsIn(GROUP_TASK_OUTCOMES as unknown as string[]) outcome!: GroupTaskOutcome;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) detail?: string;
 }

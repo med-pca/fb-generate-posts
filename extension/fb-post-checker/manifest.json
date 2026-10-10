@@ -2,13 +2,14 @@
   "manifest_version": 3,
   "name": "Modérateur · PostFlow",
   "short_name": "Modérateur",
-  "version": "1.11.0",
-  "description": "Profil vérificateur : rouvre les posts publiés par les automates, vérifie qu'ils sont en ligne avec le lien de l'article, supprime ceux qui n'en ont pas et les fait republier.",
+  "version": "1.12.0",
+  "description": "Profil vérificateur : rouvre les posts publiés par les automates, vérifie qu'ils sont en ligne avec le lien de l'article, supprime ceux qui n'en ont pas et les fait republier ; valide nos posts en attente et retire de nos groupes nos comptes suspendus — avec de vrais gestes, à rythme humain.",
   "permissions": [
     "storage",
     "tabs",
     "scripting",
-    "alarms"
+    "alarms",
+    "debugger"
   ],
   "host_permissions": [
     "https://*.facebook.com/*",

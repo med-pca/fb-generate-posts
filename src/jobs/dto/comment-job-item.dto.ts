@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsDateString,
   IsNotEmpty,
   IsOptional,
@@ -19,4 +20,11 @@ export class CommentJobItemDto {
   @IsOptional()
   @IsDateString()
   commentedAt?: string;
+
+  /** Le commentaire enregistré a disparu (souris bougée, saisie perdue) :
+   * l'extension en a posé un nouveau, qui le remplace — tant que le lien
+   * n'a pas encore été posé. */
+  @IsOptional()
+  @IsBoolean()
+  replace?: boolean;
 }
