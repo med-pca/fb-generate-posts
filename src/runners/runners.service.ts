@@ -606,9 +606,10 @@ export class RunnersService {
    * NSTBrowser est celle qui l'a listé. Avec la clé globale, il naît sans
    * propriétaire -- visible des seuls ADMIN, qui le réattribuent.
    *
-   * On ne fait qu'ajouter : un profil déjà présent n'est ni renommé ni
-   * déplacé, même s'il appartient à un autre compte (l'externalId est unique
-   * sur toute la plateforme), et rien n'est supprimé -- un profil absent de
+   * Un profil déjà présent prend le NOM qu'il a dans NSTBrowser (si cette
+   * clé a le droit de le gérer) ; il n'est jamais déplacé vers un autre
+   * compte (l'externalId est unique sur toute la plateforme), et rien n'est
+   * supprimé -- un profil absent de
    * NSTBrowser peut simplement vivre sur une autre machine. */
   async syncProfiles(
     rows: NstProfileDto[],
@@ -626,9 +627,33 @@ export class RunnersService {
 
     const known = await this.prisma.profile.findMany({
       where: { externalId: { in: [...wanted.keys()] } },
-      select: { externalId: true },
+      select: { id: true, externalId: true, name: true, ownerId: true },
     });
     const seen = new Set(known.map((p) => p.externalId));
+
+    // Le nom suit NSTBrowser : renommé là-bas, renommé ici. Seulement les
+    // profils que cette clé a le droit de gérer (les siens, ou tous pour un
+    // admin / la clé globale), et jamais vers un nom vide ou l'identifiant.
+    const scope = scopeOf(acting);
+    const renamed: Array<{ externalId: string; from: string; to: string }> = [];
+    for (const p of known) {
+      const to = wanted.get(p.externalId as string);
+      if (!to || to === p.externalId || to === p.name) continue;
+      if (scope && p.ownerId !== scope.ownerId) continue;
+      await this.prisma.profile.update({ where: { id: p.id }, data: { name: to.slice(0, 200) } });
+      renamed.push({ externalId: p.externalId as string, from: p.name, to });
+    }
+    if (renamed.length) {
+      await this.prisma.activityLog
+        .create({
+          data: {
+            eventType: 'PROFILES_RENAMED',
+            message: `${renamed.length} profil(s) renommé(s) depuis NSTBrowser : ${renamed.map((r) => `« ${r.from} » → « ${r.to} »`).join(', ')}`,
+            metadata: { renamed, by: acting?.username ?? 'clé globale' },
+          },
+        })
+        .catch(() => undefined);
+    }
     const missing = [...wanted].filter(([externalId]) => !seen.has(externalId));
 
     // `skipDuplicates` : deux agents qui synchronisent en même temps ne
@@ -659,6 +684,7 @@ export class RunnersService {
     }
     return {
       created: missing.map(([externalId, name]) => ({ externalId, name })),
+      renamed,
       existing: seen.size,
       received: wanted.size,
     };

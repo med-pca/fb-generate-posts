@@ -516,6 +516,49 @@ describe('syncProfiles', () => {
   });
 });
 
+describe('syncProfiles — le nom suit NSTBrowser', () => {
+  function withProfiles(rows: Array<{ id: string; externalId: string; name: string; ownerId: string | null }>) {
+    const updates: any[] = [];
+    const traces: any[] = [];
+    const prisma = {
+      activityLog: { create: async ({ data }: any) => traces.push(data) },
+      profile: {
+        findMany: async ({ where }: any) => rows.filter((r) => where.externalId.in.includes(r.externalId)),
+        update: async (args: any) => updates.push(args),
+        createMany: async () => ({ count: 0 }),
+      },
+    };
+    return { service: new RunnersService(prisma as any, { get: () => '' } as any), updates, traces };
+  }
+  const sofia = { id: 'u1', username: 'sofia', role: 'MANAGER', status: 'ACTIVE' } as any;
+
+  it('renommé dans NSTBrowser → renommé dans la plateforme, et tracé', async () => {
+    const { service, updates, traces } = withProfiles([{ id: 'p1', externalId: 'ext-1', name: 'Salma', ownerId: null }]);
+    const r: any = await service.syncProfiles([{ externalId: 'ext-1', name: 'Salma Ibouban' }], null);
+    expect(updates).toEqual([{ where: { id: 'p1' }, data: { name: 'Salma Ibouban' } }]);
+    expect(r.renamed).toEqual([{ externalId: 'ext-1', from: 'Salma', to: 'Salma Ibouban' }]);
+    expect(traces[0]).toMatchObject({ eventType: 'PROFILES_RENAMED' });
+  });
+
+  it('même nom, nom vide ou identifiant seul : rien ne change', async () => {
+    const { service, updates } = withProfiles([
+      { id: 'p1', externalId: 'ext-1', name: 'Salma', ownerId: null },
+      { id: 'p2', externalId: 'ext-2', name: 'Rihab', ownerId: null },
+    ]);
+    await service.syncProfiles([{ externalId: 'ext-1', name: 'Salma' }, { externalId: 'ext-2', name: '  ' }], null);
+    expect(updates).toEqual([]);
+  });
+
+  it('la clé d’un gestionnaire ne renomme pas le profil d’un autre compte', async () => {
+    const { service, updates } = withProfiles([
+      { id: 'p1', externalId: 'ext-1', name: 'Le sien', ownerId: 'u1' },
+      { id: 'p2', externalId: 'ext-2', name: 'Pas à lui', ownerId: 'u2' },
+    ]);
+    await service.syncProfiles([{ externalId: 'ext-1', name: 'Nouveau nom' }, { externalId: 'ext-2', name: 'Piraté' }], sofia);
+    expect(updates).toEqual([{ where: { id: 'p1' }, data: { name: 'Nouveau nom' } }]);
+  });
+});
+
 describe('appairage — ce que le serveur retient pour le vérifier', () => {
   it('l’échange du code retient l’empreinte de la clé et l’identifiant remis', async () => {
     const { service, profiles } = harness({
