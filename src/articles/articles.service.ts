@@ -13,7 +13,7 @@ import { UpdateArticleDto } from './dto/update-article.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
 import type { CurrentUser } from '../auth/current-user';
-import { articleWhere, scopeOf } from '../auth/scope';
+import { articleWhere, groupWhere, scopeOf } from '../auth/scope';
 import { postGroupIds } from '../posts/post-groups';
 import { assertSafeRemoteUrl } from '../common/safe-fetch';
 
@@ -200,6 +200,99 @@ export class ArticlesService {
         });
       }),
     );
+  }
+
+  /** Où en est l'article dans chaque groupe de sa catégorie : jamais parti,
+   * en file, publié (quand), en échec. Ce qu'on montre avant de recréer. */
+  async recreatePreview(id: string, acting: CurrentUser | null) {
+    await this.reachable(id, acting);
+    const article = await this.prisma.article.findUnique({
+      where: { id },
+      select: { id: true, title: true, archivedAt: true, status: true, source: { select: { categoryId: true, category: { select: { name: true } } } } },
+    });
+    if (!article) throw new NotFoundException('Article introuvable');
+    const posts = await this.prisma.post.findMany({ where: { articleId: id }, select: { id: true } });
+    const categoryId = article.source.categoryId;
+    const groups = categoryId
+      ? await this.prisma.group.findMany({
+          where: { categoryId, status: 'ACTIVE', ...groupWhere(scopeOf(acting)) },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        })
+      : [];
+    const targets = posts.length
+      ? await this.prisma.postTarget.findMany({
+          where: { postId: { in: posts.map((p) => p.id) } },
+          select: { groupId: true, status: true, publishedAt: true, repeatRound: true },
+        })
+      : [];
+    const byGroup = new Map(targets.map((t) => [t.groupId, t]));
+    return {
+      article: { id: article.id, title: article.title, archivedAt: article.archivedAt, status: article.status, category: article.source.category?.name ?? null },
+      hasPost: posts.length > 0,
+      groups: groups.map((g) => {
+        const t = byGroup.get(g.id);
+        return { id: g.id, name: g.name, state: t ? t.status : 'NEVER', publishedAt: t?.publishedAt ?? null, times: t ? t.repeatRound + (t.status === 'PUBLISHED' ? 1 : 0) : 0 };
+      }),
+    };
+  }
+
+  /** Recréer les posts d'un article — même archivé : son post repart dans les
+   * groupes choisis, comme une duplication déclenchée à la main.
+   *   - déjà publié, en échec ou annulé dans un groupe : remis dans la file
+   *     (l'adresse de la publication précédente reste dans l'historique) ;
+   *   - jamais parti dans un groupe de sa catégorie : ajouté ;
+   *   - déjà en file ou en cours : laissé tel quel (pas de doublon). */
+  async recreatePosts(id: string, dto: { groupIds?: string[] }, acting: CurrentUser | null) {
+    const preview = await this.recreatePreview(id, acting);
+    if (!preview.hasPost) {
+      throw new BadRequestException('Cet article n’a encore aucun post : utilisez « Créer les posts »');
+    }
+    const known = new Set(preview.groups.map((g) => g.id));
+    const wanted = (dto.groupIds?.length ? dto.groupIds : [...known]).filter((g) => known.has(g));
+    if (!wanted.length) throw new BadRequestException('Choisissez au moins un groupe actif de sa catégorie');
+    const now = new Date();
+    const posts = await this.prisma.post.findMany({ where: { articleId: id }, orderBy: { createdAt: 'asc' }, select: { id: true, title: true } });
+    // Le post de l'article : le premier (un article donne un post ouvert).
+    const post = posts[0];
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.article.update({ where: { id }, data: { status: 'ACTIVE' } });
+      await tx.post.update({ where: { id: post.id }, data: { status: 'AVAILABLE' } });
+      const existing = await tx.postTarget.findMany({ where: { postId: post.id, groupId: { in: wanted } }, select: { id: true, groupId: true, status: true, facebookUrl: true } });
+      const have = new Map(existing.map((t) => [t.groupId, t]));
+      const again = existing.filter((t) => ['PUBLISHED', 'FAILED', 'CANCELLED'].includes(t.status));
+      const queued = existing.filter((t) => ['AVAILABLE', 'CLAIMED', 'CONSUMED'].includes(t.status)).length;
+      if (again.length) {
+        await tx.$executeRaw(Prisma.sql`
+          UPDATE post_targets SET
+            status = 'AVAILABLE'::"TargetStatus",
+            repeat_round = repeat_round + 1,
+            claimed_at = NULL, claim_expires_at = NULL, consumed_at = NULL,
+            published_at = NULL, comment_external_id = NULL, commented_at = NULL,
+            link_updated_at = NULL, facebook_url = NULL, last_error = NULL,
+            verify_status = NULL, verified_at = NULL, verify_detail = NULL,
+            verify_claimed_until = NULL, verify_attempts = 0, republish_count = 0,
+            approval_pending_since = NULL, approval_checked_at = NULL, approval_checks = 0,
+            forced_profile_id = NULL, forced_at = NULL, avoid_profile_id = NULL,
+            updated_at = ${now}
+          WHERE id IN (${Prisma.join(again.map((t) => t.id))})`);
+        await tx.publicationTrace.createMany({
+          data: again.map((t) => ({ postTargetId: t.id, kind: 'RECREATED', facebookUrl: t.facebookUrl, actor: acting?.username ?? 'clé globale', detail: 'recréé depuis la page Articles' })),
+        });
+      }
+      const missing = wanted.filter((g) => !have.has(g));
+      if (missing.length) await tx.postTarget.createMany({ data: missing.map((groupId) => ({ postId: post.id, groupId })), skipDuplicates: true });
+      await tx.activityLog.create({
+        data: {
+          postId: post.id,
+          eventType: 'ARTICLE_POSTS_RECREATED',
+          message: `« ${preview.article.title} » recréé : ${again.length} groupe(s) remis en file, ${missing.length} ajouté(s)${queued ? `, ${queued} déjà en file` : ''}`,
+          metadata: { articleId: id, requeued: again.length, created: missing.length, alreadyQueued: queued, by: acting?.username ?? 'clé globale' },
+        },
+      });
+      return { requeued: again.length, created: missing.length, alreadyQueued: queued };
+    });
+    return { ...result, groups: wanted.length };
   }
 
   /** Les légendes d'un article sont un JSON libre : ne garder que celles qui

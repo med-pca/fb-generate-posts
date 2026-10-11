@@ -1645,6 +1645,26 @@
         </div>
       </form>
     </dialog>
+    <dialog id="recreate-modal">
+      <form id="recreate-form">
+        <div class="modal-head">
+          <div>
+            <small>RECRÉER LES POSTS</small>
+            <h2 id="recreate-title">Article</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <p class="muted" id="recreate-note"></p>
+        <p class="form-help">L’article repart dans les groupes cochés, comme une nouvelle publication (« . » puis URL, vérifications comprises). Un groupe où il est déjà en file n’est pas doublé. Les adresses des publications précédentes restent dans l’historique.</p>
+        <div class="table-wrap lang-suggest-wrap">
+          <table><thead><tr><th><input type="checkbox" id="recreate-all" checked aria-label="Tout cocher" /></th><th>Groupe</th><th>Où il en est</th></tr></thead><tbody id="recreate-rows"></tbody></table>
+        </div>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary">🔁 Recréer dans les groupes cochés</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="group-lang-modal">
       <form id="group-lang-form">
         <div class="modal-head">

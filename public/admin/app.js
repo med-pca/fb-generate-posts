@@ -2477,6 +2477,59 @@ function lockGlobalSettings(admin) {
     if (admin && note) note.remove();
   }
 }
+/* ── Recréer les posts d'un article (même archivé) ──────────────────────
+ * Plus simple que la duplication : on choisit les groupes, l'article y
+ * repart. Déjà en file dans un groupe : rien n'est doublé. */
+const RECREATE_STATES = {
+  NEVER: ['join-not_joined', 'jamais parti'],
+  AVAILABLE: ['join-requested', 'déjà en file'],
+  CLAIMED: ['join-requested', 'réservé'],
+  CONSUMED: ['join-requested', 'en cours'],
+  PUBLISHED: ['join-joined', 'publié'],
+  FAILED: ['join-failed', 'en échec'],
+  CANCELLED: ['join-failed', 'annulé'],
+};
+let recreateArticleId = null;
+async function openRecreate(id) {
+  let r;
+  try {
+    r = await api(`/articles/${id}/recreate`);
+  } catch (x) {
+    return notice(x.message, 'error');
+  }
+  recreateArticleId = id;
+  $('#recreate-title').textContent = r.article.title;
+  $('#recreate-note').textContent = r.article.category
+    ? `Catégorie « ${r.article.category} » · ${r.groups.length} groupe(s) actif(s).${r.article.archivedAt ? ' Article archivé : il repart quand même.' : ''}`
+    : 'Le site de cet article n’a pas de catégorie : aucun groupe où le publier.';
+  $('#recreate-rows').innerHTML =
+    r.groups
+      .map((g) => {
+        const [tone, label] = RECREATE_STATES[g.state] || ['', g.state];
+        const busy = ['AVAILABLE', 'CLAIMED', 'CONSUMED'].includes(g.state);
+        const when_ = g.publishedAt ? ` le ${new Date(g.publishedAt).toLocaleDateString('fr-FR')}` : '';
+        return `<tr><td><input type="checkbox" data-recreate-group="${g.id}" ${busy ? 'disabled' : 'checked'}></td><td>${esc(g.name)}</td>` +
+          `<td><span class="chip ${tone}">${label}${when_}</span>${g.times > 1 ? ` <small>${g.times} fois</small>` : ''}</td></tr>`;
+      })
+      .join('') || '<tr><td colspan="3" class="empty">Aucun groupe actif dans sa catégorie.</td></tr>';
+  $('#recreate-all').checked = true;
+  openModal('recreate-modal');
+}
+$('#recreate-all').onchange = (e) => $$('[data-recreate-group]:not(:disabled)').forEach((c) => (c.checked = e.target.checked));
+$('#recreate-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const groupIds = $$('[data-recreate-group]:checked').map((c) => c.dataset.recreateGroup);
+  if (!groupIds.length) return notice('Cochez au moins un groupe.', 'error');
+  try {
+    const r = await api(`/articles/${recreateArticleId}/recreate-posts`, { method: 'POST', body: JSON.stringify({ groupIds }) });
+    e.target.closest('dialog').close();
+    await load();
+    notice(`Posts recréés : ${r.requeued} groupe(s) remis en file, ${r.created} ajouté(s)${r.alreadyQueued ? `, ${r.alreadyQueued} déjà en file` : ''}.`);
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+
 function renderPagination() {
   for (const resource of ['profiles', 'groups', 'articles', 'posts'])
     $(`#${resource}-pagination`).innerHTML = paginationBox(resource);
@@ -2642,7 +2695,7 @@ function renderArticles() {
     state.articles
       .map(
         (a) =>
-          `<article class="article-card ${a.status === 'INACTIVE' ? 'inactive' : ''}">${a.coverImageUrl ? `<img src="${esc(a.coverImageUrl)}" alt="" loading="lazy">` : '<div class="article-placeholder">Aucune image</div>'}<div class="article-body"><div class="post-meta"><span>${esc(a.source.name)}</span><span>${a.archivedAt ? `<span class="pill archived" title="Un de ses posts a été publié le ${esc(when(a.archivedAt))} : on n'en tire plus de nouveau post">ARCHIVÉ</span>` : a.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.excerpt || a.metaDescription || '')}</p><div class="article-facts"><span>${esc(a.course || 'Article')}</span>${a.totalMinutes ? `<span>${a.totalMinutes} min</span>` : ''}<span>${a._count.posts} posts</span></div><div class="card-actions"><a class="edit" href="${esc(a.articleUrl)}" target="_blank">Voir ↗</a><button class="edit" data-toggle-article="${a.id}">${a.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-article="${a.id}">Modifier</button><button class="danger" data-delete-article="${a.id}">Supprimer</button><button class="danger" data-delete-article-posts="${a.id}" ${a._count.posts ? '' : 'disabled'}>Supprimer les posts</button><button class="primary compact" data-generate="${a.id}" ${a.status === 'INACTIVE' || a.archivedAt ? 'disabled' : ''} ${a.archivedAt ? 'title="Article archivé : ses posts ont commencé à être publiés"' : ''}>Créer les posts</button></div></div></article>`,
+          `<article class="article-card ${a.status === 'INACTIVE' ? 'inactive' : ''}">${a.coverImageUrl ? `<img src="${esc(a.coverImageUrl)}" alt="" loading="lazy">` : '<div class="article-placeholder">Aucune image</div>'}<div class="article-body"><div class="post-meta"><span>${esc(a.source.name)}</span><span>${a.archivedAt ? `<span class="pill archived" title="Un de ses posts a été publié le ${esc(when(a.archivedAt))} : on n'en tire plus de nouveau post">ARCHIVÉ</span>` : a.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.excerpt || a.metaDescription || '')}</p><div class="article-facts"><span>${esc(a.course || 'Article')}</span>${a.totalMinutes ? `<span>${a.totalMinutes} min</span>` : ''}<span>${a._count.posts} posts</span></div><div class="card-actions"><a class="edit" href="${esc(a.articleUrl)}" target="_blank">Voir ↗</a><button class="edit" data-toggle-article="${a.id}">${a.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-article="${a.id}">Modifier</button><button class="danger" data-delete-article="${a.id}">Supprimer</button><button class="danger" data-delete-article-posts="${a.id}" ${a._count.posts ? '' : 'disabled'}>Supprimer les posts</button>${a._count.posts ? `<button class="secondary compact" data-recreate="${a.id}" title="Le faire repartir dans ses groupes, même archivé">🔁 Recréer les posts</button>` : ''}<button class="primary compact" data-generate="${a.id}" ${a.status === 'INACTIVE' || a.archivedAt ? 'disabled' : ''} ${a.archivedAt ? 'title="Article archivé : ses posts ont commencé à être publiés"' : ''}>Créer les posts</button></div></div></article>`,
       )
       .join('') ||
     '<div class="empty">Importez votre premier article JSON.</div>';
@@ -4804,6 +4857,10 @@ document.addEventListener('click', async (e) => {
       .then(() => load())
       .then(() => notice('État de l’article modifié.'))
       .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  if (e.target.dataset.recreate) {
+    void openRecreate(e.target.dataset.recreate);
     return;
   }
   const article = state.articles.find(

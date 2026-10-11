@@ -23,6 +23,7 @@ export const TRACE_KINDS = {
   DELETE_FAILED: 'Suppression impossible',
   REQUEUED: 'Remis dans la file',
   REPEAT_QUEUED: 'Republication programmée (duplication)',
+  RECREATED: 'Recréé à la main depuis l’article',
   NEEDS_ACTION: 'À traiter',
   RESOLVED_OK: 'Validé à la main',
 } as const;
