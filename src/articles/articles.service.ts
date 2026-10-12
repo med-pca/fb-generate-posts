@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GenerateArticlePostsDto } from './dto/generate-article-posts.dto';
 import { ImportArticleDto } from './dto/import-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
+import { QueryArticlesDto } from './dto/query-articles.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
 import type { CurrentUser } from '../auth/current-user';
@@ -51,17 +52,63 @@ type ArticlePayload = {
   };
 };
 
+/** Les filtres de la page Articles, ajoutés à la portée de l'appelant. */
+export function articleFilters(q: Partial<QueryArticlesDto>, scope: Prisma.ArticleWhereInput): Prisma.ArticleWhereInput[] {
+  const and: Prisma.ArticleWhereInput[] = [scope];
+  const search = q.search?.trim();
+  if (search) {
+    and.push({
+      OR: [
+        { title: { contains: search, mode: 'insensitive' } },
+        { articleUrl: { contains: search, mode: 'insensitive' } },
+        { slug: { contains: search, mode: 'insensitive' } },
+        { externalId: { contains: search } },
+      ],
+    });
+  }
+  if (q.siteId) and.push({ sourceId: q.siteId });
+  if (q.categoryId) and.push({ source: { categoryId: q.categoryId === 'none' ? null : q.categoryId } });
+  if (q.status) and.push({ status: q.status });
+  if (q.archived === 'yes') and.push({ archivedAt: { not: null } });
+  if (q.archived === 'no') and.push({ archivedAt: null });
+  const inQueue: Prisma.PostTargetWhereInput = { status: { in: ['AVAILABLE', 'CLAIMED', 'CONSUMED'] } };
+  if (q.diffusion === 'queued') and.push({ posts: { some: { targets: { some: inQueue } } } });
+  if (q.diffusion === 'published') and.push({ posts: { some: { targets: { some: { status: 'PUBLISHED' } } } } });
+  if (q.diffusion === 'failed') and.push({ posts: { some: { targets: { some: { status: 'FAILED' } } } } });
+  if (q.diffusion === 'never') and.push({ posts: { none: {} } });
+  if (q.diffusion === 'idle') and.push({ posts: { some: {} } }, { posts: { none: { targets: { some: inQueue } } } });
+  if (q.from) and.push({ importedAt: { gte: new Date(q.from) } });
+  if (q.to) {
+    // Une date seule (sans heure) couvre toute la journée.
+    const to = new Date(q.to);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(q.to)) to.setUTCDate(to.getUTCDate() + 1);
+    and.push({ importedAt: { lt: to } });
+  }
+  return and;
+}
+
 @Injectable()
 export class ArticlesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll({ page, limit }: PaginationDto, acting: CurrentUser | null) {
-    const where = articleWhere(scopeOf(acting));
+  async findAll(query: PaginationDto & Partial<QueryArticlesDto>, acting: CurrentUser | null) {
+    const { page, limit } = query;
+    const where: Prisma.ArticleWhereInput = { AND: articleFilters(query, articleWhere(scopeOf(acting))) };
+    const orderBy: Prisma.ArticleOrderByWithRelationInput[] =
+      query.sort === 'oldest'
+        ? [{ importedAt: 'asc' }]
+        : query.sort === 'title'
+          ? [{ title: 'asc' }]
+          : query.sort === 'priority'
+            ? [{ priority: 'desc' }, { importedAt: 'desc' }]
+            : query.sort === 'published'
+              ? [{ publishedAt: { sort: 'desc', nulls: 'last' } }]
+              : [{ importedAt: 'desc' }];
     const [data, total] = await this.prisma.$transaction([
       this.prisma.article.findMany({
         where,
         include: { source: true, _count: { select: { posts: true } } },
-        orderBy: { importedAt: 'desc' },
+        orderBy,
         skip: (page - 1) * limit,
         take: limit,
       }),

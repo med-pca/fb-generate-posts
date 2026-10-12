@@ -2295,3 +2295,5 @@ dialog td small { display: block; overflow-wrap: anywhere; color: var(--muted, #
 .agent-strip.warn { background: #fff4e5; border-color: #f0b35a; color: #7a4a00; }
 .agent-strip:empty { display: none; }
 #recreate-modal { width: min(640px, calc(100vw - 32px)); }
+.af-date { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--muted, #6b7280); margin: 0; font-weight: 500; }
+.af-date input { width: auto; min-height: 36px; }

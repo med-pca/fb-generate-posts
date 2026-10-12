@@ -342,6 +342,38 @@
                 + Importer un article
               </button>
             </div>
+            <div class="toolbar profile-filters">
+              <div class="toolbar-group">
+                <input id="af-search" type="search" placeholder="Titre ou adresse de l’article"
+                /><select id="af-site"><option value="">Tous les sites</option></select
+                ><select id="af-category"><option value="">Toutes les catégories</option></select
+                ><select id="af-status">
+                  <option value="">Actifs et inactifs</option>
+                  <option value="ACTIVE">Actifs</option>
+                  <option value="INACTIVE">Inactifs</option></select
+                ><select id="af-archived">
+                  <option value="">Archivés ou non</option>
+                  <option value="yes">Archivés (déjà publiés)</option>
+                  <option value="no">Pas encore publiés</option></select
+                ><select id="af-diffusion">
+                  <option value="">Toute diffusion</option>
+                  <option value="queued">En file / en cours</option>
+                  <option value="published">Publié dans au moins un groupe</option>
+                  <option value="idle">Plus rien en file (à recréer ?)</option>
+                  <option value="failed">Avec un échec</option>
+                  <option value="never">Sans aucun post</option></select
+                ><label class="af-date">Importé du <input id="af-from" type="date" /></label
+                ><label class="af-date">au <input id="af-to" type="date" /></label
+                ><select id="af-sort">
+                  <option value="recent">Plus récents</option>
+                  <option value="oldest">Plus anciens</option>
+                  <option value="published">Dernière publication WordPress</option>
+                  <option value="priority">Priorité</option>
+                  <option value="title">Titre</option></select>
+              </div>
+              <button class="link" id="af-reset" type="button" hidden>Effacer les filtres</button>
+            </div>
+            <p class="runner-count" id="af-count"></p>
             <div id="article-cards" class="cards articles"></div>
             <div class="pagination" id="articles-pagination"></div>
           </div>

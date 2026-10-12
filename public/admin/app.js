@@ -42,6 +42,7 @@ const API = '/api',
     // Les filtres de la page Profils (appliqués par l'API).
     profileFilters: { search: '', status: '', health: '', activity: '', categoryId: '', sort: 'recent' },
     groupFilters: { search: '', categoryId: '', status: '', profileId: '', join: '', stock: '', sort: 'recent' },
+    articleFilters: { search: '', siteId: '', categoryId: '', status: '', archived: '', diffusion: '', from: '', to: '', sort: 'recent' },
     // Les filtres du Pilotage survivent au rafraîchissement automatique.
     runnerFilters: { search: '', mode: '', state: '' },
     // La file de publication : ses filtres et combien on en montre.
@@ -408,7 +409,7 @@ async function load() {
     ] = await Promise.all([
       api(`/profiles?${profileQuery()}`),
       api(`/groups?${groupQuery()}`),
-      api(`/articles?page=${state.page.articles}&limit=12`),
+      api(`/articles?${articleQuery()}`),
       api(`/posts?${postQuery}`),
       api('/profiles?page=1&limit=100&withModerators=true'),
       api('/articles?page=1&limit=100'),
@@ -540,6 +541,41 @@ function groupProfilesCell(g) {
 
 /* ── Profils : filtres ──────────────────────────────────────────────── */
 const PROFILE_FILTER_DEFAULTS = { search: '', status: '', health: '', activity: '', categoryId: '', sort: 'recent' };
+/** Les filtres de la page Articles. */
+const ARTICLE_FILTER_DEFAULTS = { search: '', siteId: '', categoryId: '', status: '', archived: '', diffusion: '', from: '', to: '', sort: 'recent' };
+function articleQuery() {
+  const q = new URLSearchParams({ page: state.page.articles, limit: 12 });
+  for (const [k, v] of Object.entries(state.articleFilters)) if (v && !(k === 'sort' && v === 'recent')) q.set(k, v);
+  return q;
+}
+function renderArticleFilters() {
+  const f = state.articleFilters;
+  for (const [id, key] of [['#af-search', 'search'], ['#af-status', 'status'], ['#af-archived', 'archived'], ['#af-diffusion', 'diffusion'], ['#af-from', 'from'], ['#af-to', 'to'], ['#af-sort', 'sort']]) {
+    if (document.activeElement !== $(id)) $(id).value = f[key];
+  }
+  $('#af-site').innerHTML = '<option value="">Tous les sites</option>' + (state.sites || []).map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  $('#af-site').value = f.siteId;
+  $('#af-category').innerHTML =
+    '<option value="">Toutes les catégories</option><option value="none">Site sans catégorie</option>' +
+    (state.categories || []).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  $('#af-category').value = f.categoryId;
+  const filtered = Object.entries(ARTICLE_FILTER_DEFAULTS).some(([k, v]) => f[k] !== v);
+  $('#af-reset').hidden = !filtered;
+  $('#af-count').textContent = filtered ? `${state.meta.articles?.total ?? 0} article(s) pour ces filtres` : '';
+}
+[['#af-search', 'search'], ['#af-site', 'siteId'], ['#af-category', 'categoryId'], ['#af-status', 'status'], ['#af-archived', 'archived'], ['#af-diffusion', 'diffusion'], ['#af-from', 'from'], ['#af-to', 'to'], ['#af-sort', 'sort']].forEach(([id, key]) => {
+  $(id).onchange = (e) => {
+    state.articleFilters[key] = e.target.value.trim();
+    state.page.articles = 1;
+    load();
+  };
+});
+$('#af-reset').onclick = () => {
+  state.articleFilters = { ...ARTICLE_FILTER_DEFAULTS };
+  state.page.articles = 1;
+  load();
+};
+
 /** Les filtres de la page Groupes (la langue vient des pastilles). */
 const GROUP_FILTER_DEFAULTS = { search: '', categoryId: '', status: '', profileId: '', join: '', stock: '', sort: 'recent' };
 function groupQuery() {
@@ -2691,6 +2727,7 @@ function renderCategories() {
 }
 
 function renderArticles() {
+  renderArticleFilters();
   $('#article-cards').innerHTML =
     state.articles
       .map(
@@ -2698,7 +2735,7 @@ function renderArticles() {
           `<article class="article-card ${a.status === 'INACTIVE' ? 'inactive' : ''}">${a.coverImageUrl ? `<img src="${esc(a.coverImageUrl)}" alt="" loading="lazy">` : '<div class="article-placeholder">Aucune image</div>'}<div class="article-body"><div class="post-meta"><span>${esc(a.source.name)}</span><span>${a.archivedAt ? `<span class="pill archived" title="Un de ses posts a été publié le ${esc(when(a.archivedAt))} : on n'en tire plus de nouveau post">ARCHIVÉ</span>` : a.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.excerpt || a.metaDescription || '')}</p><div class="article-facts"><span>${esc(a.course || 'Article')}</span>${a.totalMinutes ? `<span>${a.totalMinutes} min</span>` : ''}<span>${a._count.posts} posts</span></div><div class="card-actions"><a class="edit" href="${esc(a.articleUrl)}" target="_blank">Voir ↗</a><button class="edit" data-toggle-article="${a.id}">${a.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-article="${a.id}">Modifier</button><button class="danger" data-delete-article="${a.id}">Supprimer</button><button class="danger" data-delete-article-posts="${a.id}" ${a._count.posts ? '' : 'disabled'}>Supprimer les posts</button>${a._count.posts ? `<button class="secondary compact" data-recreate="${a.id}" title="Le faire repartir dans ses groupes, même archivé">🔁 Recréer les posts</button>` : ''}<button class="primary compact" data-generate="${a.id}" ${a.status === 'INACTIVE' || a.archivedAt ? 'disabled' : ''} ${a.archivedAt ? 'title="Article archivé : ses posts ont commencé à être publiés"' : ''}>Créer les posts</button></div></div></article>`,
       )
       .join('') ||
-    '<div class="empty">Importez votre premier article JSON.</div>';
+    (Object.entries(ARTICLE_FILTER_DEFAULTS).some(([k, v]) => state.articleFilters[k] !== v) ? '<div class="empty">Aucun article pour ces filtres.</div>' : '<div class="empty">Importez votre premier article JSON.</div>');
 }
 /** Plus rien à régler ici : les posts ne naissent que des articles
  * WordPress. Le coupe-circuit vit dans le Pilotage. */

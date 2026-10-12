@@ -14,11 +14,11 @@ import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
 import { RecreatePostsDto } from './dto/recreate-posts.dto';
+import { QueryArticlesDto } from './dto/query-articles.dto';
 import { ArticlesService } from './articles.service';
 import { GenerateArticlePostsDto } from './dto/generate-article-posts.dto';
 import { ImportArticleDto } from './dto/import-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
-import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('articles')
 @ApiBearerAuth()
@@ -28,11 +28,8 @@ export class ArticlesController {
   constructor(private readonly articles: ArticlesService) {}
 
   @Get()
-  findAll(
-    @Query() pagination: PaginationDto,
-    @ActingUser() acting: CurrentUser,
-  ) {
-    return this.articles.findAll(pagination, acting);
+  findAll(@Query() query: QueryArticlesDto, @ActingUser() acting: CurrentUser) {
+    return this.articles.findAll(query, acting);
   }
 
   @Get(':id')
