@@ -42,6 +42,9 @@ export type RewriteInput = {
   /** La légende du post d'origine, comme indication de ton. */
   fbCaption?: string | null;
   language: string;
+  /** `seo` (défaut) : un article réellement distinct, même information ;
+   * `faithful` : une paraphrase fidèle, phrase par phrase. */
+  style?: 'seo' | 'faithful';
 };
 
 /** Au-delà, la source coûte cher à traiter sans rien apporter : un article
@@ -227,6 +230,27 @@ const INSTRUCTIONS = [
   '"contentHtml": string, "caption": string, "hashtags": string[]}.',
 ].join(' ');
 
+/** Un article réellement distinct, pour le référencement : même
+ * information que la source, mais un autre angle, une autre structure et de la
+ * valeur ajoutée. Une simple paraphrase est reconnue comme du contenu
+ * dupliqué (« needs more substantive changes than paraphrasing alone »). */
+const SEO_INSTRUCTIONS = [
+  'You write an ORIGINAL article from the notes of a source article. The goal is genuinely distinct SEO content, not a paraphrase.',
+  'Keep every fact, quantity, step, name and plot point of the notes, and never contradict them. Never invent precise facts (figures, dates, quotes, studies, brand names) that are not in the notes.',
+  'Change the substance, not just the words:',
+  '1) a new title and a new angle, with an opening hook of your own (do not start like the source);',
+  '2) your own structure: different <h2>/<h3> headings, a different grouping and order of sections when the content allows it (steps of a recipe or the events of a story keep their logical order);',
+  '3) added value written from general knowledge, adapted to the genre: for a recipe — tips, common mistakes, variations, serving and storage, a short FAQ; for advice or news — context, why it matters, practical takeaways, a short FAQ; for a story — retell the same plot in a fresh narrative voice with new descriptions and new dialogue wording, a different opening scene and a short reflective ending;',
+  '4) new sentences throughout: never copy or closely mirror a sentence of the notes; vary sentence length and rhythm.',
+  'Aim for about 20 to 40% more text than the notes, never padding.',
+  'The body is simple HTML: <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>. No attribute, no link, no image, no level-1 heading.',
+  'The caption goes with an image on Facebook: 2 to 4 sentences, no URL, no hashtag.',
+  'Write in the language named at the top of the message, and only in it.',
+  'Answer with a single JSON object, nothing around it, of the form:',
+  '{"title": string, "slug": string, "excerpt": string, "metaDescription": string,',
+  '"contentHtml": string, "caption": string, "hashtags": string[]}.',
+].join(' ');
+
 const NEWS_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -303,11 +327,11 @@ export class RewriterService {
 
   async rewrite(input: RewriteInput): Promise<GeneratedArticle> {
     const { value, provider } = await this.llm.completeJson<GeneratedArticle>({
-      instructions: INSTRUCTIONS,
+      instructions: input.style === 'faithful' ? INSTRUCTIONS : SEO_INSTRUCTIONS,
       input: this.prompt(input),
       schemaName: 'rewritten_article',
       schema: SCHEMA,
-      maxTokens: 6000,
+      maxTokens: 7000,
     });
     const generated = normalizeGenerated(value, input.source.title);
     if (!generated.contentHtml || !generated.caption) {

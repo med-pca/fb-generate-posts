@@ -26,6 +26,8 @@ import { BulkModule } from './bulk/bulk.module';
 import { ModeratorsModule } from './moderators/moderators.module';
 import { ExtensionsModule } from './extensions/extensions.module';
 import { LanguagesModule } from './languages/languages.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -54,6 +56,8 @@ import { LanguagesModule } from './languages/languages.module';
     ModeratorsModule,
     ExtensionsModule,
     LanguagesModule,
+    CampaignsModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

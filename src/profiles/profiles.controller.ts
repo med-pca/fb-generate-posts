@@ -44,16 +44,16 @@ export class ProfilesController {
     return this.profiles.create(dto, acting);
   }
 
+  // Ouvert au gestionnaire pour SES profils : le service ne trouve que les
+  // profils de son compte.
   @Post(':id/remove-from-groups')
-  @UseGuards(AdminRoleGuard)
-  @ApiOperation({ summary: 'Compte suspendu par Facebook : le modérateur le retire de nos groupes (ADMIN)' })
+  @ApiOperation({ summary: 'Compte suspendu par Facebook : le modérateur le retire de nos groupes' })
   removeFromGroups(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
     return this.profiles.requestGroupRemoval(id, acting);
   }
 
   @Post(':id/suspension/clear')
-  @UseGuards(AdminRoleGuard)
-  @ApiOperation({ summary: 'Marquer rétabli un compte suspendu ou en vérification (ADMIN)' })
+  @ApiOperation({ summary: 'Marquer rétabli un compte suspendu ou en vérification' })
   clearSuspension(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
     return this.profiles.clearSuspension(id, acting);
   }

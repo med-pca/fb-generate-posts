@@ -184,6 +184,7 @@ describe('RewriterService', () => {
   const askedWith = async (
     language: string,
     sourceLanguage: string | null = null,
+    style: 'seo' | 'faithful' = 'faithful',
   ) => {
     const completeJson = jest.fn(() =>
       Promise.resolve({ value: GOOD, provider: 'kimi' }),
@@ -193,6 +194,7 @@ describe('RewriterService', () => {
     } as unknown as LlmService).rewrite({
       source: { ...source, language: sourceLanguage },
       language,
+      style,
     });
     const [request] = completeJson.mock.calls[0] as unknown as [
       { instructions: string; input: string },
@@ -241,6 +243,16 @@ describe('RewriterService', () => {
   /** L'objectif est de réécrire l'article de la source, pas d'en produire
    * un autre sur le même thème : la consigne doit demander de suivre les
    * notes, pas de repartir d'un plan neuf. */
+  /** La remarque d'un audit SEO : une paraphrase garde l'information mais
+   * reste du contenu dupliqué. Le style par défaut demande un article distinct. */
+  it('par défaut (style SEO) : un article distinct — angle, structure, valeur ajoutée — sans inventer de faits', async () => {
+    const { instructions } = await askedWith('auto', 'en', 'seo');
+    expect(instructions).toContain('genuinely distinct SEO content, not a paraphrase');
+    expect(instructions).toContain('your own structure');
+    expect(instructions).toContain('Never invent precise facts');
+    expect(instructions).toContain('for a story');
+  });
+
   it('demande une réécriture fidèle, pas un article neuf', async () => {
     const { instructions } = await askedWith('auto');
     expect(instructions).toContain('same order');

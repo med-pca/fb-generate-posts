@@ -905,7 +905,7 @@ setTimeout(async () => {
   check('« Tous » efface le filtre', /Salim/.test($('#runner-rows').textContent), null);
   check('les actions secondaires sont dans « ⋯ » (appairer, identifiant Facebook)', !!$('#runner-rows .row-menu [data-runner-pair]') && !!$('#runner-rows .row-menu [data-fb-id]'), null);
   $('[data-pil-tab="objective"]').click();
-  check('« Objectif du jour » a son adresse', window.location.pathname === '/pilotage/objectif' && !$('#pil-objective').classList.contains('hidden') && $('#pil-profiles').classList.contains('hidden'), window.location.pathname);
+  check('« Campagnes » a son adresse', window.location.pathname === '/pilotage/campagnes' && !$('#pil-objective').classList.contains('hidden') && $('#pil-profiles').classList.contains('hidden'), window.location.pathname);
   $('[data-pil-tab="members"]').click();
   check('« Nos profils dans les groupes » a son adresse', window.location.pathname === '/pilotage/adhesions' && !$('#pil-members').classList.contains('hidden'), window.location.pathname);
   $('[data-pil-tab="profiles"]').click();

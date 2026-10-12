@@ -452,7 +452,7 @@ describe('JobsService — groupes rejoints uniquement', () => {
       const { service, prisma } = articleHarness();
       jest.spyOn(service, 'claim').mockImplementation(async () => ({ job: null, posts: [] }));
       await service.claimByProfileExternalId('demo-profile');
-      const call = prisma.postTarget.findMany.mock.calls.find((c: any) => c[0].select?.postId)[0];
+      const call = prisma.postTarget.findMany.mock.calls.find((c: any) => c[0].select?.postId && c[0].orderBy?.length === 3)[0];
       expect(call.orderBy).toEqual([
         { forcedProfileId: { sort: 'asc', nulls: 'last' } },
         { post: { priority: 'desc' } },

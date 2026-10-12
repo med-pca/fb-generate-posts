@@ -17,6 +17,8 @@ const APP_FILES: Record<string, { file: string; type: string }> = {
 const LOGIN_FILES: Record<string, { file: string; type: string }> = {
   '/login.js': { file: 'login/login.js', type: 'text/javascript; charset=utf-8' },
   '/login.css': { file: 'login/login.css', type: 'text/css; charset=utf-8' },
+  // Les traductions : publiques (aucun secret), pour la page de connexion aussi.
+  '/i18n.js': { file: 'admin/i18n.js', type: 'text/javascript; charset=utf-8' },
 };
 
 /** Les pages de la plateforme : la connexion à part, une adresse par

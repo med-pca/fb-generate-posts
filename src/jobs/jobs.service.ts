@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JobStatus, JoinStatus, Prisma, TargetStatus } from '@prisma/client';
@@ -10,6 +11,7 @@ import { normalizeFacebookUrl, trace } from '../trace/trace';
 import { startOfLocalDay } from '../insights/insights.service';
 import { localClock } from '../runners/window';
 import { adaptiveGap, pace } from '../insights/objective';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaimJobDto } from './dto/claim-job.dto';
 import { ClaimBatchDto } from './dto/claim-batch.dto';
@@ -151,6 +153,7 @@ export class JobsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    @Optional() private readonly campaigns?: CampaignsService,
   ) {}
 
   /** Les profils qu'un automate peut traiter, sans droits admin. */
@@ -758,7 +761,13 @@ export class JobsService {
     let gap: number | null = null;
     try {
       const s = await this.prisma.automationSetting.findUnique({ where: { id: 'global' } });
-      if (s?.adaptivePacing && s.dailyTarget > 0) {
+      // Les campagnes actives donnent le rythme nécessaire ; sans campagne,
+      // l'ancien objectif du jour garde la main (rien ne change avant d'en créer).
+      const need = s?.adaptivePacing ? await this.campaigns?.pacingNeed(now).catch(() => null) : null;
+      if (s?.adaptivePacing && need) {
+        const profiles = await this.prisma.profileRunner.count({ where: { running: true, lastSeenAt: { gte: new Date(now.getTime() - 180_000) }, mode: { not: 'OFF' } } });
+        gap = adaptiveGap({ neededPerHour: need.neededPerHour, ratePerHour: need.ratePerHour, profiles, minGap: s.minPostGapMinutes, status: need.status });
+      } else if (s?.adaptivePacing && s.dailyTarget > 0) {
         const tz = s.objectiveTimezone || 'Europe/Paris';
         const dayStart = startOfLocalDay(now, tz);
         const [published, lastHour, profiles] = await Promise.all([
@@ -788,16 +797,38 @@ export class JobsService {
    * le plus ancien. Les premiers seulement : si le premier vient d'être pris
    * partout, on passe au suivant. */
   private async currentArticles(profile: { id: string; ownerId: string | null }, groupIds: string[]) {
-    const targets = await this.prisma.postTarget.findMany({
-      where: {
-        groupId: { in: groupIds },
-        status: TargetStatus.AVAILABLE,
-        post: {
-          status: 'AVAILABLE',
-          AND: [claimablePostWhere(profile), { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] }],
-        },
-        ...notForcedElsewhere(profile.id),
+    const base: Prisma.PostTargetWhereInput = {
+      groupId: { in: groupIds },
+      status: TargetStatus.AVAILABLE,
+      post: {
+        status: 'AVAILABLE',
+        AND: [claimablePostWhere(profile), { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] }],
       },
+      ...notForcedElsewhere(profile.id),
+    };
+    // Les campagnes en retard d'abord (celles qui visent ce profil, ou tous
+    // les profils) : leurs articles passent devant. Un envoi forcé reste
+    // devant tout, comme avant.
+    const boosted: string[] = [];
+    const behind = (await this.campaigns?.behind().catch(() => [])) ?? [];
+    for (const c of behind) {
+      if (c.profileIds.length && !c.profileIds.includes(profile.id)) continue;
+      const rows = await this.prisma.postTarget.findMany({
+        where: { AND: [base, c.where, { forcedProfileId: null }] },
+        orderBy: [{ post: { priority: 'desc' } }, { post: { createdAt: 'asc' } }],
+        select: { postId: true },
+        take: 50,
+      });
+      for (const r of rows) if (!boosted.includes(r.postId)) boosted.push(r.postId);
+      if (boosted.length >= 3) break;
+    }
+    const forced = await this.prisma.postTarget.findMany({
+      where: { AND: [base, { forcedProfileId: profile.id }] },
+      select: { postId: true },
+      take: 50,
+    });
+    const targets = await this.prisma.postTarget.findMany({
+      where: base,
       orderBy: [
         { forcedProfileId: { sort: 'asc', nulls: 'last' } },
         { post: { priority: 'desc' } },
@@ -806,7 +837,7 @@ export class JobsService {
       select: { postId: true },
       take: 200,
     });
-    return [...new Set(targets.map((t) => t.postId))].slice(0, 3);
+    return [...new Set([...forced.map((t) => t.postId), ...boosted, ...targets.map((t) => t.postId)])].slice(0, 3);
   }
 
   /** Le groupe qui porte le post le plus prioritaire passe d'abord : sans

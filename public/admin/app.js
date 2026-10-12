@@ -1094,6 +1094,7 @@ function profileMetrics(p) {
 
 function render() {
   renderWhoami();
+  void renderGettingStarted();
   renderUsers();
   renderSites();
   renderCategories();
@@ -1251,7 +1252,7 @@ $('#pil-quick').addEventListener('click', (e) => {
   renderRunners();
 });
 
-const PIL_TABS = { profiles: '/pilotage', objective: '/pilotage/objectif', members: '/pilotage/adhesions', rules: '/pilotage/regles' };
+const PIL_TABS = { profiles: '/pilotage', objective: '/pilotage/campagnes', members: '/pilotage/adhesions', rules: '/pilotage/regles' };
 function showPilotTab(tab, { fromUrl = false } = {}) {
   if (!PIL_TABS[tab]) tab = 'profiles';
   state.pilotTab = tab;
@@ -2527,7 +2528,7 @@ $('#assign-form').onsubmit = async (e) => {
 };
 /** Les réglages communs à tous les comptes : un gestionnaire les voit, sans
  * pouvoir les changer (le serveur refuse de toute façon). */
-const GLOBAL_SETTINGS = ['#objective-form', '#pacing-form', '#rules-mode', '#rules-pause', '#rules-image', '#sites-paging', '#repeat-form', '#publishing-enabled'];
+const GLOBAL_SETTINGS = ['#objective-form', '#pacing-form', '#rewrite-style-form', '#rules-mode', '#rules-pause', '#rules-image', '#sites-paging', '#repeat-form', '#publishing-enabled'];
 function lockGlobalSettings(admin) {
   for (const sel of GLOBAL_SETTINGS) {
     const el = $(sel);
@@ -2599,6 +2600,420 @@ $('#recreate-form').onsubmit = async (e) => {
   }
 };
 
+/* ── Campagnes ────────────────────────────────────────────────────────────
+ * Un objectif par site (et, au choix, catégorie, groupes, profils,
+ * articles), par jour, semaine ou mois. En retard, ses articles passent
+ * devant dans la file. Elles remplacent l'objectif du jour global. */
+const CAMPAIGN_STATE = {
+  reached: ['good', 'Objectif atteint'],
+  ahead: ['good', 'En avance'],
+  on_track: ['good', 'Dans les temps'],
+  late: ['bad', 'En retard'],
+  missed: ['bad', 'Objectif manqué'],
+  not_started: ['neutral', 'Pas encore commencée'],
+  scheduled: ['neutral', 'Programmée'],
+  paused: ['neutral', 'En pause'],
+  ended: ['neutral', 'Terminée'],
+};
+const PERIOD_NAME = { day: 'jour', week: 'semaine', month: 'mois' };
+const camp = { list: [], openId: null, editing: null };
+
+async function loadCampaigns() {
+  try {
+    camp.list = await api('/campaigns');
+  } catch {
+    return;
+  }
+  if (!Array.isArray(camp.list)) camp.list = [];
+  renderCampaigns();
+  if (camp.openId) void openCampaign(camp.openId, false);
+}
+
+function campaignScope(c) {
+  const chips = [`<span class="chip">🌐 ${esc(c.site.name)}</span>`];
+  if (c.category) chips.push(`<span class="chip">${esc(c.category.name)}</span>`);
+  if (c.groups.length) chips.push(`<span class="chip" title="${esc(c.groups.map((g) => g.name).join(', '))}">${c.groups.length} groupe(s)</span>`);
+  if (c.profiles.length) chips.push(`<span class="chip" title="${esc(c.profiles.map((p) => p.name).join(', '))}">${c.profiles.length} profil(s)</span>`);
+  if (c.articles.length) chips.push(`<span class="chip" title="${esc(c.articles.map((a) => a.title).join(', '))}">${c.articles.length} article(s)</span>`);
+  return chips.join(' ');
+}
+
+function renderCampaigns() {
+  const active = camp.list.filter((c) => c.status === 'ACTIVE');
+  $('#campaigns-summary').innerHTML = camp.list.length
+    ? `${active.length} campagne(s) active(s) · ${active.reduce((n, c) => n + c.progress.published, 0)} publication(s) comptée(s) sur leurs périodes`
+    : 'Aucune campagne : créez-en une par site. En attendant, l’ancien objectif du jour (plus bas) règle encore la cadence.';
+  $('#campaign-cards').innerHTML =
+    camp.list
+      .map((c) => {
+        const p = c.progress;
+        const [tone, label] = CAMPAIGN_STATE[p.state] || ['neutral', p.state];
+        const pct = (n) => Math.min(100, (n / Math.max(1, p.target)) * 100);
+        return (
+          `<article class="campaign-card ${c.status !== 'ACTIVE' ? 'inactive' : ''}" data-campaign-open="${c.id}">` +
+          `<header><div><h3>${esc(c.name)}</h3><p>${campaignScope(c)}</p></div><span class="obj-status ${tone}"><b>${label}</b></span></header>` +
+          `<div class="campaign-figures"><strong>${p.published} / ${p.target}</strong><span>par ${PERIOD_NAME[c.period]} · attendu maintenant : ${p.expected}</span></div>` +
+          `<div class="obj-bar"><i class="done ${tone}" style="width:${pct(p.published)}%"></i><b class="expected" style="left:${pct(p.expected)}%" title="Attendu à cette heure : ${p.expected}"></b></div>` +
+          `<div class="campaign-kpis"><span>rythme <b>${p.ratePerHour}/h</b>${p.remaining ? ` · il faut <b>${p.neededPerHour}/h</b>` : ''}</span>` +
+          `<span>projection <b>${p.projection}</b></span><span>en file <b>${p.stock}</b>${p.deficit ? ` · <b class="bad">manque ${p.deficit}</b>` : ''}</span></div>` +
+          `<div class="row-actions">` +
+          `<button class="edit" type="button" data-campaign-open="${c.id}">📊 Détails</button>` +
+          `<button class="edit" type="button" data-campaign-edit="${c.id}">Modifier</button>` +
+          (c.status === 'ACTIVE'
+            ? `<button class="edit" type="button" data-campaign-status="PAUSED" data-id="${c.id}">⏸ Pause</button>`
+            : `<button class="edit" type="button" data-campaign-status="ACTIVE" data-id="${c.id}">▶ Reprendre</button>`) +
+          `<button class="danger" type="button" data-campaign-delete="${c.id}" data-name="${esc(c.name)}">Supprimer</button></div></article>`
+        );
+      })
+      .join('') || '<div class="empty">Aucune campagne pour l’instant.</div>';
+  // L'ancien objectif global ne sert plus dès qu'une campagne est active.
+  const legacy = $('#objective-form [name="dailyTarget"]')?.closest('label');
+  if (legacy) legacy.classList.toggle('hidden', active.length > 0);
+  $('#objective-legacy-note').hidden = !active.length;
+}
+
+async function openCampaign(id, scroll = true) {
+  camp.openId = id;
+  let d;
+  try {
+    d = await api(`/campaigns/${id}`);
+  } catch (x) {
+    return notice(x.message, 'error');
+  }
+  const max = Math.max(1, ...d.series.map((s) => s.published));
+  const table = (title, rows) =>
+    `<div class="panel campaign-table"><h3 class="history-h">${title}</h3>` +
+    (rows.length
+      ? `<table><thead><tr><th>#</th><th>Nom</th><th>Publiés</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td><b>${r.published}</b></td></tr>`).join('')}</tbody></table>`
+      : '<p class="muted">Rien sur cette période.</p>') +
+    `</div>`;
+  const [tone, label] = CAMPAIGN_STATE[d.progress.state] || ['neutral', d.progress.state];
+  $('#campaign-detail').hidden = false;
+  $('#campaign-detail').innerHTML =
+    `<div class="panel-head"><div><small>CAMPAGNE · PAR ${PERIOD_NAME[d.period].toUpperCase()}</small><h2>${esc(d.name)}</h2><p>${campaignScope(d)}</p></div>` +
+    `<div class="row-actions"><span class="obj-status ${tone}"><b>${label}</b></span><button class="close" type="button" data-campaign-close>×</button></div></div>` +
+    `<p class="form-help">${d.progress.published} publication(s) sur ${d.progress.target} · du ${new Date(d.progress.from).toLocaleDateString('fr-FR')} au ${new Date(new Date(d.progress.to).getTime() - 1).toLocaleDateString('fr-FR')} (${esc(d.timezone)}, ${minutesToTime(d.windowStart)}–${minutesToTime(d.windowEnd)})</p>` +
+    `<div class="bars campaign-series">${d.series.map((s) => `<div class="bar-col" title="${esc(s.label)} : ${s.published}"><i style="height:${(s.published / max) * 100}%"></i><span>${esc(s.label)}</span></div>`).join('')}</div>` +
+    `<div class="campaign-tables">${table('Par article', d.byArticle)}${table('Par profil', d.byProfile)}${table('Par groupe', d.byGroup)}</div>`;
+  if (scroll) $('#campaign-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/* La fenêtre de création / modification. */
+async function fillCampaignPickers(c) {
+  const f = $('#campaign-form');
+  const siteId = f.elements.siteId.value;
+  const site = (state.sites || []).find((s) => s.id === siteId);
+  const categoryId = f.elements.categoryId.value || site?.category?.id || site?.categoryId || '';
+  const keep = (name) => new Set(c ? c[name].map((x) => x.id) : $$(`[data-camp-${name}]:checked`).map((x) => x.value));
+  const [groups, articles] = await Promise.all([
+    api(`/bulk/groups${categoryId ? `?categoryId=${encodeURIComponent(categoryId)}` : ''}`).catch(() => []),
+    siteId ? api(`/articles?page=1&limit=100&siteId=${encodeURIComponent(siteId)}`).then((r) => r.data).catch(() => []) : [],
+  ]);
+  const gSel = keep('groups'), pSel = keep('profiles'), aSel = keep('articles');
+  const box = (attr, items, sel, label) =>
+    items.map((x) => `<label class="pick"><input type="checkbox" data-camp-${attr} value="${x.id}" ${sel.has(x.id) ? 'checked' : ''}><span>${esc(label(x))}</span></label>`).join('') ||
+    '<span class="muted">Aucun.</span>';
+  $('#camp-groups').innerHTML = box('groups', groups, gSel, (g) => g.name);
+  $('#camp-profiles').innerHTML = box('profiles', (state.profileOptions || []).filter((p) => !p.isModerator), pSel, (p) => p.name);
+  $('#camp-articles').innerHTML = box('articles', articles, aSel, (a) => a.title);
+}
+
+async function openCampaignForm(c = null) {
+  camp.editing = c;
+  const f = $('#campaign-form');
+  f.reset();
+  $('#campaign-form-title').textContent = c ? 'Modifier la campagne' : 'Nouvelle campagne';
+  f.elements.siteId.innerHTML = '<option value="">Choisir le site…</option>' + (state.sites || []).map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  f.elements.categoryId.innerHTML = '<option value="">Celle du site</option>' + (state.categories || []).map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  f.elements.timezone.innerHTML = $('#objective-tz').innerHTML;
+  f.elements.name.value = c?.name || '';
+  f.elements.siteId.value = c?.site.id || '';
+  f.elements.categoryId.value = c?.category?.id || '';
+  f.elements.period.value = c?.period || 'day';
+  f.elements.target.value = c?.target || '';
+  f.elements.timezone.value = c?.timezone || state.settings?.objectiveTimezone || 'Europe/Paris';
+  f.elements.windowStart.value = minutesToTime(c?.windowStart ?? state.settings?.objectiveStart ?? 480);
+  f.elements.windowEnd.value = minutesToTime(c?.windowEnd ?? state.settings?.objectiveEnd ?? 1320);
+  f.elements.startsAt.value = c?.startsAt ? c.startsAt.slice(0, 10) : '';
+  f.elements.endsAt.value = c?.endsAt ? c.endsAt.slice(0, 10) : '';
+  f.elements.priority.value = c?.priority ?? 0;
+  openModal('campaign-modal');
+  await fillCampaignPickers(c);
+}
+$('#campaign-new').onclick = () => void openCampaignForm();
+$('#campaign-form').elements.siteId.onchange = () => void fillCampaignPickers(null);
+$('#campaign-form').elements.categoryId.onchange = () => void fillCampaignPickers(null);
+$('#campaign-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  if (!f.siteId.value) return notice('Le site est obligatoire.', 'error');
+  const body = {
+    name: f.name.value.trim(),
+    siteId: f.siteId.value,
+    categoryId: f.categoryId.value || null,
+    period: f.period.value,
+    target: Number(f.target.value),
+    timezone: f.timezone.value,
+    windowStart: timeToMinutes(f.windowStart.value) ?? 480,
+    windowEnd: timeToMinutes(f.windowEnd.value) ?? 1320,
+    priority: Number(f.priority.value || 0),
+    groupIds: $$('[data-camp-groups]:checked').map((x) => x.value),
+    profileIds: $$('[data-camp-profiles]:checked').map((x) => x.value),
+    articleIds: $$('[data-camp-articles]:checked').map((x) => x.value),
+    ...(f.startsAt.value ? { startsAt: new Date(`${f.startsAt.value}T00:00:00`).toISOString() } : {}),
+    endsAt: f.endsAt.value ? new Date(`${f.endsAt.value}T23:59:59`).toISOString() : null,
+  };
+  if (!body.categoryId) delete body.categoryId;
+  try {
+    if (camp.editing) await api(`/campaigns/${camp.editing.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+    else await api('/campaigns', { method: 'POST', body: JSON.stringify(body) });
+    e.target.closest('dialog').close();
+    notice(camp.editing ? 'Campagne modifiée.' : 'Campagne créée.');
+    await loadCampaigns();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+$('#campaigns').addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-campaign-edit], [data-campaign-status], [data-campaign-delete], [data-campaign-open], [data-campaign-close]');
+  if (!t) return;
+  if (t.dataset.campaignClose !== undefined) {
+    camp.openId = null;
+    $('#campaign-detail').hidden = true;
+    return;
+  }
+  if (t.dataset.campaignEdit) return void openCampaignForm(camp.list.find((c) => c.id === t.dataset.campaignEdit));
+  if (t.dataset.campaignStatus) {
+    try {
+      await api(`/campaigns/${t.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ status: t.dataset.campaignStatus }) });
+      await loadCampaigns();
+    } catch (x) {
+      notice(x.message, 'error');
+    }
+    return;
+  }
+  if (t.dataset.campaignDelete) {
+    if (!await ask(`Supprimer la campagne « ${t.dataset.name} » ?\nSes posts et ses articles ne sont pas touchés.`, { tone: 'danger', confirmLabel: 'Supprimer' })) return;
+    try {
+      await api(`/campaigns/${t.dataset.campaignDelete}`, { method: 'DELETE' });
+      if (camp.openId === t.dataset.campaignDelete) { camp.openId = null; $('#campaign-detail').hidden = true; }
+      await loadCampaigns();
+    } catch (x) {
+      notice(x.message, 'error');
+    }
+    return;
+  }
+  if (t.dataset.campaignOpen) void openCampaign(t.dataset.campaignOpen);
+});
+
+/* ── Analyse des données ───────────────────────────────────────────────────
+ * Un seul jeu de filtres pour tout : chiffres clés, courbe, heures,
+ * classements, échecs, export. Cliquer une ligne d'un classement filtre
+ * sur elle. */
+const an = { filters: { preset: '7d', from: '', to: '', siteId: '', campaignId: '', categoryId: '', groupId: '', profileId: '', articleId: '' }, labels: {}, data: null, groups: null };
+const AN_PRESETS = { today: 'Aujourd’hui', '7d': '7 jours', '30d': '30 jours', month: 'Ce mois', lastMonth: 'Mois dernier', custom: 'Dates…' };
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function anRange() {
+  const f = an.filters, now = new Date();
+  const day = (offset) => isoDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset));
+  if (f.preset === 'today') return { from: day(0), to: day(0) };
+  if (f.preset === '30d') return { from: day(-29), to: day(0) };
+  if (f.preset === 'month') return { from: isoDay(new Date(now.getFullYear(), now.getMonth(), 1)), to: day(0) };
+  if (f.preset === 'lastMonth') return { from: isoDay(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: isoDay(new Date(now.getFullYear(), now.getMonth(), 0)) };
+  if (f.preset === 'custom' && f.from && f.to) return { from: f.from, to: f.to };
+  return { from: day(-6), to: day(0) };
+}
+function anQuery() {
+  const q = new URLSearchParams(anRange());
+  for (const k of ['siteId', 'campaignId', 'categoryId', 'groupId', 'profileId', 'articleId']) if (an.filters[k]) q.set(k, an.filters[k]);
+  return q;
+}
+async function loadAnalytics() {
+  renderAnFilters();
+  $('#an-body').classList.add('loading');
+  try {
+    an.data = await api(`/analytics?${anQuery()}`);
+    renderAnalytics();
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    $('#an-body').classList.remove('loading');
+  }
+}
+async function renderAnFilters() {
+  const f = an.filters;
+  $('#an-presets').innerHTML = Object.entries(AN_PRESETS).map(([k, l]) => `<button type="button" class="chip ${f.preset === k ? 'on' : ''}" data-an-preset="${k}">${l}</button>`).join('');
+  $('#an-dates').hidden = f.preset !== 'custom';
+  $('#an-from').value = f.from;
+  $('#an-to').value = f.to;
+  const opt = (list, sel, label) => list.map((x) => `<option value="${x.id}" ${x.id === sel ? 'selected' : ''}>${esc(label(x))}</option>`).join('');
+  $('#an-site').innerHTML = '<option value="">Tous les sites</option>' + opt(state.sites || [], f.siteId, (s) => s.name);
+  $('#an-campaign').innerHTML = '<option value="">Toutes les campagnes</option>' + opt(camp.list || [], f.campaignId, (c) => c.name);
+  $('#an-category').innerHTML = '<option value="">Toutes les catégories</option>' + opt(state.categories || [], f.categoryId, (c) => c.name);
+  $('#an-profile').innerHTML = '<option value="">Tous les profils</option>' + opt((state.profileOptions || []).filter((p) => !p.isModerator), f.profileId, (p) => p.name);
+  if (!an.groups) an.groups = await api('/bulk/groups').catch(() => []);
+  $('#an-group').innerHTML = '<option value="">Tous les groupes</option>' + opt(an.groups || [], f.groupId, (g) => g.name);
+  $('#an-article').hidden = !f.articleId;
+  $('#an-article').innerHTML = f.articleId ? `Article : <b>${esc(an.labels[f.articleId] || '…')}</b> <button type="button" class="link" data-an-clear="articleId">✕</button>` : '';
+  const filtered = ['siteId', 'campaignId', 'categoryId', 'groupId', 'profileId', 'articleId'].some((k) => f[k]);
+  $('#an-reset').hidden = !filtered;
+}
+function anBars(series, label) {
+  const max = Math.max(1, ...series.map((s) => s.published + (s.failed || 0)));
+  return `<div class="bars an-bars">${series
+    .map((s) => {
+      const lab = label(s);
+      return `<div class="bar-col" title="${esc(lab.title)} : ${s.published} publié(s)${s.failed ? `, ${s.failed} échec(s)` : ''}">` +
+        `<i class="an-fail" style="height:${((s.failed || 0) / max) * 100}%"></i><i style="height:${(s.published / max) * 100}%"></i><span>${esc(lab.short)}</span></div>`;
+    })
+    .join('')}</div>`;
+}
+function renderAnalytics() {
+  const d = an.data;
+  if (!d) return;
+  const k = d.kpis;
+  const tz = d.range.timezone;
+  const tile = (value, label, sub = '', cls = '') => `<div class="obj-kpi ${cls}"><strong>${value}</strong><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const pct = (n) => (k.published ? `${Math.round((n / k.published) * 100)} %` : '—');
+  $('#an-kpis').innerHTML =
+    tile(k.published, 'publications', k.delta === null ? 'pas de période précédente' : `${k.delta >= 0 ? '▲' : '▼'} ${Math.abs(k.delta)} % vs ${k.previous} avant`, k.delta !== null && k.delta < 0 ? 'bad' : '') +
+    tile(k.failed, 'échecs', `${k.failureRate} % des tentatives`, k.failureRate > 10 ? 'bad' : '') +
+    tile(k.perDay, 'par jour (moyenne)') +
+    tile(k.articles, 'articles diffusés') +
+    tile(k.groups, 'groupes touchés') +
+    tile(k.profiles, 'profils actifs') +
+    tile(pct(k.linked), 'avec le lien posé', `${k.linked} sur ${k.published}`) +
+    tile(pct(k.verified), 'vérifiés en ligne', `${k.verified} par le modérateur`);
+  const fmt = (at, opts) => new Date(at).toLocaleString('fr-FR', { timeZone: tz, ...opts });
+  $('#an-series').innerHTML = anBars(d.series, (s) =>
+    d.range.bucket === 'hour'
+      ? { title: fmt(s.at, { weekday: 'short', hour: '2-digit', minute: '2-digit' }), short: fmt(s.at, { hour: '2-digit' }) }
+      : { title: fmt(s.at, { weekday: 'long', day: '2-digit', month: '2-digit' }), short: fmt(s.at, { day: '2-digit', month: '2-digit' }) },
+  );
+  $('#an-series-title').textContent = d.range.bucket === 'hour' ? 'Heure par heure' : 'Jour par jour';
+  $('#an-hours').innerHTML = anBars(d.hours.map((n) => ({ published: n })), (_s) => ({ title: '', short: '' }))
+    .replace(/<span><\/span>/g, '');
+  $$('#an-hours .bar-col').forEach((c, h) => {
+    c.title = `${String(h).padStart(2, '0')} h : ${d.hours[h]} publication(s)`;
+    c.insertAdjacentHTML('beforeend', `<span>${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`);
+  });
+  for (const list of [d.byArticle, d.byProfile, d.byGroup, d.bySite]) for (const r of list) an.labels[r.id] = r.name;
+  const table = (rows, key, withFail) =>
+    rows.length
+      ? `<table><thead><tr><th>#</th><th>Nom</th><th>Publiés</th>${withFail ? '<th>Échecs</th><th>Taux</th>' : ''}</tr></thead><tbody>${rows
+          .slice(0, 30)
+          .map((r, i) => `<tr class="an-row" data-an-filter="${key}" data-id="${r.id}" title="Filtrer sur « ${esc(r.name)} »"><td>${i + 1}</td><td>${esc(r.name)}</td><td><b>${r.published}</b></td>` +
+            (withFail ? `<td>${r.failed}</td><td class="${r.failureRate > 20 ? 'bad' : ''}">${r.failureRate} %</td>` : '') + `</tr>`)
+          .join('')}</tbody></table>`
+      : '<p class="muted">Rien sur cette période.</p>';
+  $('#an-by-site').innerHTML = table(d.bySite, 'siteId', false);
+  $('#an-by-article').innerHTML = table(d.byArticle, 'articleId', false);
+  $('#an-by-profile').innerHTML = table(d.byProfile, 'profileId', true);
+  $('#an-by-group').innerHTML = table(d.byGroup, 'groupId', true);
+  $('#an-failures').innerHTML = d.failureReasons.length
+    ? `<table><thead><tr><th>Motif</th><th>Fois</th></tr></thead><tbody>${d.failureReasons.map((r) => `<tr><td>${esc(r.reason)}</td><td><b>${r.count}</b></td></tr>`).join('')}</tbody></table>`
+    : '<p class="muted">Aucun échec sur cette période 🎉</p>';
+  $('#an-range').textContent = `Du ${fmt(d.range.from, { dateStyle: 'medium' })} au ${fmt(new Date(new Date(d.range.to).getTime() - 1), { dateStyle: 'medium' })} · heure de ${tz}`;
+}
+$('#analytics').addEventListener('click', (e) => {
+  const preset = e.target.closest('[data-an-preset]');
+  if (preset) {
+    an.filters.preset = preset.dataset.anPreset;
+    if (an.filters.preset === 'custom' && !an.filters.from) {
+      const r = anRange();
+      an.filters.from = r.from;
+      an.filters.to = r.to;
+    }
+    return void loadAnalytics();
+  }
+  const row = e.target.closest('[data-an-filter]');
+  if (row) {
+    an.filters[row.dataset.anFilter] = row.dataset.id;
+    return void loadAnalytics();
+  }
+  const clear = e.target.closest('[data-an-clear]');
+  if (clear) {
+    an.filters[clear.dataset.anClear] = '';
+    return void loadAnalytics();
+  }
+});
+[['#an-site', 'siteId'], ['#an-campaign', 'campaignId'], ['#an-category', 'categoryId'], ['#an-group', 'groupId'], ['#an-profile', 'profileId'], ['#an-from', 'from'], ['#an-to', 'to']].forEach(([id, key]) => {
+  $(id).onchange = (e) => {
+    an.filters[key] = e.target.value;
+    void loadAnalytics();
+  };
+});
+$('#an-reset').onclick = () => {
+  for (const k of ['siteId', 'campaignId', 'categoryId', 'groupId', 'profileId', 'articleId']) an.filters[k] = '';
+  void loadAnalytics();
+};
+$('#an-export').onclick = async (e) => {
+  const button = e.target;
+  button.disabled = true;
+  try {
+    const response = await fetch(`${API}/analytics/export.csv?${anQuery()}`, { credentials: 'same-origin', headers: { 'X-Requested-With': 'PostFlow' } });
+    if (response.status === 401) return toLogin();
+    if (!response.ok) throw new Error(`Export refusé (HTTP ${response.status})`);
+    const blob = await response.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    const r = anRange();
+    link.download = `analyse-${r.from}-${r.to}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+  } catch (x) {
+    notice(x.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+};
+
+/* ── Démarrage : les étapes pour qu'un compte publie, dans l'ordre ──────
+ * Cochées d'après les données du compte ; masquable une fois tout fait. */
+async function renderGettingStarted() {
+  const box = $('#getting-started');
+  if (!box || !state.me) return;
+  let hidden = false;
+  try {
+    hidden = localStorage.getItem('pf.gettingStarted.hidden') === '1';
+  } catch {
+    hidden = false;
+  }
+  if (!camp.list.length && !camp.loadedOnce) {
+    camp.loadedOnce = true;
+    await loadCampaigns();
+  }
+  const joined = (state.groups || []).some((g) => g.profiles.some((x) => x.joinStatus === 'JOINED'));
+  const steps = [
+    { done: Boolean(state.me.hasNstApiKey), label: 'Enregistrer votre clé NSTBrowser', why: 'pour ouvrir les navigateurs de vos profils', action: '<button class="edit" type="button" data-gs-nst>Clé NSTBrowser</button>' },
+    { done: (state.sites || []).length > 0, label: 'Ajouter votre site WordPress (et y installer le plugin)', why: 'les articles viennent de là', action: '<button class="edit" type="button" data-goto="/sites">Sites</button>' },
+    { done: (state.meta.profiles?.total || 0) > 0, label: 'Avoir vos profils Facebook', why: 'créés tout seuls par l’agent local, ou à la main', action: '<button class="edit" type="button" data-goto="/profils">Profils</button>' },
+    { done: joined, label: 'Lier vos profils à des groupes rejoints', why: 'un profil ne publie que dans un groupe « Rejoint »', action: '<button class="edit" type="button" data-goto="/actions-en-masse">Actions en masse</button>' },
+    { done: camp.list.length > 0, label: 'Créer une campagne', why: 'votre objectif par jour, semaine ou mois', action: '<button class="edit" type="button" data-goto="/pilotage/campagnes">Campagnes</button>' },
+    { done: false, optional: true, label: 'Installer les extensions et l’agent local', why: 'Publication sur chaque profil, agent sur chaque ordinateur', action: '<button class="edit" type="button" data-goto="/extensions">Extensions</button>' },
+  ];
+  const todo = steps.filter((s) => !s.done && !s.optional).length;
+  box.hidden = hidden && !todo;
+  if (box.hidden) return;
+  box.innerHTML =
+    `<div class="panel-head"><div><small>DÉMARRAGE</small><h2>${todo ? `${todo} étape(s) pour publier` : 'Tout est prêt ✓'}</h2></div>` +
+    (todo ? '' : '<button class="link" type="button" data-gs-hide>Masquer</button>') + `</div>` +
+    `<ol class="gs-steps">${steps
+      .map((s) => `<li class="${s.done ? 'done' : ''}"><span class="gs-mark">${s.done ? '✓' : ''}</span><div><b>${s.label}</b><small>${s.why}</small></div>${s.done ? '' : s.action}</li>`)
+      .join('')}</ol>`;
+}
+$('#getting-started').addEventListener('click', (e) => {
+  if (e.target.closest('[data-gs-nst]')) return void $('#nst-open').click();
+  if (e.target.closest('[data-gs-hide]')) {
+    try {
+      localStorage.setItem('pf.gettingStarted.hidden', '1');
+    } catch {
+      /* stockage indisponible : on masque pour cette page seulement */
+    }
+    $('#getting-started').hidden = true;
+  }
+});
+
 function renderPagination() {
   for (const resource of ['profiles', 'groups', 'articles', 'posts'])
     $(`#${resource}-pagination`).innerHTML = paginationBox(resource);
@@ -2667,12 +3082,23 @@ function pluginCell(s) {
 }
 /** Le découpage des articles en pages, réglé une fois pour tous les sites. */
 function renderSitesPaging() {
+  const rf = $('#rewrite-style-form');
+  if (rf && state.settings && !rf.contains(document.activeElement)) rf.elements.rewriteStyle.value = state.settings.rewriteStyle || 'seo';
   const f = $('#sites-paging');
   if (!f || !state.settings || f.contains(document.activeElement)) return;
   f.elements.articleParagraphsPerPage.value = state.settings.articleParagraphsPerPage ?? 2;
   f.elements.articleMinWordsPerPage.value = state.settings.articleMinWordsPerPage ?? 60;
   f.elements.articleMaxPages.value = state.settings.articleMaxPages ?? 3;
 }
+$('#rewrite-style-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    state.settings = await api('/settings', { method: 'PATCH', body: JSON.stringify({ rewriteStyle: e.target.elements.rewriteStyle.value }) });
+    notice(state.settings.rewriteStyle === 'seo' ? 'Réécriture : article original pour le SEO.' : 'Réécriture : paraphrase fidèle.');
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 $('#sites-paging').onsubmit = async (e) => {
   e.preventDefault();
   const f = e.target.elements;
@@ -3103,8 +3529,10 @@ const ROUTES = {
   '/posts/tous': { view: 'posts', tab: 'all' },
   '/posts/duplication': { view: 'posts', tab: 'repeat' },
   '/journaux': { view: 'logs' },
+  '/analyse': { view: 'analytics' },
   '/pilotage': { view: 'runners', pil: 'profiles' },
   '/pilotage/objectif': { view: 'runners', pil: 'objective' },
+  '/pilotage/campagnes': { view: 'runners', pil: 'objective' },
   '/pilotage/adhesions': { view: 'runners', pil: 'members' },
   '/pilotage/regles': { view: 'runners', pil: 'rules' },
   '/parametres': { view: 'settings' },
@@ -3194,6 +3622,7 @@ function view(id, { fromUrl = false } = {}) {
     articles: 'Articles',
     posts: 'Posts',
     logs: 'Journaux',
+    analytics: 'Analyse',
     runners: 'Pilotage',
     settings: 'Paramètres',
     bulk: 'Actions en masse',
@@ -3211,6 +3640,11 @@ function view(id, { fromUrl = false } = {}) {
   // Les journaux se relisent à chaque ouverture : une synthèse périmée
   // conduirait à décider sur l'état d'hier.
   if (id === 'logs') loadLogs();
+  if (id === 'analytics') {
+    // La liste des campagnes sert au filtre.
+    if (!camp.list.length) void loadCampaigns();
+    void loadAnalytics();
+  }
   // La file bouge toute seule : elle se relit tant qu'elle est à l'écran.
   clearInterval(view.queueTimer);
   if (id === 'posts' && state.queue.tab === 'queue') {
@@ -3227,7 +3661,11 @@ function view(id, { fromUrl = false } = {}) {
     // L'objectif se relit toutes les 30 s : c'est le « temps réel » de la
     // journée, sans charger l'API à chaque battement.
     loadObjective();
-    view.objectiveTimer = setInterval(loadObjective, 30000);
+    void loadCampaigns();
+    view.objectiveTimer = setInterval(() => {
+      loadObjective();
+      void loadCampaigns();
+    }, 30000);
   }
   if (id === 'settings' && state.me?.role === 'ADMIN') loadResetCounts();
   if (!fromUrl) syncUrl(id);
@@ -5601,7 +6039,8 @@ async function loadSuspended() {
     return;
   }
   if (!Array.isArray(rows)) rows = [];
-  const admin = isAdminUser();
+  // Le gestionnaire agit sur SES profils (la liste n'en montre pas d'autres).
+  const admin = true;
   $('#suspended-rows').innerHTML =
     rows
       .map((p) => {

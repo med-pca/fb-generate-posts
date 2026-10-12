@@ -41,3 +41,8 @@ input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px #2
 .primary:disabled { opacity: 0.6; cursor: progress; }
 .error { margin: 6px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--err-bg); color: var(--err); font-size: 0.88rem; font-weight: 600; }
 .hint { margin: 8px 0 0; color: var(--muted); font-size: 0.78rem; }
+
+/* Langues */
+.lang-select { display: block; margin: 0 0 14px auto; min-height: 32px; padding: 4px 8px; font-size: 0.85rem; border-radius: 8px; }
+html[dir="rtl"] .lang-select { margin: 0 auto 14px 0; }
+html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", "Geeza Pro", Arial, sans-serif; }

@@ -78,6 +78,12 @@ export class UpdateSettingsDto {
   @IsIn(['article', 'group'])
   pilotMode?: 'article' | 'group';
 
+  /** Réécriture : article distinct pour le référencement, ou fidèle. */
+  @ApiPropertyOptional({ enum: ['seo', 'faithful'] })
+  @IsOptional()
+  @IsIn(['seo', 'faithful'])
+  rewriteStyle?: 'seo' | 'faithful';
+
   /** Accélérer automatiquement pour tenir l'objectif. */
   @ApiPropertyOptional()
   @IsOptional()

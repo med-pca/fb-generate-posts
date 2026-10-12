@@ -613,6 +613,12 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /** Le style de réécriture réglé dans Paramètres (Original SEO par défaut). */
+  private async rewriteStyle(): Promise<'seo' | 'faithful'> {
+    const s = await Promise.resolve(this.prisma.automationSetting?.findUnique({ where: { id: 'global' }, select: { rewriteStyle: true } })).catch(() => null);
+    return s?.rewriteStyle === 'faithful' ? 'faithful' : 'seo';
+  }
+
   private async rewrite(ingest: SourceIngest) {
     const generated = await this.rewriter.rewrite({
       source: {
@@ -626,6 +632,7 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
       },
       fbCaption: ingest.fbCaption,
       language: ingest.language,
+      style: await this.rewriteStyle(),
     });
     return this.prisma.sourceIngest.update({
       where: { id: ingest.id },

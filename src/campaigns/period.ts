@@ -1,0 +1,77 @@
+import { startOfLocalDay } from '../insights/insights.service';
+import { localClock } from '../runners/window';
+import { minutesIntoWindow, windowLength } from '../insights/objective';
+
+export type Period = 'day' | 'week' | 'month';
+const DAY = 86_400_000;
+
+/** Le jour du mois dans ce fuseau (1 → 31). */
+function dayOfMonth(now: Date, timeZone: string) {
+  try {
+    return Number(new Intl.DateTimeFormat('en-GB', { timeZone, day: 'numeric' }).format(now));
+  } catch {
+    return now.getUTCDate();
+  }
+}
+
+/** Minuit local d'un jour donné à `days` jours de `now` (en passant par midi,
+ * pour qu'un changement d'heure ne fasse pas glisser d'un jour). */
+function midnightShift(now: Date, timeZone: string, days: number) {
+  const noon = new Date(startOfLocalDay(now, timeZone).getTime() + 12 * 3_600_000 + days * DAY);
+  return startOfLocalDay(noon, timeZone);
+}
+
+/** La période en cours d'une campagne, dans son fuseau : aujourd'hui, la
+ * semaine (du lundi) ou le mois (du 1er). Rend aussi le nombre de jours de
+ * la période et combien sont déjà passés. */
+export function periodBounds(period: Period, now: Date, timeZone: string) {
+  let from: Date;
+  if (period === 'week') from = midnightShift(now, timeZone, -(localClock(now, timeZone).isoDay - 1));
+  else if (period === 'month') from = midnightShift(now, timeZone, -(dayOfMonth(now, timeZone) - 1));
+  else from = startOfLocalDay(now, timeZone);
+  let days = 1;
+  if (period === 'week') days = 7;
+  if (period === 'month') {
+    // Le 1er du mois suivant, puis on compte les jours.
+    const next = midnightShift(from, timeZone, 32);
+    const firstNext = midnightShift(next, timeZone, -(dayOfMonth(next, timeZone) - 1));
+    days = Math.round((firstNext.getTime() - from.getTime()) / DAY);
+  }
+  const to = midnightShift(from, timeZone, days);
+  const dayIndex = Math.min(days - 1, Math.max(0, Math.round((startOfLocalDay(now, timeZone).getTime() - from.getTime()) / DAY)));
+  return { from, to, days, dayIndex };
+}
+
+/** Où l'on devrait en être : la part des heures de travail de la période déjà
+ * écoulées (plage horaire de chaque jour), appliquée à l'objectif. */
+export function campaignPace(input: {
+  period: Period;
+  target: number;
+  published: number;
+  lastHour: number;
+  now: Date;
+  timezone: string;
+  windowStart: number;
+  windowEnd: number;
+}) {
+  const { from, to, days, dayIndex } = periodBounds(input.period, input.now, input.timezone);
+  const perDay = windowLength(input.windowStart, input.windowEnd);
+  const today = minutesIntoWindow(localClock(input.now, input.timezone).minutes, input.windowStart, input.windowEnd);
+  const total = perDay * days;
+  const into = Math.min(total, dayIndex * perDay + today);
+  const left = Math.max(0, total - into);
+  const elapsed = total ? into / total : 1;
+  const expected = Math.round(input.target * elapsed);
+  const remaining = Math.max(0, input.target - input.published);
+  const neededPerHour = left ? Math.ceil((remaining / left) * 60) : remaining;
+  // Le rythme réel : la dernière heure, mais pendant la plage de travail.
+  const projection = input.published + Math.round((input.lastHour * left) / 60);
+  let status: 'reached' | 'not_started' | 'ahead' | 'on_track' | 'late' | 'missed';
+  if (input.published >= input.target) status = 'reached';
+  else if (into <= 0) status = 'not_started';
+  else if (!left) status = 'missed';
+  else if (input.published >= expected) status = 'ahead';
+  else if (input.published >= expected * 0.9) status = 'on_track';
+  else status = 'late';
+  return { from, to, days, expected, remaining, neededPerHour, ratePerHour: input.lastHour, projection, minutesLeft: left, elapsed, status };
+}

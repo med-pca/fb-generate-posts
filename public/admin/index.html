@@ -50,6 +50,7 @@
           <div class="nav-group" data-group="admin">
             <button class="nav-head" type="button" aria-expanded="true">Suivi & réglages<i>▾</i></button>
             <div class="nav-items">
+              <button class="nav" data-view="analytics">📈 <span>Analyse</span></button>
               <button class="nav" data-view="logs">≡ <span>Journaux</span></button>
               <button class="nav" data-view="extensions">🧩 <span>Extensions</span></button>
               <button class="nav admin-only" data-view="users">⚭ <span>Comptes</span></button>
@@ -70,10 +71,12 @@
             <span class="online"><i></i> API connectée</span>
             <span id="whoami"></span>
             <button class="edit" id="nst-open" type="button">Clé NSTBrowser</button>
+            <select class="lang-select" data-lang-select aria-label="Langue / Language / اللغة"></select>
           </div>
         </header>
         <div id="notice" role="status"></div>
         <section id="dashboard" class="view active">
+          <div class="panel getting-started" id="getting-started" hidden></div>
           <div class="stats">
             <article>
               <span>Profils actifs</span><strong id="n-profiles">—</strong
@@ -299,6 +302,14 @@
           <div class="panel rules-panel">
             <div class="panel-head"><div><small>ARTICLES DÉPOSÉS SUR WORDPRESS</small><h2>Découpage en pages (« page suivante »)</h2></div></div>
             <p class="form-help">Le lecteur lit un peu, puis clique « page suivante » : chaque page vue compte pour la publicité. Un article long donne plus de pages, sans dépasser le maximum : au-delà, il est coupé en ce nombre de pages équilibrées. Une page a au moins le nombre de mots indiqué : des répliques d'une ligne se regroupent au lieu de faire une page presque vide. 0 paragraphe = article d'un seul tenant. S'applique aux prochains dépôts.</p>
+            <form id="rewrite-style-form" class="rules-pause">
+              <label>Réécriture des articles capturés
+                <select name="rewriteStyle">
+                  <option value="seo">Original SEO — même information, autre angle, autre structure, valeur ajoutée (recommandé)</option>
+                  <option value="faithful">Fidèle — paraphrase phrase par phrase (même ordre, même détail)</option>
+                </select></label>
+              <button class="primary" type="submit">Enregistrer</button>
+            </form>
             <form id="sites-paging" class="rules-pause">
               <label>« Page suivante » tous les <input name="articleParagraphsPerPage" type="number" min="0" max="30" required /> paragraphe(s)</label>
               <label>au moins <input name="articleMinWordsPerPage" type="number" min="0" max="1000" step="10" required /> mots par page</label>
@@ -553,6 +564,40 @@
             </table>
           </div>
           <div class="pagination" id="posts-pagination"></div>
+          </div>
+        </section>
+        <section id="analytics" class="view">
+          <div class="toolbar an-toolbar">
+            <div class="an-presets" id="an-presets"></div>
+            <div class="toolbar-group">
+              <span id="an-dates" hidden><input type="date" id="an-from" aria-label="Du" /> → <input type="date" id="an-to" aria-label="Au" /></span>
+              <button class="secondary" type="button" id="an-export">⬇ Exporter (CSV)</button>
+            </div>
+          </div>
+          <div class="toolbar profile-filters">
+            <div class="toolbar-group">
+              <select id="an-site"></select
+              ><select id="an-campaign"></select
+              ><select id="an-category"></select
+              ><select id="an-group"></select
+              ><select id="an-profile"></select>
+              <span id="an-article" class="chip" hidden></span>
+            </div>
+            <button class="link" id="an-reset" type="button" hidden>Effacer les filtres</button>
+          </div>
+          <p class="runner-count" id="an-range"></p>
+          <div id="an-body">
+            <div class="obj-kpis an-kpis" id="an-kpis"></div>
+            <div class="an-grid">
+              <div class="panel an-panel an-wide"><h3 class="history-h" id="an-series-title">Jour par jour</h3><div id="an-series"></div><p class="obj-chart-note">Bleu : publiées · rouge : échecs</p></div>
+              <div class="panel an-panel"><h3 class="history-h">À quelle heure on publie</h3><div id="an-hours"></div></div>
+              <div class="panel an-panel"><h3 class="history-h">Par site</h3><div id="an-by-site"></div></div>
+              <div class="panel an-panel"><h3 class="history-h">Par article</h3><div id="an-by-article"></div></div>
+              <div class="panel an-panel"><h3 class="history-h">Par profil</h3><div id="an-by-profile"></div></div>
+              <div class="panel an-panel"><h3 class="history-h">Par groupe</h3><div id="an-by-group"></div></div>
+              <div class="panel an-panel an-wide"><h3 class="history-h">Pourquoi ça échoue</h3><div id="an-failures"></div></div>
+            </div>
+            <p class="form-help">Astuce : cliquez une ligne d’un classement pour filtrer toute la page sur elle.</p>
           </div>
         </section>
         <section id="logs" class="view">
@@ -1030,7 +1075,7 @@
           <div class="posts-head">
             <div class="subtabs" role="tablist">
               <button class="subtab active" type="button" data-pil-tab="profiles" role="tab">Profils</button
-              ><button class="subtab" type="button" data-pil-tab="objective" role="tab">Objectif du jour</button
+              ><button class="subtab" type="button" data-pil-tab="objective" role="tab">📣 Campagnes</button
               ><button class="subtab" type="button" data-pil-tab="members" role="tab">Nos profils dans les groupes</button
               ><button class="subtab" type="button" data-pil-tab="rules" role="tab">⚙ Règles &amp; priorités</button>
             </div>
@@ -1084,10 +1129,20 @@
           </div>
 
           <div class="pil-pane hidden" id="pil-objective">
-          <!-- L'objectif du jour : où l'on en est, ce qu'il manque, où ça coince. -->
+          <!-- Les campagnes : un objectif par site, par jour, semaine ou mois. -->
+          <div id="campaigns">
+            <div class="toolbar">
+              <p id="campaigns-summary"></p>
+              <button class="primary" type="button" id="campaign-new">+ Nouvelle campagne</button>
+            </div>
+            <div id="campaign-cards" class="campaign-cards"></div>
+            <div class="panel campaign-detail" id="campaign-detail" hidden></div>
+          </div>
+          <!-- La vue globale de la journée (toutes publications confondues). -->
           <div class="panel objective" id="objective">
             <div class="panel-head">
-              <div><small>OBJECTIF DU JOUR</small><h2 id="obj-title">Publications du jour</h2></div>
+              <div><small>VUE GLOBALE · TOUTES PUBLICATIONS</small><h2 id="obj-title">Publications du jour</h2>
+                <p class="form-help" id="objective-legacy-note" hidden>Les campagnes actives fixent maintenant le rythme : l’objectif global n’est plus utilisé.</p></div>
               <form id="objective-form" class="objective-form">
                 <label>Objectif<input name="dailyTarget" type="number" min="0" max="100000" placeholder="200" /><span>posts / jour</span></label>
                 <label>De<input name="objectiveStart" type="time" /></label>
@@ -1697,6 +1752,45 @@
         </div>
       </form>
     </dialog>
+    <dialog id="campaign-modal">
+      <form id="campaign-form">
+        <div class="modal-head">
+          <div>
+            <small>CAMPAGNE</small>
+            <h2 id="campaign-form-title">Nouvelle campagne</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <label>Nom<input name="name" required maxlength="120" placeholder="Tera — 300 posts / jour" /></label>
+        <div class="two">
+          <label>Site (obligatoire)<select name="siteId" required></select></label>
+          <label>Catégorie (facultative)<select name="categoryId"></select></label>
+        </div>
+        <div class="two">
+          <label>Objectif<input name="target" type="number" min="1" required placeholder="300" /></label>
+          <label>par<select name="period"><option value="day">jour</option><option value="week">semaine</option><option value="month">mois</option></select></label>
+        </div>
+        <div class="two">
+          <label>Du (facultatif)<input name="startsAt" type="date" /></label>
+          <label>Au (facultatif)<input name="endsAt" type="date" /></label>
+        </div>
+        <div class="two">
+          <label>Publier de<input name="windowStart" type="time" /></label>
+          <label>à<input name="windowEnd" type="time" /></label>
+        </div>
+        <div class="two">
+          <label>Heure de<select name="timezone"></select></label>
+          <label>Priorité<input name="priority" type="number" min="-100" max="100" value="0" /><small>départage deux campagnes en retard</small></label>
+        </div>
+        <details class="camp-scope"><summary>Groupes (facultatif — sinon tous ceux de la catégorie)</summary><div class="pick-list" id="camp-groups"></div></details>
+        <details class="camp-scope"><summary>Profils (facultatif — sinon tous)</summary><div class="pick-list" id="camp-profiles"></div></details>
+        <details class="camp-scope"><summary>Articles (facultatif — sinon tous ceux du site)</summary><div class="pick-list" id="camp-articles"></div></details>
+        <div class="actions">
+          <button class="secondary" type="button" data-close>Annuler</button
+          ><button class="primary">Enregistrer</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="recreate-modal">
       <form id="recreate-form">
         <div class="modal-head">
@@ -1923,6 +2017,7 @@
         <div class="actions"><button class="secondary" type="button" data-close>Annuler</button><button class="primary">Enregistrer</button></div>
       </form>
     </dialog>
+    <script src="/i18n.js"></script>
     <script src="/assets/app.js" defer></script>
   </body>
 </html>
