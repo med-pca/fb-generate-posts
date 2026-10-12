@@ -863,6 +863,7 @@ function renderMemberships() {
           `<td>${m.waiting}</td>` +
           `<td><div class="row-actions">` +
           (m.joinStatus !== 'JOINED' ? `<button class="edit" type="button" data-pp-joined="${m.groupId}" title="Il a bien rejoint ce groupe sur Facebook">✓ rejoint</button>` : '') +
+          (!m.preApproved ? `<button class="edit" type="button" data-pp-manual-pre="${m.groupId}" title="Vous l’avez pré-approuvé vous-même sur Facebook : rejoint + pré-approuvé">★ pré-approuvé</button>` : '') +
           (isAdminUser() && m.joinStatus === 'JOINED' && !m.preApproved && !m.memberRequested
             ? `<button class="edit" type="button" data-pp-member="preapprove" data-link="${m.linkId}" title="Demander au modérateur de le pré-approuver dans ce groupe">★ Pré-approuver</button>`
             : '') +
@@ -937,9 +938,41 @@ $('#pp-memberships').addEventListener('click', (e) => {
   if (unlink) return void ppUnlink([unlink], `« ${e.target.dataset.name} »`);
   const joined = e.target.dataset.ppJoined;
   if (joined) return void ppMarkJoined([joined]);
+  const manualPre = e.target.dataset.ppManualPre;
+  if (manualPre) {
+    void applyMembership([state.profilePage.id], [manualPre], 'PREAPPROVED')
+      .then((r) => r && renderProfilePage(state.profilePage.id))
+      .catch((x) => notice(x.message, 'error'));
+  }
 });
 $('#pp-unlink').onclick = () => ppUnlink([...state.profilePage.selected], `${state.profilePage.selected.size} groupe(s)`);
-$('#pp-mark-joined').onclick = () => ppMarkJoined([...state.profilePage.selected]);
+/** « Marquer… » → ce qu'on envoie au serveur. */
+const MEMBERSHIP_ACTIONS = {
+  JOINED: { joinStatus: 'JOINED', label: '« rejoint »' },
+  PREAPPROVED: { preApproved: true, label: '« rejoint + pré-approuvé »' },
+  REQUESTED: { joinStatus: 'REQUESTED', label: '« demande envoyée »' },
+  NOT_JOINED: { joinStatus: 'NOT_JOINED', label: '« à rejoindre »' },
+  CLEAR_PREAPPROVED: { preApproved: false, label: 'sans pré-approbation' },
+};
+async function applyMembership(profileIds, groupIds, value, linkMissing = false) {
+  const action = MEMBERSHIP_ACTIONS[value];
+  if (!action) return notice('Choisissez quoi marquer.', 'error'), null;
+  const { label, ...body } = action;
+  const r = await api('/bulk/memberships', { method: 'POST', body: JSON.stringify({ profileIds, groupIds, linkMissing, ...body }) });
+  notice(`${r.updated} adhésion(s) marquée(s) ${label}${r.created ? ` · ${r.created} lien(s) créé(s)` : ''}${r.notLinked ? ` · ${r.notLinked} couple(s) non liés ignorés` : ''}.`);
+  return r;
+}
+$('#pp-membership-go').onclick = async () => {
+  const pp = state.profilePage;
+  try {
+    if (await applyMembership([pp.id], [...pp.selected], $('#pp-membership').value)) {
+      $('#pp-membership').value = '';
+      await renderProfilePage(pp.id);
+    }
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 $('#pp-preapprove-selected').onclick = (e) => {
   const pp = state.profilePage;
   const ids = pp.data.memberships.filter((m) => pp.selected.has(m.groupId) && m.joinStatus === 'JOINED' && !m.preApproved).map((m) => m.linkId);
@@ -5261,7 +5294,7 @@ function renderBulk() {
   $('#bl-summary').textContent = pairs
     ? `${b.selProfiles.size} profil(s) × ${b.selGroups.size} groupe(s) = ${pairs} liaison(s).`
     : 'Cochez au moins un profil et un groupe.';
-  $('#bl-link').disabled = $('#bl-unlink').disabled = !pairs;
+  $('#bl-link').disabled = $('#bl-unlink').disabled = $('#bl-membership-go').disabled = !pairs;
   $('#bl-link').textContent = pairs ? `Lier (${pairs})` : 'Lier';
 
   const items = shareVisible();
@@ -5326,6 +5359,22 @@ $('#bulk').addEventListener('click', (e) => {
     renderBulk();
   }
 });
+
+$('#bl-membership-go').onclick = async () => {
+  const b = state.bulk;
+  const value = $('#bl-membership').value;
+  if (!MEMBERSHIP_ACTIONS[value]) return notice('Choisissez quoi marquer.', 'error');
+  const pairs = b.selProfiles.size * b.selGroups.size;
+  if (!await ask(`Marquer ${MEMBERSHIP_ACTIONS[value].label} : ${b.selProfiles.size} profil(s) × ${b.selGroups.size} groupe(s) (${pairs} couple(s)) ?\nÀ faire seulement si c’est vrai sur Facebook : un profil marqué « rejoint » publiera dans ces groupes.`, { confirmLabel: 'Appliquer' })) return;
+  try {
+    if (await applyMembership([...b.selProfiles], [...b.selGroups], value, $('#bl-membership-link').checked)) {
+      $('#bl-membership').value = '';
+      await Promise.all([loadBulk(), load()]);
+    }
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 
 async function bulkLink(action) {
   const b = state.bulk;

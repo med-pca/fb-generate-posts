@@ -3,7 +3,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
-import { BulkLinkDto, BulkShareDto, OptionsQueryDto } from './bulk.dto';
+import { BulkLinkDto, BulkMembershipDto, BulkShareDto, OptionsQueryDto } from './bulk.dto';
 import { BulkService } from './bulk.service';
 
 @ApiTags('bulk')
@@ -29,6 +29,13 @@ export class BulkController {
   @ApiOperation({ summary: 'Lier ou délier plusieurs profils à plusieurs groupes' })
   link(@Body() dto: BulkLinkDto, @ActingUser() acting: CurrentUser) {
     return this.bulk.link(dto, acting);
+  }
+
+  @Post('memberships')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Marquer à la main l’adhésion et/ou la pré-approbation de plusieurs profils dans plusieurs groupes' })
+  memberships(@Body() dto: BulkMembershipDto, @ActingUser() acting: CurrentUser) {
+    return this.bulk.memberships(dto, acting);
   }
 
   @Post('share')

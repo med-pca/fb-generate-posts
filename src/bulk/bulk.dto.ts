@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsOptional, IsString, MaxLength, IsBoolean } from 'class-validator';
 
 /** Lier (ou délier) plusieurs profils à plusieurs groupes, d'un coup. */
 export class BulkLinkDto {
@@ -58,4 +58,18 @@ export class OptionsQueryDto {
   @IsOptional()
   @IsString()
   categoryId?: string;
+}
+
+/** Corriger à la main l'adhésion et la pré-approbation de plusieurs profils
+ * dans plusieurs groupes (ce qu'on a fait soi-même sur Facebook). */
+export class BulkMembershipDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500) @IsString({ each: true }) profileIds!: string[];
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(2000) @IsString({ each: true }) groupIds!: string[];
+  /** Le nouvel état d'adhésion (absent = inchangé). */
+  @IsOptional() @IsIn(['JOINED', 'REQUESTED', 'QUESTIONS', 'NOT_JOINED']) joinStatus?: 'JOINED' | 'REQUESTED' | 'QUESTIONS' | 'NOT_JOINED';
+  /** true = pré-approuvé (déjà fait à la main, il devient aussi « rejoint ») ;
+   * false = retirer la pré-approbation ; absent = inchangé. */
+  @IsOptional() @IsBoolean() preApproved?: boolean;
+  /** Lier d'abord les couples qui ne le sont pas encore. */
+  @IsOptional() @IsBoolean() linkMissing?: boolean;
 }

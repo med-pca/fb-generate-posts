@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, JoinStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { groupWhere, profileWhere, scopeOf, siteWhere } from '../auth/scope';
@@ -122,6 +122,57 @@ export class BulkService {
       removed: 0,
       ignored,
     };
+  }
+
+  /** Ce qu'on a fait soi-même sur Facebook, reporté d'un coup : « rejoint »,
+   * « demande envoyée », « à rejoindre », et/ou « pré-approuvé » — pour
+   * chaque profil choisi dans chaque groupe choisi. Sans passer par le
+   * modérateur. Pré-approuvé implique rejoint. Les liens absents sont créés
+   * si demandé, sinon comptés à part. */
+  async memberships(
+    input: { profileIds: string[]; groupIds: string[]; joinStatus?: JoinStatus; preApproved?: boolean; linkMissing?: boolean },
+    acting: CurrentUser | null,
+    now = new Date(),
+  ) {
+    if (!input.joinStatus && input.preApproved === undefined) throw new BadRequestException('Choisissez un état d’adhésion ou la pré-approbation');
+    if (input.preApproved && input.joinStatus && input.joinStatus !== 'JOINED') {
+      throw new BadRequestException('Un profil pré-approuvé est forcément membre (« Rejoint »)');
+    }
+    let linked = { created: 0, reactivated: 0 };
+    if (input.linkMissing) {
+      const r = await this.link({ profileIds: input.profileIds, groupIds: input.groupIds, action: 'link' }, acting);
+      linked = { created: r.created, reactivated: r.reactivated };
+    }
+    const scope = scopeOf(acting);
+    const where: Prisma.ProfileGroupWhereInput = {
+      profileId: { in: [...new Set(input.profileIds)] },
+      groupId: { in: [...new Set(input.groupIds)] },
+      profile: { ...profileWhere(scope), ...(isAdmin(acting) ? {} : { isModerator: false }) },
+      group: groupWhere(scope),
+    };
+    const by = acting?.username ?? 'un administrateur';
+    const data: Prisma.ProfileGroupUpdateManyMutationInput = {};
+    const joinStatus = input.preApproved ? 'JOINED' : input.joinStatus;
+    if (joinStatus) {
+      Object.assign(data, { joinStatus, joinCheckedAt: now, joinError: null });
+      if (joinStatus === 'JOINED') Object.assign(data, { memberApprovedAt: now, memberRequestedAt: null, memberClaimedUntil: null, memberActionError: null, memberAttempts: 0 });
+    }
+    if (input.preApproved === true) {
+      Object.assign(data, { preApprovedAt: now, preApprovalState: 'PREAPPROVED', preApprovalCheckedAt: now, preApprovalDetail: `marqué à la main par ${by}` });
+    } else if (input.preApproved === false || (joinStatus && joinStatus !== 'JOINED')) {
+      // Plus membre : plus pré-approuvé non plus.
+      Object.assign(data, { preApprovedAt: null, preApprovalState: null, preApprovalDetail: null });
+    }
+    const { count } = await this.prisma.profileGroup.updateMany({ where, data });
+    const pairs = new Set(input.profileIds).size * new Set(input.groupIds).size;
+    const what = [
+      joinStatus ? `« ${({ JOINED: 'rejoint', REQUESTED: 'demande envoyée', QUESTIONS: 'questions', NOT_JOINED: 'à rejoindre' } as Record<string, string>)[joinStatus]} »` : '',
+      input.preApproved === true ? 'pré-approuvé' : input.preApproved === false ? 'pré-approbation retirée' : '',
+    ].filter(Boolean).join(' + ');
+    await this.log('MEMBERSHIP_BULK_MANUAL', `${count} adhésion(s) marquée(s) ${what} à la main${linked.created ? ` (${linked.created} lien(s) créé(s))` : ''}`, acting, {
+      profiles: input.profileIds, groups: input.groupIds, joinStatus: joinStatus ?? null, preApproved: input.preApproved ?? null, updated: count, ...linked,
+    });
+    return { updated: count, notLinked: Math.max(0, pairs - count), ...linked };
   }
 
   /** Partager (ou retirer) des groupes ou des sites avec des comptes. Chaque

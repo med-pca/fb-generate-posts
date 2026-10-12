@@ -700,8 +700,14 @@
             </div>
             <div class="bulk-bar" id="pp-group-bar" hidden>
               <span id="pp-group-selected"></span>
-              <button class="edit" type="button" id="pp-mark-joined">✓ Marquer « rejoint »</button>
-              <button class="edit admin-only" type="button" id="pp-preapprove-selected">★ Pré-approuver la sélection</button>
+              <select id="pp-membership" aria-label="Marquer l’adhésion à la main"><option value="">Marquer…</option>
+                <option value="JOINED">✓ Rejoint</option>
+                <option value="PREAPPROVED">★ Rejoint + pré-approuvé (fait à la main)</option>
+                <option value="REQUESTED">Demande envoyée</option>
+                <option value="NOT_JOINED">À rejoindre</option>
+                <option value="CLEAR_PREAPPROVED">✕ Retirer la pré-approbation</option></select>
+              <button class="primary" type="button" id="pp-membership-go">Appliquer</button>
+              <button class="edit admin-only" type="button" id="pp-preapprove-selected" title="Le modérateur le fait sur Facebook">★ Demander au modérateur</button>
               <button class="edit admin-only" type="button" id="pp-audit-selected" title="Le modérateur regarde sur Facebook, sans rien modifier">🔍 Tester la pré-approbation</button>
               <button class="danger" type="button" id="pp-unlink">Retirer de ces groupes</button>
             </div>
@@ -784,6 +790,20 @@
               <div class="row-actions">
                 <button class="danger" type="button" id="bl-unlink" disabled>Délier</button>
                 <button class="primary" type="button" id="bl-link" disabled>Lier</button>
+              </div>
+            </div>
+            <div class="panel bl-membership">
+              <div><b>Adhésion &amp; pré-approbation, à la main</b>
+                <small>Ce que vous avez fait vous-même sur Facebook, reporté d’un coup pour chaque profil coché dans chaque groupe coché — sans passer par le modérateur.</small></div>
+              <div class="row-actions">
+                <select id="bl-membership" aria-label="Marquer l’adhésion"><option value="">Marquer…</option>
+                <option value="JOINED">✓ Rejoint</option>
+                <option value="PREAPPROVED">★ Rejoint + pré-approuvé (fait à la main)</option>
+                <option value="REQUESTED">Demande envoyée</option>
+                <option value="NOT_JOINED">À rejoindre</option>
+                <option value="CLEAR_PREAPPROVED">✕ Retirer la pré-approbation</option></select>
+                <label class="inline-check"><input type="checkbox" id="bl-membership-link" checked /> lier d’abord s’ils ne le sont pas</label>
+                <button class="primary" type="button" id="bl-membership-go" disabled>Appliquer</button>
               </div>
             </div>
             <div id="bl-result" class="bulk-result" hidden></div>

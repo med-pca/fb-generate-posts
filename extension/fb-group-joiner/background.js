@@ -272,42 +272,77 @@ function waitForTabLoad(tabId) {
 // demande déjà envoyée, sans jamais cliquer.
 async function joinGroupInPage(mode = "join") {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  // Libellés français, anglais et arabes : un profil en arabe ne doit pas
-  // passer pour « non membre ».
-  const JOIN = /^(rejoindre le groupe|rejoindre ce groupe|rejoindre|join group|join|انضمام إلى المجموعة|الانضمام إلى المجموعة|انضم إلى المجموعة|انضمام|انضم)$/i;
-  const JOINED = /^(membre|membre du groupe|rejoint|rejointe|joined|vous êtes membre|you're a member|عضو|تم الانضمام|منضم|منضمة)$/i;
-  const PENDING = /^(annuler la demande|cancel request|demande envoyée|demande en attente|requested|pending|إلغاء الطلب|تم إرسال الطلب|الطلب معلق)$/i;
+  // Libellés normalisés (minuscules, sans accents ni signes invisibles de
+  // l'arabe) : un profil en arabe, en espagnol… ne doit pas passer pour « non
+  // membre », ni un groupe public rejoint pour « demande envoyée ».
+  const norm = (s) =>
+    String(s || "")
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f\u064b-\u065f\u0670\u0640\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+      .replace(/[آأإ]/g, "ا")
+      .replace(/ى/g, "ي")
+      .replace(/[▾▼·•]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+  const words = (list) => list.map(norm);
+  const JOIN = words([
+    "rejoindre le groupe", "rejoindre ce groupe", "rejoindre", "join group", "join",
+    "انضمام إلى المجموعة", "الانضمام إلى المجموعة", "انضم إلى المجموعة", "انضمام", "انضم", "الانضمام",
+    "unirte al grupo", "unirse al grupo", "unirse", "participar do grupo", "participar", "entrar no grupo", "gruppe beitreten", "beitreten", "unisciti al gruppo",
+  ]);
+  const JOINED = words([
+    "membre", "membre du groupe", "rejoint", "rejointe", "vous êtes membre", "joined", "you're a member", "member",
+    "عضو", "عضوة", "أنت عضو", "تم الانضمام", "انضممت", "منضم", "منضمة", "تمت العضوية",
+    "miembro", "te uniste", "unido", "membro", "participando", "mitglied", "beigetreten", "iscritto",
+  ]);
+  const PENDING = words([
+    "annuler la demande", "demande envoyée", "demande en attente", "cancel request", "requested", "pending",
+    "إلغاء الطلب", "تم إرسال الطلب", "الطلب معلق", "طلب معلق", "قيد الانتظار", "في انتظار الموافقة",
+    "cancelar solicitud", "solicitud enviada", "pendiente", "cancelar pedido", "pedido enviado", "anfrage abbrechen", "angefragt",
+  ]);
+  // La zone « Écrire quelque chose… » n'existe que pour un membre.
+  const COMPOSER = /écrivez quelque chose|ecrivez quelque chose|write something|اكتب شيئ|escribe algo|escreva algo|schreib etwas|scrivi qualcosa/i;
 
-  const labelOf = (el) => (el.getAttribute("aria-label") || el.innerText || "").trim();
+  const labelOf = (el) => norm(el.getAttribute("aria-label") || el.innerText || "");
+  // Exact, ou en tête (« Joined ▾ », « عضو · مشاركة »).
+  const matches = (label, list) => list.some((w) => label === w || label.startsWith(`${w} `));
 
-  const findButton = (regex) =>
+  const findButton = (list) =>
     [...document.querySelectorAll('[role="button"], button')].find((el) => {
-      if (el.closest('[role="dialog"]') && regex === JOIN) return false;
-      return regex.test(labelOf(el)) && el.offsetParent !== null;
+      if (el.closest('[role="dialog"]') && list === JOIN) return false;
+      return el.offsetParent !== null && matches(labelOf(el), list);
     });
+  const memberComposer = () => {
+    const main = document.querySelector('[role="main"]') || document.body;
+    return [...main.querySelectorAll('[role="button"], [role="textbox"], span, div[aria-label]')]
+      .some((el) => el.offsetParent !== null && COMPOSER.test((el.getAttribute("aria-label") || el.innerText || "").slice(0, 80)));
+  };
+  const state = () => {
+    if (findButton(PENDING)) return "pending";
+    if (findButton(JOINED)) return "joined";
+    if (findButton(JOIN)) return "join";
+    if (memberComposer()) return "joined";
+    return null;
+  };
 
   // Attente de l'apparition des boutons (Facebook charge le contenu dynamiquement)
-  for (let i = 0; i < 30; i++) {
-    if (findButton(JOINED)) {
-      return {
-        status: "already",
-        message: mode === "check" ? "Demande acceptée : membre" : "Déjà membre",
-      };
-    }
-    if (findButton(PENDING)) {
-      return {
-        status: "requested",
-        message: mode === "check" ? "Toujours en attente d’acceptation" : "Demande déjà envoyée",
-      };
-    }
-    if (findButton(JOIN)) break;
-    await sleep(500);
+  let seen = null;
+  for (let i = 0; i < 30 && !seen; i++) {
+    seen = state();
+    if (!seen) await sleep(500);
+  }
+  if (seen === "joined") {
+    return { status: "already", message: mode === "check" ? "Demande acceptée : membre" : "Déjà membre" };
+  }
+  if (seen === "pending") {
+    return { status: "requested", message: mode === "check" ? "Toujours en attente d’acceptation" : "Demande déjà envoyée" };
   }
 
   if (mode === "check") {
     // Le bouton « Rejoindre » est revenu : la demande a été refusée ou a
     // expiré. On ne la renvoie pas ici ; le groupe repasse « à rejoindre ».
-    return findButton(JOIN)
+    return seen === "join"
       ? { status: "declined", message: "Demande refusée ou expirée : à renvoyer" }
       : { status: "error", message: "État de l’adhésion illisible sur la page" };
   }
@@ -316,17 +351,19 @@ async function joinGroupInPage(mode = "join") {
   if (!btn) return { status: "error", message: "Bouton « Rejoindre » introuvable" };
 
   btn.click();
-  await sleep(4000);
-
-  // Groupe avec questions d'adhésion : on ne répond pas automatiquement
-  const dialog = document.querySelector('[role="dialog"]');
-  if (dialog && /question|répondre|answer/i.test(dialog.innerText)) {
-    return { status: "questions", message: "Questions d'adhésion à remplir manuellement" };
+  // Groupe public : membre tout de suite ; groupe privé : demande envoyée.
+  // On attend que la page le dise, au lieu de deviner.
+  for (let i = 0; i < 20; i++) {
+    await sleep(500);
+    const dialog = document.querySelector('[role="dialog"]');
+    // Groupe avec questions d'adhésion : on ne répond pas automatiquement
+    if (dialog && /question|répondre|answer|أسئلة|سؤال|pregunta|pergunta/i.test(dialog.innerText)) {
+      return { status: "questions", message: "Questions d'adhésion à remplir manuellement" };
+    }
+    if (findButton(PENDING)) return { status: "requested", message: "Demande envoyée (en attente)" };
+    if (findButton(JOINED) || (memberComposer() && !findButton(JOIN))) return { status: "joined", message: "Groupe rejoint" };
   }
-
-  if (findButton(PENDING)) return { status: "requested", message: "Demande envoyée (en attente)" };
-  if (findButton(JOINED)) return { status: "joined", message: "Groupe rejoint" };
-  return { status: "requested", message: "Clic effectué (statut non confirmé)" };
+  return { status: "requested", message: "Clic effectué (statut non confirmé : revérifié plus tard)" };
 }
 
 // Une erreur d'envoi ne doit pas bloquer la file : on la signale dans le message.
