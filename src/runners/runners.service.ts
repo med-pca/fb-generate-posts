@@ -771,7 +771,9 @@ export class RunnersService {
         suspendedAt: true,
         suspensionDetail: true,
         runner: true,
-        owner: { select: { automationKey: true, status: true } },
+        owner: { select: { id: true, username: true, automationKey: true, status: true } },
+        // Ses groupes rejoints : pour filtrer le Pilotage par groupe ou catégorie.
+        profileGroups: { where: { status: 'ACTIVE', joinStatus: 'JOINED' }, select: { groupId: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -800,6 +802,8 @@ export class RunnersService {
           facebookName: profile.facebookName,
           // Suspendu par Facebook (« disabled ») ou vérification demandée.
           facebookSuspension: profile.facebookSuspension,
+          owner: profile.owner ? { id: profile.owner.id, username: profile.owner.username } : null,
+          groupIds: (profile.profileGroups ?? []).map((g) => g.groupId),
           suspendedAt: profile.suspendedAt,
           suspensionDetail: profile.suspensionDetail,
           mode: decision.mode,

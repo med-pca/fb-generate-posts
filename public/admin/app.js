@@ -44,7 +44,7 @@ const API = '/api',
     groupFilters: { search: '', categoryId: '', status: '', profileId: '', join: '', stock: '', sort: 'recent' },
     articleFilters: { search: '', siteId: '', categoryId: '', status: '', archived: '', diffusion: '', from: '', to: '', sort: 'recent' },
     // Les filtres du Pilotage survivent au rafraîchissement automatique.
-    runnerFilters: { search: '', mode: '', state: '' },
+    runnerFilters: { search: '', mode: '', state: '', owner: '', categoryId: '', groupId: '', sort: '' },
     // La file de publication : ses filtres et combien on en montre.
     queue: { tab: 'queue', section: 'upcoming', search: '', categoryId: '', groupId: '', limit: 10, publishedLimit: 20, data: null },
     selection: new Set(),
@@ -1194,6 +1194,16 @@ function runnerTags(r) {
   if (r.pairing?.broken) tags.add('pairing-broken');
   if (pairing === 'unconfirmed' || pairing === 'stale') tags.add('pairing-unconfirmed');
   if (r.status === 'INACTIVE') tags.add('inactive');
+  if (r.pausedUntil) tags.add('paused');
+  if (r.facebookSuspension === 'disabled') tags.add('suspended');
+  if (r.facebookSuspension === 'checkpoint') tags.add('checkpoint');
+  if (r.sleepUntil) tags.add('asleep');
+  if (r.browserState !== 'RUNNING' && r.browserState !== 'ERROR') tags.add('browser-closed');
+  if (!r.lastSeenAt) tags.add('never-seen');
+  if (r.dailyQuota != null) tags.add('quota');
+  if (r.windowStart != null || r.windowEnd != null || (Array.isArray(r.days) && r.days.length)) tags.add('window');
+  if (!r.facebookUserId) tags.add('no-fb-id');
+  if (r.isModerator) tags.add('moderator');
   if (
     r.status === 'ACTIVE' &&
     (tags.has('silent') || tags.has('browser-error') || tags.has('idle') ||
@@ -1207,20 +1217,61 @@ function runnerTags(r) {
  * le retrouve avec le filtre « Profil inactif » (ou le lien sous la liste). */
 const pilotVisible = (r, wanted = state.runnerFilters.state) => r.status !== 'INACTIVE' || wanted === 'inactive';
 function filteredRunners() {
-  const { search, mode, state: wanted } = state.runnerFilters;
+  const { search, mode, state: wanted, owner, categoryId, groupId, sort } = state.runnerFilters;
   const needle = search.trim().toLowerCase();
-  return (state.runners?.profiles || []).filter(
+  // La catégorie d'un profil : celles de ses groupes rejoints.
+  const catOf = new Map((state.pilotGroups || []).map((g) => [g.id, g.category?.id || '']));
+  const rows = (state.runners?.profiles || []).filter(
     (r) =>
       pilotVisible(r, wanted) &&
       (!needle ||
         r.name.toLowerCase().includes(needle) ||
-        (r.externalId || '').toLowerCase().includes(needle)) &&
+        (r.externalId || '').toLowerCase().includes(needle) ||
+        (r.facebookName || '').toLowerCase().includes(needle) ||
+        (r.facebookUserId || '').includes(needle)) &&
       (!mode || r.mode === mode) &&
-      (!wanted || runnerTags(r).has(wanted)),
+      (!wanted || runnerTags(r).has(wanted)) &&
+      (!owner || (owner === 'none' ? !r.owner : r.owner?.id === owner)) &&
+      (!groupId || (r.groupIds || []).includes(groupId)) &&
+      (!categoryId || (r.groupIds || []).some((g) => catOf.get(g) === categoryId)),
   );
+  const time = (d) => (d ? new Date(d).getTime() : 0);
+  const by = {
+    name: (a, b) => a.name.localeCompare(b.name, 'fr'),
+    // Les pauses qui finissent le plus tôt d'abord ; sans pause, à la fin.
+    pause: (a, b) => (time(a.pausedUntil) || Infinity) - (time(b.pausedUntil) || Infinity),
+    seen: (a, b) => time(b.lastSeenAt) - time(a.lastSeenAt),
+    published: (a, b) => (b.published || 0) - (a.published || 0),
+    failed: (a, b) => (b.failed || 0) - (a.failed || 0),
+  }[sort];
+  return by ? [...rows].sort(by) : rows;
 }
-const runnerFiltered = () =>
-  Boolean(state.runnerFilters.search.trim() || state.runnerFilters.mode || state.runnerFilters.state);
+const runnerFiltered = () => {
+  const f = state.runnerFilters;
+  return Boolean(f.search.trim() || f.mode || f.state || f.owner || f.categoryId || f.groupId);
+};
+/** Les listes des filtres : comptes (admin), catégories, groupes. */
+async function fillRunnerFilterLists() {
+  try {
+    await fillRunnerFilterListsUnsafe();
+  } catch {
+    /* listes indisponibles : la liste des profils s'affiche quand même */
+  }
+}
+async function fillRunnerFilterListsUnsafe() {
+  if (!Array.isArray(state.pilotGroups)) {
+    const groups = await api('/bulk/groups').catch(() => []);
+    state.pilotGroups = Array.isArray(groups) ? groups : [];
+  }
+  const f = state.runnerFilters;
+  const owners = new Map();
+  for (const r of state.runners?.profiles || []) owners.set(r.owner?.id || 'none', r.owner?.username || 'Administration');
+  const opt = (pairs, sel) => pairs.map(([v, l]) => `<option value="${v}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  $('#runner-owner-filter').innerHTML = '<option value="">Tous les comptes</option>' + opt([...owners].sort((a, b) => a[1].localeCompare(b[1])), f.owner);
+  $('#runner-category-filter').innerHTML = '<option value="">Toutes les catégories</option>' + opt((state.categories || []).map((c) => [c.id, c.name]), f.categoryId);
+  const groups = (state.pilotGroups || []).filter((g) => !f.categoryId || g.category?.id === f.categoryId);
+  $('#runner-group-filter').innerHTML = '<option value="">Tous les groupes</option>' + opt(groups.map((g) => [g.id, g.name]), f.groupId);
+}
 
 /* ── Pilotage : filtres rapides et sous-onglets ─────────────────────── */
 const PIL_QUICK = [
@@ -1229,6 +1280,8 @@ const PIL_QUICK = [
   ['working', '▶ Au travail', { state: 'working' }],
   ['idle', '⏸ Doivent publier, ne travaillent pas', { state: 'idle' }, 'bad'],
   ['off', '■ Arrêtés', { mode: 'OFF' }],
+  ['paused', '⏸ En pause (limite Facebook)', { state: 'paused' }, 'bad'],
+  ['suspended', '🚫 Suspendus', { state: 'suspended' }, 'bad'],
   ['pairing', '🔑 Appairage à refaire', { state: 'pairing-broken' }, 'bad'],
 ];
 function renderPilotQuick() {
@@ -1768,6 +1821,8 @@ async function loadRunners() {
       api('/runners'),
       api('/admin/verify').catch(() => null),
     ]);
+    // Pas pendant qu'on choisit dans une liste : elle se refermerait.
+    if (!['runner-owner-filter', 'runner-category-filter', 'runner-group-filter'].includes(document.activeElement?.id)) await fillRunnerFilterLists();
     renderRunners();
     renderMembers();
   } catch (e) {
@@ -2138,8 +2193,18 @@ $('#runner-state-filter').onchange = (e) => {
   state.runnerFilters.state = e.target.value;
   renderRunners();
 };
+[['#runner-owner-filter', 'owner'], ['#runner-category-filter', 'categoryId'], ['#runner-group-filter', 'groupId'], ['#runner-sort', 'sort']].forEach(([id, key]) => {
+  $(id).onchange = (e) => {
+    state.runnerFilters[key] = e.target.value;
+    if (key === 'categoryId') state.runnerFilters.groupId = '';
+    void fillRunnerFilterLists();
+    renderRunners();
+  };
+});
 $('#runner-filters-reset').onclick = () => {
-  state.runnerFilters = { search: '', mode: '', state: '' };
+  state.runnerFilters = { search: '', mode: '', state: '', owner: '', categoryId: '', groupId: '', sort: '' };
+  $('#runner-sort').value = '';
+  void fillRunnerFilterLists();
   $('#runner-search').value = '';
   $('#runner-mode-filter').value = '';
   $('#runner-state-filter').value = '';

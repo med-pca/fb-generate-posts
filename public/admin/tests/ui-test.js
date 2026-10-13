@@ -831,12 +831,15 @@ setTimeout(async () => {
     const path = String(url).replace('/api', '');
     if (path === '/runners') {
       return { ok: true, status: 200, json: async () => ({ publishingEnabled: true, profiles: [
-        runner({ name: 'Salim', shouldRun: true, atWork: true, running: true, browserState: 'RUNNING', facebookUserId: '100011', facebookName: 'Salim B.' }),
+        runner({ name: 'Salim', shouldRun: true, atWork: true, running: true, browserState: 'RUNNING', facebookUserId: '100011', facebookName: 'Salim B.', groupIds: ['g1'] }),
         runner({ name: 'Nadia', shouldRun: true }),
         runner({ name: 'Omar', mode: 'OFF', pairedAt: null }),
         runner({ name: 'Yasmine', browserState: 'ERROR' }),
         runner({ name: 'Désactivée', status: 'INACTIVE', mode: 'OFF' }),
       ].map((r) => (r.name === 'Nadia' ? { ...r, pausedUntil: '2026-10-11T10:00:00Z', pauseReason: 'Facebook limite ses publications : publication bloquee' } : r)) }) };
+    }
+    if (path === '/bulk/groups') {
+      return { ok: true, status: 200, json: async () => [{ id: 'g1', name: 'Recettes FR', category: { id: 'c1', name: 'Recettes' } }, { id: 'g2', name: 'Desserts', category: null }] };
     }
     if (path === '/posts/priorities') {
       return { ok: true, status: 200, json: async () => ({
@@ -912,6 +915,25 @@ setTimeout(async () => {
   check('retour aux profils : /pilotage', window.location.pathname === '/pilotage', window.location.pathname);
   // ─── Limitation Facebook : la pause se voit, et se lève ────────────
   check('un profil limité par Facebook est affiché en pause', /en pause jusqu’au/.test($('#runner-rows').textContent) && /limité par Facebook/.test($('#runner-rows').textContent), null);
+  // ─── Filtres du Pilotage : pause, tri, groupe ──────────────────────
+  const shownNames = () => [...$$q('#runner-rows tr')].map((tr) => tr.textContent).join(' | ');
+  $('#runner-state-filter').value = 'paused';
+  $('#runner-state-filter').dispatchEvent(new window.Event('change'));
+  check('filtre « En pause » : seulement Nadia', /Nadia/.test(shownNames()) && !/Salim|Omar|Yasmine/.test(shownNames()), shownNames());
+  check('onglet rapide « En pause » compté', /En pause \(limite Facebook\)\D*1/.test($('#pil-quick').textContent), $('#pil-quick').textContent);
+  $('#runner-state-filter').value = 'no-fb-id';
+  $('#runner-state-filter').dispatchEvent(new window.Event('change'));
+  check('filtre « Sans identifiant Facebook » : Salim (qui en a un) exclu', !/Salim/.test(shownNames()) && /Nadia/.test(shownNames()), shownNames());
+  $('#runner-state-filter').value = '';
+  $('#runner-state-filter').dispatchEvent(new window.Event('change'));
+  $('#runner-sort').value = 'pause';
+  $('#runner-sort').dispatchEvent(new window.Event('change'));
+  check('tri « fin de pause » : Nadia en tête', /^[^|]*Nadia/.test(shownNames()), shownNames());
+  $('#runner-group-filter').value = 'g1';
+  $('#runner-group-filter').dispatchEvent(new window.Event('change'));
+  check('filtre par groupe : seulement les profils qui l’ont rejoint', /Salim/.test(shownNames()) && !/Nadia|Omar/.test(shownNames()), shownNames());
+  $('#runner-filters-reset').click();
+  check('« Effacer les filtres » remet tout', /Salim/.test(shownNames()) && /Nadia/.test(shownNames()) && $('#runner-sort').value === '', shownNames());
   $('[data-runner-resume]').click();
   await new Promise((resolve) => setTimeout(resolve, 80));
   check('« Lever la pause » appelle la plateforme', memberCalls.some((c) => c.startsWith('POST /runners/') && c.includes('/resume')), memberCalls);

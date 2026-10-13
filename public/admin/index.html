@@ -1105,7 +1105,28 @@
                   <option value="pairing-broken">Appairage à refaire</option>
                   <option value="pairing-unconfirmed">Appairage non confirmé</option>
                   <option value="unpaired">Jamais appairé</option>
+                  <option value="paused">⏸ En pause (limite Facebook)</option>
+                  <option value="suspended">🚫 Suspendu par Facebook</option>
+                  <option value="checkpoint">⚠ Vérification Facebook demandée</option>
+                  <option value="asleep">💤 En veille</option>
+                  <option value="browser-closed">Navigateur fermé</option>
+                  <option value="never-seen">Jamais vu (extension jamais lancée)</option>
+                  <option value="quota">Avec un quota par jour</option>
+                  <option value="window">Avec des horaires de publication</option>
+                  <option value="no-fb-id">Sans identifiant Facebook</option>
+                  <option value="moderator">Modérateurs</option>
                   <option value="inactive">Profil inactif</option>
+                </select
+                ><select id="runner-owner-filter" class="admin-only"><option value="">Tous les comptes</option></select
+                ><select id="runner-category-filter"><option value="">Toutes les catégories</option></select
+                ><select id="runner-group-filter"><option value="">Tous les groupes</option></select
+                ><select id="runner-sort">
+                  <option value="">Tri : ordre habituel</option>
+                  <option value="name">Tri : nom</option>
+                  <option value="pause">Tri : fin de pause (la plus proche)</option>
+                  <option value="seen">Tri : dernière activité</option>
+                  <option value="published">Tri : plus de publiés</option>
+                  <option value="failed">Tri : plus d’échecs</option>
                 </select
                 ><button class="link" id="runner-filters-reset" type="button" hidden>Effacer les filtres</button>
               </div>
