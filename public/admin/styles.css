@@ -2363,3 +2363,13 @@ html[dir="rtl"] input[type="url"], html[dir="rtl"] input[type="email"], html[dir
 html[dir="rtl"] .modal-head, html[dir="rtl"] .actions { flex-direction: row; }
 html[dir="rtl"] .nav { text-align: right; }
 html[dir="rtl"] .nav span { margin-left: 0; margin-right: 12px; }
+
+/* Pilotage : filtres sur une grille qui passe à la ligne, actions à part. */
+.runner-filters { flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 10px; }
+.runner-filters .toolbar-group:first-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 8px; align-items: center; flex: none; }
+.runner-filters #runner-search { grid-column: span 2; width: 100%; min-width: 0; }
+.runner-filters select { width: 100%; min-width: 0; }
+.runner-filters #runner-filters-reset { justify-self: start; }
+.runner-filters .toolbar-group:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+@media (max-width: 560px) { .runner-filters #runner-search { grid-column: auto; } }
+.pil-quick { grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); }
