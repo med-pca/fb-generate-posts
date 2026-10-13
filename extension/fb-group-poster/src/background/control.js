@@ -16,6 +16,16 @@ import { JobApi } from './api.js';
  * à l'écran pour toujours. */
 const PAIR_TIMEOUT_MS = 20_000;
 
+// A rolling deployment can briefly move the proxy from the old container to
+// the new one.  The heartbeat is idempotent, so retrying it is safe and avoids
+// alarming the operator for a single network hiccup.  Real outages still show
+// up after the short retry window.
+const CONTROL_RETRY_DELAYS_MS = [1_000, 3_000];
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** L'état à rapporter, tel que l'admin l'affiche. */
 function reportOf(state) {
   const version = chrome.runtime.getManifest().version;
@@ -56,7 +66,18 @@ export async function askControl(config, state) {
     report.facebookUserId = fbId;
     if (state.author) report.facebookName = String(state.author).slice(0, 200);
   }
-  return api.heartbeat(config.profileExternalId, report);
+  let lastError;
+  for (let attempt = 0; attempt <= CONTROL_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await api.heartbeat(config.profileExternalId, report);
+    } catch (err) {
+      lastError = err;
+      if (attempt < CONTROL_RETRY_DELAYS_MS.length) {
+        await wait(CONTROL_RETRY_DELAYS_MS[attempt]);
+      }
+    }
+  }
+  throw lastError;
 }
 
 /** Les réglages venus de l'admin, écrits seulement s'ils changent quelque
