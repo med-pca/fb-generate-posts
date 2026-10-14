@@ -27,7 +27,13 @@ export class TabError extends Error {}
 export const SUSPENDED_KEY = 'fbx.suspended';
 export class AccountSuspendedError extends Error {
   constructor(kind, detail) {
-    super(kind === 'disabled' ? `Compte suspendu par Facebook : ${detail}` : `Facebook demande une verification du compte : ${detail}`);
+    super(
+      kind === 'disabled'
+        ? `Compte suspendu par Facebook : ${detail}`
+        : kind === 'logged_out'
+          ? `Deconnecte de Facebook : ${detail}`
+          : `Facebook demande une verification du compte : ${detail}`,
+    );
     this.kind = kind;
   }
 }
@@ -151,8 +157,26 @@ export async function navigate(tabId, url, config) {
   if (!ready) throw new TabError(`L'onglet ne repond pas apres l'ouverture de ${url}`);
   // Le compte est-il encore utilisable ? Une page de suspension ou de
   // vérification arrête tout : insister aggraverait la situation.
-  const account = await step(tabId, 'accountState', {}, 10000).catch(() => null);
-  if (account && (account.state === 'disabled' || account.state === 'checkpoint')) {
+  let account = await step(tabId, 'accountState', {}, 10000).catch(() => null);
+  // Déconnecté : une seule reprise, par « Continuer en tant que … » (sans
+  // mot de passe). Si la session revient, le travail continue.
+  if (account && account.state === 'logged_out' && account.canResume) {
+    const resumed = await step(tabId, 'resumeSession', {}, 15000).catch(() => null);
+    if (resumed && resumed.ok) {
+      await info(`Deconnecte : clic sur « ${resumed.clicked} » pour reprendre la session`);
+      await sleep(4000);
+      await waitForLoad(tabId, timeoutMs);
+      if (await waitForContentScript(tabId, 15000)) {
+        await chrome.tabs.update(tabId, { url });
+        await sleep(300);
+        await waitForLoad(tabId, timeoutMs);
+        await waitForContentScript(tabId, 15000);
+        account = await step(tabId, 'accountState', {}, 10000).catch(() => null);
+        if (account && account.state === 'ok') await info('Session Facebook reprise : le travail continue');
+      }
+    }
+  }
+  if (account && (account.state === 'disabled' || account.state === 'checkpoint' || account.state === 'logged_out')) {
     await chrome.storage.local.set({ [SUSPENDED_KEY]: { kind: account.state, detail: account.detail || '', url: account.url || url, at: Date.now() } });
     throw new AccountSuspendedError(account.state, account.detail || account.url || url);
   }

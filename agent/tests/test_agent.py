@@ -36,8 +36,10 @@ class Fake(BaseHTTPRequestHandler):
             if self.headers.get("X-API-Key") != "cle":
                 return self._send({"message": "refusée"}, 401)
             return self._send({"pollAfterSeconds": 60, "nstApiKey": "nst", "profiles": STATE["plan"]})
+        if self.path.startswith("/nst/profiles/groups"):
+            return self._send({"code": 0, "data": [{"groupId": "g-team", "name": "Équipe A"}, {"groupId": "g-lim", "name": "PostFlow · Limités"}]})
         if self.path.startswith("/nst/profiles"):
-            return self._send({"code": 0, "data": {"docs": [{"profileId": "p1", "name": "Salma Ibouban"}, {"profileId": "p2", "name": "Rihab"}], "totalPages": 1}})
+            return self._send({"code": 0, "data": {"docs": [{"profileId": "p1", "name": "Salma Ibouban", "groupId": "g-team", "group": {"name": "Équipe A"}}, {"profileId": "p2", "name": "Rihab"}], "totalPages": 1}})
         if self.path.startswith("/nst/browsers/") and self.path.endswith("/debugger"):
             pid = self.path.split("/")[3]
             return self._send({"code": 0, "data": {"webSocketDebuggerUrl": "ws://x"} if pid in STATE["open"] else None})
@@ -52,6 +54,11 @@ class Fake(BaseHTTPRequestHandler):
         if self.path == "/api/control/profiles/sync":
             return self._send({"created": [], "renamed": [{"from": "Salma", "to": "Salma Ibouban"}]})
         self._send({"ok": True})
+
+    def do_PUT(self):
+        body = self._body()
+        STATE["calls"].append(("PUT", self.path, body))
+        self._send({"code": 0, "data": None})
 
     def do_DELETE(self):
         STATE["calls"].append(("DELETE", self.path))
@@ -94,7 +101,21 @@ class AgentTest(unittest.TestCase):
     def test_synchronise_les_profils_nstbrowser(self):
         self.agent().run_once()
         sync = next(c for c in STATE["calls"] if c[1] == "/api/control/profiles/sync")
-        self.assertEqual(sync[2]["profiles"], [{"externalId": "p1", "name": "Salma Ibouban"}, {"externalId": "p2", "name": "Rihab"}])
+        self.assertEqual(sync[2]["profiles"], [{"externalId": "p1", "name": "Salma Ibouban", "groupId": "g-team", "groupName": "Équipe A"}, {"externalId": "p2", "name": "Rihab"}])
+
+    def test_range_dans_les_groupes_d_etat(self):
+        STATE["plan"] = [
+            {"externalId": "p1", "name": "Salma", "shouldRun": False, "moveTo": {"groupId": None, "groupName": "PostFlow · Limités", "why": "limité"}},
+            {"externalId": "p2", "name": "Rihab", "shouldRun": False, "moveTo": {"groupId": "g-team", "groupName": "Équipe A", "why": "retour"}},
+            {"externalId": "p3", "name": "Nada", "shouldRun": False, "moveTo": {"groupId": None, "groupName": "PostFlow · Désactivés"}},
+        ]
+        agent = self.agent()
+        agent.run_once()
+        puts = [c for c in STATE["calls"] if c[0] == "PUT"]
+        self.assertEqual(puts, [("PUT", "/nst/profiles/p1/group", {"groupId": "g-lim"}), ("PUT", "/nst/profiles/p2/group", {"groupId": "g-team"})])
+        self.assertIn("PostFlow · Désactivés", agent.missing_groups)
+        # Après un déplacement, la plateforme est resynchronisée aussitôt.
+        self.assertEqual(sum(1 for c in STATE["calls"] if c[1] == "/api/control/profiles/sync"), 2)
 
     def test_ne_ferme_rien_sauf_si_on_l_autorise(self):
         STATE["open"] = {"p2"}

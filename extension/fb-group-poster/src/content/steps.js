@@ -12,6 +12,14 @@
   if (F.steps) return;
   const D = F.dom;
   const A = F.act;
+
+  /* « Continuer en tant que … » (reprise d'une session connue), en plusieurs
+   * langues. */
+  const CONTINUE_AS = /^(continue as|continuer en tant que|continuer comme|continuar como|continua come|weiter als|devam et|المتابعة باسم|متابعة باسم|الاستمرار باسم|المتابعة ك)/i;
+  function continueAsButton() {
+    const nodes = Array.from(document.querySelectorAll('button, a, div[role="button"], [role="link"]'));
+    return nodes.find((n) => CONTINUE_AS.test(D.norm(n.innerText || '')) || CONTINUE_AS.test(D.norm(n.getAttribute ? n.getAttribute('aria-label') || '' : ''))) || null;
+  }
   const { sleep } = A;
 
   const POLL_MS = 700;
@@ -225,12 +233,31 @@
     // Une page de suspension est courte, ou à une adresse de vérification :
     // la même phrase dans un post d'un groupe (fil long) ne compte pas.
     const gate = /\/checkpoint\/|\/disabled|account_status|suspended/i.test(url) || text.length < 4000;
+    // Déconnecté : la page de connexion, ou un champ de mot de passe (le
+    // formulaire « Se connecter » posé sur la page d'un groupe). Connecté,
+    // Facebook n'en montre jamais hors d'une vérification (vue plus bas).
+    const loginPage = /^\/(login|login\.php|login\/)/i.test(location.pathname || '') || /[?&]next=.*login|\/login\/device-based/i.test(url);
+    const passwordField = !/\/checkpoint\//.test(url) && document.querySelector('input[type="password"], input[name="pass"]');
+    if (loginPage || passwordField) {
+      return { ok: true, state: 'logged_out', detail: loginPage ? 'page de connexion Facebook' : 'formulaire de connexion Facebook', url, canResume: Boolean(continueAsButton()) };
+    }
     if (!gate) return { ok: true, state: 'ok', url };
     if (disabled.test(text)) return { ok: true, state: 'disabled', detail: match(disabled), url };
     if (/\/checkpoint\//.test(url) || checkpoint.test(text)) {
       return { ok: true, state: 'checkpoint', detail: match(checkpoint) || 'page de vérification Facebook', url };
     }
     return { ok: true, state: 'ok', url };
+  };
+
+  /* Déconnecté, Facebook propose souvent « Continuer en tant que Salma » sur
+   * un appareil qu'il connaît : un seul clic, sans mot de passe. Rien d'autre
+   * n'est tenté (aucun identifiant n'est jamais saisi). */
+  steps.resumeSession = async () => {
+    const btn = continueAsButton();
+    if (!btn) return { ok: false, reason: 'aucun bouton « Continuer en tant que »' };
+    const label = D.norm(btn.innerText || btn.getAttribute('aria-label') || '').slice(0, 80);
+    await A.click(btn);
+    return { ok: true, clicked: label };
   };
 
   steps.setAuthor = async ({ name }) => {

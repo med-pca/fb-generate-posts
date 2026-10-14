@@ -96,7 +96,12 @@ export class JobApi {
     });
   }
 
-  reportApproval(targetId, outcome, externalPostUrl = '') {
+  /* Une session Facebook est de nouveau ouverte : le profil déconnecté reprend. */
+  reportReconnected(profileExternalId) {
+    return this.request('POST', `/jobs/profiles/${encodeURIComponent(profileExternalId)}/reconnected`, {});
+  }
+
+    reportApproval(targetId, outcome, externalPostUrl = '') {
     return this.request('POST', `/jobs/approvals/${targetId}`, { outcome, ...(externalPostUrl ? { externalPostUrl } : {}) });
   }
 

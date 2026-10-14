@@ -1,8 +1,9 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsOptional,
   IsString,
   MaxLength,
   MinLength,
@@ -20,6 +21,19 @@ export class NstProfileDto {
   @IsString()
   @MaxLength(200)
   name!: string;
+
+  /** Son groupe NSTBrowser (son équipe) : envoyé par l'agent local ≥ 1.1. */
+  @ApiPropertyOptional({ example: '0b9f…' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  groupId?: string;
+
+  @ApiPropertyOptional({ example: 'Équipe A' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  groupName?: string;
 }
 
 /** Les profils que l'agent local trouve dans NSTBrowser. */

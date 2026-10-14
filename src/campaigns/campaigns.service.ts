@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { articleWhere, groupWhere, ownedWhere, profileWhere, scopeOf, siteWhere } from '../auth/scope';
 import { localClock } from '../runners/window';
-import { campaignPace, periodBounds, type Period } from './period';
+import { campaignPace, periodBounds, rotationTeamOf, type Period } from './period';
 import type { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
 
 const CAMPAIGN_INCLUDE = {
@@ -93,12 +93,16 @@ export class CampaignsService {
         windowEnd: dto.windowEnd ?? 1320,
         priority: dto.priority ?? 0,
         notes: dto.notes ?? null,
+        maxPerProfilePerDay: dto.maxPerProfilePerDay ?? null,
+        rotationTeams: cleanTeams(dto.rotationTeams),
         groups: { create: scope.groupIds.map((groupId) => ({ groupId })) },
         profiles: { create: scope.profileIds.map((profileId) => ({ profileId })) },
         articles: { create: scope.articleIds.map((articleId) => ({ articleId })) },
       },
       include: CAMPAIGN_INCLUDE,
     });
+    this.behindCache = null;
+    this.dayCache = null;
     await this.log('CAMPAIGN_CREATED', `Campagne « ${c.name} » créée : ${c.target} publication(s) par ${this.periodName(c.period)} pour « ${c.site.name} »`, c.id, acting);
     return this.shape(c);
   }
@@ -142,11 +146,14 @@ export class CampaignsService {
           windowEnd: dto.windowEnd,
           priority: dto.priority,
           notes: dto.notes,
+          maxPerProfilePerDay: dto.maxPerProfilePerDay,
+          rotationTeams: dto.rotationTeams ? cleanTeams(dto.rotationTeams) : undefined,
         },
         include: CAMPAIGN_INCLUDE,
       });
     });
     this.behindCache = null;
+    this.dayCache = null;
     await this.log('CAMPAIGN_UPDATED', `Campagne « ${c.name} » modifiée${dto.status ? ` (${dto.status === 'ACTIVE' ? 'active' : dto.status === 'PAUSED' ? 'en pause' : 'terminée'})` : ''}`, c.id, acting);
     return this.shape(c);
   }
@@ -156,6 +163,7 @@ export class CampaignsService {
     const c = await this.reachable(id, acting);
     await this.prisma.campaign.delete({ where: { id } });
     this.behindCache = null;
+    this.dayCache = null;
     await this.log('CAMPAIGN_DELETED', `Campagne « ${c.name} » supprimée (posts et articles intacts)`, null, acting);
     return { deleted: id };
   }
@@ -196,6 +204,106 @@ export class CampaignsService {
       if (p.status !== 'ahead') late = true;
     }
     return { neededPerHour, ratePerHour, status: (late ? 'late' : 'ahead') as 'late' | 'ahead' };
+  }
+
+  /* ── Rotation, plafond par profil, repos ────────────────────────────── */
+
+  /** Les campagnes actives qui règlent QUI travaille (rotation d'équipes ou
+   * plafond par profil), avec ce que chaque profil a déjà publié pour elles
+   * aujourd'hui. Gardé 1 minute : le Pilotage et l'agent le lisent pour
+   * chaque profil. Les autres campagnes ne retiennent personne. */
+  private dayCache: { at: number; plan: DayPlan } | null = null;
+  async dayPlan(now = new Date()): Promise<DayPlan> {
+    if (this.dayCache && now.getTime() - this.dayCache.at < 60_000) return this.dayCache.plan;
+    const rows = await Promise.resolve(
+      this.prisma.campaign?.findMany({
+        where: { status: 'ACTIVE', startsAt: { lte: now }, OR: [{ endsAt: null }, { endsAt: { gt: now } }] },
+        include: { ...CAMPAIGN_INCLUDE, owner: { select: { role: true } } },
+      }),
+    ).catch(() => null);
+    const campaigns: DayPlan['campaigns'] = [];
+    for (const c of rows ?? []) {
+      const managed = c.rotationTeams.length > 0 || c.maxPerProfilePerDay != null;
+      const used = new Map<string, number>();
+      if (c.maxPerProfilePerDay != null) {
+        // Publiés aujourd'hui (jour de la campagne) + en cours : un lot déjà
+        // réservé compte, sinon le plafond serait dépassé d'un lot.
+        const { from } = periodBounds('day', now, c.timezone);
+        const items = await this.prisma.publicationJobItem.findMany({
+          where: {
+            postTarget: this.targetWhere(c),
+            OR: [{ status: TargetStatus.PUBLISHED, publishedAt: { gte: from } }, { status: { in: [TargetStatus.CLAIMED, TargetStatus.CONSUMED] }, job: { status: 'CLAIMED' } }],
+          },
+          select: { job: { select: { profileId: true } } },
+        });
+        for (const i of items) used.set(i.job.profileId, (used.get(i.job.profileId) ?? 0) + 1);
+      }
+      campaigns.push({
+        id: c.id,
+        name: c.name,
+        ownerId: c.ownerId,
+        ownerIsAdmin: !c.ownerId || c.owner?.role === 'ADMIN',
+        managed,
+        profileIds: c.profiles.map((p) => p.profile.id),
+        teamToday: rotationTeamOf(c.rotationTeams, c.startsAt, now, c.timezone)?.team ?? null,
+        max: c.maxPerProfilePerDay,
+        used,
+        where: this.targetWhere(c),
+      });
+    }
+    const plan = { campaigns };
+    this.dayCache = { at: now.getTime(), plan };
+    return plan;
+  }
+
+  /** Le jour d'un profil :
+   *   - les campagnes qui lui donnent du travail aujourd'hui ;
+   *   - `resting` : une campagne à rotation/plafond le concerne et AUCUNE
+   *     campagne ne lui donne de travail → repos complet (l'agent n'ouvre pas
+   *     son navigateur) ;
+   *   - `exclude` : les cibles qu'il ne doit pas prendre (celles d'une
+   *     campagne à rotation/plafond qui ne le veut pas aujourd'hui, sauf si
+   *     une autre campagne où il travaille les couvre aussi) ;
+   *   - `left` : ce qu'il peut encore publier avant le premier plafond. */
+  profileDay(profile: { id: string; ownerId: string | null; team: string | null }, plan: DayPlan) {
+    const mine = plan.campaigns.filter((c) => c.ownerIsAdmin || c.ownerId === profile.ownerId);
+    const working: DayPlan['campaigns'] = [];
+    const blocking: Array<{ c: DayPlan['campaigns'][number]; why: string }> = [];
+    for (const c of mine) {
+      const inList = !c.profileIds.length || c.profileIds.includes(profile.id);
+      const teamOk = !c.teamToday || c.teamToday === profile.team;
+      const done = c.used.get(profile.id) ?? 0;
+      const underMax = c.max == null || done < c.max;
+      if (inList && teamOk && underMax) working.push(c);
+      else if (c.managed)
+        blocking.push({ c, why: !inList ? `hors des profils de « ${c.name} »` : !teamOk ? `pas son équipe aujourd'hui (« ${c.name} »)` : `plafond du jour atteint pour « ${c.name} » (${done}/${c.max})` });
+    }
+    const resting = mine.some((c) => c.managed) && !working.length;
+    const workWhere = working.map((c) => c.where);
+    const exclude: Prisma.PostTargetWhereInput | null = blocking.length
+      ? { OR: blocking.map(({ c }) => (workWhere.length ? { AND: [c.where, { NOT: { OR: workWhere } }] } : c.where)) }
+      : null;
+    const caps = working.filter((c) => c.max != null).map((c) => (c.max as number) - (c.used.get(profile.id) ?? 0));
+    return {
+      resting,
+      reason: resting ? `repos (rotation) : ${blocking.map((b) => b.why).slice(0, 2).join(' ; ')}` : null,
+      exclude,
+      left: caps.length ? Math.max(0, Math.min(...caps)) : null,
+      campaigns: working.map((c) => c.name),
+    };
+  }
+
+  /** Les équipes connues : les groupes NSTBrowser d'origine des profils
+   * visibles (remontés par l'agent local), avec leur effectif. */
+  async teams(acting: CurrentUser | null) {
+    const rows = await this.prisma.profile.groupBy({
+      by: ['teamNstGroupId', 'teamNstGroupName'],
+      where: { ...profileWhere(scopeOf(acting)), teamNstGroupId: { not: null } },
+      _count: { _all: true },
+    });
+    return rows
+      .map((r) => ({ id: r.teamNstGroupId as string, name: r.teamNstGroupName ?? r.teamNstGroupId, profiles: r._count._all }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   }
 
   /* ── Interne ─────────────────────────────────────────────────────────── */
@@ -316,6 +424,10 @@ export class CampaignsService {
       windowEnd: c.windowEnd,
       priority: c.priority,
       notes: c.notes,
+      maxPerProfilePerDay: c.maxPerProfilePerDay,
+      rotationTeams: c.rotationTeams,
+      // L'équipe de service aujourd'hui (rotation), et le jour du cycle.
+      rotationToday: rotationTeamOf(c.rotationTeams, c.startsAt, new Date(), c.timezone),
       site: c.site,
       category: c.category,
       groups: c.groups.map((g) => g.group),
@@ -331,4 +443,24 @@ export class CampaignsService {
   private log(eventType: string, message: string, campaignId: string | null, acting: CurrentUser | null) {
     return this.prisma.activityLog.create({ data: { eventType, message, metadata: { campaignId, by: acting?.username ?? 'clé globale' } } });
   }
+}
+
+export type DayPlan = {
+  campaigns: Array<{
+    id: string;
+    name: string;
+    ownerId: string | null;
+    ownerIsAdmin: boolean;
+    /** Rotation ou plafond par profil : elle décide qui travaille. */
+    managed: boolean;
+    profileIds: string[];
+    teamToday: string | null;
+    max: number | null;
+    used: Map<string, number>;
+    where: Prisma.PostTargetWhereInput;
+  }>;
+};
+
+function cleanTeams(teams?: string[]) {
+  return (teams ?? []).map((t) => t.trim()).filter(Boolean);
 }

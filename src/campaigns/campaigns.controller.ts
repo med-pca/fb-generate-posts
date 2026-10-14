@@ -19,6 +19,12 @@ export class CampaignsController {
     return this.campaigns.list(acting);
   }
 
+  @Get('teams')
+  @ApiOperation({ summary: 'Les équipes (groupes NSTBrowser des profils) pour la rotation' })
+  teams(@ActingUser() acting: CurrentUser) {
+    return this.campaigns.teams(acting);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Une campagne : avancement, série, statistiques par article, profil, groupe' })
   detail(@Param('id') id: string, @ActingUser() acting: CurrentUser) {

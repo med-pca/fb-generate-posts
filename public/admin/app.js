@@ -44,7 +44,7 @@ const API = '/api',
     groupFilters: { search: '', categoryId: '', status: '', profileId: '', join: '', stock: '', sort: 'recent' },
     articleFilters: { search: '', siteId: '', categoryId: '', status: '', archived: '', diffusion: '', from: '', to: '', sort: 'recent' },
     // Les filtres du Pilotage survivent au rafraîchissement automatique.
-    runnerFilters: { search: '', mode: '', state: '', owner: '', categoryId: '', groupId: '', sort: '' },
+    runnerFilters: { search: '', mode: '', state: '', owner: '', categoryId: '', groupId: '', team: '', sort: '' },
     // La file de publication : ses filtres et combien on en montre.
     queue: { tab: 'queue', section: 'upcoming', search: '', categoryId: '', groupId: '', limit: 10, publishedLimit: 20, data: null },
     selection: new Set(),
@@ -1117,7 +1117,7 @@ function render() {
     state.profiles
       .map(
         (p) =>
-          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${p.facebookSuspension ? `<span class="chip ${p.facebookSuspension === 'disabled' ? 'join-failed' : 'join-requested'}" title="${esc(p.suspensionDetail || '')}">${p.facebookSuspension === 'disabled' ? '🚫 Suspendu par Facebook' : '⚠ Vérification Facebook'}</span> ` : ''}${healthBadge(p.health)}${state.me?.role === 'ADMIN' ? ` <span class="chip" title="Compte qui pilote ce profil">👤 ${esc(p.owner ? p.owner.username : 'Administration')}</span>` : ''}</p>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
+          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${p.facebookSuspension ? `<span class="chip ${p.facebookSuspension === 'disabled' ? 'join-failed' : 'join-requested'}" title="${esc(p.suspensionDetail || '')}">${p.facebookSuspension === 'disabled' ? '🚫 Suspendu par Facebook' : p.facebookSuspension === 'logged_out' ? '🔌 Déconnecté de Facebook' : '⚠ Vérification Facebook'}</span> ` : ''}${healthBadge(p.health)}${state.me?.role === 'ADMIN' ? ` <span class="chip" title="Compte qui pilote ce profil">👤 ${esc(p.owner ? p.owner.username : 'Administration')}</span>` : ''}</p>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
       )
       .join('') || '<div class="empty">Créez votre premier profil.</div>';
   $('#group-rows').innerHTML =
@@ -1179,6 +1179,7 @@ const timeToMinutes = (value) => {
   const [h, m] = value.split(':').map(Number);
   return h * 60 + (m || 0);
 };
+const SUSPENSION_CHIP = { disabled: '🚫 suspendu par Facebook', checkpoint: '⚠ vérification Facebook demandée', logged_out: '🔌 déconnecté de Facebook' };
 /** Un profil « à vérifier » : quelque chose empêche qu'il publie alors
  * qu'on le lui demande, ou il ne répond plus. C'est le filtre du matin. */
 function runnerTags(r) {
@@ -1197,6 +1198,8 @@ function runnerTags(r) {
   if (r.pausedUntil) tags.add('paused');
   if (r.facebookSuspension === 'disabled') tags.add('suspended');
   if (r.facebookSuspension === 'checkpoint') tags.add('checkpoint');
+  if (r.facebookSuspension === 'logged_out') tags.add('logged-out');
+  if (r.resting) tags.add('resting');
   if (r.sleepUntil) tags.add('asleep');
   if (r.browserState !== 'RUNNING' && r.browserState !== 'ERROR') tags.add('browser-closed');
   if (!r.lastSeenAt) tags.add('never-seen');
@@ -1217,7 +1220,7 @@ function runnerTags(r) {
  * le retrouve avec le filtre « Profil inactif » (ou le lien sous la liste). */
 const pilotVisible = (r, wanted = state.runnerFilters.state) => r.status !== 'INACTIVE' || wanted === 'inactive';
 function filteredRunners() {
-  const { search, mode, state: wanted, owner, categoryId, groupId, sort } = state.runnerFilters;
+  const { search, mode, state: wanted, owner, categoryId, groupId, team, sort } = state.runnerFilters;
   const needle = search.trim().toLowerCase();
   // La catégorie d'un profil : celles de ses groupes rejoints.
   const catOf = new Map((state.pilotGroups || []).map((g) => [g.id, g.category?.id || '']));
@@ -1233,6 +1236,7 @@ function filteredRunners() {
       (!wanted || runnerTags(r).has(wanted)) &&
       (!owner || (owner === 'none' ? !r.owner : r.owner?.id === owner)) &&
       (!groupId || (r.groupIds || []).includes(groupId)) &&
+      (!team || (team === 'none' ? !r.team : r.team?.id === team)) &&
       (!categoryId || (r.groupIds || []).some((g) => catOf.get(g) === categoryId)),
   );
   const time = (d) => (d ? new Date(d).getTime() : 0);
@@ -1248,7 +1252,7 @@ function filteredRunners() {
 }
 const runnerFiltered = () => {
   const f = state.runnerFilters;
-  return Boolean(f.search.trim() || f.mode || f.state || f.owner || f.categoryId || f.groupId);
+  return Boolean(f.search.trim() || f.mode || f.state || f.owner || f.categoryId || f.groupId || f.team);
 };
 /** Les listes des filtres : comptes (admin), catégories, groupes. */
 async function fillRunnerFilterLists() {
@@ -1271,6 +1275,14 @@ async function fillRunnerFilterListsUnsafe() {
   $('#runner-category-filter').innerHTML = '<option value="">Toutes les catégories</option>' + opt((state.categories || []).map((c) => [c.id, c.name]), f.categoryId);
   const groups = (state.pilotGroups || []).filter((g) => !f.categoryId || g.category?.id === f.categoryId);
   $('#runner-group-filter').innerHTML = '<option value="">Tous les groupes</option>' + opt(groups.map((g) => [g.id, g.name]), f.groupId);
+  // Les équipes : les groupes NSTBrowser d'origine des profils (agent local).
+  const teams = new Map();
+  for (const r of state.runners?.profiles || []) if (r.team) teams.set(r.team.id, r.team.name);
+  const teamSel = $('#runner-team-filter');
+  if (teamSel) {
+    teamSel.hidden = !teams.size;
+    teamSel.innerHTML = '<option value="">Toutes les équipes</option>' + opt([...[...teams].sort((a, b) => a[1].localeCompare(b[1])), ['none', 'Sans équipe']], f.team);
+  }
 }
 
 /* ── Pilotage : filtres rapides et sous-onglets ─────────────────────── */
@@ -1282,6 +1294,8 @@ const PIL_QUICK = [
   ['off', '■ Arrêtés', { mode: 'OFF' }],
   ['paused', '⏸ En pause (limite Facebook)', { state: 'paused' }, 'bad'],
   ['suspended', '🚫 Suspendus', { state: 'suspended' }, 'bad'],
+  ['logged-out', '🔌 Déconnectés', { state: 'logged-out' }, 'bad'],
+  ['resting', '😴 Repos (rotation)', { state: 'resting' }],
   ['pairing', '🔑 Appairage à refaire', { state: 'pairing-broken' }, 'bad'],
 ];
 function renderPilotQuick() {
@@ -1344,6 +1358,11 @@ function renderRules() {
   if (!r) return;
   const f = $('#rules-pause');
   if (!f.contains(document.activeElement)) f.elements.rateLimitPauseDays.value = r.settings.rateLimitPauseDays;
+  const ng = $('#rules-nst-groups');
+  const ns = state.settings || {};
+  if (ng && !ng.contains(document.activeElement)) {
+    for (const k of NST_STATE_GROUPS) ng.elements[k].value = ns[k] ?? '';
+  }
   const imgs = state.imageProviders;
   if (imgs) {
     const select = $('#rules-image-provider');
@@ -1465,6 +1484,18 @@ $('#rules-mode').onchange = async (e) => {
   } catch (x) {
     notice(x.message, 'error');
     renderPilotMode();
+  }
+};
+const NST_STATE_GROUPS = ['nstGroupLimited', 'nstGroupCheckpoint', 'nstGroupDisabled', 'nstGroupLoggedOut'];
+$('#rules-nst-groups').onsubmit = async (e) => {
+  e.preventDefault();
+  const body = Object.fromEntries(NST_STATE_GROUPS.map((k) => [k, e.target.elements[k].value.trim()]));
+  try {
+    state.settings = await api('/settings', { method: 'PATCH', body: JSON.stringify(body) });
+    notice('Groupes NSTBrowser enregistrés : créez-les dans NSTBrowser avec exactement ces noms.');
+    document.activeElement?.blur?.();
+  } catch (x) {
+    notice(x.message, 'error');
   }
 };
 $('#rules-pause').onsubmit = async (e) => {
@@ -1822,7 +1853,7 @@ async function loadRunners() {
       api('/admin/verify').catch(() => null),
     ]);
     // Pas pendant qu'on choisit dans une liste : elle se refermerait.
-    if (!['runner-owner-filter', 'runner-category-filter', 'runner-group-filter'].includes(document.activeElement?.id)) await fillRunnerFilterLists();
+    if (!['runner-owner-filter', 'runner-category-filter', 'runner-group-filter', 'runner-team-filter'].includes(document.activeElement?.id)) await fillRunnerFilterLists();
     renderRunners();
     renderMembers();
   } catch (e) {
@@ -1876,7 +1907,9 @@ function renderRunners() {
     shown
       .map((r) => {
         const worker = r.facebookSuspension
-          ? `<span class="chip join-failed" title="${esc(r.suspensionDetail || '')}">${r.facebookSuspension === 'disabled' ? '🚫 suspendu par Facebook' : '⚠ vérification Facebook demandée'}</span>`
+          ? `<span class="chip join-failed" title="${esc(r.facebookSuspension === 'logged_out' ? 'Reconnectez-vous dans son navigateur NSTBrowser : il reprend seul (ou « Marquer reconnecté » dans la liste des profils suspendus). ' : '')}${esc(r.suspensionDetail || '')}">${SUSPENSION_CHIP[r.facebookSuspension] || r.facebookSuspension}</span>`
+          : r.resting
+          ? `<span class="chip sleep" title="${esc(r.restReason || '')}">😴 repos (rotation)</span>`
           : r.pausedUntil
           ? `<span class="chip join-failed" title="${esc(r.pauseReason || 'Facebook a limité ses publications')}">⏸ en pause jusqu’au ${esc(new Date(r.pausedUntil).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · limité par Facebook</span>`
           : r.sleepUntil
@@ -2193,7 +2226,7 @@ $('#runner-state-filter').onchange = (e) => {
   state.runnerFilters.state = e.target.value;
   renderRunners();
 };
-[['#runner-owner-filter', 'owner'], ['#runner-category-filter', 'categoryId'], ['#runner-group-filter', 'groupId'], ['#runner-sort', 'sort']].forEach(([id, key]) => {
+[['#runner-owner-filter', 'owner'], ['#runner-category-filter', 'categoryId'], ['#runner-group-filter', 'groupId'], ['#runner-team-filter', 'team'], ['#runner-sort', 'sort']].forEach(([id, key]) => {
   $(id).onchange = (e) => {
     state.runnerFilters[key] = e.target.value;
     if (key === 'categoryId') state.runnerFilters.groupId = '';
@@ -2202,7 +2235,7 @@ $('#runner-state-filter').onchange = (e) => {
   };
 });
 $('#runner-filters-reset').onclick = () => {
-  state.runnerFilters = { search: '', mode: '', state: '', owner: '', categoryId: '', groupId: '', sort: '' };
+  state.runnerFilters = { search: '', mode: '', state: '', owner: '', categoryId: '', groupId: '', team: '', sort: '' };
   $('#runner-sort').value = '';
   void fillRunnerFilterLists();
   $('#runner-search').value = '';
@@ -2593,7 +2626,7 @@ $('#assign-form').onsubmit = async (e) => {
 };
 /** Les réglages communs à tous les comptes : un gestionnaire les voit, sans
  * pouvoir les changer (le serveur refuse de toute façon). */
-const GLOBAL_SETTINGS = ['#objective-form', '#pacing-form', '#rewrite-style-form', '#rules-mode', '#rules-pause', '#rules-image', '#sites-paging', '#repeat-form', '#publishing-enabled'];
+const GLOBAL_SETTINGS = ['#objective-form', '#pacing-form', '#rewrite-style-form', '#rules-mode', '#rules-pause', '#rules-nst-groups', '#rules-image', '#sites-paging', '#repeat-form', '#publishing-enabled'];
 function lockGlobalSettings(admin) {
   for (const sel of GLOBAL_SETTINGS) {
     const el = $(sel);
@@ -2681,7 +2714,7 @@ const CAMPAIGN_STATE = {
   ended: ['neutral', 'Terminée'],
 };
 const PERIOD_NAME = { day: 'jour', week: 'semaine', month: 'mois' };
-const camp = { list: [], openId: null, editing: null };
+const camp = { list: [], openId: null, editing: null, rotation: [], teams: null };
 
 async function loadCampaigns() {
   try {
@@ -2689,6 +2722,9 @@ async function loadCampaigns() {
   } catch {
     return;
   }
+  // Les noms des équipes, pour la rotation affichée.
+  camp.teams = null;
+  await loadTeams();
   if (!Array.isArray(camp.list)) camp.list = [];
   renderCampaigns();
   if (camp.openId) void openCampaign(camp.openId, false);
@@ -2700,6 +2736,11 @@ function campaignScope(c) {
   if (c.groups.length) chips.push(`<span class="chip" title="${esc(c.groups.map((g) => g.name).join(', '))}">${c.groups.length} groupe(s)</span>`);
   if (c.profiles.length) chips.push(`<span class="chip" title="${esc(c.profiles.map((p) => p.name).join(', '))}">${c.profiles.length} profil(s)</span>`);
   if (c.articles.length) chips.push(`<span class="chip" title="${esc(c.articles.map((a) => a.title).join(', '))}">${c.articles.length} article(s)</span>`);
+  if (c.maxPerProfilePerDay) chips.push(`<span class="chip" title="Au plus ${c.maxPerProfilePerDay} publication(s) par profil et par jour">≤ ${c.maxPerProfilePerDay} / profil / jour</span>`);
+  if (c.rotationTeams?.length) {
+    const today = c.rotationToday;
+    chips.push(`<span class="chip sleep" title="Rotation : ${esc(c.rotationTeams.map(teamName).join(' → '))}">🔄 Équipe du jour : ${esc(today ? teamName(today.team) : '—')}${today ? ` (jour ${today.index + 1}/${c.rotationTeams.length})` : ''}</span>`);
+  }
   return chips.join(' ');
 }
 
@@ -2763,6 +2804,50 @@ async function openCampaign(id, scroll = true) {
   if (scroll) $('#campaign-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+/* La rotation : les équipes (groupes NSTBrowser), une par jour, dans l'ordre. */
+const teamName = (id) => (camp.teams || []).find((t) => t.id === id)?.name || id;
+async function loadTeams() {
+  if (!Array.isArray(camp.teams)) {
+    const rows = await api('/campaigns/teams').catch(() => []);
+    camp.teams = Array.isArray(rows) ? rows : [];
+  }
+  return camp.teams;
+}
+function renderRotation() {
+  const list = $('#camp-rotation');
+  if (!list) return;
+  const n = camp.rotation.length;
+  list.innerHTML = camp.rotation
+    .map((id, i) => `<li><span>Jour ${i + 1} : <b>${esc(teamName(id))}</b></span><span class="row-actions">` +
+      `<button class="edit" type="button" data-rot-up="${i}" ${i ? '' : 'disabled'} title="Plus tôt">↑</button>` +
+      `<button class="edit" type="button" data-rot-down="${i}" ${i < n - 1 ? '' : 'disabled'} title="Plus tard">↓</button>` +
+      `<button class="edit" type="button" data-rot-del="${i}" title="Retirer">×</button></span></li>`)
+    .join('');
+  const teams = camp.teams || [];
+  $('#camp-rotation-add').innerHTML = '<option value="">+ Choisir une équipe…</option>' + teams.map((t) => `<option value="${esc(t.id)}">${esc(t.name)} (${t.profiles} profil(s))</option>`).join('');
+  $('#camp-rotation-sum').textContent = n ? `— ${n} jour(s) : ${camp.rotation.map(teamName).join(' → ')}` : '— sans rotation';
+  $('#camp-rotation-help').textContent = teams.length
+    ? 'Une même équipe peut revenir plusieurs fois dans le cycle.'
+    : 'Aucune équipe connue : l’agent local (version 1.1 ou plus) remonte le groupe NSTBrowser de chaque profil à sa synchronisation.';
+}
+$('#camp-rotation-add').onchange = (e) => {
+  if (!e.target.value) return;
+  camp.rotation.push(e.target.value);
+  renderRotation();
+};
+$('#camp-rotation').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-rot-up], [data-rot-down], [data-rot-del]');
+  if (!b) return;
+  const r = camp.rotation;
+  if (b.dataset.rotDel !== undefined) r.splice(Number(b.dataset.rotDel), 1);
+  else {
+    const i = Number(b.dataset.rotUp ?? b.dataset.rotDown);
+    const j = b.dataset.rotUp !== undefined ? i - 1 : i + 1;
+    if (j >= 0 && j < r.length) [r[i], r[j]] = [r[j], r[i]];
+  }
+  renderRotation();
+});
+
 /* La fenêtre de création / modification. */
 async function fillCampaignPickers(c) {
   const f = $('#campaign-form');
@@ -2802,7 +2887,12 @@ async function openCampaignForm(c = null) {
   f.elements.startsAt.value = c?.startsAt ? c.startsAt.slice(0, 10) : '';
   f.elements.endsAt.value = c?.endsAt ? c.endsAt.slice(0, 10) : '';
   f.elements.priority.value = c?.priority ?? 0;
+  f.elements.maxPerProfilePerDay.value = c?.maxPerProfilePerDay ?? '';
+  camp.rotation = [...(c?.rotationTeams || [])];
+  $('#camp-rotation-box').open = camp.rotation.length > 0;
   openModal('campaign-modal');
+  await loadTeams();
+  renderRotation();
   await fillCampaignPickers(c);
 }
 $('#campaign-new').onclick = () => void openCampaignForm();
@@ -2822,6 +2912,8 @@ $('#campaign-form').onsubmit = async (e) => {
     windowStart: timeToMinutes(f.windowStart.value) ?? 480,
     windowEnd: timeToMinutes(f.windowEnd.value) ?? 1320,
     priority: Number(f.priority.value || 0),
+    maxPerProfilePerDay: f.maxPerProfilePerDay.value ? Number(f.maxPerProfilePerDay.value) : null,
+    rotationTeams: [...camp.rotation],
     groupIds: $$('[data-camp-groups]:checked').map((x) => x.value),
     profileIds: $$('[data-camp-profiles]:checked').map((x) => x.value),
     articleIds: $$('[data-camp-articles]:checked').map((x) => x.value),
@@ -6095,7 +6187,7 @@ $('#member-actions').addEventListener('click', async (e) => {
 });
 
 /* ── Nos profils suspendus par Facebook ─────────────────────────────────── */
-const SUSPENSION_LABELS = { disabled: ['join-failed', '🚫 Suspendu par Facebook'], checkpoint: ['join-requested', '⚠ Vérification demandée'] };
+const SUSPENSION_LABELS = { disabled: ['join-failed', '🚫 Suspendu par Facebook'], checkpoint: ['join-requested', '⚠ Vérification demandée'], logged_out: ['join-requested', '🔌 Déconnecté de Facebook'] };
 async function loadSuspended() {
   let rows;
   try {
@@ -6121,11 +6213,12 @@ async function loadSuspended() {
           : (p.kind === 'disabled' && p.groups
               ? `<button class="danger" type="button" data-suspend-remove="${p.id}" data-name="${esc(p.name)}" data-groups="${p.groups}" ${p.facebookUserId ? '' : 'disabled title="Identifiant Facebook inconnu : renseignez-le d’abord"'}>🚫 Retirer de nos groupes (${p.groups})</button>`
               : '') +
-            `<button class="edit" type="button" data-suspend-clear="${p.id}" data-name="${esc(p.name)}">↺ Marquer rétabli</button>`;
+            `<button class="edit" type="button" data-suspend-clear="${p.id}" data-name="${esc(p.name)}" data-kind="${p.kind}">${p.kind === 'logged_out' ? '🔌 Marquer reconnecté' : '↺ Marquer rétabli'}</button>`;
         return (
           `<tr><td><b>${esc(p.name)}</b><small>${esc(p.facebookUserId ? `Facebook ${p.facebookUserId}` : 'identifiant Facebook inconnu')}</small></td>` +
           `<td><span class="chip ${tone}">${label}</span><small>${esc(since)}${p.detail ? ` · ${esc(p.detail.slice(0, 120))}` : ''}</small>` +
-          `${p.kind === 'checkpoint' ? '<small>Récupérable : confirmez l’identité sur Facebook, puis « Marquer rétabli ».</small>' : ''}</td>` +
+          `${p.kind === 'checkpoint' ? '<small>Récupérable : confirmez l’identité sur Facebook, puis « Marquer rétabli ».</small>' : ''}` +
+          `${p.kind === 'logged_out' ? '<small>Reconnectez-vous à Facebook dans son navigateur NSTBrowser (resté ouvert) : il reprend seul. Sinon « Marquer reconnecté ».</small>' : ''}</td>` +
           `<td>${p.groups} groupe(s)</td><td>${progress}</td><td><div class="row-actions">${actions}</div></td></tr>`
         );
       })
@@ -6145,8 +6238,11 @@ $('#suspended-rows').onclick = async (e) => {
       notice(x.message, 'error');
     }
   } else if (clear) {
-    const { suspendClear: id, name } = clear.dataset;
-    if (!await ask(`Marquer « ${name} » rétabli ?\nIl pourra de nouveau publier : rallumez son mode dans le Pilotage. Les retraits pas encore faits sont annulés.`, { confirmLabel: 'Marquer rétabli' })) return;
+    const { suspendClear: id, name, kind } = clear.dataset;
+    const text = kind === 'logged_out'
+      ? `Marquer « ${name} » reconnecté ?\nFaites-le après vous être reconnecté à Facebook dans son navigateur : il reprend son travail.`
+      : `Marquer « ${name} » rétabli ?\nIl pourra de nouveau publier : rallumez son mode dans le Pilotage. Les retraits pas encore faits sont annulés.`;
+    if (!await ask(text, { confirmLabel: kind === 'logged_out' ? 'Marquer reconnecté' : 'Marquer rétabli' })) return;
     try {
       await api(`/profiles/${id}/suspension/clear`, { method: 'POST' });
       notice(`« ${name} » rétabli.`);

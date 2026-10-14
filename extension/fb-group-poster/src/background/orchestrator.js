@@ -21,7 +21,7 @@ import { fetchImage, ImageError } from './media.js';
 import { publishPost, findPublished } from './publish.js';
 import { placeLinks, placeLinkNow, ensureComment } from './links.js';
 import { checkApprovals } from './approvals.js';
-import { askControl, applyPushedSettings } from './control.js';
+import { askControl, applyPushedSettings, facebookUserId } from './control.js';
 import * as tab from './tab.js';
 import { SUSPENDED_KEY } from './tab.js';
 import { sleepPlan, fallAsleep } from './sleep.js';
@@ -168,6 +168,8 @@ export async function supervise() {
     },
   });
   await applyPushedSettings(decision.settings);
+  // Déconnecté : guetter la reconnexion faite à la main dans ce navigateur.
+  if (decision.facebookSuspension === 'logged_out') await watchReconnection(config);
 
   const state = await getState();
   if (!decision.run) {
@@ -185,6 +187,27 @@ export async function supervise() {
   }
   await info(`Ordre de l'admin : publier (${decision.reason})`);
   await start({ once: false });
+}
+
+/** Un profil déconnecté : dès qu'une session Facebook est de nouveau ouverte
+ * (cookie `c_user`, et un onglet Facebook qui n'affiche plus la page de
+ * connexion), le dire à la plateforme — le battement suivant le relance. */
+async function watchReconnection(config) {
+  if (!(await facebookUserId())) return;
+  const tabs = await chrome.tabs.query({ url: ['https://www.facebook.com/*', 'https://web.facebook.com/*'] }).catch(() => []);
+  let loggedIn = false;
+  for (const t of tabs) {
+    const account = await tab.step(t.id, 'accountState', {}, 8000).catch(() => null);
+    if (account && account.state === 'ok') { loggedIn = true; break; }
+  }
+  if (!loggedIn) return;
+  try {
+    const api = new JobApi(config.apiBaseUrl, config.apiKey);
+    const r = await api.reportReconnected(config.profileExternalId);
+    if (r && r.reconnected) await info('Reconnecte a Facebook : le profil reprend son travail');
+  } catch (err) {
+    await warn(`Reconnexion non signalee : ${err.message}`);
+  }
 }
 
 /** Le navigateur vient de (re)démarrer : la veille est finie. */
@@ -234,7 +257,13 @@ async function drive() {
         await warn(`Suspension non signalee a la plateforme : ${err.message} (nouvel essai au prochain demarrage)`);
       }
       await setState({ job: null, index: 0, phase: 'claim', inFlight: null });
-      await stop(seen.kind === 'disabled' ? 'Compte suspendu par Facebook : profil arrete (voir Profils)' : 'Facebook demande une verification du compte : profil arrete (voir Profils)');
+      await stop(
+        seen.kind === 'disabled'
+          ? 'Compte suspendu par Facebook : profil arrete (voir Profils)'
+          : seen.kind === 'logged_out'
+            ? 'Deconnecte de Facebook : reconnectez ce navigateur, le travail reprendra seul'
+            : 'Facebook demande une verification du compte : profil arrete (voir Profils)',
+      );
       return;
     }
     switch (state.phase) {

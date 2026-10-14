@@ -1108,6 +1108,8 @@
                   <option value="paused">⏸ En pause (limite Facebook)</option>
                   <option value="suspended">🚫 Suspendu par Facebook</option>
                   <option value="checkpoint">⚠ Vérification Facebook demandée</option>
+                  <option value="logged-out">🔌 Déconnecté de Facebook</option>
+                  <option value="resting">😴 Repos (rotation)</option>
                   <option value="asleep">💤 En veille</option>
                   <option value="browser-closed">Navigateur fermé</option>
                   <option value="never-seen">Jamais vu (extension jamais lancée)</option>
@@ -1120,6 +1122,7 @@
                 ><select id="runner-owner-filter" class="admin-only"><option value="">Tous les comptes</option></select
                 ><select id="runner-category-filter"><option value="">Toutes les catégories</option></select
                 ><select id="runner-group-filter"><option value="">Tous les groupes</option></select
+                ><select id="runner-team-filter"><option value="">Toutes les équipes</option></select
                 ><select id="runner-sort">
                   <option value="">Tri : ordre habituel</option>
                   <option value="name">Tri : nom</option>
@@ -1244,6 +1247,17 @@
               <p class="form-help">Quand Facebook affiche « <i>We limit how often you can post…</i> » (ou sa traduction), le profil est mis en pause : il ne publie plus jusqu’à la fin de la pause, son lot en cours et ses posts passent aux autres profils actifs. On peut lever la pause plus tôt depuis sa ligne (⋯ → ▶ Lever la pause).</p>
               <form id="rules-pause" class="rules-pause">
                 <label>Pause de <input name="rateLimitPauseDays" type="number" min="1" max="60" required /> jour(s)</label>
+                <button class="primary" type="submit">Enregistrer</button>
+              </form>
+            </div>
+            <div class="panel rules-panel">
+              <div class="panel-head"><div><small>AGENT LOCAL · NSTBROWSER</small><h2>Groupes automatiques selon l’état du compte</h2></div></div>
+              <p class="form-help">L’agent local (version 1.1 ou plus) range un profil dans ces groupes NSTBrowser dès que la plateforme voit le problème, et le remet dans son équipe d’origine quand la pause finit ou qu’il est marqué rétabli / reconnecté. <b>Créez ces groupes une fois dans NSTBrowser</b>, avec exactement ces noms (l’API de NSTBrowser ne sait pas en créer). Un nom vide = ne pas déplacer pour cet état.</p>
+              <form id="rules-nst-groups" class="rules-pause nst-groups">
+                <label>Limités (pause) <input name="nstGroupLimited" maxlength="100" /></label>
+                <label>Vérification <input name="nstGroupCheckpoint" maxlength="100" /></label>
+                <label>Désactivés <input name="nstGroupDisabled" maxlength="100" /></label>
+                <label>Déconnectés <input name="nstGroupLoggedOut" maxlength="100" /></label>
                 <button class="primary" type="submit">Enregistrer</button>
               </form>
             </div>
@@ -1803,6 +1817,16 @@
           <label>Heure de<select name="timezone"></select></label>
           <label>Priorité<input name="priority" type="number" min="-100" max="100" value="0" /><small>départage deux campagnes en retard</small></label>
         </div>
+        <div class="two">
+          <label>Max par profil et par jour (facultatif)<input name="maxPerProfilePerDay" type="number" min="1" max="1000" placeholder="sans plafond" /><small>au-delà, le profil s’arrête pour cette campagne jusqu’au lendemain</small></label>
+          <span></span>
+        </div>
+        <details class="camp-scope" id="camp-rotation-box"><summary>Rotation des équipes (facultatif) <span id="camp-rotation-sum" class="muted"></span></summary>
+          <p class="form-help">Une équipe (groupe NSTBrowser) par jour, dans cet ordre, en boucle à partir du jour de début. Les profils des autres équipes se reposent ce jour-là : leur navigateur n’est pas ouvert (s’ils n’ont pas de travail dans une autre campagne).</p>
+          <ol class="rotation-list" id="camp-rotation"></ol>
+          <label>Ajouter le jour suivant<select id="camp-rotation-add"><option value="">+ Choisir une équipe…</option></select></label>
+          <p class="form-help" id="camp-rotation-help"></p>
+        </details>
         <details class="camp-scope"><summary>Groupes (facultatif — sinon tous ceux de la catégorie)</summary><div class="pick-list" id="camp-groups"></div></details>
         <details class="camp-scope"><summary>Profils (facultatif — sinon tous)</summary><div class="pick-list" id="camp-profiles"></div></details>
         <details class="camp-scope"><summary>Articles (facultatif — sinon tous ceux du site)</summary><div class="pick-list" id="camp-articles"></div></details>

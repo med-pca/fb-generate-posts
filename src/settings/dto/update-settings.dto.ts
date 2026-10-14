@@ -84,6 +84,13 @@ export class UpdateSettingsDto {
   @IsIn(['seo', 'faithful'])
   rewriteStyle?: 'seo' | 'faithful';
 
+  /** Les groupes NSTBrowser d'état où l'agent range un profil (vide = ne
+   * pas le déplacer pour cet état). À créer une fois dans NSTBrowser. */
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) nstGroupLimited?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) nstGroupCheckpoint?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) nstGroupDisabled?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) nstGroupLoggedOut?: string;
+
   /** Accélérer automatiquement pour tenir l'objectif. */
   @ApiPropertyOptional()
   @IsOptional()

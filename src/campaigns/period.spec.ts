@@ -1,4 +1,4 @@
-import { campaignPace, periodBounds } from './period';
+import { campaignPace, periodBounds, rotationTeamOf } from './period';
 
 // Jeudi 15 octobre 2026, 14 h à Paris (12 h UTC).
 const now = new Date('2026-10-15T12:00:00Z');
@@ -46,5 +46,23 @@ describe('campaignPace', () => {
 
   it('objectif atteint', () => {
     expect(campaignPace({ ...base, period: 'day', target: 10, published: 12 }).status).toBe('reached');
+  });
+});
+
+describe('rotationTeamOf', () => {
+  const start = new Date('2026-10-14T06:00:00Z');
+  it('sans rotation : null', () => {
+    expect(rotationTeamOf([], start, start, 'Europe/Paris')).toBeNull();
+  });
+  it('une équipe par jour, en boucle, au jour local', () => {
+    const teams = ['A', 'B', 'C'];
+    expect(rotationTeamOf(teams, start, new Date('2026-10-14T21:59:00Z'), 'Europe/Paris')?.team).toBe('A');
+    // 22:30 UTC = 00:30 à Paris le 15 : déjà le jour 1.
+    expect(rotationTeamOf(teams, start, new Date('2026-10-14T22:30:00Z'), 'Europe/Paris')?.team).toBe('B');
+    expect(rotationTeamOf(teams, start, new Date('2026-10-16T10:00:00Z'), 'Europe/Paris')?.team).toBe('C');
+    expect(rotationTeamOf(teams, start, new Date('2026-10-17T10:00:00Z'), 'Europe/Paris')).toEqual({ team: 'A', index: 0, day: 3 });
+  });
+  it('avant le début : la première équipe', () => {
+    expect(rotationTeamOf(['A', 'B'], start, new Date('2026-10-10T10:00:00Z'), 'Europe/Paris')?.team).toBe('A');
   });
 });

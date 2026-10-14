@@ -69,6 +69,7 @@ export type EmptyReason =
   | 'paused' // en pause : Facebook a limité ses publications
   | 'suspended' // compte suspendu par Facebook (ou vérification demandée)
   | 'quota' // quota du jour du profil atteint
+  | 'rest' // repos (rotation) : aucune campagne ne lui donne de travail aujourd'hui
   | 'group_limits'; // ses groupes sont fermés à cette heure, ou à leur plafond du jour
 
 /** Une entrée de réservation par lot : soit un job à confier à un thread,
@@ -186,7 +187,7 @@ export class JobsService {
     acting: CurrentUser | null = null,
     /** Les règles du pilotage : jamais plus de N posts dans ce lot (plafond
      * du groupe, quota du profil). */
-    limits: { maxCount?: number; postId?: string } = {},
+    limits: { maxCount?: number; postId?: string; excludeTargetIds?: string[] } = {},
   ): Promise<ClaimedJob | EmptyClaim> {
     // La clé d'un compte ne réserve que sur ses profils : sans cela, un
     // automate atteindrait la file de publication d'un autre.
@@ -246,6 +247,8 @@ export class JobsService {
         WHERE pt.group_id = ${dto.groupId}
           AND pt.status = 'AVAILABLE'::"TargetStatus"
           ${limits.postId ? Prisma.sql`AND pt.post_id = ${limits.postId}` : Prisma.empty}
+          -- Rotation / plafond des campagnes : cibles fermées à ce profil aujourd'hui.
+          ${limits.excludeTargetIds?.length ? Prisma.sql`AND pt.id NOT IN (${Prisma.join(limits.excludeTargetIds)})` : Prisma.empty}
           -- Une cible forcée vers un autre profil lui est réservée.
           AND (pt.forced_profile_id IS NULL OR pt.forced_profile_id = ${dto.profileId})
           -- Republication d'un post incomplet : pas par le profil qui l'avait raté
@@ -495,7 +498,12 @@ export class JobsService {
         job: null,
         posts: [],
         reason: 'suspended',
-        message: profile.facebookSuspension === 'disabled' ? 'Compte suspendu par Facebook : il ne publie plus' : 'Facebook demande une vérification du compte : il ne publie plus en attendant',
+        message:
+          profile.facebookSuspension === 'disabled'
+            ? 'Compte suspendu par Facebook : il ne publie plus'
+            : profile.facebookSuspension === 'logged_out'
+              ? 'Déconnecté de Facebook : il attend qu’on le reconnecte (puis « Marquer reconnecté »)'
+              : 'Facebook demande une vérification du compte : il ne publie plus en attendant',
       };
     }
 
@@ -509,6 +517,20 @@ export class JobsService {
         message: `Profil en pause jusqu’au ${paused.toISOString().slice(0, 16).replace('T', ' ')} UTC : Facebook a limité ses publications`,
       };
     }
+
+    // Les campagnes à rotation ou plafond par profil : pas son équipe
+    // aujourd'hui, ou plafond atteint → repos ; sinon, les cibles de ces
+    // campagnes qui ne le veulent pas lui sont fermées.
+    const day = this.campaigns
+      ? await this.campaigns
+          .dayPlan()
+          .then((plan) => this.campaigns!.profileDay({ id: profile.id, ownerId: profile.ownerId, team: profile.teamNstGroupId ?? null }, plan))
+          .catch(() => null)
+      : null;
+    if (day?.resting) {
+      return { job: null, posts: [], reason: 'rest', message: `😴 ${day.reason} — il reprend quand une campagne a du travail pour lui` };
+    }
+    const exclude = day?.exclude ?? null;
 
     // Un profil correspond à un compte : lui confier un second job pendant
     // qu'il en traite un ferait publier deux threads sur le même compte.
@@ -567,6 +589,7 @@ export class JobsService {
             status: TargetStatus.AVAILABLE,
             post: { status: 'AVAILABLE', ...claimablePostWhere(profile) },
             ...notForcedElsewhere(profile.id),
+            ...(exclude ? { NOT: exclude } : {}),
           },
         },
       },
@@ -598,20 +621,33 @@ export class JobsService {
         message: `Ses groupes sont fermés à cette heure ou ont atteint leur plafond du jour (${[...rules.groups.values()].map((r) => r.why).filter(Boolean).slice(0, 3).join(' ; ')})`,
       };
     }
+    // Les cibles fermées à ce profil aujourd'hui (rotation, plafond), pour la
+    // requête de réservation ; et ce qu'il peut encore publier avant le
+    // plafond d'une campagne où il travaille.
+    const excludeTargetIds = exclude
+      ? (
+          await this.prisma.postTarget.findMany({
+            where: { AND: [{ groupId: { in: usable.map((g) => g.id) }, status: TargetStatus.AVAILABLE }, exclude] },
+            select: { id: true },
+            take: 20_000,
+          })
+        ).map((t) => t.id)
+      : [];
+    const campaignLeft = day?.left ?? null;
     const ordered = await this.byTopPriority(usable, profile);
     // Article par article : l'article en tête de file part dans tous ses
     // groupes avant le suivant. Chaque lot = ce post dans UN groupe ; le
     // lot suivant le porte dans le groupe suivant (le plus prioritaire
     // d'abord). Un groupe imposé par l'extension garde l'ancien mode.
     if (!groupExternalId && (await this.pilotMode()) === 'article') {
-      for (const postId of await this.currentArticles(profile, usable.map((g) => g.id))) {
+      for (const postId of await this.currentArticles(profile, usable.map((g) => g.id), exclude)) {
         const where = await this.prisma.postTarget.findMany({
-          where: { postId, status: TargetStatus.AVAILABLE, groupId: { in: usable.map((g) => g.id) }, ...notForcedElsewhere(profile.id) },
+          where: { postId, status: TargetStatus.AVAILABLE, groupId: { in: usable.map((g) => g.id) }, ...notForcedElsewhere(profile.id), ...(exclude ? { NOT: exclude } : {}) },
           select: { groupId: true },
         });
         const inGroups = new Set(where.map((t) => t.groupId));
         for (const group of ordered.filter((g) => inGroups.has(g.id))) {
-          const result = await this.claim({ profileId: profile.id, groupId: group.id }, acting, { maxCount: 1, postId });
+          const result = await this.claim({ profileId: profile.id, groupId: group.id }, acting, { maxCount: 1, postId, excludeTargetIds });
           if ('jobId' in result) return result;
         }
       }
@@ -624,11 +660,11 @@ export class JobsService {
     }
     for (const group of ordered) {
       const left = rules.groups.get(group.id)?.left ?? null;
-      const caps = [left, rules.quotaLeft].filter((n): n is number => n !== null);
+      const caps = [left, rules.quotaLeft, campaignLeft].filter((n): n is number => n !== null);
       const result = await this.claim(
         { profileId: profile.id, groupId: group.id },
         acting,
-        caps.length ? { maxCount: Math.min(...caps) } : {},
+        { ...(caps.length ? { maxCount: Math.min(...caps) } : {}), excludeTargetIds },
       );
       // `jobId` distingue une réservation aboutie d'un groupe déjà vidé.
       if ('jobId' in result) return result;
@@ -796,7 +832,7 @@ export class JobsService {
    * l'un de ses groupes : forcés vers lui d'abord, puis par priorité, puis
    * le plus ancien. Les premiers seulement : si le premier vient d'être pris
    * partout, on passe au suivant. */
-  private async currentArticles(profile: { id: string; ownerId: string | null }, groupIds: string[]) {
+  private async currentArticles(profile: { id: string; ownerId: string | null }, groupIds: string[], exclude: Prisma.PostTargetWhereInput | null = null) {
     const base: Prisma.PostTargetWhereInput = {
       groupId: { in: groupIds },
       status: TargetStatus.AVAILABLE,
@@ -805,6 +841,7 @@ export class JobsService {
         AND: [claimablePostWhere(profile), { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] }],
       },
       ...notForcedElsewhere(profile.id),
+      ...(exclude ? { NOT: exclude } : {}),
     };
     // Les campagnes en retard d'abord (celles qui visent ce profil, ou tous
     // les profils) : leurs articles passent devant. Un envoi forcé reste
@@ -1233,9 +1270,10 @@ export class JobsService {
    * aux autres. Il ne repart que si un administrateur le marque rétabli. */
   async suspendProfile(
     profileExternalId: string,
-    input: { kind: 'disabled' | 'checkpoint'; detail?: string; url?: string },
+    input: { kind: 'disabled' | 'checkpoint' | 'logged_out'; detail?: string; url?: string },
     acting: CurrentUser | null,
   ) {
+    if (input.kind === 'logged_out') return this.loggedOut(profileExternalId, input, acting);
     const profile = await this.prisma.profile.findFirst({
       where: { externalId: profileExternalId, ...profileWhere(scopeOf(acting)) },
       select: { id: true, name: true, ownerId: true, facebookSuspension: true },
@@ -1269,6 +1307,51 @@ export class JobsService {
       metadata: { kind, detail, released, unforced: unforced.count, opened: opened.count },
     });
     return { kind, released, opened: opened.count };
+  }
+
+  /** Déconnecté de Facebook (page de connexion, et « Continuer en tant
+   * que » n'a pas suffi) : un état passager, pas une suspension. Le lot en
+   * cours retourne à la file ; son mode et ses posts restent à lui — il
+   * reprendra seul une fois reconnecté. Jamais par-dessus une suspension. */
+  private async loggedOut(profileExternalId: string, input: { detail?: string; url?: string }, acting: CurrentUser | null) {
+    const profile = await this.prisma.profile.findFirst({
+      where: { externalId: profileExternalId, ...profileWhere(scopeOf(acting)) },
+      select: { id: true, name: true, facebookSuspension: true },
+    });
+    if (!profile) throw new NotFoundException(`Profil introuvable pour externalId=${profileExternalId}`);
+    if (profile.facebookSuspension && profile.facebookSuspension !== 'logged_out') return { kind: profile.facebookSuspension, released: 0, opened: 0 };
+    const detail = [input.detail, input.url].filter(Boolean).join(' — ').slice(0, 1000);
+    await this.prisma.profile.update({ where: { id: profile.id }, data: { facebookSuspension: 'logged_out', suspendedAt: new Date(), suspensionDetail: detail || null } });
+    const active = await this.prisma.publicationJob.findMany({ where: { profileId: profile.id, status: JobStatus.CLAIMED }, select: { id: true } });
+    let released = 0;
+    for (const j of active) {
+      const r = await this.release(j.id, null, `profil « ${profile.name} » déconnecté de Facebook`).catch(() => null);
+      released += (r as { released?: number } | null)?.released ?? 0;
+    }
+    if (profile.facebookSuspension !== 'logged_out') {
+      await this.log({
+        profileId: profile.id,
+        eventType: 'PROFILE_LOGGED_OUT_FACEBOOK',
+        level: 'WARN',
+        message: `« ${profile.name} » : déconnecté de Facebook — arrêté, ${released} post(s) du lot rendus à la file. À reconnecter dans son navigateur : il reprend seul ensuite`,
+        metadata: { detail, released },
+      });
+    }
+    return { kind: 'logged_out', released, opened: 0 };
+  }
+
+  /** L'extension voit de nouveau une session Facebook ouverte : un profil
+   * déconnecté reprend. Ne lève jamais une suspension ni une vérification. */
+  async reconnected(profileExternalId: string, acting: CurrentUser | null) {
+    const profile = await this.prisma.profile.findFirst({
+      where: { externalId: profileExternalId, ...profileWhere(scopeOf(acting)) },
+      select: { id: true, name: true, facebookSuspension: true },
+    });
+    if (!profile) throw new NotFoundException(`Profil introuvable pour externalId=${profileExternalId}`);
+    if (profile.facebookSuspension !== 'logged_out') return { reconnected: false, state: profile.facebookSuspension ?? 'ok' };
+    await this.prisma.profile.update({ where: { id: profile.id }, data: { facebookSuspension: null, suspendedAt: null, suspensionDetail: null } });
+    await this.log({ profileId: profile.id, eventType: 'PROFILE_RECONNECTED_FACEBOOK', message: `« ${profile.name} » : reconnecté à Facebook — il reprend` });
+    return { reconnected: true, state: 'ok' };
   }
 
   /** Les règles du pilotage pour ce profil et ces groupes, au jour et à

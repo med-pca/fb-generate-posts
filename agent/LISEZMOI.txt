@@ -35,6 +35,22 @@ cet ordinateur.
 Un seul agent par ordinateur, avec la clé de VOTRE compte : ce paquet a été
 préconfiguré avec elle au téléchargement — ne le partagez pas.
 
+Équipes et groupes automatiques (version 1.1)
+---------------------------------------------
+- Le groupe NSTBrowser de chaque profil est son ÉQUIPE : la plateforme s'en
+  sert pour la rotation des campagnes (une équipe par jour).
+- Quand la plateforme voit un problème, l'agent range le profil dans un groupe
+  NSTBrowser d'état, puis le remet dans son équipe une fois le problème réglé :
+      PostFlow · Limités        (publications limitées : pause)
+      PostFlow · Vérification   (Facebook demande une vérification)
+      PostFlow · Désactivés     (compte suspendu)
+      PostFlow · Déconnectés    (session Facebook perdue)
+  Créez ces 4 groupes UNE FOIS dans NSTBrowser, avec exactement ces noms
+  (l'API de NSTBrowser ne sait pas créer de groupe). Les noms se changent
+  dans la plateforme : Pilotage → Règles & priorités.
+- Profil déconnecté : son navigateur reste ouvert. Reconnectez-vous à
+  Facebook dedans ; il reprend son travail tout seul.
+
 En cas de problème
 ------------------
 Diagnostic : ouvrez un terminal dans ce dossier et tapez

@@ -119,6 +119,15 @@ export class JobsController {
     return this.jobs.suspendProfile(profileExternalId, dto, acting);
   }
 
+  @Post('profiles/:profileExternalId/reconnected')
+  @ApiOperation({ summary: 'L’extension voit de nouveau une session Facebook ouverte : un profil déconnecté reprend' })
+  reconnected(
+    @Param('profileExternalId') profileExternalId: string,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.jobs.reconnected(profileExternalId, acting);
+  }
+
   @Get('approvals/profile/:profileExternalId')
   @ApiOperation({ summary: 'Posts de ce profil en attente de validation, à revérifier maintenant (après son lot)' })
   approvalsDue(

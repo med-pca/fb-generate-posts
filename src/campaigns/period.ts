@@ -75,3 +75,22 @@ export function campaignPace(input: {
   else status = 'late';
   return { from, to, days, expected, remaining, neededPerHour, ratePerHour: input.lastHour, projection, minutesLeft: left, elapsed, status };
 }
+
+/** La date du jour (AAAA-MM-JJ) dans ce fuseau. */
+function localDate(d: Date, timeZone: string) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+/** La rotation : l'équipe (groupe NSTBrowser) de service aujourd'hui. Une
+ * équipe par jour, dans l'ordre, en boucle à partir du jour de début de la
+ * campagne (jour 0 = la première). `null` sans rotation. */
+export function rotationTeamOf(teams: string[], startsAt: Date, now: Date, timeZone: string) {
+  if (!teams.length) return null;
+  const day = (d: Date) => Date.parse(`${localDate(d, timeZone)}T00:00:00Z`) / 86_400_000;
+  const index = Math.max(0, Math.round(day(now) - day(startsAt)));
+  return { team: teams[index % teams.length], index: index % teams.length, day: index };
+}

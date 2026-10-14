@@ -1,4 +1,5 @@
 import {
+  Optional,
   BadRequestException,
   HttpException,
   HttpStatus,
@@ -9,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomInt } from 'node:crypto';
 import { BrowserState, Prisma, RunnerMode } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CampaignsService, type DayPlan } from '../campaigns/campaigns.service';
 import { scopeOf } from '../auth/scope';
 import { assertMayManage, isAdmin } from '../auth/moderator-guard';
 import { profileWhere } from '../auth/scope';
@@ -102,7 +104,20 @@ export class RunnersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    @Optional() private readonly campaigns?: CampaignsService,
   ) {}
+
+  /** Le plan du jour des campagnes (rotation, plafonds) ; `null` si les
+   * campagnes sont indisponibles — personne n'est alors mis au repos. */
+  private async dayPlan(now: Date): Promise<DayPlan | null> {
+    return (await this.campaigns?.dayPlan(now).catch(() => null)) ?? null;
+  }
+
+  private restOf(plan: DayPlan | null, profile: { id: string; ownerId?: string | null; teamNstGroupId?: string | null }) {
+    if (!plan || !this.campaigns) return null;
+    const day = this.campaigns.profileDay({ id: profile.id, ownerId: profile.ownerId ?? null, team: profile.teamNstGroupId ?? null }, plan);
+    return day.resting ? day.reason : null;
+  }
 
   /* ── L'appairage d'un navigateur ──────────────────────────────────────
    *
@@ -461,12 +476,18 @@ export class RunnersService {
     });
     return {
       ...this.answer(
-        this.decide(
-          runner,
-          profile.status === 'ACTIVE',
-          settings.publishingEnabled,
+        withSuspension(
+          this.decide(
+            runner,
+            profile.status === 'ACTIVE',
+            settings.publishingEnabled,
+          ),
+          profile.facebookSuspension,
         ),
       ),
+      // L'état du compte Facebook vu par la plateforme : « logged_out » fait
+      // guetter à l'extension la reconnexion faite à la main, pour reprendre.
+      facebookSuspension: profile.facebookSuspension ?? null,
       // L'accusé de réception de la veille : l'extension ne ferme son
       // navigateur que si le serveur a bien noté quand le rouvrir.
       sleepUntil: runner.sleepUntil?.toISOString() ?? null,
@@ -578,12 +599,19 @@ export class RunnersService {
         externalId: true,
         status: true,
         facebookSuspension: true,
+        ownerId: true,
+        nstGroupId: true,
+        nstGroupName: true,
+        teamNstGroupId: true,
+        teamNstGroupName: true,
         runner: true,
         owner: { select: { nstApiKey: true, status: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
 
+    const plan = await this.dayPlan(now);
+    const stateNames = stateGroupNames(settings);
     // La requête les écarte déjà, mais l'agent local ne peut rien faire d'une
     // ligne sans identifiant NSTBrowser : le filtre est refait ici pour que
     // changer la requête ne puisse pas lui en envoyer une.
@@ -603,14 +631,22 @@ export class RunnersService {
         // En veille : l'extension a fermé son navigateur entre deux lots ;
         // l'agent ne le rouvre qu'à l'heure dite.
         const asleep = sleeping(profile.runner, now);
-        const run = decision.run && !asleep;
+        // Repos (rotation) : aucune campagne ne lui donne de travail
+        // aujourd'hui — son navigateur reste fermé.
+        const rest = decision.run ? this.restOf(plan, profile) : null;
+        const run = decision.run && !asleep && !rest;
         return {
           externalId: profile.externalId,
           name: profile.name,
           shouldRun: run,
-          reason: asleep ? `en veille jusqu'à ${clock(profile.runner!.sleepUntil!, profile.runner!.timezone)}` : decision.reason,
+          reason: rest ? `😴 ${rest}` : asleep ? `en veille jusqu'à ${clock(profile.runner!.sleepUntil!, profile.runner!.timezone)}` : decision.reason,
+          resting: Boolean(rest),
+          // Le groupe NSTBrowser où l'agent doit le ranger (état du compte),
+          // ou le remettre (son équipe). `null` : il est bien où il est.
+          moveTo: wantedNstGroup(profile, profile.runner?.pausedUntil ?? null, stateNames, now),
           sleepUntil: asleep ? profile.runner!.sleepUntil : null,
-          mayClose: !run && !busy,
+          // Déconnecté : le navigateur reste ouvert, pour qu'on s'y reconnecte.
+          mayClose: !run && !busy && profile.facebookSuspension !== 'logged_out',
           workerRunning: profile.runner?.running ?? false,
           workerSeenAt: profile.runner?.lastSeenAt ?? null,
           browserState: profile.runner?.browserState ?? BrowserState.STOPPED,
@@ -654,17 +690,19 @@ export class RunnersService {
   ) {
     // Une même liste peut répéter un profil : le premier nom l'emporte.
     const wanted = new Map<string, string>();
+    const groupOf = new Map<string, { id: string; name: string }>();
     for (const row of rows) {
       const externalId = row.externalId.trim();
       if (externalId && !wanted.has(externalId)) {
         wanted.set(externalId, row.name.trim() || externalId);
+        if (row.groupId?.trim()) groupOf.set(externalId, { id: row.groupId.trim(), name: (row.groupName ?? '').trim() || row.groupId.trim() });
       }
     }
     if (!wanted.size) return { created: [], existing: 0, received: 0 };
 
     const known = await this.prisma.profile.findMany({
       where: { externalId: { in: [...wanted.keys()] } },
-      select: { id: true, externalId: true, name: true, ownerId: true },
+      select: { id: true, externalId: true, name: true, ownerId: true, nstGroupId: true, nstGroupName: true, teamNstGroupId: true },
     });
     const seen = new Set(known.map((p) => p.externalId));
 
@@ -679,6 +717,20 @@ export class RunnersService {
       if (scope && p.ownerId !== scope.ownerId) continue;
       await this.prisma.profile.update({ where: { id: p.id }, data: { name: to.slice(0, 200) } });
       renamed.push({ externalId: p.externalId as string, from: p.name, to });
+    }
+    // Son groupe NSTBrowser : son équipe — sauf un groupe d'état (Limités,
+    // Vérification…) où la plateforme l'a rangé : l'équipe d'origine est
+    // alors gardée, pour l'y remettre.
+    const stateNames = groupOf.size ? new Set(Object.values(stateGroupNames(await this.globalSettings())).filter(Boolean)) : new Set<string>();
+    for (const p of known) {
+      const g = groupOf.get(p.externalId as string);
+      if (!g || (scope && p.ownerId !== scope.ownerId)) continue;
+      const isState = stateNames.has(g.name);
+      if (p.nstGroupId === g.id && p.nstGroupName === g.name && (isState || p.teamNstGroupId === g.id)) continue;
+      await this.prisma.profile.update({
+        where: { id: p.id },
+        data: { nstGroupId: g.id, nstGroupName: g.name, ...(isState ? {} : { teamNstGroupId: g.id, teamNstGroupName: g.name }) },
+      });
     }
     if (renamed.length) {
       await this.prisma.activityLog
@@ -711,11 +763,11 @@ export class RunnersService {
         })
         .catch(() => undefined);
       await this.prisma.profile.createMany({
-        data: missing.map(([externalId, name]) => ({
-          externalId,
-          name,
-          ownerId: acting?.id ?? null,
-        })),
+        data: missing.map(([externalId, name]) => {
+          const g = groupOf.get(externalId);
+          const team = g && !stateNames.has(g.name) ? { teamNstGroupId: g.id, teamNstGroupName: g.name } : {};
+          return { externalId, name, ownerId: acting?.id ?? null, ...(g ? { nstGroupId: g.id, nstGroupName: g.name, ...team } : {}) };
+        }),
         skipDuplicates: true,
       });
     }
@@ -745,10 +797,13 @@ export class RunnersService {
       update: reported,
     });
     return this.answer(
-      this.decide(
-        runner,
-        profile.status === 'ACTIVE',
-        settings.publishingEnabled,
+      withSuspension(
+        this.decide(
+          runner,
+          profile.status === 'ACTIVE',
+          settings.publishingEnabled,
+        ),
+        profile.facebookSuspension,
       ),
     );
   }
@@ -770,6 +825,11 @@ export class RunnersService {
         facebookSuspension: true,
         suspendedAt: true,
         suspensionDetail: true,
+        ownerId: true,
+        nstGroupId: true,
+        nstGroupName: true,
+        teamNstGroupId: true,
+        teamNstGroupName: true,
         runner: true,
         owner: { select: { id: true, username: true, automationKey: true, status: true } },
         // Ses groupes rejoints : pour filtrer le Pilotage par groupe ou catégorie.
@@ -778,6 +838,7 @@ export class RunnersService {
       orderBy: { createdAt: 'asc' },
     });
     const currentKeys = this.currentKeyHashes(profiles);
+    const plan = await this.dayPlan(now);
     return {
       agents: await this.agents(acting, now),
       publishingEnabled: settings.publishingEnabled,
@@ -790,8 +851,15 @@ export class RunnersService {
           now,
         );
         const runner = profile.runner;
+        const rest = decision.run ? this.restOf(plan, profile) : null;
         return {
           profileId: profile.id,
+          // Son équipe (groupe NSTBrowser d'origine) et son groupe actuel.
+          team: profile.teamNstGroupId ? { id: profile.teamNstGroupId, name: profile.teamNstGroupName ?? profile.teamNstGroupId } : null,
+          nstGroupName: profile.nstGroupName ?? null,
+          // 😴 Repos (rotation) : aucune campagne ne lui donne de travail aujourd'hui.
+          resting: Boolean(rest),
+          restReason: rest,
           name: profile.name,
           externalId: profile.externalId,
           status: profile.status,
@@ -807,8 +875,8 @@ export class RunnersService {
           suspendedAt: profile.suspendedAt,
           suspensionDetail: profile.suspensionDetail,
           mode: decision.mode,
-          shouldRun: decision.run,
-          reason: decision.reason,
+          shouldRun: decision.run && !rest,
+          reason: rest ? `😴 ${rest}` : decision.reason,
           window: decision.window,
           timezone: runner?.timezone ?? 'Europe/Paris',
           windowStart: runner?.windowStart ?? null,
@@ -973,7 +1041,7 @@ export class RunnersService {
         externalId: profileExternalId,
         ...profileWhere(scopeOf(acting)),
       },
-      select: { id: true, status: true, runner: true },
+      select: { id: true, status: true, runner: true, facebookSuspension: true },
     });
     if (!profile) {
       // La clé est valide, mais c'est celle d'un autre compte : le
@@ -1063,4 +1131,59 @@ export class RunnersService {
       unconfirmed: unconfirmed.map((p) => ({ profileId: p.profileId, name: p.name, ...p.pairing })),
     };
   }
+}
+
+/** Les noms des groupes NSTBrowser d'état (réglages ; vide = désactivé). */
+export function stateGroupNames(settings: Partial<Record<'nstGroupLimited' | 'nstGroupCheckpoint' | 'nstGroupDisabled' | 'nstGroupLoggedOut', string | null>> | null | undefined) {
+  return {
+    limited: settings?.nstGroupLimited?.trim() ?? '',
+    checkpoint: settings?.nstGroupCheckpoint?.trim() ?? '',
+    disabled: settings?.nstGroupDisabled?.trim() ?? '',
+    loggedOut: settings?.nstGroupLoggedOut?.trim() ?? '',
+  };
+}
+
+/** Le groupe NSTBrowser où ranger un profil selon l'état de son compte :
+ *   désactivé → « Désactivés », vérification → « Vérification »,
+ *   déconnecté → « Déconnectés », limité (en pause) → « Limités » ;
+ *   état normal revenu → son équipe d'origine.
+ * `null` : rien à faire. Seulement quand l'agent remonte les groupes
+ * (`nstGroupName` connu), et jamais pour déplacer un profil qu'on a mis
+ * soi-même dans une autre équipe : le retour ne part que d'un groupe d'état. */
+export function wantedNstGroup(
+  p: { facebookSuspension?: string | null; nstGroupId?: string | null; nstGroupName?: string | null; teamNstGroupId?: string | null; teamNstGroupName?: string | null },
+  pausedUntil: Date | null,
+  names: ReturnType<typeof stateGroupNames>,
+  now: Date,
+): { groupId: string | null; groupName: string; why: string } | null {
+  if (!p.nstGroupName) return null;
+  const state =
+    p.facebookSuspension === 'disabled'
+      ? { name: names.disabled, why: 'compte désactivé par Facebook' }
+      : p.facebookSuspension === 'checkpoint'
+        ? { name: names.checkpoint, why: 'Facebook demande une vérification' }
+        : p.facebookSuspension === 'logged_out'
+          ? { name: names.loggedOut, why: 'déconnecté de Facebook' }
+          : pausedUntil && pausedUntil.getTime() > now.getTime()
+            ? { name: names.limited, why: 'publications limitées par Facebook' }
+            : null;
+  if (state) return state.name && p.nstGroupName !== state.name ? { groupId: null, groupName: state.name, why: state.why } : null;
+  const inStateGroup = Object.values(names).some((n) => n && n === p.nstGroupName);
+  if (inStateGroup && p.teamNstGroupId && p.nstGroupId !== p.teamNstGroupId) {
+    return { groupId: p.teamNstGroupId, groupName: p.teamNstGroupName ?? p.teamNstGroupId, why: 'retour dans son équipe' };
+  }
+  return null;
+}
+
+/** Un compte suspendu, en vérification ou déconnecté ne publie pas, et la
+ * raison le dit (plutôt qu'un « profil inactif » qui ne dit rien). */
+export function withSuspension<D extends { run: boolean; reason: string }>(decision: D, suspension: string | null | undefined): D {
+  if (!suspension) return decision;
+  const reason =
+    suspension === 'disabled'
+      ? 'compte suspendu par Facebook'
+      : suspension === 'logged_out'
+        ? 'déconnecté de Facebook : à reconnecter dans ce navigateur'
+        : 'Facebook demande une vérification du compte';
+  return { ...decision, run: false, reason };
 }

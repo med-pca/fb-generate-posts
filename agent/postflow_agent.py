@@ -5,7 +5,9 @@ Pourquoi il existe : l'API de NSTBrowser n'écoute que sur cet ordinateur
 (localhost:8848). La plateforme, sur Internet, ne peut donc pas ouvrir un
 profil elle-même : l'agent lui demande chaque minute « lesquels ouvrir ? »,
 puis le fait ici. Il synchronise aussi les profils NSTBrowser (nouveaux
-profils, changements de nom) avec la plateforme.
+profils, changements de nom, groupe = équipe) avec la plateforme, et range
+les profils dans les groupes d'état que la plateforme demande (Limités,
+Vérification, Désactivés, Déconnectés), puis les remet dans leur équipe.
 
 Rien à installer en plus de Python 3 : ce fichier n'utilise que la
 bibliothèque standard. La configuration (adresse et clé du compte) est dans
@@ -33,7 +35,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
-AGENT_VERSION = "1.0.0"
+AGENT_VERSION = "1.1.0"
 HERE = Path(__file__).resolve().parent
 CONFIG_FILE = HERE / "agent.config.json"
 LOG_FILE = HERE / "agent.log"
@@ -143,8 +145,8 @@ class Platform:
             body["message"] = message[:1000]
         self._call("POST", f"/control/launcher/{urllib.parse.quote(external_id)}", body)
 
-    def sync(self, profiles: list[tuple[str, str]]) -> dict[str, Any]:
-        body = {"profiles": [{"externalId": pid, "name": name} for pid, name in profiles]}
+    def sync(self, profiles: list[dict[str, str]]) -> dict[str, Any]:
+        body = {"profiles": [{**{k: v for k, v in p.items() if v}, "name": p.get("name", "")} for p in profiles]}
         return self._call("POST", "/control/profiles/sync", body) or {}
 
 
@@ -162,10 +164,10 @@ class Nst:
         self.address = address.rstrip("/")
         self.key = key
 
-    def _call(self, method: str, path: str, query: Optional[dict[str, Any]] = None) -> Any:
+    def _call(self, method: str, path: str, query: Optional[dict[str, Any]] = None, body: Any = None) -> Any:
         url = f"{self.address}{path}" + (f"?{urllib.parse.urlencode(query)}" if query else "")
         try:
-            payload = http(method, url, {"x-api-key": self.key}, timeout=60.0)
+            payload = http(method, url, {"x-api-key": self.key}, body, timeout=60.0)
         except HttpError as exc:
             if "injoignable" in str(exc):
                 raise NstError("NSTBrowser injoignable sur cet ordinateur : l'application est-elle ouverte ?") from exc
@@ -177,8 +179,9 @@ class Nst:
             return payload.get("data")
         return payload
 
-    def profiles(self) -> list[tuple[str, str]]:
-        found: list[tuple[str, str]] = []
+    def profiles(self) -> list[dict[str, str]]:
+        """Les profils : identifiant, nom, et groupe (l'équipe)."""
+        found: list[dict[str, str]] = []
         seen: set[str] = set()
         for page in range(1, 51):
             data = self._call("GET", "/profiles", {"page": page, "pageSize": 100})
@@ -195,10 +198,29 @@ class Nst:
                 pid = str(row.get("profileId") or row.get("id") or "").strip()
                 if pid and pid not in seen:
                     seen.add(pid)
-                    found.append((pid, str(row.get("name") or "").strip()))
+                    group = row.get("group") if isinstance(row.get("group"), dict) else {}
+                    found.append({
+                        "externalId": pid,
+                        "name": str(row.get("name") or "").strip(),
+                        "groupId": str(row.get("groupId") or group.get("groupId") or group.get("id") or "").strip(),
+                        "groupName": str(group.get("name") or row.get("groupName") or "").strip(),
+                    })
             if not rows or not more:
                 break
         return found
+
+    def groups(self) -> dict[str, str]:
+        """Les groupes de NSTBrowser : nom → identifiant."""
+        data = self._call("GET", "/profiles/groups")
+        rows = data if isinstance(data, list) else (data.get("docs") or data.get("groups") or data.get("list") or []) if isinstance(data, dict) else []
+        out: dict[str, str] = {}
+        for row in rows:
+            if isinstance(row, dict) and row.get("name") and (row.get("groupId") or row.get("id")):
+                out[str(row["name"]).strip()] = str(row.get("groupId") or row.get("id"))
+        return out
+
+    def move(self, pid: str, group_id: str) -> None:
+        self._call("PUT", f"/profiles/{pid}/group", body={"groupId": group_id})
 
     def is_open(self, pid: str) -> bool:
         try:
@@ -232,6 +254,8 @@ class Agent:
         self.clients: dict[str, Nst] = {}
         self.synced_at: Optional[float] = None
         self.running_count = 0
+        # Les groupes d'état introuvables, signalés une fois chacun.
+        self.missing_groups: set[str] = set()
 
     def nst(self, key: str) -> Nst:
         key = key or str(self.cfg.get("nstApiKey") or "")
@@ -239,9 +263,11 @@ class Agent:
             self.clients[key] = Nst(str(self.cfg["nstApiAddress"]), key)
         return self.clients[key]
 
-    def sync(self, plan: dict[str, Any]) -> None:
+    def sync(self, plan: dict[str, Any], force: bool = False) -> None:
         every = float(self.cfg.get("syncEverySeconds") or 0)
-        if every <= 0 or (self.synced_at is not None and time.monotonic() - self.synced_at < max(60.0, every)):
+        if every <= 0 and not force:
+            return
+        if not force and self.synced_at is not None and time.monotonic() - self.synced_at < max(60.0, every):
             return
         self.synced_at = time.monotonic()
         try:
@@ -258,10 +284,45 @@ class Agent:
         if created:
             log.info("%d profil(s) NSTBrowser ajouté(s) à la plateforme : %s", len(created), ", ".join(str(p.get("name") or p.get("externalId")) for p in created))
 
+    def regroup(self, targets: list[dict[str, Any]], plan_key: str = "") -> bool:
+        """Ranger dans les groupes NSTBrowser demandés par la plateforme (état
+        du compte, ou retour dans l'équipe). Un groupe d'état se crée une fois
+        à la main dans NSTBrowser : l'API ne sait pas en créer. Vrai si un
+        profil a changé de groupe (la synchronisation suit aussitôt)."""
+        moves = [t for t in targets if isinstance(t.get("moveTo"), dict)]
+        if not moves:
+            return False
+        moved = False
+        by_key: dict[str, dict[str, str]] = {}
+        for t in moves:
+            want = t["moveTo"]
+            name = t.get("name") or t["externalId"]
+            key = str(t.get("nstApiKey") or plan_key or "")
+            group_id = str(want.get("groupId") or "")
+            group_name = str(want.get("groupName") or "")
+            try:
+                if not group_id:
+                    if key not in by_key:
+                        by_key[key] = self.nst(key).groups()
+                    group_id = by_key[key].get(group_name, "")
+                if not group_id:
+                    if group_name not in self.missing_groups:
+                        self.missing_groups.add(group_name)
+                        log.warning("Groupe NSTBrowser « %s » introuvable : créez-le une fois dans NSTBrowser (même nom exactement)", group_name)
+                    continue
+                self.nst(key).move(t["externalId"], group_id)
+                moved = True
+                log.info("%s rangé dans le groupe NSTBrowser « %s » (%s)", name, group_name, want.get("why") or "")
+            except NstError as exc:
+                log.warning("Changement de groupe de %s impossible : %s", name, exc)
+        return moved
+
     def run_once(self) -> float:
         plan = self.api.plan(self.running_count)
         self.sync(plan)
         targets = [t for t in plan.get("profiles") or [] if isinstance(t, dict) and t.get("externalId")]
+        if self.regroup(targets, str(plan.get("nstApiKey") or "")):
+            self.sync(plan, force=True)
         wait = float(plan.get("pollAfterSeconds") or 60)
         if not targets:
             log.info("Aucun profil piloté pour cette clé")

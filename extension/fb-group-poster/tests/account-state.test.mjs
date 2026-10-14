@@ -4,8 +4,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadContentScript } from './helpers.mjs';
 
-async function stateOf(text, href = 'https://www.facebook.com/groups/1') {
-  const document = { body: { innerText: text }, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} };
+async function stateOf(text, href = 'https://www.facebook.com/groups/1', { password = false, buttons = [] } = {}) {
+  const document = {
+    body: { innerText: text },
+    querySelector: (sel) => (password && /password/.test(sel) ? {} : null),
+    querySelectorAll: (sel) => (/button/.test(sel) ? buttons : []),
+    addEventListener() {},
+  };
   const location = { href, pathname: new URL(href).pathname };
   const env = { document, location, window: { addEventListener() {} }, navigator: {} };
   globalThis.FBX = {};
@@ -37,4 +42,27 @@ test('un post qui parle de suspension dans un long fil : rien', async () => {
 
 test('limite de publication : rien (traitée à part)', async () => {
   assert.equal((await stateOf('We limit how often you can post, comment or do other things in a given amount of time')).state, 'ok');
+});
+
+test('page de connexion : déconnecté', async () => {
+  const r = await stateOf('Log in to Facebook', 'https://www.facebook.com/login/?next=https%3A%2F%2Fwww.facebook.com%2Fgroups%2F1');
+  assert.equal(r.state, 'logged_out');
+  assert.equal(r.canResume, false);
+});
+
+test('formulaire de connexion sur la page du groupe : déconnecté', async () => {
+  const feed = 'Recette du jour. '.repeat(400);
+  assert.equal((await stateOf(feed, 'https://www.facebook.com/groups/1', { password: true })).state, 'logged_out');
+});
+
+test('« Continuer en tant que Salma » : reprise possible', async () => {
+  const btn = { innerText: 'Continuer en tant que Salma', getAttribute: () => '' };
+  const r = await stateOf('Connexions récentes', 'https://www.facebook.com/', { password: true, buttons: [btn] });
+  assert.equal(r.state, 'logged_out');
+  assert.equal(r.canResume, true);
+});
+
+test('vérification avec mot de passe : reste checkpoint', async () => {
+  const r = await stateOf('Confirm your identity', 'https://www.facebook.com/checkpoint/1/', { password: true });
+  assert.equal(r.state, 'checkpoint');
 });

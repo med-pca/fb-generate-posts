@@ -189,6 +189,14 @@ model Profile {
   facebookSuspension       String?          @map("facebook_suspension")
   suspendedAt              DateTime?        @map("suspended_at")
   suspensionDetail         String?          @map("suspension_detail") @db.Text
+  /// Son groupe NSTBrowser, remonté par l'agent local : c'est son ÉQUIPE
+  /// (rotation des campagnes) — sauf quand la plateforme l'a rangé dans un
+  /// groupe d'état (Limités, Vérification, Désactivés, Déconnectés) : son
+  /// équipe d'origine est alors gardée dans `teamNstGroupId`, pour l'y remettre.
+  nstGroupId               String?          @map("nst_group_id")
+  nstGroupName             String?          @map("nst_group_name")
+  teamNstGroupId           String?          @map("team_nst_group_id")
+  teamNstGroupName         String?          @map("team_nst_group_name")
   /// Seuils d'alimentation propres au profil. NULL = suivre le réglage global.
   minimumAvailable         Int?             @map("minimum_available")
   minimumAvailablePerGroup Int?             @map("minimum_available_per_group")
@@ -630,6 +638,12 @@ model AutomationSetting {
   /// La réécriture d'un article capturé : `seo` (un article réellement
   /// distinct, même information) ou `faithful` (paraphrase fidèle).
   rewriteStyle               String   @default("seo") @map("rewrite_style")
+  /// Les groupes NSTBrowser où l'agent range un profil selon son état (à créer
+  /// une fois à la main dans NSTBrowser : l'API ne crée pas de groupe).
+  nstGroupLimited            String   @default("PostFlow · Limités") @map("nst_group_limited")
+  nstGroupCheckpoint         String   @default("PostFlow · Vérification") @map("nst_group_checkpoint")
+  nstGroupDisabled           String   @default("PostFlow · Désactivés") @map("nst_group_disabled")
+  nstGroupLoggedOut          String   @default("PostFlow · Déconnectés") @map("nst_group_logged_out")
   createdAt                  DateTime @default(now()) @map("created_at")
   updatedAt                  DateTime @updatedAt @map("updated_at")
 
@@ -1005,33 +1019,39 @@ model AgentHeartbeat {
 /// (avancement, statistiques) et priorise : en retard, ses articles passent
 /// devant dans la file. Elle remplace l'objectif du jour global.
 model Campaign {
-  id          String            @id @default(cuid())
-  name        String
-  ownerId     String?           @map("owner_id")
-  owner       User?             @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  siteId      String            @map("site_id")
-  site        ContentSource     @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  categoryId  String?           @map("category_id")
-  category    Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  id                  String            @id @default(cuid())
+  name                String
+  ownerId             String?           @map("owner_id")
+  owner               User?             @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  siteId              String            @map("site_id")
+  site                ContentSource     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  categoryId          String?           @map("category_id")
+  category            Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   /// ACTIVE, PAUSED ou ENDED.
-  status      String            @default("ACTIVE")
+  status              String            @default("ACTIVE")
   /// `day`, `week` ou `month` : la période de l'objectif.
-  period      String            @default("day")
-  target      Int
-  startsAt    DateTime          @default(now()) @map("starts_at")
-  endsAt      DateTime?         @map("ends_at")
-  timezone    String            @default("Europe/Paris")
+  period              String            @default("day")
+  target              Int
+  startsAt            DateTime          @default(now()) @map("starts_at")
+  endsAt              DateTime?         @map("ends_at")
+  timezone            String            @default("Europe/Paris")
   /// La plage horaire de publication de chaque jour (minutes).
-  windowStart Int               @default(480) @map("window_start")
-  windowEnd   Int               @default(1320) @map("window_end")
+  windowStart         Int               @default(480) @map("window_start")
+  windowEnd           Int               @default(1320) @map("window_end")
   /// Départage deux campagnes en retard.
-  priority    Int               @default(0)
-  notes       String?           @db.Text
-  groups      CampaignGroup[]
-  profiles    CampaignProfile[]
-  articles    CampaignArticle[]
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  priority            Int               @default(0)
+  notes               String?           @db.Text
+  /// Facultatif : au plus N publications par jour et par profil pour cette
+  /// campagne.
+  maxPerProfilePerDay Int?              @map("max_per_profile_per_day")
+  /// Facultatif : la rotation. Les équipes (groupes NSTBrowser), dans l'ordre ;
+  /// une par jour, en boucle, à partir du jour de début de la campagne.
+  rotationTeams       String[]          @default([]) @map("rotation_teams")
+  groups              CampaignGroup[]
+  profiles            CampaignProfile[]
+  articles            CampaignArticle[]
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([siteId])

@@ -2373,3 +2373,10 @@ html[dir="rtl"] .nav span { margin-left: 0; margin-right: 12px; }
 .runner-filters .toolbar-group:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 @media (max-width: 560px) { .runner-filters #runner-search { grid-column: auto; } }
 .pil-quick { grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); }
+
+/* Rotation des équipes (campagne) et groupes NSTBrowser d'état. */
+.rotation-list { margin: 6px 0 10px; padding-inline-start: 0; list-style: none; display: grid; gap: 6px; }
+.rotation-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--line, #e5e7eb); border-radius: 8px; }
+.rotation-list li .row-actions button { min-width: 30px; }
+.nst-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; align-items: end; }
+.nst-groups label { display: flex; flex-direction: column; gap: 4px; }
