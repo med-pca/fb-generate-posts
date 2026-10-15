@@ -5,11 +5,15 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
+import { AdminRoleGuard } from '../auth/admin-role.guard';
+import { PrismaService } from '../prisma/prisma.service';
+import { ImageProviderDto } from './dto/image-provider.dto';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -26,12 +30,27 @@ export class IngestController {
   constructor(
     private readonly ingest: IngestService,
     private readonly images: ImageTranslatorService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get('image-providers')
   @ApiOperation({ summary: 'IA d’image (mode « engagement ») : celles configurées sur le serveur, et les langues' })
-  imageProviders() {
+  async imageProviders() {
+    await this.images.load();
     return { providers: this.images.providers(), languages: { ...LANGUAGES } };
+  }
+
+  @Put('image-providers/:name')
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Régler une IA d’image (clé, modèle, adresse) depuis la plateforme — ADMIN ; la clé n’est jamais renvoyée' })
+  async configureImageProvider(@Param('name') name: string, @Body() dto: ImageProviderDto, @ActingUser() acting: CurrentUser) {
+    const out = await this.images.configure(name, dto, acting?.username ?? null);
+    // Le journal dit qui a changé quoi — jamais la clé.
+    const changed = [dto.clearKey ? 'clé effacée' : dto.apiKey ? `clé ${out?.keyHint}` : '', dto.model !== undefined ? `modèle ${out?.model}` : '', dto.baseUrl !== undefined ? `adresse ${out?.baseUrl}` : ''].filter(Boolean).join(', ');
+    await this.prisma.activityLog
+      .create({ data: { eventType: 'IMAGE_PROVIDER_CONFIGURED', message: `IA d’image « ${out?.label} » réglée${changed ? ` : ${changed}` : ''}`, metadata: { provider: name, by: acting?.username ?? null } } })
+      .catch(() => undefined);
+    return out;
   }
 
   @Post()

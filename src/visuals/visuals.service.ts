@@ -25,6 +25,9 @@ export type BuildOptions = {
   /** Groupes choisis ; sinon ceux de la langue (et de la catégorie). */
   groupIds?: string[];
   createPosts: boolean;
+  /** En attente de validation : rien ne part avant « Valider » (les groupes
+   * sont gardés pour ce moment-là). */
+  review?: boolean;
   origin: 'capture' | 'upload';
   ingestId?: string | null;
   ownerId?: string | null;
@@ -68,8 +71,10 @@ export class VisualsService {
     if (Buffer.byteLength(opts.image.data, 'base64') > MAX_BYTES) throw new BadRequestException('Image trop lourde (10 Mo au plus)');
     if (opts.translate && !opts.language) throw new BadRequestException('Choisissez la langue de traduction');
     // Les groupes d'abord : rien ne se paie si personne ne recevra le visuel.
-    const groups = opts.createPosts ? await this.audience(opts, acting) : [];
-    if (opts.createPosts && !groups.length) {
+    const wantsGroups = opts.createPosts || Boolean(opts.review);
+    const audience = wantsGroups ? await this.audience(opts, acting) : [];
+    const groups = opts.review ? [] : audience;
+    if (wantsGroups && !audience.length) {
       throw new BadRequestException(
         `Aucun groupe actif${opts.language ? ` en ${languageName(opts.language)}` : ''}${opts.categoryId ? ' dans cette catégorie' : ''} : réglez la langue des groupes (Pilotage → Règles & priorités) ou choisissez des groupes`,
       );
@@ -121,6 +126,8 @@ export class VisualsService {
         origin: opts.origin,
         ingestId: opts.ingestId ?? null,
         ownerId: opts.ownerId ?? acting?.id ?? null,
+        approvedAt: opts.review ? null : new Date(),
+        targetGroupIds: opts.review ? (opts.groupIds ?? []) : [],
         details: { texts: read.texts, scene: read.scene, imageProvider: provider || null, translated: Boolean(provider), captionBy } as Prisma.InputJsonValue,
       },
     });
@@ -131,11 +138,11 @@ export class VisualsService {
         message:
           `Visuel « ${title} »${opts.language ? ` (${languageName(opts.language)})` : ''} : ` +
           `${provider ? `image traduite par ${provider}` : 'image d’origine'}, description ${captionBy}` +
-          (post ? `, post pour ${groups.length} groupe(s)` : ', sans post'),
+          (post ? `, post pour ${groups.length} groupe(s)` : opts.review ? `, à valider (${audience.length} groupe(s) visé(s))` : ', sans post'),
         metadata: { visualId: visual.id, postId: post?.id ?? null, origin: opts.origin, by: acting?.username ?? null },
       },
     });
-    return { visual, postId: post?.id ?? null, groups: groups.length };
+    return { visual, postId: post?.id ?? null, groups: groups.length, review: Boolean(opts.review) };
   }
 
   /** Le post d'un visuel : image et description, sans lien ni commentaire. */
@@ -161,20 +168,40 @@ export class VisualsService {
    * qui ne l'ont pas déjà. */
   async createPosts(id: string, opts: { groupIds?: string[] }, acting: CurrentUser | null) {
     const visual = await this.reachable(id, acting);
-    const groups = await this.audience({ groupIds: opts.groupIds, language: visual.language, categoryId: visual.categoryId }, acting);
+    // Sans choix : les groupes retenus à la capture, sinon sa langue et sa catégorie.
+    const groupIds = opts.groupIds?.length ? opts.groupIds : visual.targetGroupIds?.length ? visual.targetGroupIds : undefined;
+    const groups = await this.audience({ groupIds, language: visual.language, categoryId: visual.categoryId }, acting);
     const already = new Set(
       (await this.prisma.postTarget.findMany({ where: { post: { visualId: id } }, select: { groupId: true } })).map((t) => t.groupId),
     );
     const fresh = groups.map((g) => g.id).filter((g) => !already.has(g));
     if (!fresh.length) throw new BadRequestException('Tous les groupes visés ont déjà ce visuel');
     const post = await this.postFor(visual, fresh);
+    // Créer ses posts, c'est le valider.
+    if (!visual.approvedAt) await this.prisma.visual.update({ where: { id }, data: { approvedAt: new Date() } });
     return { postId: post.id, groups: fresh.length };
   }
 
-  async list(q: { page?: number; limit?: number; language?: string; search?: string }, acting: CurrentUser | null) {
+  /** Valider une capture en attente : ses posts partent dans la file. */
+  async approve(id: string, acting: CurrentUser | null) {
+    const visual = await this.reachable(id, acting);
+    if (visual.approvedAt) throw new BadRequestException('Ce visuel est déjà validé');
+    const r = await this.createPosts(id, {}, acting);
+    await this.prisma.activityLog.create({
+      data: { eventType: 'VISUAL_APPROVED', message: `Visuel « ${visual.title} » validé : post pour ${r.groups} groupe(s)`, metadata: { visualId: id, postId: r.postId, by: acting?.username ?? null } },
+    });
+    return r;
+  }
+
+  async list(q: { page?: number; limit?: number; language?: string; search?: string; review?: string }, acting: CurrentUser | null) {
     const page = Math.max(1, Number(q.page) || 1);
     const limit = Math.min(60, Math.max(1, Number(q.limit) || 24));
-    const where = this.where(acting, q);
+    const where: Prisma.VisualWhereInput = {
+      ...this.where(acting, q),
+      ...(q.review === 'pending' ? { approvedAt: null } : q.review === 'approved' ? { approvedAt: { not: null } } : {}),
+    };
+    // Les captures à valider, par langue : le compteur de l'onglet.
+    const pending = await this.prisma.visual.groupBy({ by: ['language'], where: { ...this.where(acting), approvedAt: null }, _count: { _all: true } });
     const [rows, total] = await Promise.all([
       this.prisma.visual.findMany({
         where,
@@ -197,6 +224,10 @@ export class VisualsService {
         };
       }),
       meta: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
+      pending: {
+        total: pending.reduce((n, r) => n + r._count._all, 0),
+        byLanguage: Object.fromEntries(pending.map((r) => [r.language ?? '', r._count._all])),
+      },
     };
   }
 

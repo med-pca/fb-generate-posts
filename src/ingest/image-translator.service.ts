@@ -1,5 +1,6 @@
-import { BadGatewayException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 import OpenAI, { toFile } from 'openai';
 
 export type ImageData = { data: string; mimeType: string };
@@ -7,6 +8,15 @@ export const IMAGE_PROVIDER_NAMES = ['openai', 'qwen', 'seedream'] as const;
 export type ImageProviderName = (typeof IMAGE_PROVIDER_NAMES)[number];
 
 const TIMEOUT_MS = 180_000;
+
+/** Par fournisseur : les variables d'environnement et les valeurs par défaut. */
+const PROVIDERS = {
+  openai: { label: 'OpenAI GPT Image', key: 'OPENAI_API_KEY', model: ['OPENAI_IMAGE_MODEL', 'gpt-image-1-mini'], base: null },
+  qwen: { label: 'Alibaba Qwen Image', key: 'DASHSCOPE_API_KEY', model: ['QWEN_IMAGE_MODEL', 'qwen-image-edit'], base: ['DASHSCOPE_BASE_URL', 'https://dashscope-intl.aliyuncs.com'] },
+  seedream: { label: 'ByteDance Seedream', key: 'ARK_API_KEY', model: ['SEEDREAM_MODEL', 'seedream-4-0-250828'], base: ['ARK_BASE_URL', 'https://ark.ap-southeast.bytepluses.com'] },
+} as const;
+
+type Override = { apiKey: string | null; model: string | null; baseUrl: string | null; updatedAt: Date; updatedBy: string | null };
 
 /** Les noms des langues, pour la consigne. */
 export { LANGUAGES, languageName } from '../languages/languages.registry';
@@ -26,8 +36,9 @@ export function editPrompt(language: string, texts: string[] = []) {
 }
 
 /** Traduire le texte d'une image : même image, texte remplacé. Trois
- * fournisseurs au choix, réglés dans la plateforme (Paramètres → IA d'image) ;
- * leurs clés et modèles restent dans l'environnement du serveur :
+ * fournisseurs au choix, réglés dans la plateforme (Pilotage → Règles → IA
+ * d'image) : clé, modèle et adresse saisis là passent avant l'environnement
+ * du serveur, qui reste le repli :
  *
  *   openai   : OPENAI_API_KEY, OPENAI_IMAGE_MODEL (défaut gpt-image-1-mini)
  *   qwen     : DASHSCOPE_API_KEY, QWEN_IMAGE_MODEL (défaut qwen-image-edit),
@@ -41,19 +52,79 @@ export function editPrompt(language: string, texts: string[] = []) {
 export class ImageTranslatorService {
   private readonly logger = new Logger(ImageTranslatorService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly prisma?: PrismaService,
+  ) {}
 
   private setting(name: string, fallback = '') {
     return this.config.get<string>(name) || fallback;
   }
 
-  /** Ce qui est configuré — jamais les clés. */
+  /** Les réglages saisis dans la plateforme, relus toutes les 30 s. */
+  private overrides = new Map<string, Override>();
+  private loadedAt = 0;
+  async load(force = false) {
+    if (!this.prisma || (!force && Date.now() - this.loadedAt < 30_000)) return;
+    const rows = await Promise.resolve(this.prisma.aiProviderSetting?.findMany()).catch(() => null);
+    if (!rows) return;
+    this.overrides = new Map(rows.map((r) => [r.provider, r]));
+    this.loadedAt = Date.now();
+  }
+
+  /** La clé, le modèle et l'adresse en vigueur : plateforme, sinon serveur. */
+  private resolved(name: ImageProviderName) {
+    const def = PROVIDERS[name];
+    const o = this.overrides.get(name);
+    const envKey = this.setting(def.key);
+    return {
+      apiKey: o?.apiKey || envKey,
+      keySource: o?.apiKey ? ('plateforme' as const) : envKey ? ('serveur' as const) : null,
+      model: o?.model || this.setting(def.model[0], def.model[1]),
+      baseUrl: (o?.baseUrl || (def.base ? this.setting(def.base[0], def.base[1]) : '')).replace(/\/+$/, ''),
+    };
+  }
+
+  /** Ce qui est configuré — jamais les clés (seulement leur fin). */
   providers() {
-    return [
-      { name: 'openai' as const, label: 'OpenAI GPT Image', model: this.setting('OPENAI_IMAGE_MODEL', 'gpt-image-1-mini'), configured: Boolean(this.setting('OPENAI_API_KEY')) },
-      { name: 'qwen' as const, label: 'Alibaba Qwen Image', model: this.setting('QWEN_IMAGE_MODEL', 'qwen-image-edit'), configured: Boolean(this.setting('DASHSCOPE_API_KEY')) },
-      { name: 'seedream' as const, label: 'ByteDance Seedream', model: this.setting('SEEDREAM_MODEL', 'seedream-4-0-250828'), configured: Boolean(this.setting('ARK_API_KEY')) },
-    ];
+    return IMAGE_PROVIDER_NAMES.map((name) => {
+      const r = this.resolved(name);
+      const o = this.overrides.get(name);
+      return {
+        name,
+        label: PROVIDERS[name].label,
+        model: r.model,
+        configured: Boolean(r.apiKey),
+        keySource: r.keySource,
+        keyHint: r.apiKey ? `…${r.apiKey.slice(-4)}` : null,
+        baseUrl: r.baseUrl || null,
+        defaultModel: PROVIDERS[name].model[1],
+        defaultBaseUrl: PROVIDERS[name].base?.[1] ?? null,
+        updatedAt: o?.updatedAt ?? null,
+        updatedBy: o?.updatedBy ?? null,
+      };
+    });
+  }
+
+  /** Régler un fournisseur depuis la plateforme (ADMIN). `apiKey` absent =
+   * garder la clé, `clearKey` = l'effacer (retour à celle du serveur).
+   * Modèle ou adresse vides = valeurs par défaut. */
+  async configure(name: string, input: { apiKey?: string; clearKey?: boolean; model?: string | null; baseUrl?: string | null }, by: string | null) {
+    if (!this.prisma) throw new ServiceUnavailableException('Base indisponible');
+    if (!(IMAGE_PROVIDER_NAMES as readonly string[]).includes(name)) throw new BadRequestException(`IA d’image inconnue : ${name}`);
+    const baseUrl = input.baseUrl?.trim() || null;
+    if (baseUrl && !/^https:\/\/[\w.-]+(:\d+)?(\/.*)?$/i.test(baseUrl)) throw new BadRequestException('Adresse invalide : https://… attendu');
+    const apiKey = input.apiKey?.trim();
+    if (apiKey !== undefined && apiKey !== '' && (apiKey.length < 10 || /\s/.test(apiKey))) throw new BadRequestException('Clé invalide');
+    const data = {
+      ...(input.clearKey ? { apiKey: null } : apiKey ? { apiKey } : {}),
+      ...(input.model !== undefined ? { model: input.model?.trim() || null } : {}),
+      ...(input.baseUrl !== undefined ? { baseUrl } : {}),
+      updatedBy: by,
+    };
+    await this.prisma.aiProviderSetting.upsert({ where: { provider: name }, create: { provider: name, ...data }, update: data });
+    await this.load(true);
+    return this.providers().find((p) => p.name === name);
   }
 
   /** L'ordre d'essai : le choix de la plateforme d'abord, puis les autres. */
@@ -69,9 +140,10 @@ export class ImageTranslatorService {
   }
 
   async translate(image: ImageData, language: string, texts: string[] = [], preferred = 'auto'): Promise<ImageData & { provider: string }> {
+    await this.load();
     const order = this.order(preferred);
     if (!order.length) {
-      throw new ServiceUnavailableException('Aucune IA d’image configurée : renseigner OPENAI_API_KEY, DASHSCOPE_API_KEY (Qwen) ou ARK_API_KEY (Seedream)');
+      throw new ServiceUnavailableException('Aucune IA d’image configurée : saisir une clé dans Pilotage → Règles & priorités → IA d’image (ou OPENAI_API_KEY, DASHSCOPE_API_KEY, ARK_API_KEY sur le serveur)');
     }
     const prompt = editPrompt(language, texts);
     const failures: string[] = [];
@@ -91,7 +163,7 @@ export class ImageTranslatorService {
   }
 
   private async openai(image: ImageData, prompt: string, model: string): Promise<ImageData> {
-    const client = new OpenAI({ apiKey: this.setting('OPENAI_API_KEY'), maxRetries: 0, timeout: TIMEOUT_MS });
+    const client = new OpenAI({ apiKey: this.resolved('openai').apiKey, maxRetries: 0, timeout: TIMEOUT_MS });
     const ext = image.mimeType.split('/')[1] || 'png';
     const result = await client.images.edit({
       model,
@@ -107,11 +179,11 @@ export class ImageTranslatorService {
   }
 
   private async qwen(image: ImageData, prompt: string, model: string): Promise<ImageData> {
-    const base = this.setting('DASHSCOPE_BASE_URL', 'https://dashscope-intl.aliyuncs.com').replace(/\/+$/, '');
+    const { baseUrl: base, apiKey } = this.resolved('qwen');
     const response = await fetch(`${base}/api/v1/services/aigc/multimodal-generation/generation`, {
       method: 'POST',
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.setting('DASHSCOPE_API_KEY')}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model,
         input: { messages: [{ role: 'user', content: [{ image: `data:${image.mimeType};base64,${image.data}` }, { text: prompt }] }] },
@@ -126,11 +198,11 @@ export class ImageTranslatorService {
   }
 
   private async seedream(image: ImageData, prompt: string, model: string): Promise<ImageData> {
-    const base = this.setting('ARK_BASE_URL', 'https://ark.ap-southeast.bytepluses.com').replace(/\/+$/, '');
+    const { baseUrl: base, apiKey } = this.resolved('seedream');
     const response = await fetch(`${base}/api/v3/images/generations`, {
       method: 'POST',
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.setting('ARK_API_KEY')}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model,
         prompt,

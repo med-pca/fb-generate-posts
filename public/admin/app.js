@@ -125,7 +125,7 @@ function showArticlesTab(tab, { fromUrl = false } = {}) {
 }
 $$('[data-articles-tab]').forEach((b) => (b.onclick = () => showArticlesTab(b.dataset.articlesTab)));
 
-const visualsState = { page: 1, language: '', search: '', timer: null, data: null };
+const visualsState = { page: 1, language: '', search: '', review: '', timer: null, data: null };
 function fillLanguageSelect(select, current = '', empty = 'Toutes les langues') {
   select.innerHTML = `<option value="">${empty}</option>` + Object.entries(LANG_NAMES).map(([c, n]) => `<option value="${c}" ${c === current ? 'selected' : ''}>${n}</option>`).join('');
 }
@@ -133,6 +133,7 @@ async function loadVisuals() {
   const q = new URLSearchParams({ page: visualsState.page, limit: 24 });
   if (visualsState.language) q.set('language', visualsState.language);
   if (visualsState.search) q.set('search', visualsState.search);
+  if (visualsState.review) q.set('review', visualsState.review);
   try {
     visualsState.data = await api(`/visuals?${q}`);
     renderVisuals();
@@ -143,11 +144,25 @@ async function loadVisuals() {
 function renderVisuals() {
   const d = visualsState.data;
   if (!d) return;
-  if (!$('#visual-language').options.length || $('#visual-language').options.length < 2) fillLanguageSelect($('#visual-language'), visualsState.language);
+  // Les langues, avec le nombre de captures à valider dans chacune.
+  const pending = d.pending || { total: 0, byLanguage: {} };
+  fillLanguageSelect($('#visual-language'), visualsState.language);
+  for (const o of $('#visual-language').options) {
+    const n = o.value ? pending.byLanguage[o.value] : 0;
+    if (n) o.textContent += ` — ${n} à valider`;
+  }
+  $('#visual-review').value = visualsState.review;
+  $('#visual-review').options[1].textContent = `⏳ À valider${pending.total ? ` (${pending.total})` : ''}`;
+  const badge = $('#visual-pending-badge');
+  if (badge) {
+    badge.hidden = !pending.total;
+    badge.textContent = pending.total ? `${pending.total} à valider` : '';
+  }
   $('#visual-cards').innerHTML =
     d.data
       .map(
         (v) =>
+          (!v.approvedAt ? visualPendingCard(v) : '') ||
           `<article class="visual-card ${v.status === 'INACTIVE' ? 'inactive' : ''}">` +
           `<img src="${esc(v.imageUrl)}" alt="" loading="lazy">` +
           `<div class="visual-body"><div class="post-meta"><span>${v.language ? esc(LANG_NAMES[v.language] || v.language) : 'sans langue'}${v.category ? ` · ${esc(v.category.name)}` : ''}</span>` +
@@ -166,6 +181,29 @@ function renderVisuals() {
       ? `<button class="secondary" data-visual-page="${d.meta.page - 1}" ${d.meta.page <= 1 ? 'disabled' : ''}>‹</button><span>${d.meta.page} / ${d.meta.pages}</span><button class="secondary" data-visual-page="${d.meta.page + 1}" ${d.meta.page >= d.meta.pages ? 'disabled' : ''}>›</button>`
       : '';
 }
+/** Une capture en attente : l'image (déjà traduite), sa description
+ * modifiable, et Valider / Rejeter. */
+function visualPendingCard(v) {
+  return (
+    `<article class="visual-card pending" data-visual="${v.id}">` +
+    `<img src="${esc(v.imageUrl)}" alt="" loading="lazy">` +
+    `<div class="visual-body"><div class="post-meta"><span>${v.language ? esc(LANG_NAMES[v.language] || v.language) : 'sans langue'}${v.category ? ` · ${esc(v.category.name)}` : ''}</span>` +
+    `<span class="chip join-requested">⏳ À valider</span></div>` +
+    `<input class="visual-title-edit" data-visual-title value="${esc(v.title)}" maxlength="200" aria-label="Titre interne">` +
+    `<textarea class="visual-caption-edit" data-visual-caption rows="4" maxlength="3000" aria-label="Description">${esc(v.caption)}</textarea>` +
+    (v.hashtags?.length ? `<small class="muted">${esc(v.hashtags.map((h) => `#${h}`).join(' '))}</small>` : '') +
+    (v.details?.translated ? `<small class="muted">Texte traduit dans l’image (${esc(v.details.imageProvider || '')})</small>` : v.details?.texts?.length ? '' : '<small class="muted">Pas de texte dans l’image : image d’origine.</small>') +
+    `<small class="muted">${v.targetGroupIds?.length ? `${v.targetGroupIds.length} groupe(s) choisi(s) à la capture` : 'Pour les groupes de sa langue (et de sa catégorie)'}</small>` +
+    `<div class="card-actions"><button class="primary compact" data-visual-approve="${v.id}">✓ Valider et publier</button>` +
+    `<button class="edit" data-visual-save="${v.id}">Enregistrer le texte</button>` +
+    `<button class="danger" data-visual-reject="${v.id}" data-title="${esc(v.title)}">✕ Rejeter</button></div></div></article>`
+  );
+}
+$('#visual-review').onchange = (e) => {
+  visualsState.review = e.target.value;
+  visualsState.page = 1;
+  loadVisuals();
+};
 $('#visual-language').onchange = (e) => {
   visualsState.language = e.target.value;
   visualsState.page = 1;
@@ -188,8 +226,27 @@ $('#visuals-pagination').addEventListener('click', (e) => {
 $('#visual-cards').addEventListener('click', async (e) => {
   const b = e.target.closest('button');
   if (!b) return;
+  const card = b.closest('[data-visual]');
+  const edited = () => (card ? { title: card.querySelector('[data-visual-title]').value.trim(), caption: card.querySelector('[data-visual-caption]').value.trim() } : null);
   try {
-    if (b.dataset.visualPosts) {
+    if (b.dataset.visualApprove) {
+      const text = edited();
+      if (!text.caption) return notice('La description est vide.', 'error');
+      b.disabled = true;
+      await api(`/visuals/${b.dataset.visualApprove}`, { method: 'PATCH', body: JSON.stringify(text) });
+      const r = await api(`/visuals/${b.dataset.visualApprove}/approve`, { method: 'POST' });
+      notice(`Validé : post créé pour ${r.groups} groupe(s).`);
+    } else if (b.dataset.visualSave) {
+      const text = edited();
+      if (!text.caption) return notice('La description est vide.', 'error');
+      await api(`/visuals/${b.dataset.visualSave}`, { method: 'PATCH', body: JSON.stringify(text) });
+      notice('Texte enregistré.');
+      return;
+    } else if (b.dataset.visualReject) {
+      if (!(await ask(`Rejeter la capture « ${b.dataset.title} » ?\nElle est supprimée ; rien n’a été publié.`, { tone: 'danger', confirmLabel: 'Rejeter' }))) return;
+      await api(`/visuals/${b.dataset.visualReject}`, { method: 'DELETE' });
+      notice('Capture rejetée.');
+    } else if (b.dataset.visualPosts) {
       b.disabled = true;
       const r = await api(`/visuals/${b.dataset.visualPosts}/posts`, { method: 'POST', body: JSON.stringify({}) });
       notice(`Post créé pour ${r.groups} groupe(s).`);
@@ -1371,11 +1428,14 @@ function renderRules() {
         '<option value="auto">Automatique (le premier configuré)</option>' +
         imgs.providers.map((p) => `<option value="${p.name}" ${p.configured ? '' : 'disabled'}>${esc(p.label)} — ${esc(p.model)}${p.configured ? '' : ' (clé absente)'}</option>`).join('');
       select.value = r.settings.imageProvider || 'auto';
+      $('#rules-image').elements.engagementReview.checked = state.settings?.engagementReview !== false;
     }
     const ok = imgs.providers.filter((p) => p.configured);
+    const source = (p) => (p.keySource === 'plateforme' ? `clé ${esc(p.keyHint)} saisie dans la plateforme` : `clé ${esc(p.keyHint)} du serveur`);
     $('#rules-image-status').innerHTML = ok.length
-      ? `Configuré(s) : ${ok.map((p) => `<b>${esc(p.label)}</b> (${esc(p.model)})`).join(', ')}.`
-      : '<span class="bad">Aucune IA d’image configurée : renseigner OPENAI_API_KEY, DASHSCOPE_API_KEY (Qwen) ou ARK_API_KEY (Seedream) sur le serveur.</span>';
+      ? `Configuré(s) : ${ok.map((p) => `<b>${esc(p.label)}</b> (${esc(p.model)} · ${source(p)})`).join(', ')}.`
+      : '<span class="bad">Aucune IA d’image configurée : saisissez une clé ci-dessous.</span>';
+    renderImageKeyForm();
   }
   const langOptions = (code) =>
     '<option value="">—</option>' +
@@ -1456,11 +1516,51 @@ $('#pil-rules').addEventListener('click', async (e) => {
     b.disabled = false;
   }
 });
+/* Régler une IA d'image : clé (jamais réaffichée), modèle, région. */
+function renderImageKeyForm(keep = true) {
+  const f = $('#rules-image-key');
+  const imgs = state.imageProviders;
+  if (!f || !imgs) return;
+  if (keep && f.contains(document.activeElement)) return;
+  const sel = f.elements.provider;
+  const current = sel.value || 'qwen';
+  sel.innerHTML = imgs.providers.map((p) => `<option value="${p.name}">${esc(p.label)}</option>`).join('');
+  sel.value = imgs.providers.some((p) => p.name === current) ? current : imgs.providers[0]?.name;
+  const p = imgs.providers.find((x) => x.name === sel.value);
+  if (!p) return;
+  f.elements.apiKey.value = '';
+  f.elements.apiKey.placeholder = p.configured ? `enregistrée (${p.keyHint}) — coller pour la remplacer` : 'coller la clé';
+  f.elements.model.value = p.model === p.defaultModel ? '' : p.model;
+  f.elements.model.placeholder = `par défaut : ${p.defaultModel}`;
+  f.elements.baseUrl.value = p.baseUrl && p.baseUrl !== p.defaultBaseUrl ? p.baseUrl : '';
+  f.elements.baseUrl.placeholder = p.defaultBaseUrl ? `par défaut : ${p.defaultBaseUrl}` : 'sans objet';
+  f.elements.baseUrl.disabled = !p.defaultBaseUrl || state.me?.role !== 'ADMIN';
+  f.elements.clearKey.checked = false;
+  f.elements.clearKey.closest('label').hidden = p.keySource !== 'plateforme';
+}
+$('#rules-image-key').elements.provider.onchange = () => renderImageKeyForm(false);
+$('#rules-image-key').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  const body = { model: f.model.value.trim() || null };
+  if (!f.baseUrl.disabled) body.baseUrl = f.baseUrl.value.trim() || null;
+  if (f.apiKey.value.trim()) body.apiKey = f.apiKey.value.trim();
+  if (f.clearKey.checked) body.clearKey = true;
+  try {
+    const p = await api(`/admin/ingest/image-providers/${encodeURIComponent(f.provider.value)}`, { method: 'PUT', body: JSON.stringify(body) });
+    f.apiKey.value = '';
+    notice(`${p.label} : ${p.configured ? `prêt (${p.model}, clé ${p.keyHint})` : 'pas de clé'}.`);
+    document.activeElement?.blur?.();
+    await loadRules();
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
 $('#rules-image').onsubmit = async (e) => {
   e.preventDefault();
   try {
-    await api('/settings', { method: 'PATCH', body: JSON.stringify({ imageProvider: e.target.elements.imageProvider.value }) });
-    notice('IA d’image enregistrée.');
+    state.settings = await api('/settings', { method: 'PATCH', body: JSON.stringify({ imageProvider: e.target.elements.imageProvider.value, engagementReview: e.target.elements.engagementReview.checked }) });
+    notice(state.settings.engagementReview ? 'Enregistré : chaque capture attend votre validation.' : 'Enregistré : les captures partent directement dans les groupes.');
     document.activeElement?.blur?.();
     await loadRules();
   } catch (x) {
@@ -2626,7 +2726,7 @@ $('#assign-form').onsubmit = async (e) => {
 };
 /** Les réglages communs à tous les comptes : un gestionnaire les voit, sans
  * pouvoir les changer (le serveur refuse de toute façon). */
-const GLOBAL_SETTINGS = ['#objective-form', '#pacing-form', '#rewrite-style-form', '#rules-mode', '#rules-pause', '#rules-nst-groups', '#rules-image', '#sites-paging', '#repeat-form', '#publishing-enabled'];
+const GLOBAL_SETTINGS = ['#objective-form', '#pacing-form', '#rewrite-style-form', '#rules-mode', '#rules-pause', '#rules-nst-groups', '#rules-image', '#rules-image-key', '#sites-paging', '#repeat-form', '#publishing-enabled'];
 function lockGlobalSettings(admin) {
   for (const sel of GLOBAL_SETTINGS) {
     const el = $(sel);

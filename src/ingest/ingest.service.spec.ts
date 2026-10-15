@@ -207,7 +207,9 @@ describe('Mode « engagement » : la capture devient un visuel (rubrique Article
       language: 'fr',
       translate: true,
       categoryId: 'c-recettes',
-      createPosts: true,
+      // Par défaut, la capture attend une validation : aucun post tout de suite.
+      createPosts: false,
+      review: true,
       origin: 'capture',
       ingestId: 'ing_1',
     }));

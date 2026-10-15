@@ -78,7 +78,7 @@ function refresh() {
   els.newsHint.classList.toggle('hidden', !news);
   els.engagementBlock.classList.toggle('hidden', !engagement);
   if (engagement) fillLanguages(site);
-  els.send.textContent = news ? '📰 Créer notre article' : engagement ? '💬 Publier en engagement' : 'Envoyer';
+  els.send.textContent = news ? '📰 Créer notre article' : engagement ? '💬 Préparer en engagement' : 'Envoyer';
   // Le mode « engagement » n'a pas besoin d'un site prêt à recevoir un
   // article : le site ne sert qu'à choisir la catégorie des groupes.
   els.send.disabled = !(
@@ -390,11 +390,12 @@ async function send() {
   chrome.action.setBadgeText({ text: '' });
   const { ingestId } = JSON.parse(text);
   const own = !news && !engagement && sameSite(body.sourceUrl, body.siteUrl);
-  say(engagement ? 'Envoyé. Le post « engagement » est en préparation côté serveur.' : news ? 'Envoyé. Notre article est en cours d’écriture côté serveur.' : own ? 'Envoyé. La description sera reprise par les posts de cet article.' : 'Envoyé. La réécriture et la publication suivent côté serveur.', 'ok');
+  say(engagement ? 'Envoyé. Le visuel « engagement » est en préparation côté serveur.' : news ? 'Envoyé. Notre article est en cours d’écriture côté serveur.' : own ? 'Envoyé. La description sera reprise par les posts de cet article.' : 'Envoyé. La réécriture et la publication suivent côté serveur.', 'ok');
   els.done.classList.remove('hidden');
   els.done.innerHTML = engagement
-    ? 'Reprise <code></code><br>💬 En préparation : texte de l’image traduit, description écrite, puis un post ' +
-      'sans lien ni commentaire pour les groupes de cette langue. Il apparaîtra dans la file de publication.'
+    ? 'Reprise <code></code><br>💬 En préparation : texte de l’image traduit (même image), description écrite. ' +
+      'Il arrive dans la plateforme : <b>Articles → Visuels → « À valider »</b> (classé par langue). ' +
+      'Une fois validé, il part sans lien ni commentaire dans les groupes de cette langue.'
     : news
     ? 'Reprise <code></code><br>📰 Notre article est en préparation : actualité du moment, 3 titres, ' +
       'amorce et article de 300 à 400 mots, puis dépôt sur le site choisi. Les posts suivront à son retour ' +

@@ -638,6 +638,8 @@ model AutomationSetting {
   /// La réécriture d'un article capturé : `seo` (un article réellement
   /// distinct, même information) ou `faithful` (paraphrase fidèle).
   rewriteStyle               String   @default("seo") @map("rewrite_style")
+  /// Les captures « 💬 Engagement » attendent une validation avant publication.
+  engagementReview           Boolean  @default(true) @map("engagement_review")
   /// Les groupes NSTBrowser où l'agent range un profil selon son état (à créer
   /// une fois à la main dans NSTBrowser : l'API ne crée pas de groupe).
   nstGroupLimited            String   @default("PostFlow · Limités") @map("nst_group_limited")
@@ -966,27 +968,33 @@ model GeneratedImage {
 /// Facebook (mode « engagement ») ou importée. Pas d'article, pas de lien :
 /// ses posts partent avec l'image et la description, sans commentaire.
 model Visual {
-  id         String       @id @default(cuid())
-  title      String
+  id             String       @id @default(cuid())
+  title          String
   /// L'image publiée (servie par la plateforme : /media/g/<jeton>).
-  imageUrl   String       @map("image_url")
-  caption    String       @db.Text
-  hashtags   String[]
+  imageUrl       String       @map("image_url")
+  caption        String       @db.Text
+  hashtags       String[]
   /// La langue du texte et des groupes visés (en, fr, ar…).
-  language   String?
-  categoryId String?      @map("category_id")
-  category   Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  language       String?
+  categoryId     String?      @map("category_id")
+  category       Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   /// `capture` (extension Capture) ou `upload` (importé dans la plateforme).
-  origin     String       @default("upload")
-  ingestId   String?      @map("ingest_id")
+  origin         String       @default("upload")
+  ingestId       String?      @map("ingest_id")
   /// Le texte trouvé dans l'image et sa traduction, l'IA utilisée.
-  details    Json?
-  ownerId    String?      @map("owner_id")
-  owner      User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  status     RecordStatus @default(ACTIVE)
-  posts      Post[]
-  createdAt  DateTime     @default(now()) @map("created_at")
-  updatedAt  DateTime     @updatedAt @map("updated_at")
+  details        Json?
+  ownerId        String?      @map("owner_id")
+  owner          User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  status         RecordStatus @default(ACTIVE)
+  /// Validé (posts créés) à cette date ; `null` = capture en attente de
+  /// validation (Articles → Visuels → « À valider »).
+  approvedAt     DateTime?    @map("approved_at")
+  /// Les groupes choisis à la capture, pour les posts créés à la validation
+  /// (vide = ceux de sa langue et de sa catégorie).
+  targetGroupIds String[]     @default([]) @map("target_group_ids")
+  posts          Post[]
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
   @@index([createdAt])
   @@index([ownerId])
@@ -1086,4 +1094,19 @@ model CampaignArticle {
 
   @@id([campaignId, articleId])
   @@map("campaign_articles")
+}
+
+/// Les IA d'image réglées depuis la plateforme (Pilotage → Règles) : elles
+/// passent avant l'environnement du serveur. La clé n'est jamais renvoyée au
+/// navigateur (seulement ses 4 derniers caractères).
+model AiProviderSetting {
+  /// openai, qwen ou seedream.
+  provider  String   @id
+  apiKey    String?  @map("api_key")
+  model     String?
+  baseUrl   String?  @map("base_url")
+  updatedBy String?  @map("updated_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_provider_settings")
 }

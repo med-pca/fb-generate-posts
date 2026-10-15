@@ -60,3 +60,35 @@ describe('Visuels : une image seule, publiée sans lien ni commentaire', () => {
     await expect(t.service.create({ image: { data: 'eA==', mimeType: 'application/pdf' }, translate: false, createPosts: false, origin: 'upload' })).rejects.toThrow(/Type d’image non accepté/);
   });
 });
+
+describe('Visuels : validation manuelle des captures', () => {
+  it('capture « à valider » : image traduite et description prêtes, mais AUCUN post ; groupes de la capture gardés', async () => {
+    const t = setup({ hasText: true, texts: [{ original: 'Hi', translated: 'Salut' }], scene: 'x' });
+    const r = await t.service.create({ image: IMG, language: 'fr', translate: true, createPosts: false, review: true, origin: 'capture', groupIds: ['g-fr-1'] });
+    expect(t.images.translate).toHaveBeenCalled();
+    expect(t.prisma.post.create).not.toHaveBeenCalled();
+    const data = t.prisma.visual.create.mock.calls[0][0].data;
+    expect(data.approvedAt).toBeNull();
+    expect(data.targetGroupIds).toEqual(['g-fr-1']);
+    expect(r).toMatchObject({ postId: null, groups: 0, review: true });
+  });
+
+  it('à valider sans groupe de cette langue : arrêt avant toute dépense d’IA', async () => {
+    const t = setup({ hasText: true, texts: [], scene: '' }, []);
+    await expect(t.service.create({ image: IMG, language: 'ar', translate: true, createPosts: false, review: true, origin: 'capture' })).rejects.toThrow(/Aucun groupe actif/);
+    expect(t.rewriter.readImageText).not.toHaveBeenCalled();
+  });
+
+  it('valider : le post part vers les groupes choisis à la capture, et le visuel est marqué validé', async () => {
+    const t = setup({ hasText: false, texts: [], scene: '' });
+    const visual = { id: 'v1', title: 'T', caption: 'C', hashtags: [], imageUrl: 'https://post.test/media/g/x.png', ownerId: null, language: 'fr', categoryId: null, approvedAt: null, targetGroupIds: ['g-fr-1'] };
+    t.prisma.visual.findFirst = jest.fn(async () => visual);
+    t.prisma.visual.update = jest.fn(async () => visual);
+    t.prisma.postTarget = { findMany: jest.fn(async () => []) };
+    t.prisma.group.findMany = jest.fn(async () => [{ id: 'g-fr-1' }]);
+    const r = await t.service.approve('v1', null);
+    expect(t.prisma.group.findMany.mock.calls[0][0].where.id).toEqual({ in: ['g-fr-1'] });
+    expect(r).toMatchObject({ postId: 'post-1', groups: 1 });
+    expect(t.prisma.visual.update.mock.calls[0][0].data.approvedAt).toBeInstanceOf(Date);
+  });
+});

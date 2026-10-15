@@ -341,7 +341,7 @@
           <div class="posts-head">
             <div class="subtabs" role="tablist">
               <button class="subtab active" type="button" data-articles-tab="articles" role="tab">📰 Articles</button
-              ><button class="subtab" type="button" data-articles-tab="visuals" role="tab">🖼 Visuels (images seules)</button>
+              ><button class="subtab" type="button" data-articles-tab="visuals" role="tab">🖼 Visuels (images seules) <span class="badge" id="visual-pending-badge" hidden></span></button>
             </div>
           </div>
           <div id="articles-pane-articles">
@@ -391,7 +391,11 @@
           <div id="articles-pane-visuals" class="hidden">
             <div class="toolbar">
               <div class="toolbar-group">
-                <select id="visual-language"><option value="">Toutes les langues</option></select
+                <select id="visual-review">
+                  <option value="">Tous les visuels</option>
+                  <option value="pending">⏳ À valider</option>
+                  <option value="approved">✓ Validés</option></select
+                ><select id="visual-language"><option value="">Toutes les langues</option></select
                 ><input id="visual-search" type="search" placeholder="Rechercher un visuel" />
               </div>
               <button class="primary" type="button" id="visual-open">+ Importer une image</button>
@@ -1266,9 +1270,29 @@
               <p class="form-help">Une image capturée est traduite dans la langue choisie (son texte remplacé), puis publiée avec une description dans les groupes de cette langue — sans lien ni commentaire. Une image sans texte n’est pas régénérée. Les clés et modèles se règlent dans l’environnement du serveur ; la description est écrite par DeepSeek.</p>
               <form id="rules-image" class="rules-pause">
                 <label>IA d’image <select name="imageProvider" id="rules-image-provider"></select></label>
+                <label class="check"><input type="checkbox" name="engagementReview" /> Valider chaque capture avant publication (Articles → Visuels → « À valider »)</label>
                 <button class="primary" type="submit">Enregistrer</button>
               </form>
               <p class="form-help" id="rules-image-status"></p>
+              <form id="rules-image-key" class="rules-pause image-key">
+                <label>Régler <select name="provider" id="rules-image-key-provider"></select></label>
+                <label>Clé d’API <input name="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="coller la clé" /></label>
+                <label>Modèle <input name="model" list="image-models" maxlength="120" placeholder="par défaut" /></label>
+                <label>Région / adresse <input name="baseUrl" list="image-regions" maxlength="300" placeholder="par défaut" /></label>
+                <label class="check"><input type="checkbox" name="clearKey" /> Effacer la clé saisie ici</label>
+                <button class="primary" type="submit">Enregistrer</button>
+              </form>
+              <datalist id="image-models">
+                <option value="qwen-image-edit">Alibaba — retouche d’image</option>
+                <option value="qwen-image-edit-plus">Alibaba — retouche d’image (plus)</option>
+                <option value="gpt-image-1-mini">OpenAI</option>
+                <option value="seedream-4-0-250828">ByteDance</option>
+              </datalist>
+              <datalist id="image-regions">
+                <option value="https://dashscope-intl.aliyuncs.com">Alibaba — International (Singapour)</option>
+                <option value="https://dashscope.aliyuncs.com">Alibaba — Chine (Pékin)</option>
+              </datalist>
+              <p class="form-help" id="rules-image-key-help">La clé reste sur le serveur : la plateforme n’en montre que les 4 derniers caractères. Une clé saisie ici passe avant celle du serveur. La clé doit être de la même région que l’adresse.</p>
             </div>
             <div class="rules-grid">
               <div class="panel rules-panel">

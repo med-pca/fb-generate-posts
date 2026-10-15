@@ -2380,3 +2380,11 @@ html[dir="rtl"] .nav span { margin-left: 0; margin-right: 12px; }
 .rotation-list li .row-actions button { min-width: 30px; }
 .nst-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; align-items: end; }
 .nst-groups label { display: flex; flex-direction: column; gap: 4px; }
+.image-key { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; align-items: end; margin-top: 10px; }
+.image-key label { display: flex; flex-direction: column; gap: 4px; }
+.image-key label.check { flex-direction: row; align-items: center; }
+.visual-card.pending { outline: 2px solid #f0b429; }
+.visual-card .visual-title-edit, .visual-card .visual-caption-edit { width: 100%; box-sizing: border-box; font: inherit; margin: 6px 0; }
+.visual-card .visual-caption-edit { resize: vertical; }
+.subtab .badge { margin-inline-start: 6px; }
+.subtab .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; background: #f0b429; color: #1f2937; font-size: 0.75em; font-weight: 600; }

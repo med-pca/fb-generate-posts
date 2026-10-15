@@ -546,6 +546,10 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
     if (!this.visuals) throw new Error('Visuels indisponibles');
     const site = await this.prisma.contentSource.findUnique({ where: { originUrl: ingest.siteUrl }, select: { categoryId: true, ownerId: true } });
     const original = await this.wordpress.loadImage(ingest.fbImageUrl);
+    // Validation manuelle (réglage, par défaut oui) : le visuel attend dans
+    // Articles → Visuels → « À valider » ; rien ne part avant.
+    const settings = await Promise.resolve(this.prisma.automationSetting?.findUnique({ where: { id: 'global' }, select: { engagementReview: true } })).catch(() => null);
+    const review = settings?.engagementReview ?? true;
     // Le même parcours qu'une image importée : rubrique Articles → Visuels.
     const { visual, postId, groups } = await this.visuals.create({
       image: { data: original.data, mimeType: original.mimeType },
@@ -555,12 +559,13 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
       fbCaption: ingest.fbCaption,
       categoryId: site?.categoryId ?? null,
       groupIds: ingest.groupIds,
-      createPosts: true,
+      createPosts: !review,
+      review,
       origin: 'capture',
       ingestId: ingest.id,
       ownerId: ingest.ownerId ?? site?.ownerId ?? null,
     });
-    await this.log(ingest.id, 'INGEST_ENGAGEMENT_DETAIL', `Visuel « ${visual.title} » en ${languageName(language)} : ${groups} groupe(s)`, {
+    await this.log(ingest.id, 'INGEST_ENGAGEMENT_DETAIL', `Visuel « ${visual.title} » en ${languageName(language)} : ${review ? 'à valider dans Articles → Visuels' : `${groups} groupe(s)`}`, {
       visualId: visual.id,
       postId,
     });

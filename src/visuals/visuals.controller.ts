@@ -41,6 +41,8 @@ export class VisualQueryDto {
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(1) limit?: number;
   @ApiPropertyOptional() @IsOptional() @Matches(/^[a-z]{2}$/) language?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200) search?: string;
+  /** `pending` : à valider ; `approved` : validés. */
+  @ApiPropertyOptional({ enum: ['pending', 'approved'] }) @IsOptional() @IsIn(['pending', 'approved']) review?: 'pending' | 'approved';
 }
 
 /** Rubrique Articles → Visuels : des images seules, publiées avec leur
@@ -79,6 +81,12 @@ export class VisualsController {
   @ApiOperation({ summary: 'Créer les posts d’un visuel vers les groupes (choisis, ou de sa langue et sa catégorie)' })
   posts(@Param('id') id: string, @Body() dto: VisualPostsDto, @ActingUser() acting: CurrentUser) {
     return this.visuals.createPosts(id, dto, acting);
+  }
+
+  @Post(':id/approve')
+  @ApiOperation({ summary: 'Valider une capture en attente : ses posts partent vers les groupes' })
+  approve(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.visuals.approve(id, acting);
   }
 
   @Patch(':id')

@@ -409,10 +409,13 @@ export class RewriterService {
     const target = languageName(input.language);
     const { value, provider } = await this.llm.completeJson<{ title: string; caption: string; hashtags: string[] }>({
       instructions: [
-        'You write social media posts for Facebook groups whose only goal is engagement (reactions, comments, shares).',
+        'You write posts for Facebook groups. Their only goal is engagement that grows the group: reactions, comments and shares,',
+        'so that people who see the post in their feed want to join and follow the group.',
         `Write in ${target} only.`,
-        'From the image description and the text in the image, write a short, warm, catchy description (1 to 3 short sentences) that ends with ONE simple question inviting people to comment (e.g. ask their opinion, their memory, their choice).',
-        'No link, no URL, no "link in comments", no hashtag inside the text, no clickbait lie, no all caps.',
+        'From the image description and the text in the image, write a short, warm, relatable description (1 to 3 short sentences): a feeling, a memory or a small truth that many people share.',
+        'End with ONE question that is very easy to answer in a few words (their opinion, their memory, their choice between two things, how it is in their country or family) — the kind of question people love to answer and that starts conversations between members.',
+        'Never use engagement bait, which Facebook demotes: no "like if", "share if", "tag a friend", "comment YES", "type 1", "react with", no voting with reactions, no "follow the group", no begging.',
+        'No link, no URL, no "link in comments", no hashtag inside the text, no clickbait lie, no all caps, at most one or two emojis.',
         'Also give a short internal title (max 8 words) and 2 to 4 relevant hashtags without #.',
         'Answer with a single JSON object: {"title": string, "caption": string, "hashtags": string[]}.',
       ].join(' '),

@@ -61,3 +61,53 @@ describe('IA d’image : traduire le texte d’une image', () => {
     await expect(service({}).translate(IMG, 'fr')).rejects.toThrow(/Aucune IA d’image configurée/);
   });
 });
+
+describe('IA d’image réglée depuis la plateforme', () => {
+  const store = () => {
+    const rows = new Map<string, any>();
+    return {
+      rows,
+      aiProviderSetting: {
+        findMany: async () => [...rows.values()],
+        upsert: async ({ where, create, update }: any) => {
+          const row = rows.get(where.provider);
+          rows.set(where.provider, row ? { ...row, ...update, updatedAt: new Date() } : { apiKey: null, model: null, baseUrl: null, ...create, updatedAt: new Date() });
+        },
+      },
+    };
+  };
+
+  it('la clé saisie passe avant celle du serveur, et n’est jamais renvoyée', async () => {
+    const prisma = store();
+    const s = new ImageTranslatorService({ get: (k: string) => ({ DASHSCOPE_API_KEY: 'server-key-1234' } as any)[k] } as never, prisma as never);
+    const out = await s.configure('qwen', { apiKey: 'sk-ws-platform-key-WXYZ', model: 'qwen-image-edit-plus' }, 'admin');
+    expect(out).toMatchObject({ configured: true, keySource: 'plateforme', keyHint: '…WXYZ', model: 'qwen-image-edit-plus' });
+    expect(JSON.stringify(s.providers())).not.toContain('sk-ws-platform');
+
+    const calls: any[] = [];
+    global.fetch = jest.fn(async (url: string, init?: any) => {
+      calls.push({ url, auth: init?.headers?.authorization, body: init?.body ? JSON.parse(init.body) : null });
+      if (url.includes('aliyuncs')) return new Response(JSON.stringify({ output: { choices: [{ message: { content: [{ image: 'https://oss.test/o.png' }] } }] } }), { status: 200 });
+      return new Response(Buffer.from('x'), { status: 200, headers: { 'content-type': 'image/png' } });
+    }) as never;
+    await s.translate(IMG, 'fr', [], 'qwen');
+    expect(calls[0].auth).toBe('Bearer sk-ws-platform-key-WXYZ');
+    expect(calls[0].body.model).toBe('qwen-image-edit-plus');
+  });
+
+  it('région réglable ; effacer la clé revient à celle du serveur', async () => {
+    const prisma = store();
+    const s = new ImageTranslatorService({ get: (k: string) => ({ DASHSCOPE_API_KEY: 'server-key-1234' } as any)[k] } as never, prisma as never);
+    await s.configure('qwen', { apiKey: 'sk-ws-platform-key-WXYZ', baseUrl: 'https://dashscope.aliyuncs.com/' }, 'admin');
+    expect(s.providers().find((p) => p.name === 'qwen')!.baseUrl).toBe('https://dashscope.aliyuncs.com');
+    const back = await s.configure('qwen', { clearKey: true }, 'admin');
+    expect(back).toMatchObject({ keySource: 'serveur', keyHint: '…1234' });
+  });
+
+  it('refuse une adresse non https, une clé douteuse, un fournisseur inconnu', async () => {
+    const s = new ImageTranslatorService({ get: () => undefined } as never, store() as never);
+    await expect(s.configure('qwen', { baseUrl: 'http://evil.test' }, null)).rejects.toThrow(/https/);
+    await expect(s.configure('qwen', { apiKey: 'a b' }, null)).rejects.toThrow(/Clé invalide/);
+    await expect(s.configure('midjourney', {}, null)).rejects.toThrow(/inconnue/);
+  });
+});

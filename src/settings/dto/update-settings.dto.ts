@@ -91,6 +91,9 @@ export class UpdateSettingsDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) nstGroupDisabled?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) nstGroupLoggedOut?: string;
 
+  /** Les captures « 💬 Engagement » attendent une validation avant publication. */
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() engagementReview?: boolean;
+
   /** Accélérer automatiquement pour tenir l'objectif. */
   @ApiPropertyOptional()
   @IsOptional()

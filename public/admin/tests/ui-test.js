@@ -704,8 +704,10 @@ setTimeout(async () => {
     if (path === '/visuals' && (!options.method || options.method === 'GET')) {
       visCalls.push(`GET ${full}`);
       return { ok: true, status: 200, json: async () => ({
-        data: [{ id: 'v1', title: 'Bonjour', caption: 'Et vous, votre café du matin ?', imageUrl: 'https://post.test/media/g/abc.png', language: 'fr', category: { id: 'c1', name: 'Recettes' }, origin: 'capture', status: 'ACTIVE', posts: 1, groups: 3, published: 1, waiting: 2, details: { translated: true, imageProvider: 'qwen:qwen-image-edit' } }],
-        meta: { page: 1, limit: 24, total: 1, pages: 1 },
+        data: [{ id: 'v1', title: 'Bonjour', caption: 'Et vous, votre café du matin ?', imageUrl: 'https://post.test/media/g/abc.png', language: 'fr', category: { id: 'c1', name: 'Recettes' }, origin: 'capture', status: 'ACTIVE', approvedAt: '2026-10-15T08:00:00Z', posts: 1, groups: 3, published: 1, waiting: 2, details: { translated: true, imageProvider: 'qwen:qwen-image-edit' } },
+          { id: 'v2', title: 'Salut', caption: 'Votre souvenir préféré ?', hashtags: ['souvenir'], imageUrl: 'https://post.test/media/g/def.png', language: 'fr', category: null, origin: 'capture', status: 'ACTIVE', approvedAt: null, targetGroupIds: ['g1', 'g2'], posts: 0, groups: 0, published: 0, waiting: 0, details: { translated: true, imageProvider: 'qwen:qwen-image-edit' } }],
+        meta: { page: 1, limit: 24, total: 2, pages: 1 },
+        pending: { total: 1, byLanguage: { fr: 1 } },
       }) };
     }
     if (path.startsWith('/visuals')) {
@@ -722,6 +724,12 @@ setTimeout(async () => {
   $('[data-visual-posts="v1"]').click();
   await new Promise((resolve) => setTimeout(resolve, 80));
   check('« Créer les posts » d’un visuel', visCalls.some((c) => c.startsWith('POST /visuals/v1/posts')), visCalls);
+  check('capture en attente : « À valider », compteur sur l’onglet et dans la langue', /À valider/.test($('[data-visual="v2"]').textContent) && /1 à valider/.test($('#visual-pending-badge').textContent) && [...$('#visual-language').options].some((o) => /French — 1 à valider/.test(o.textContent)), $('#visual-pending-badge').textContent);
+  $('[data-visual="v2"] [data-visual-caption]').value = 'Votre plus beau souvenir d’enfance ?';
+  $('[data-visual-approve="v2"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const patch = visCalls.find((c) => c.startsWith('PATCH /visuals/v2'));
+  check('valider : le texte modifié est enregistré, puis la validation', patch && /souvenir d’enfance/.test(patch) && visCalls.some((c) => c.startsWith('POST /visuals/v2/approve')), visCalls);
   $('#visual-open').click();
   const vf = $('#visual-form');
   const file = new window.File([new Uint8Array([137, 80, 78, 71])], 'mine.png', { type: 'image/png' });
