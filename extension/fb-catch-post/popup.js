@@ -32,6 +32,7 @@ const els = {
   engagementBlock: $('engagement-block'),
   language: $('language'),
   targetCategory: $('target-category'),
+  translateImage: $('translate-image'),
   newsHint: $('news-hint'),
   send: $('send'),
   status: $('status'),
@@ -62,6 +63,13 @@ let sites = [];
 /** Mode « engagement » : toutes les langues des groupes du compte, avec
  * leurs catégories (indépendamment de la catégorie du site). */
 let engagementLanguages = null;
+/** Traduire l'image ou non, retenu PAR LANGUE (ex. : anglais → même image). */
+let translateByLang = {};
+const TRANSLATE_KEY = 'fcp.translateByLang';
+function applyTranslateChoice() {
+  const lang = els.language.value;
+  els.translateImage.checked = lang && lang in translateByLang ? translateByLang[lang] : true;
+}
 let lastSeen = {};
 
 const say = (message, kind = '') => {
@@ -392,7 +400,7 @@ async function send() {
     ...(news
       ? { mode: 'news' }
       : engagement
-        ? { mode: 'engagement', targetLanguage: els.language.value, ...(engagementLanguages ? { targetCategoryId: els.targetCategory.value || 'all' } : {}) }
+        ? { mode: 'engagement', targetLanguage: els.language.value, translateImage: els.translateImage.checked, ...(engagementLanguages ? { targetCategoryId: els.targetCategory.value || 'all' } : {}) }
         : { sourceUrl: els.source.value.trim() }),
   };
   if (chosen.imageUrl) body.imageUrl = chosen.imageUrl;
@@ -428,7 +436,7 @@ async function send() {
   say(engagement ? 'Envoyé. Le visuel « engagement » est en préparation côté serveur.' : news ? 'Envoyé. Notre article est en cours d’écriture côté serveur.' : own ? 'Envoyé. La description sera reprise par les posts de cet article.' : 'Envoyé. La réécriture et la publication suivent côté serveur.', 'ok');
   els.done.classList.remove('hidden');
   els.done.innerHTML = engagement
-    ? 'Reprise <code></code><br>💬 En préparation : texte de l’image traduit (même image), description écrite. ' +
+    ? `Reprise <code></code><br>💬 En préparation : ${body.translateImage ? 'texte de l’image traduit (même image)' : 'image gardée telle quelle (sans IA d’image)'}, description écrite. ` +
       'Il arrive dans la plateforme : <b>Articles → Visuels → « À valider »</b> (classé par langue). ' +
       'Une fois validé, il part sans lien ni commentaire dans les groupes de cette langue.'
     : news
@@ -477,7 +485,17 @@ els.site.addEventListener('change', () => {
 els.source.addEventListener('input', () => { saveDraft(); refresh(); });
 els.language.addEventListener('change', () => {
   void chrome.storage.local.set({ 'fcp.language': els.language.value });
+  applyTranslateChoice();
   refresh();
+});
+els.translateImage.addEventListener('change', () => {
+  if (!els.language.value) return;
+  translateByLang = { ...translateByLang, [els.language.value]: els.translateImage.checked };
+  void chrome.storage.local.set({ [TRANSLATE_KEY]: translateByLang });
+});
+void chrome.storage.local.get(TRANSLATE_KEY).then((stored) => {
+  translateByLang = (stored && stored[TRANSLATE_KEY]) || {};
+  applyTranslateChoice();
 });
 document.querySelectorAll('input[name="mode"]').forEach((r) =>
   r.addEventListener('change', () => {

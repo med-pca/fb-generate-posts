@@ -53,3 +53,8 @@ button:disabled { opacity: .5; cursor: default; }
 .mode .radio span { display: grid; }
 .mode .radio small { color: #667085; font-size: 0.78rem; }
 .hidden { display: none !important; }
+label.check { display: flex; align-items: flex-start; gap: 8px; font-weight: 600; cursor: pointer; }
+label.check input { width: auto; margin-top: 3px; flex: none; }
+label.check span { display: grid; gap: 2px; }
+/* Les boutons radio des modes : à gauche, pas étirés sur toute la largeur. */
+.mode .radio input { width: auto; flex: none; }

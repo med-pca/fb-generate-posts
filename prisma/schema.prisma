@@ -551,6 +551,9 @@ model SourceIngest {
   /// Mode « engagement » : la langue cible (image traduite, description, et
   /// groupes de cette langue).
   targetLanguage String? @map("target_language")
+  /// Mode « engagement » : traduire le texte de l'image (IA d'image, payante).
+  /// Non = la même image, telle quelle (seule la description est écrite).
+  translateImage Boolean @default(true) @map("translate_image")
   /// Ce que l'extension rapporte du post d'origine.
   fbCaption      String? @map("fb_caption") @db.Text
   fbImageUrl     String? @map("fb_image_url")

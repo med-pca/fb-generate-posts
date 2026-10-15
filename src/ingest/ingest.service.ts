@@ -124,6 +124,7 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
         // Mode « engagement » : image traduite + description, sans article.
         mode: dto.mode ?? 'rewrite',
         targetLanguage: dto.mode === 'engagement' ? dto.targetLanguage ?? null : null,
+        translateImage: dto.translateImage !== false,
         sourceUrl: dto.sourceUrl ?? '',
         siteUrl,
         // Nos articles d'actualité sont en anglais, sauf langue imposée.
@@ -559,7 +560,9 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
     const { visual, postId, groups } = await this.visuals.create({
       image: { data: original.data, mimeType: original.mimeType },
       language,
-      translate: true,
+      // Choisi dans l'extension : sans traduction, la même image part telle
+      // quelle et l'IA d'image n'est pas appelée (rien à payer).
+      translate: ingest.translateImage !== false,
       caption: null,
       fbCaption: ingest.fbCaption,
       categoryId: site?.categoryId ?? null,

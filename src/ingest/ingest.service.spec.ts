@@ -34,6 +34,7 @@ const ingest = (over: Partial<SourceIngest> = {}): SourceIngest => ({
   id: 'ing_1',
   mode: 'rewrite',
   targetLanguage: null,
+  translateImage: true,
   facebookUrl: 'https://www.facebook.com/x/posts/1',
   sourceUrl: SOURCE.url,
   siteUrl: 'https://site.test',
@@ -216,6 +217,16 @@ describe('Mode « engagement » : la capture devient un visuel (rubrique Article
     expect(t.current()).toMatchObject({ status: IngestStatus.COMPLETED });
     expect((t.current().generated as any).visualId).toBe('v1');
     expect(t.wordpress.deposit).not.toHaveBeenCalled();
+  });
+
+  it('« garder la même image » choisi dans l’extension : pas de traduction (IA d’image non appelée)', async () => {
+    const t = setup(ingest({ mode: 'engagement', targetLanguage: 'en', translateImage: false, sourceUrl: '', status: IngestStatus.SCRAPED, fbImageUrl: 'https://scontent.test/img.jpg' }));
+    (t.prisma as any).contentSource.findUnique = jest.fn(async () => ({ categoryId: null, ownerId: null }));
+    const writer = { ...t.wordpress, loadImage: jest.fn(async () => ({ data: 'T1JJRw==', mimeType: 'image/jpeg', filename: 'img.jpg' })) };
+    const visuals = { create: jest.fn(async () => ({ visual: { id: 'v1', title: 'Hi', caption: 'And you?', imageUrl: 'https://post.test/media/g/x.png' }, postId: null, groups: 0 })) };
+    const service = new IngestService(t.prisma as unknown as PrismaService, t.config as unknown as ConfigService, t.reader as unknown as SourceReaderService, t.rewriter as unknown as RewriterService, writer as unknown as WordpressWriterService, undefined, undefined, undefined, visuals as never);
+    await service.advance('ing_1');
+    expect(visuals.create).toHaveBeenCalledWith(expect.objectContaining({ language: 'en', translate: false }));
   });
 });
 

@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsArray,
   IsIn,
   IsOptional,
@@ -40,6 +41,13 @@ export class CreateIngestDto {
   @ValidateIf((dto: CreateIngestDto) => dto.mode === 'engagement')
   @IsKnownLanguage()
   targetLanguage?: string;
+
+  /** Mode « engagement » : traduire le texte de l'image avec l'IA d'image
+   * (payante). `false` = la même image, telle quelle. Défaut : oui. */
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  translateImage?: boolean;
 
   /** Mode « engagement » : la catégorie des groupes visés (`all` = toutes).
    * Absente : la catégorie du site choisi (anciennes extensions). */
