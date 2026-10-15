@@ -12,6 +12,7 @@ import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../auth/current-user';
 import { CreateSiteDto, UpdateSiteDto } from './dto/site.dto';
 import {
+  groupWhere,
   scopeOf,
   seesEverything,
   siteManageWhere,
@@ -144,10 +145,30 @@ export class SitesService {
       where: { status: RecordStatus.ACTIVE, language: { not: null } },
       _count: { _all: true },
     });
+    // Le mode « engagement » vise des groupes par LANGUE, quelle que soit la
+    // catégorie du site : toutes les langues des groupes du compte, avec
+    // leurs catégories (pour restreindre au besoin).
+    const engagementRows = await this.prisma.group.groupBy({
+      by: ['language', 'categoryId'],
+      where: { status: RecordStatus.ACTIVE, language: { not: null }, profiles: { some: { status: RecordStatus.ACTIVE } }, ...groupWhere(scopeOf(acting)) },
+      _count: { _all: true },
+    });
+    const categoryNames = new Map(
+      (await this.prisma.category.findMany({ where: { id: { in: engagementRows.map((r) => r.categoryId).filter((x): x is string => Boolean(x)) } }, select: { id: true, name: true } })).map((c) => [c.id, c.name]),
+    );
+    const languages = new Map<string, { code: string; name: string; groups: number; categories: Array<{ id: string; name: string; groups: number }> }>();
+    for (const r of engagementRows) {
+      const code = r.language as string;
+      const entry = languages.get(code) ?? { code, name: languageName(code), groups: 0, categories: [] };
+      entry.groups += r._count._all;
+      entry.categories.push({ id: r.categoryId ?? 'none', name: r.categoryId ? categoryNames.get(r.categoryId) ?? '—' : 'Sans catégorie', groups: r._count._all });
+      languages.set(code, entry);
+    }
     // L'extension n'active que les sites prêts, et dit pourquoi les autres
     // ne le sont pas : c'est ce qui évite de choisir un site qui ne peut
     // rien recevoir.
     return {
+      engagement: { languages: [...languages.values()].sort((a, b) => a.name.localeCompare(b.name)) },
       sites: sites.map((site) => {
         const blocker = siteBlocker(site);
         return {

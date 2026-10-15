@@ -41,6 +41,14 @@ export class CreateIngestDto {
   @IsKnownLanguage()
   targetLanguage?: string;
 
+  /** Mode « engagement » : la catégorie des groupes visés (`all` = toutes).
+   * Absente : la catégorie du site choisi (anciennes extensions). */
+  @ApiPropertyOptional({ example: 'all' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  targetCategoryId?: string;
+
   @ApiPropertyOptional({ example: 'https://exemple.com/article', description: 'Obligatoire, sauf en mode « news »' })
   @ValidateIf((dto: CreateIngestDto) => (dto.mode !== 'news' && dto.mode !== 'engagement') || Boolean(dto.sourceUrl))
   @IsUrl({ protocols: ['https'], require_protocol: true })

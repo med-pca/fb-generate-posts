@@ -12,7 +12,7 @@ import { IngestStatus, Prisma, SourceIngest } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { normalizeSiteUrl, pluginBlocker } from '../sites/sites.service';
-import { ingestWhere, scopeOf } from '../auth/scope';
+import { groupWhere, ingestWhere, scopeOf } from '../auth/scope';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
 import { CaptureIngestDto } from './dto/capture-ingest.dto';
@@ -87,10 +87,15 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
 
   async create(dto: CreateIngestDto, owner: CurrentUser | null = null) {
     const profileIds = [...new Set(dto.profileIds ?? [])];
-    const groupIds = [...new Set(dto.groupIds ?? [])];
+    let groupIds = [...new Set(dto.groupIds ?? [])];
     let siteUrl: string;
     try {
       ({ siteUrl } = await this.resolveSite(dto.siteUrl));
+      // Engagement : les groupes de la langue choisie, dans la catégorie
+      // choisie (ou toutes) — indépendamment de la catégorie du site.
+      if (dto.mode === 'engagement' && dto.targetCategoryId && !groupIds.length && dto.targetLanguage) {
+        groupIds = await this.engagementGroups(dto.targetLanguage, dto.targetCategoryId, owner);
+      }
       await this.assertScope(profileIds, groupIds);
     } catch (error) {
       // Refusée avant d'exister : sans cette trace, une capture rejetée par
@@ -757,6 +762,26 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
       );
     }
     return { siteUrl, depositKey: site.depositKey };
+  }
+
+  /** Les groupes d'un visuel « engagement » : actifs, de cette langue, de
+   * cette catégorie (`all` = toutes), visibles du compte, et rattachés à au
+   * moins un profil actif (sinon personne ne pourrait y publier). */
+  private async engagementGroups(language: string, categoryId: string, owner: CurrentUser | null) {
+    const groups = await this.prisma.group.findMany({
+      where: {
+        status: 'ACTIVE',
+        language,
+        ...(categoryId === 'all' ? {} : { categoryId: categoryId === 'none' ? null : categoryId }),
+        profiles: { some: { status: 'ACTIVE' } },
+        ...groupWhere(scopeOf(owner)),
+      },
+      select: { id: true },
+    });
+    if (!groups.length) {
+      throw new BadRequestException(`Aucun groupe actif en ${languageName(language)}${categoryId === 'all' ? '' : ' dans cette catégorie'} rattaché à un profil`);
+    }
+    return groups.map((g) => g.id);
   }
 
   /** Une portée qui ne désigne rien de publiable se voit tout de suite, pas

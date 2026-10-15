@@ -68,7 +68,9 @@ describe('ExtensionsService', () => {
     const names = await service.syncAll(ROOT);
     const latest = (key: string) => created.filter((c) => c.key === key).pop();
     expect(['adhesion', 'capture', 'moderateur', 'publication'].every((k) => latest(k))).toBe(true);
-    expect(latest('capture').version).toBe('1.6.1');
+    // La version du manifeste, quelle qu'elle soit : chaque changement la monte.
+    const captureVersion = JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '../../extension/fb-catch-post/manifest.json'), 'utf8')).version;
+    expect(latest('capture').version).toBe(captureVersion);
     for (const c of created) {
       const paths = c.files.map((f: any) => f.path);
       expect(paths).toContain(c.key === 'wordpress' ? 'data-fb-posting.php' : c.key === 'agent' ? 'postflow_agent.py' : 'manifest.json');

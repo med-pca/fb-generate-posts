@@ -31,6 +31,7 @@ const els = {
   sourceBlock: $('source-block'),
   engagementBlock: $('engagement-block'),
   language: $('language'),
+  targetCategory: $('target-category'),
   newsHint: $('news-hint'),
   send: $('send'),
   status: $('status'),
@@ -58,6 +59,9 @@ function saveDraft() {
 let tabId = null;
 let chosen = null;
 let sites = [];
+/** Mode « engagement » : toutes les langues des groupes du compte, avec
+ * leurs catégories (indépendamment de la catégorie du site). */
+let engagementLanguages = null;
 let lastSeen = {};
 
 const say = (message, kind = '') => {
@@ -96,15 +100,40 @@ function refresh() {
 /** Les langues proposées : celles des groupes de la catégorie du site,
  * avec le nom (anglais) géré dans la plateforme. */
 function fillLanguages(site) {
-  const langs = (site && site.languages) || [];
-  const key = langs.map((l) => `${l.code}:${l.groups}`).join(',') + (site ? site.siteUrl : '');
-  if (els.language.dataset.key === key) return;
-  els.language.dataset.key = key;
-  const current = els.language.value;
-  els.language.innerHTML = langs.length
-    ? '<option value="">Choisir la langue…</option>' + langs.map((l) => `<option value="${l.code}">${l.name || l.code} — ${l.groups} groupe(s)</option>`).join('')
-    : '<option value="">Aucun groupe avec une langue dans cette catégorie</option>';
-  if (langs.some((l) => l.code === current)) els.language.value = current;
+  // Plateforme à jour : toutes les langues des groupes. Sinon (ancienne
+  // API) : celles de la catégorie du site, comme avant.
+  const langs = engagementLanguages ?? ((site && site.languages) || []);
+  const key = langs.map((l) => `${l.code}:${l.groups}`).join(',') + (engagementLanguages ? '' : site ? site.siteUrl : '');
+  if (els.language.dataset.key !== key) {
+    els.language.dataset.key = key;
+    const current = els.language.value;
+    const escape = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    els.language.innerHTML = langs.length
+      ? '<option value="">Choisir la langue…</option>' + langs.map((l) => `<option value="${escape(l.code)}">${escape(l.name || l.code)} — ${l.groups} groupe(s)</option>`).join('')
+      : `<option value="">${engagementLanguages ? 'Aucun groupe avec une langue : réglez-la dans Groupes' : 'Aucun groupe avec une langue dans cette catégorie'}</option>`;
+    if (langs.some((l) => l.code === current)) els.language.value = current;
+  }
+  fillTargetCategories(site);
+}
+
+/** Les catégories où la langue choisie a des groupes. Par défaut : celle du
+ * site si elle en a, sinon toutes. */
+function fillTargetCategories(site) {
+  const lang = (engagementLanguages || []).find((l) => l.code === els.language.value);
+  els.targetCategory.hidden = !engagementLanguages;
+  const label = document.querySelector('label[for="target-category"]');
+  if (label) label.hidden = !engagementLanguages;
+  if (!engagementLanguages) return;
+  const key = `${els.language.value}|${site ? site.siteUrl : ''}`;
+  if (els.targetCategory.dataset.key === key) return;
+  els.targetCategory.dataset.key = key;
+  const escape = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const cats = lang ? lang.categories : [];
+  els.targetCategory.innerHTML =
+    `<option value="all">Toutes les catégories${lang ? ` — ${lang.groups} groupe(s)` : ''}</option>` +
+    cats.map((c) => `<option value="${escape(c.id)}">${escape(c.name)} — ${c.groups} groupe(s)</option>`).join('');
+  const siteCat = cats.find((c) => site && c.name === site.category);
+  els.targetCategory.value = siteCat ? siteCat.id : 'all';
 }
 
 async function inject(options) {
@@ -276,7 +305,9 @@ async function loadSites() {
       throw new Error(`la plateforme refuse la clé de cette extension (clé changée ou compte désactivé).\n${KEY_FIX}`);
     }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    ({ sites } = await response.json());
+    const payload = await response.json();
+    ({ sites } = payload);
+    engagementLanguages = payload.engagement?.languages ?? null;
     // Une API pas encore mise à jour ne dit pas si un site est prêt : on le
     // laisse choisir, comme avant.
     sites = sites.map((site) => ({ ...site, ready: site.ready ?? true }));
@@ -358,7 +389,11 @@ async function send() {
     // Nos articles d'actualité sont en anglais (la plateforme l'impose
     // aussi quand la langue est « auto »).
     language: news ? 'en' : config.language || 'auto',
-    ...(news ? { mode: 'news' } : engagement ? { mode: 'engagement', targetLanguage: els.language.value } : { sourceUrl: els.source.value.trim() }),
+    ...(news
+      ? { mode: 'news' }
+      : engagement
+        ? { mode: 'engagement', targetLanguage: els.language.value, ...(engagementLanguages ? { targetCategoryId: els.targetCategory.value || 'all' } : {}) }
+        : { sourceUrl: els.source.value.trim() }),
   };
   if (chosen.imageUrl) body.imageUrl = chosen.imageUrl;
 
