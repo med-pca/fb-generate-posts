@@ -189,6 +189,9 @@ model Profile {
   facebookSuspension       String?          @map("facebook_suspension")
   suspendedAt              DateTime?        @map("suspended_at")
   suspensionDetail         String?          @map("suspension_detail") @db.Text
+  /// Son mode de pilotage au moment de la suspension (AUTO, ON) : « Remettre
+  /// au travail » le lui rend.
+  modeBeforeSuspension     String?          @map("mode_before_suspension")
   /// Son groupe NSTBrowser, remonté par l'agent local : c'est son ÉQUIPE
   /// (rotation des campagnes) — sauf quand la plateforme l'a rangé dans un
   /// groupe d'état (Limités, Vérification, Désactivés, Déconnectés) : son

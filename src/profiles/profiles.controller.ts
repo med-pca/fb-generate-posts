@@ -29,6 +29,12 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { DeactivateProfileDto, QueryProfilesDto } from './dto/query-profiles.dto';
 import { ProfileHealthService } from './profile-health.service';
 
+/** Lever l'arrêt d'un compte récupéré. */
+class ClearSuspensionDto {
+  /** Le remettre au travail : son mode d'avant la suspension (AUTO par défaut). */
+  @IsOptional() @IsBoolean() resume?: boolean;
+}
+
 @ApiTags('profiles')
 @ApiBearerAuth()
 @UseGuards(AdminAuthGuard)
@@ -53,9 +59,9 @@ export class ProfilesController {
   }
 
   @Post(':id/suspension/clear')
-  @ApiOperation({ summary: 'Marquer rétabli un compte suspendu ou en vérification' })
-  clearSuspension(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
-    return this.profiles.clearSuspension(id, acting);
+  @ApiOperation({ summary: 'Compte récupéré (vérification passée, reconnecté…) : lever l’arrêt ; avec `resume`, il retrouve son mode d’avant et reprend le travail' })
+  clearSuspension(@Param('id') id: string, @Body() dto: ClearSuspensionDto, @ActingUser() acting: CurrentUser) {
+    return this.profiles.clearSuspension(id, acting, { resume: dto?.resume === true });
   }
 
   @Post('assign')

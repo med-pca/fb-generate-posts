@@ -1282,7 +1282,13 @@ export class JobsService {
     const detail = [input.detail, input.url].filter(Boolean).join(' — ').slice(0, 1000);
     // « disabled » l'emporte sur « checkpoint », jamais l'inverse.
     const kind = profile.facebookSuspension === 'disabled' ? 'disabled' : input.kind;
-    await this.prisma.profile.update({ where: { id: profile.id }, data: { facebookSuspension: kind, suspendedAt: new Date(), suspensionDetail: detail || null } });
+    // Son mode d'avant, pour « Remettre au travail » (seulement à la première
+    // suspension : la seconde trouverait déjà OFF).
+    const before = profile.facebookSuspension ? null : (await this.prisma.profileRunner.findUnique({ where: { profileId: profile.id }, select: { mode: true } }))?.mode ?? null;
+    await this.prisma.profile.update({
+      where: { id: profile.id },
+      data: { facebookSuspension: kind, suspendedAt: new Date(), suspensionDetail: detail || null, ...(before && before !== 'OFF' ? { modeBeforeSuspension: before } : {}) },
+    });
     await this.prisma.profileRunner.updateMany({ where: { profileId: profile.id }, data: { mode: 'OFF' } });
     const active = await this.prisma.publicationJob.findMany({ where: { profileId: profile.id, status: JobStatus.CLAIMED }, select: { id: true } });
     let released = 0;

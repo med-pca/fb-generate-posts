@@ -1174,7 +1174,7 @@ function render() {
     state.profiles
       .map(
         (p) =>
-          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${p.facebookSuspension ? `<span class="chip ${p.facebookSuspension === 'disabled' ? 'join-failed' : 'join-requested'}" title="${esc(p.suspensionDetail || '')}">${p.facebookSuspension === 'disabled' ? '🚫 Suspendu par Facebook' : p.facebookSuspension === 'logged_out' ? '🔌 Déconnecté de Facebook' : '⚠ Vérification Facebook'}</span> ` : ''}${healthBadge(p.health)}${state.me?.role === 'ADMIN' ? ` <span class="chip" title="Compte qui pilote ce profil">👤 ${esc(p.owner ? p.owner.username : 'Administration')}</span>` : ''}</p>${profileMetrics(p)}<div class="card-actions"><button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
+          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${p.facebookSuspension ? `<span class="chip ${p.facebookSuspension === 'disabled' ? 'join-failed' : 'join-requested'}" title="${esc(p.suspensionDetail || '')}">${p.facebookSuspension === 'disabled' ? '🚫 Suspendu par Facebook' : p.facebookSuspension === 'logged_out' ? '🔌 Déconnecté de Facebook' : '⚠ Vérification Facebook'}</span> ` : ''}${healthBadge(p.health)}${state.me?.role === 'ADMIN' ? ` <span class="chip" title="Compte qui pilote ce profil">👤 ${esc(p.owner ? p.owner.username : 'Administration')}</span>` : ''}</p>${profileMetrics(p)}<div class="card-actions">${p.facebookSuspension ? `<button class="primary compact" data-unsuspend="${p.id}" data-name="${esc(p.name)}" data-kind="${esc(p.facebookSuspension)}">▶ Remettre au travail</button>` : ''}<button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
       )
       .join('') || '<div class="empty">Créez votre premier profil.</div>';
   $('#group-rows').innerHTML =
@@ -1236,6 +1236,23 @@ const timeToMinutes = (value) => {
   const [h, m] = value.split(':').map(Number);
   return h * 60 + (m || 0);
 };
+/** « Remettre au travail » un profil arrêté par Facebook (vérification
+ * passée, reconnecté, compte récupéré) : il retrouve son mode d'avant. */
+async function resumeSuspended(id, name, kind) {
+  const why = {
+    checkpoint: 'Faites-le une fois la vérification Facebook passée (le compte s’ouvre normalement dans son navigateur).',
+    logged_out: 'Faites-le une fois reconnecté à Facebook dans son navigateur.',
+    disabled: 'Faites-le seulement si Facebook a rétabli le compte (appel accepté) : sinon il sera de nouveau arrêté.',
+  }[kind] || '';
+  if (!(await ask(`Remettre « ${name} » au travail ?\n${why}\nIl retrouve son mode d’avant et reprend au prochain passage de l’agent. S’il retombe sur une vérification, il est de nouveau arrêté tout seul.`, { tone: kind === 'disabled' ? 'warn' : undefined, confirmLabel: 'Remettre au travail' }))) return;
+  try {
+    const r = await api(`/profiles/${id}/suspension/clear`, { method: 'POST', body: JSON.stringify({ resume: true }) });
+    notice(`« ${name} » remis au travail (mode ${r.mode === 'ON' ? 'marche forcée' : 'auto'}).`);
+    await Promise.allSettled([loadRunners(), loadSuspended()]);
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+}
 const SUSPENSION_CHIP = { disabled: '🚫 suspendu par Facebook', checkpoint: '⚠ vérification Facebook demandée', logged_out: '🔌 déconnecté de Facebook' };
 /** Un profil « à vérifier » : quelque chose empêche qu'il publie alors
  * qu'on le lui demande, ou il ne répond plus. C'est le filtre du matin. */
@@ -2007,7 +2024,7 @@ function renderRunners() {
     shown
       .map((r) => {
         const worker = r.facebookSuspension
-          ? `<span class="chip join-failed" title="${esc(r.facebookSuspension === 'logged_out' ? 'Reconnectez-vous dans son navigateur NSTBrowser : il reprend seul (ou « Marquer reconnecté » dans la liste des profils suspendus). ' : '')}${esc(r.suspensionDetail || '')}">${SUSPENSION_CHIP[r.facebookSuspension] || r.facebookSuspension}</span>`
+          ? `<span class="chip join-failed" title="${esc(r.facebookSuspension === 'logged_out' ? 'Reconnectez-vous dans son navigateur NSTBrowser : il reprend seul (ou ⋯ → Remettre au travail). ' : '')}${esc(r.suspensionDetail || '')}">${SUSPENSION_CHIP[r.facebookSuspension] || r.facebookSuspension}</span>`
           : r.resting
           ? `<span class="chip sleep" title="${esc(r.restReason || '')}">😴 repos (rotation)</span>`
           : r.pausedUntil
@@ -2042,6 +2059,7 @@ function renderRunners() {
           `<td><div class="row-actions"><button class="edit" data-runner-edit="${r.profileId}">Réglages</button>` +
           rowMenu([
             r.pausedUntil ? menuItem(`data-runner-resume="${r.profileId}" data-name="${esc(r.name)}"`, '▶ Lever la pause (limitation Facebook)') : '',
+            r.facebookSuspension ? menuItem(`data-unsuspend="${r.profileId}" data-name="${esc(r.name)}" data-kind="${esc(r.facebookSuspension)}"`, '▶ Remettre au travail (compte récupéré)') : '',
             menuItem(`data-runner-pair="${r.profileId}"`, r.pairedAt ? '🔑 Ré-appairer' : '🔑 Appairer'),
             menuItem(`data-fb-id="${r.profileId}" data-current="${esc(r.facebookUserId || '')}"`, r.facebookUserId ? '👤 Modifier l’identifiant Facebook' : '👤 Saisir l’identifiant Facebook'),
             menuItem(`data-goto="/profils/${r.profileId}"`, '📊 Page du profil'),
@@ -5413,6 +5431,11 @@ document.addEventListener('click', async (e) => {
     void openProfileDetail(detail.dataset.profileDetail);
     return;
   }
+  const unsuspend = e.target.closest('[data-unsuspend]');
+  if (unsuspend) {
+    void resumeSuspended(unsuspend.dataset.unsuspend, unsuspend.dataset.name, unsuspend.dataset.kind);
+    return;
+  }
   if (e.target.dataset.deactivateProfile) {
     // Désactiver passe par la fiche : on voit pourquoi, et à qui confier ses posts.
     void openProfileDetail(e.target.dataset.deactivateProfile, { focusDeactivate: true });
@@ -6313,39 +6336,26 @@ async function loadSuspended() {
           : (p.kind === 'disabled' && p.groups
               ? `<button class="danger" type="button" data-suspend-remove="${p.id}" data-name="${esc(p.name)}" data-groups="${p.groups}" ${p.facebookUserId ? '' : 'disabled title="Identifiant Facebook inconnu : renseignez-le d’abord"'}>🚫 Retirer de nos groupes (${p.groups})</button>`
               : '') +
-            `<button class="edit" type="button" data-suspend-clear="${p.id}" data-name="${esc(p.name)}" data-kind="${p.kind}">${p.kind === 'logged_out' ? '🔌 Marquer reconnecté' : '↺ Marquer rétabli'}</button>`;
+            `<button class="primary compact" type="button" data-unsuspend="${p.id}" data-name="${esc(p.name)}" data-kind="${p.kind}">▶ Remettre au travail</button>`;
         return (
           `<tr><td><b>${esc(p.name)}</b><small>${esc(p.facebookUserId ? `Facebook ${p.facebookUserId}` : 'identifiant Facebook inconnu')}</small></td>` +
           `<td><span class="chip ${tone}">${label}</span><small>${esc(since)}${p.detail ? ` · ${esc(p.detail.slice(0, 120))}` : ''}</small>` +
-          `${p.kind === 'checkpoint' ? '<small>Récupérable : confirmez l’identité sur Facebook, puis « Marquer rétabli ».</small>' : ''}` +
-          `${p.kind === 'logged_out' ? '<small>Reconnectez-vous à Facebook dans son navigateur NSTBrowser (resté ouvert) : il reprend seul. Sinon « Marquer reconnecté ».</small>' : ''}</td>` +
+          `${p.kind === 'checkpoint' ? '<small>Récupérable : confirmez l’identité sur Facebook, puis « Remettre au travail ».</small>' : ''}` +
+          `${p.kind === 'logged_out' ? '<small>Reconnectez-vous à Facebook dans son navigateur NSTBrowser (resté ouvert) : il reprend seul. Sinon « Remettre au travail ».</small>' : ''}</td>` +
           `<td>${p.groups} groupe(s)</td><td>${progress}</td><td><div class="row-actions">${actions}</div></td></tr>`
         );
       })
       .join('') || '<tr><td colspan="5" class="empty">Aucun profil suspendu par Facebook 🎉</td></tr>';
 }
 $('#suspended-rows').onclick = async (e) => {
+  // « Remettre au travail » : géré par le clic global ([data-unsuspend]).
   const remove = e.target.closest('[data-suspend-remove]');
-  const clear = e.target.closest('[data-suspend-clear]');
   if (remove) {
     const { suspendRemove: id, name, groups } = remove.dataset;
     if (!await ask(`Retirer « ${name} » de ses ${groups} groupe(s) ?\nLe modérateur le retire de chaque groupe sur Facebook, à rythme humain, et le lien est délié dans la plateforme. S’il récupère son compte plus tard, il devra redemander chaque groupe.`, { tone: 'danger', confirmLabel: 'Retirer' })) return;
     try {
       const r = await api(`/profiles/${id}/remove-from-groups`, { method: 'POST' });
       notice(`Retrait demandé au modérateur : ${r.requested} groupe(s).`);
-      await loadSuspended();
-    } catch (x) {
-      notice(x.message, 'error');
-    }
-  } else if (clear) {
-    const { suspendClear: id, name, kind } = clear.dataset;
-    const text = kind === 'logged_out'
-      ? `Marquer « ${name} » reconnecté ?\nFaites-le après vous être reconnecté à Facebook dans son navigateur : il reprend son travail.`
-      : `Marquer « ${name} » rétabli ?\nIl pourra de nouveau publier : rallumez son mode dans le Pilotage. Les retraits pas encore faits sont annulés.`;
-    if (!await ask(text, { confirmLabel: kind === 'logged_out' ? 'Marquer reconnecté' : 'Marquer rétabli' })) return;
-    try {
-      await api(`/profiles/${id}/suspension/clear`, { method: 'POST' });
-      notice(`« ${name} » rétabli.`);
       await loadSuspended();
     } catch (x) {
       notice(x.message, 'error');

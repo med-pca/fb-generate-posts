@@ -144,20 +144,44 @@ export class ProfilesService {
     return { requested: count };
   }
 
-  /** Le compte est récupéré : il peut reprendre (son mode reste à rallumer
-   * dans le Pilotage). Les retraits pas encore faits sont annulés. */
-  async clearSuspension(id: string, acting: CurrentUser | null) {
-    const profile = await this.prisma.profile.findFirst({ where: { id, ...profileWhere(scopeOf(acting)) }, select: { id: true, name: true } });
+  /** Le compte est récupéré : l'arrêt est levé, les retraits pas encore
+   * faits sont annulés. Avec `resume` (« Remettre au travail »), il retrouve
+   * son mode d'avant la suspension (AUTO s'il n'était pas connu) et reprend
+   * au prochain passage de l'agent ; sinon son mode reste à rallumer. S'il
+   * retombe sur une vérification, il est de nouveau arrêté tout seul. */
+  async clearSuspension(id: string, acting: CurrentUser | null, opts: { resume?: boolean } = {}) {
+    const profile = await this.prisma.profile.findFirst({
+      where: { id, ...profileWhere(scopeOf(acting)) },
+      select: { id: true, name: true, facebookSuspension: true, modeBeforeSuspension: true },
+    });
     if (!profile) throw new NotFoundException('Profil introuvable');
-    await this.prisma.profile.update({ where: { id }, data: { facebookSuspension: null, suspendedAt: null, suspensionDetail: null } });
+    await this.prisma.profile.update({ where: { id }, data: { facebookSuspension: null, suspendedAt: null, suspensionDetail: null, ...(opts.resume ? { modeBeforeSuspension: null } : {}) } });
+    let mode: string | null = null;
+    if (opts.resume) {
+      // Son mode d'avant ; sinon son mode actuel s'il n'a pas été coupé
+      // (déconnexion) ; sinon AUTO.
+      const current = (await this.prisma.profileRunner.findUnique({ where: { profileId: id }, select: { mode: true } }))?.mode;
+      const wanted = profile.modeBeforeSuspension ?? (current && current !== 'OFF' ? current : null);
+      mode = wanted === 'ON' ? 'ON' : 'AUTO';
+      await this.prisma.profileRunner.upsert({
+        where: { profileId: id },
+        create: { profileId: id, mode: mode as 'AUTO' | 'ON' },
+        update: { mode: mode as 'AUTO' | 'ON' },
+      });
+    }
     const { count } = await this.prisma.profileGroup.updateMany({
       where: { profileId: id, removalRequestedAt: { not: null }, removedAt: null },
       data: { removalRequestedAt: null, removalClaimedUntil: null },
     });
     await this.prisma.activityLog.create({
-      data: { profileId: id, eventType: 'PROFILE_SUSPENSION_CLEARED', message: `« ${profile.name} » marqué rétabli${count ? ` (${count} retrait(s) annulé(s))` : ''}`, metadata: { cancelled: count, by: acting?.username ?? 'clé globale' } },
+      data: {
+        profileId: id,
+        eventType: 'PROFILE_SUSPENSION_CLEARED',
+        message: `« ${profile.name} » ${mode ? `remis au travail (mode ${mode === 'ON' ? 'marche forcée' : 'auto'})` : 'marqué rétabli'}${profile.facebookSuspension ? ` après ${profile.facebookSuspension === 'checkpoint' ? 'une vérification Facebook' : profile.facebookSuspension === 'logged_out' ? 'une déconnexion' : 'une suspension'}` : ''}${count ? ` (${count} retrait(s) annulé(s))` : ''}`,
+        metadata: { cancelled: count, previous: profile.facebookSuspension, mode, by: acting?.username ?? 'clé globale' },
+      },
     });
-    return { cleared: true, cancelledRemovals: count };
+    return { cleared: true, cancelledRemovals: count, mode };
   }
 
   /** Confier des profils à un gestionnaire (ADMIN seulement) : il les voit,
