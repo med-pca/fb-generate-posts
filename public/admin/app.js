@@ -1270,6 +1270,7 @@ function runnerTags(r) {
   if (pairing === 'unconfirmed' || pairing === 'stale') tags.add('pairing-unconfirmed');
   if (r.status === 'INACTIVE') tags.add('inactive');
   if (r.pausedUntil) tags.add('paused');
+  if (r.restUntil) tags.add('cycle-rest');
   if (r.facebookSuspension === 'disabled') tags.add('suspended');
   if (r.facebookSuspension === 'checkpoint') tags.add('checkpoint');
   if (r.facebookSuspension === 'logged_out') tags.add('logged-out');
@@ -1370,6 +1371,7 @@ const PIL_QUICK = [
   ['suspended', '🚫 Suspendus', { state: 'suspended' }, 'bad'],
   ['logged-out', '🔌 Déconnectés', { state: 'logged-out' }, 'bad'],
   ['resting', '😴 Repos (rotation)', { state: 'resting' }],
+  ['cycle-rest', '⏳ En repos (rythme)', { state: 'cycle-rest' }],
   ['pairing', '🔑 Appairage à refaire', { state: 'pairing-broken' }, 'bad'],
 ];
 function renderPilotQuick() {
@@ -1432,6 +1434,11 @@ function renderRules() {
   if (!r) return;
   const f = $('#rules-pause');
   if (!f.contains(document.activeElement)) f.elements.rateLimitPauseDays.value = r.settings.rateLimitPauseDays;
+  const cf = $('#rules-cycle');
+  if (cf && !cf.contains(document.activeElement)) {
+    cf.elements.cycleMaxPosts.value = (state.settings || {}).cycleMaxPosts ?? '';
+    cf.elements.cyclePauseHours.value = (state.settings || {}).cyclePauseHours ?? 12;
+  }
   const ng = $('#rules-nst-groups');
   const ns = state.settings || {};
   if (ng && !ng.contains(document.activeElement)) {
@@ -1601,6 +1608,20 @@ $('#rules-mode').onchange = async (e) => {
   } catch (x) {
     notice(x.message, 'error');
     renderPilotMode();
+  }
+};
+$('#rules-cycle').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  try {
+    state.settings = await api('/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ cycleMaxPosts: f.cycleMaxPosts.value === '' ? null : Number(f.cycleMaxPosts.value), cyclePauseHours: Number(f.cyclePauseHours.value || 12) }),
+    });
+    notice(state.settings.cycleMaxPosts ? `Rythme : au plus ${state.settings.cycleMaxPosts} post(s), puis ${state.settings.cyclePauseHours} h de pause.` : 'Rythme : pas de règle.');
+    document.activeElement?.blur?.();
+  } catch (x) {
+    notice(x.message, 'error');
   }
 };
 const NST_STATE_GROUPS = ['nstGroupLimited', 'nstGroupCheckpoint', 'nstGroupDisabled', 'nstGroupLoggedOut'];
@@ -2027,6 +2048,8 @@ function renderRunners() {
           ? `<span class="chip join-failed" title="${esc(r.facebookSuspension === 'logged_out' ? 'Reconnectez-vous dans son navigateur NSTBrowser : il reprend seul (ou ⋯ → Remettre au travail). ' : '')}${esc(r.suspensionDetail || '')}">${SUSPENSION_CHIP[r.facebookSuspension] || r.facebookSuspension}</span>`
           : r.resting
           ? `<span class="chip sleep" title="${esc(r.restReason || '')}">😴 repos (rotation)</span>`
+          : r.restUntil
+          ? `<span class="chip sleep" title="Nombre de posts du cycle atteint : il reprend seul à l’heure dite">⏳ repos jusqu’au ${esc(new Date(r.restUntil).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · rythme</span>`
           : r.pausedUntil
           ? `<span class="chip join-failed" title="${esc(r.pauseReason || 'Facebook a limité ses publications')}">⏸ en pause jusqu’au ${esc(new Date(r.pausedUntil).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · limité par Facebook</span>`
           : r.sleepUntil
@@ -2059,6 +2082,7 @@ function renderRunners() {
           `<td><div class="row-actions"><button class="edit" data-runner-edit="${r.profileId}">Réglages</button>` +
           rowMenu([
             r.pausedUntil ? menuItem(`data-runner-resume="${r.profileId}" data-name="${esc(r.name)}"`, '▶ Lever la pause (limitation Facebook)') : '',
+            !r.pausedUntil && r.restUntil ? menuItem(`data-runner-resume="${r.profileId}" data-name="${esc(r.name)}" data-cycle="1"`, '▶ Lever la pause (rythme)') : '',
             r.facebookSuspension ? menuItem(`data-unsuspend="${r.profileId}" data-name="${esc(r.name)}" data-kind="${esc(r.facebookSuspension)}"`, '▶ Remettre au travail (compte récupéré)') : '',
             menuItem(`data-runner-pair="${r.profileId}"`, r.pairedAt ? '🔑 Ré-appairer' : '🔑 Appairer'),
             menuItem(`data-fb-id="${r.profileId}" data-current="${esc(r.facebookUserId || '')}"`, r.facebookUserId ? '👤 Modifier l’identifiant Facebook' : '👤 Saisir l’identifiant Facebook'),
@@ -2086,7 +2110,10 @@ function renderRunners() {
   $$('[data-runner-resume]').forEach(
     (button) =>
       (button.onclick = async () => {
-        if (!(await ask(`Lever la pause de « ${button.dataset.name} » ?\nFacebook l’avait limité : reprendre trop tôt peut prolonger la sanction.`, { tone: 'warn', confirmLabel: 'Lever la pause' }))) return;
+        const text = button.dataset.cycle
+          ? `Lever la pause de « ${button.dataset.name} » ?\nIl avait atteint son nombre de posts : un nouveau cycle commence maintenant.`
+          : `Lever la pause de « ${button.dataset.name} » ?\nFacebook l’avait limité : reprendre trop tôt peut prolonger la sanction.`;
+        if (!(await ask(text, { tone: 'warn', confirmLabel: 'Lever la pause' }))) return;
         try {
           await api(`/runners/${button.dataset.runnerResume}/resume`, { method: 'POST' });
           notice('Pause levée : il reprend au prochain battement, selon son mode.');
@@ -2231,6 +2258,8 @@ function openRunnerModal(profileId) {
   form.elements.windowEnd.value = minutesToTime(runner.windowEnd);
   form.elements.timezone.value = runner.timezone || '';
   form.elements.dailyQuota.value = runner.dailyQuota ?? '';
+  form.elements.cycleMaxPosts.value = runner.cycleMaxPosts ?? '';
+  form.elements.cyclePauseHours.value = runner.cyclePauseHours ?? '';
   // La veille a sa case ; le reste des réglages poussés reste en JSON.
   const { closeWhenIdle, closeIfWaitMinutes, ...otherSettings } = runner.settings || {};
   form.elements.closeWhenIdle.checked = Boolean(closeWhenIdle);
@@ -2292,6 +2321,8 @@ $('#runner-form').onsubmit = async (e) => {
     days,
     timezone: form.elements.timezone.value.trim() || 'Europe/Paris',
     dailyQuota: form.elements.dailyQuota.value === '' ? null : Number(form.elements.dailyQuota.value),
+    cycleMaxPosts: form.elements.cycleMaxPosts.value === '' ? null : Number(form.elements.cycleMaxPosts.value),
+    cyclePauseHours: form.elements.cyclePauseHours.value === '' ? null : Number(form.elements.cyclePauseHours.value),
     settings,
   });
   $('#runner-modal').close();
@@ -2744,7 +2775,7 @@ $('#assign-form').onsubmit = async (e) => {
 };
 /** Les réglages communs à tous les comptes : un gestionnaire les voit, sans
  * pouvoir les changer (le serveur refuse de toute façon). */
-const GLOBAL_SETTINGS = ['#objective-form', '#pacing-form', '#rewrite-style-form', '#rules-mode', '#rules-pause', '#rules-nst-groups', '#rules-image', '#rules-image-key', '#sites-paging', '#repeat-form', '#publishing-enabled'];
+const GLOBAL_SETTINGS = ['#objective-form', '#pacing-form', '#rewrite-style-form', '#rules-mode', '#rules-pause', '#rules-nst-groups', '#rules-cycle', '#rules-image', '#rules-image-key', '#sites-paging', '#repeat-form', '#publishing-enabled'];
 function lockGlobalSettings(admin) {
   for (const sel of GLOBAL_SETTINGS) {
     const el = $(sel);

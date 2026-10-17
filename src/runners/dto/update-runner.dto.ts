@@ -61,6 +61,23 @@ export class UpdateRunnerDto {
   @Max(1000)
   dailyQuota?: number | null;
 
+  /** Son rythme : au plus N posts, puis une pause. null = règle générale,
+   * 0 = jamais de pause. */
+  @ApiPropertyOptional({ minimum: 0, maximum: 1000, nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  cycleMaxPosts?: number | null;
+
+  /** La durée de sa pause (heures). null = règle générale. */
+  @ApiPropertyOptional({ minimum: 1, maximum: 168, nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(168)
+  cyclePauseHours?: number | null;
+
   @ApiPropertyOptional({ type: 'object', additionalProperties: true })
   @IsOptional()
   @IsObject()

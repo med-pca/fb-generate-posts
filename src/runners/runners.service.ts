@@ -60,6 +60,7 @@ type RunnerRow = {
   lastSeenAt: Date | null;
   sleepUntil?: Date | null;
   pausedUntil?: Date | null;
+  restUntil?: Date | null;
 };
 
 /** Une veille ne dure pas plus d'un jour : une heure aberrante (horloge
@@ -395,6 +396,10 @@ export class RunnersService {
       return stop(`en pause jusqu’au ${pauseEnd(runner.pausedUntil, runner.timezone)} — Facebook a limité ses publications`);
     }
     if (mode === RunnerMode.OFF) return stop('arrêté depuis l’admin');
+    // Son rythme : N posts publiés, puis une pause de X heures.
+    if (runner.restUntil && runner.restUntil.getTime() > now.getTime()) {
+      return stop(`⏳ repos jusqu’au ${pauseEnd(runner.restUntil, runner.timezone)} — nombre de posts du cycle atteint`);
+    }
 
     const go = (reason: string) => ({
       run: true,
@@ -899,6 +904,10 @@ export class RunnersService {
           pausedUntil: runner?.pausedUntil && runner.pausedUntil > now ? runner.pausedUntil : null,
           dailyQuota: runner?.dailyQuota ?? null,
           pauseReason: runner?.pausedUntil && runner.pausedUntil > now ? runner.pauseReason : null,
+          // Repos après N posts (rythme), et ses réglages propres.
+          restUntil: runner?.restUntil && runner.restUntil > now ? runner.restUntil : null,
+          cycleMaxPosts: runner?.cycleMaxPosts ?? null,
+          cyclePauseHours: runner?.cyclePauseHours ?? null,
           browserState: runner?.browserState ?? BrowserState.STOPPED,
           browserSeenAt: runner?.browserSeenAt ?? null,
           browserMessage: runner?.browserMessage ?? null,
@@ -942,6 +951,8 @@ export class RunnersService {
       ...(dto.days !== undefined ? { days: dto.days || null } : {}),
       ...(dto.timezone !== undefined ? { timezone: dto.timezone } : {}),
       ...(dto.dailyQuota !== undefined ? { dailyQuota: dto.dailyQuota } : {}),
+      ...(dto.cycleMaxPosts !== undefined ? { cycleMaxPosts: dto.cycleMaxPosts } : {}),
+      ...(dto.cyclePauseHours !== undefined ? { cyclePauseHours: dto.cyclePauseHours } : {}),
       ...(dto.settings !== undefined
         ? { settings: (dto.settings ?? null) as Prisma.InputJsonValue }
         : {}),
@@ -972,7 +983,8 @@ export class RunnersService {
     });
     if (!profile) throw new NotFoundException('Profil introuvable');
     assertMayManage(profile, acting);
-    await this.prisma.profileRunner.updateMany({ where: { profileId }, data: { pausedUntil: null, pauseReason: null } });
+    // Lever la pause lève aussi le repos du rythme ; un nouveau cycle commence.
+    await this.prisma.profileRunner.updateMany({ where: { profileId }, data: { pausedUntil: null, pauseReason: null, restUntil: null, cycleStartedAt: new Date() } });
     await this.prisma.activityLog.create({
       data: {
         profileId,

@@ -12,6 +12,7 @@ import { startOfLocalDay } from '../insights/insights.service';
 import { localClock } from '../runners/window';
 import { adaptiveGap, pace } from '../insights/objective';
 import { CampaignsService } from '../campaigns/campaigns.service';
+import { cycleRule, cycleSince } from '../runners/cycle';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaimJobDto } from './dto/claim-job.dto';
 import { ClaimBatchDto } from './dto/claim-batch.dto';
@@ -532,6 +533,17 @@ export class JobsService {
     }
     const exclude = day?.exclude ?? null;
 
+    // Le rythme : N posts, puis une pause de X heures.
+    const cycle = await this.cycleState(profile.id);
+    if (cycle?.restUntil) {
+      return {
+        job: null,
+        posts: [],
+        reason: 'rest',
+        message: `⏳ En repos jusqu’au ${cycle.restUntil.toISOString().slice(0, 16).replace('T', ' ')} UTC : ${cycle.max} post(s) publiés, pause de ${cycle.hours} h`,
+      };
+    }
+
     // Un profil correspond à un compte : lui confier un second job pendant
     // qu'il en traite un ferait publier deux threads sur le même compte.
     const active = await this.prisma.publicationJob.findFirst({
@@ -660,7 +672,7 @@ export class JobsService {
     }
     for (const group of ordered) {
       const left = rules.groups.get(group.id)?.left ?? null;
-      const caps = [left, rules.quotaLeft, campaignLeft].filter((n): n is number => n !== null);
+      const caps = [left, rules.quotaLeft, campaignLeft, cycle?.left ?? null].filter((n): n is number => n !== null);
       const result = await this.claim(
         { profileId: profile.id, groupId: group.id },
         acting,
@@ -1069,7 +1081,42 @@ export class JobsService {
     );
     if (dto.pendingApproval) await this.notePendingApproval(result.postTargetId, jobId, postId, publishedAt);
     await this.archiveArticleOf(postId, publishedAt);
+    await this.noteCycle(jobId).catch(() => undefined);
     return result;
+  }
+
+  /** Le rythme du profil : où il en est de son cycle (N posts, puis pause).
+   * `null` sans règle. `restUntil` : en repos jusque-là. */
+  async cycleState(profileId: string, now = new Date()) {
+    const [settings, runner] = await Promise.all([
+      Promise.resolve(this.prisma.automationSetting?.findUnique({ where: { id: 'global' }, select: { cycleMaxPosts: true, cyclePauseHours: true } })).catch(() => null),
+      Promise.resolve(this.prisma.profileRunner?.findUnique({ where: { profileId }, select: { cycleMaxPosts: true, cyclePauseHours: true, cycleStartedAt: true, restUntil: true } })).catch(() => null),
+    ]);
+    const rule = cycleRule(settings, runner);
+    if (!rule.max) return null;
+    if (runner?.restUntil && runner.restUntil > now) return { ...rule, used: rule.max, left: 0, restUntil: runner.restUntil };
+    const used = await this.prisma.publicationJobItem.count({
+      where: { status: TargetStatus.PUBLISHED, publishedAt: { gte: cycleSince(runner, now) }, job: { profileId } },
+    });
+    return { ...rule, used, left: Math.max(0, rule.max - used), restUntil: null as Date | null };
+  }
+
+  /** Après chaque post publié : le N-ième ouvre la pause de X heures (le
+   * cycle suivant commencera à sa fin). */
+  private async noteCycle(jobId: string, now = new Date()) {
+    const job = await this.prisma.publicationJob.findUnique({ where: { id: jobId }, select: { profileId: true, profile: { select: { name: true } } } });
+    if (!job) return;
+    const cycle = await this.cycleState(job.profileId, now);
+    if (!cycle || cycle.restUntil || cycle.used < (cycle.max as number)) return;
+    const restUntil = new Date(now.getTime() + cycle.hours * 3_600_000);
+    await this.prisma.profileRunner.update({ where: { profileId: job.profileId }, data: { restUntil, cycleStartedAt: restUntil } });
+    await this.log({
+      profileId: job.profileId,
+      jobId,
+      eventType: 'PROFILE_CYCLE_REST',
+      message: `« ${job.profile.name} » : ${cycle.used} post(s) publiés — pause de ${cycle.hours} h (reprise le ${restUntil.toISOString().slice(0, 16).replace('T', ' ')} UTC)`,
+      metadata: { used: cycle.used, max: cycle.max, hours: cycle.hours, restUntil: restUntil.toISOString() },
+    });
   }
 
   /* ── En attente de validation par l'administrateur du groupe ─────────────

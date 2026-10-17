@@ -1110,6 +1110,7 @@
                   <option value="pairing-unconfirmed">Appairage non confirmé</option>
                   <option value="unpaired">Jamais appairé</option>
                   <option value="paused">⏸ En pause (limite Facebook)</option>
+                  <option value="cycle-rest">⏳ En repos (rythme : N posts atteints)</option>
                   <option value="suspended">🚫 Suspendu par Facebook</option>
                   <option value="checkpoint">⚠ Vérification Facebook demandée</option>
                   <option value="logged-out">🔌 Déconnecté de Facebook</option>
@@ -1251,6 +1252,15 @@
               <p class="form-help">Quand Facebook affiche « <i>We limit how often you can post…</i> » (ou sa traduction), le profil est mis en pause : il ne publie plus jusqu’à la fin de la pause, son lot en cours et ses posts passent aux autres profils actifs. On peut lever la pause plus tôt depuis sa ligne (⋯ → ▶ Lever la pause).</p>
               <form id="rules-pause" class="rules-pause">
                 <label>Pause de <input name="rateLimitPauseDays" type="number" min="1" max="60" required /> jour(s)</label>
+                <button class="primary" type="submit">Enregistrer</button>
+              </form>
+            </div>
+            <div class="panel rules-panel">
+              <div class="panel-head"><div><small>RYTHME DES PROFILS</small><h2>Pause après un nombre de posts</h2></div></div>
+              <p class="form-help">Chaque profil publie au plus ce nombre de posts, puis se repose pendant la durée choisie : il ne réserve plus rien et l’agent local n’ouvre pas son navigateur. Les lots sont coupés pour ne jamais dépasser le nombre. Un profil peut avoir son propre rythme (ses Réglages). Vide = pas de règle. On peut lever un repos depuis la ligne du profil (⋯ → ▶ Lever la pause).</p>
+              <form id="rules-cycle" class="rules-pause">
+                <label>Au plus <input name="cycleMaxPosts" type="number" min="1" max="1000" placeholder="sans règle" /> post(s) par profil</label>
+                <label>puis une pause de <input name="cyclePauseHours" type="number" min="1" max="168" required /> heure(s)</label>
                 <button class="primary" type="submit">Enregistrer</button>
               </form>
             </div>
@@ -1467,6 +1477,11 @@
           >Quota : posts par jour <input name="dailyQuota" type="number" min="0" max="1000" placeholder="sans quota" />
           <small>Au plus N publications par jour pour ce profil (fuseau de l’objectif). Vide = sans quota.</small></label
         >
+        <div class="two">
+          <label>Rythme : pause après <input name="cycleMaxPosts" type="number" min="0" max="1000" placeholder="règle générale" /> post(s)
+            <small>Vide = la règle générale (Pilotage → Règles) ; 0 = jamais de pause pour ce profil.</small></label>
+          <label>pause de <input name="cyclePauseHours" type="number" min="1" max="168" placeholder="règle générale" /> heure(s)</label>
+        </div>
         <label
           >Réglages poussés au navigateur (JSON)<textarea
             name="settings"

@@ -8,6 +8,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { REPEAT_LIMITS } from '../../posts/repeat.service';
 
@@ -90,6 +91,11 @@ export class UpdateSettingsDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) nstGroupCheckpoint?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) nstGroupDisabled?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) nstGroupLoggedOut?: string;
+
+  /** Rythme des profils : au plus N posts, puis une pause (null = pas de règle). */
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @ValidateIf((_d, v) => v !== null) @IsInt() @Min(1) @Max(1000) cycleMaxPosts?: number | null;
+  /** La durée de la pause, en heures. */
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(168) cyclePauseHours?: number;
 
   /** Les captures « 💬 Engagement » attendent une validation avant publication. */
   @ApiPropertyOptional() @IsOptional() @IsBoolean() engagementReview?: boolean;

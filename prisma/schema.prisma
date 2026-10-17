@@ -646,6 +646,10 @@ model AutomationSetting {
   rewriteStyle               String   @default("seo") @map("rewrite_style")
   /// Les captures « 💬 Engagement » attendent une validation avant publication.
   engagementReview           Boolean  @default(true) @map("engagement_review")
+  /// Rythme des profils : au plus N posts, puis une pause de X heures.
+  /// NULL = pas de règle.
+  cycleMaxPosts              Int?     @map("cycle_max_posts")
+  cyclePauseHours            Int      @default(12) @map("cycle_pause_hours")
   /// Les groupes NSTBrowser où l'agent range un profil selon son état (à créer
   /// une fois à la main dans NSTBrowser : l'API ne crée pas de groupe).
   nstGroupLimited            String   @default("PostFlow · Limités") @map("nst_group_limited")
@@ -854,24 +858,33 @@ model ProfileRunner {
   keyRejectReason   String?   @map("key_reject_reason")
 
   /// Ce que l'extension rapporte a chaque battement.
-  lastSeenAt  DateTime? @map("last_seen_at")
+  lastSeenAt      DateTime? @map("last_seen_at")
   /// L'extension a fermé son navigateur pour rendre la mémoire entre deux
   /// lots : l'agent local ne le rouvre qu'à cette heure-là. NULL = éveillé.
-  sleepUntil  DateTime? @map("sleep_until")
+  sleepUntil      DateTime? @map("sleep_until")
   /// En pause jusqu'à cette date : Facebook a limité ses publications. Il ne
   /// réserve plus rien ; levée seule à l'échéance, ou par l'admin.
-  pausedUntil DateTime? @map("paused_until")
-  pauseReason String?   @map("pause_reason") @db.Text
+  pausedUntil     DateTime? @map("paused_until")
+  pauseReason     String?   @map("pause_reason") @db.Text
   /// Quota du profil : au plus N publications par jour (fuseau de l'objectif).
   /// NULL = pas de quota.
-  dailyQuota  Int?      @map("daily_quota")
-  running     Boolean   @default(false)
-  phase       String?
-  message     String?   @db.Text
-  published   Int       @default(0)
-  failed      Int       @default(0)
-  links       Int       @default(0)
-  agent       String?
+  dailyQuota      Int?      @map("daily_quota")
+  /// Rythme du profil (remplace la règle générale) : au plus N posts, puis une
+  /// pause. NULL = règle générale ; 0 = jamais de pause pour ce profil.
+  cycleMaxPosts   Int?      @map("cycle_max_posts")
+  cyclePauseHours Int?      @map("cycle_pause_hours")
+  /// Le cycle en cours a commencé là (fin de la dernière pause) : les posts
+  /// comptent depuis. NULL = les dernières 24 h.
+  cycleStartedAt  DateTime? @map("cycle_started_at")
+  /// En repos jusqu'à cette date : N posts publiés, pause de X heures.
+  restUntil       DateTime? @map("rest_until")
+  running         Boolean   @default(false)
+  phase           String?
+  message         String?   @db.Text
+  published       Int       @default(0)
+  failed          Int       @default(0)
+  links           Int       @default(0)
+  agent           String?
 
   /// Ce que l'agent local rapporte sur le navigateur lui-meme.
   browserState   BrowserState @default(STOPPED) @map("browser_state")
