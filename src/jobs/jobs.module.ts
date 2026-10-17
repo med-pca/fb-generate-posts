@@ -5,9 +5,10 @@ import { MediaController } from './media.controller';
 import { AdminJobsController } from './admin-jobs.controller';
 import { MediaService } from './media.service';
 import { CampaignsModule } from '../campaigns/campaigns.module';
+import { RescueModule } from './rescue.module';
 
 @Module({
-  imports: [CampaignsModule],
+  imports: [CampaignsModule, RescueModule],
   controllers: [JobsController, MediaController, AdminJobsController],
   providers: [JobsService, MediaService],
   exports: [JobsService],

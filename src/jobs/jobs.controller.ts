@@ -27,13 +27,18 @@ import { PublishJobItemDto } from './dto/publish-job-item.dto';
 import { ApprovalReportDto } from './dto/approval-report.dto';
 import { SuspensionReportDto } from './dto/suspension.dto';
 import { JobsService } from './jobs.service';
+import { RescueService } from './rescue.service';
+import { RescueReportDto } from './dto/rescue-report.dto';
 
 @ApiTags('jobs')
 @ApiHeader({ name: 'X-API-Key', required: true })
 @UseGuards(AutomationAuthGuard)
 @Controller('jobs')
 export class JobsController {
-  constructor(private readonly jobs: JobsService) {}
+  constructor(
+    private readonly jobs: JobsService,
+    private readonly rescue: RescueService,
+  ) {}
 
   @Get('profiles')
   @ApiOperation({
@@ -126,6 +131,27 @@ export class JobsController {
     @ActingUser() acting: CurrentUser | null,
   ) {
     return this.jobs.reconnected(profileExternalId, acting);
+  }
+
+  @Get('rescues/profile/:profileExternalId')
+  @ApiOperation({ summary: '🛟 Posts d’autres profils publiés sans leur lien, dans les groupes de ce profil : à lui de poser le lien (réservés pour lui)' })
+  rescuesDue(
+    @Param('profileExternalId') profileExternalId: string,
+    @ActingUser() acting: CurrentUser | null,
+    @Query('limit') limit?: string,
+  ) {
+    const n = Number(limit);
+    return this.rescue.due(profileExternalId, acting, Number.isInteger(n) && n > 0 ? Math.min(n, 5) : 2);
+  }
+
+  @Post('rescues/:targetId')
+  @ApiOperation({ summary: '🛟 Résultat d’un sauvetage : lien posé, déjà présent, ou impossible (au suivant)' })
+  rescueReport(
+    @Param('targetId') targetId: string,
+    @Body() dto: RescueReportDto,
+    @ActingUser() acting: CurrentUser | null,
+  ) {
+    return this.rescue.report(targetId, dto.profileExternalId, dto, acting);
   }
 
   @Get('approvals/profile/:profileExternalId')

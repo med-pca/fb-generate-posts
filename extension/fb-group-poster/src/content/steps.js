@@ -553,6 +553,13 @@
   /* Does that comment already hold this exact text? Asked before editing, so a
    * link saved on Facebook but never acknowledged by the API is not written
    * twice. */
+  /* 🛟 Le lien est-il déjà sous ce post (dans n'importe quel commentaire) ?
+   * Un lien s'affiche raccourci : reconnu par sa destination. */
+  steps.pageHasLink = async ({ url }) => {
+    const state = D.linkState(document.body, D.norm(url));
+    return state.holds ? { ok: true } : { ok: false, reason: 'the link is not under the post' };
+  };
+
   steps.commentHoldsText = async ({ commentId, text }) => {
     const c = D.commentById(commentId);
     if (!c) return { ok: false, reason: 'the target comment is not on the page' };

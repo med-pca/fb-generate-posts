@@ -11,6 +11,7 @@ const NUMBERS = [
 const FLAGS = [
   'controlEnabled',
   'addFirstComment',
+  'rescueLinks',
   'focusWorkTab',
   'reuseWorkTab',
   'closeWhenIdle',

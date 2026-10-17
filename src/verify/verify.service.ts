@@ -1,4 +1,5 @@
 import {
+  Optional,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -8,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Prisma, TargetStatus, VerifyStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { RescueService } from '../jobs/rescue.service';
 import type { CurrentUser } from '../auth/current-user';
 import { postWhere, profileWhere, scopeOf } from '../auth/scope';
 import { normalizeFacebookUrl, trace } from '../trace/trace';
@@ -57,6 +59,8 @@ export class VerifyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    /** 🛟 Le sauvetage du lien : on le laisse finir avant de juger un post. */
+    @Optional() private readonly rescue?: RescueService,
   ) {}
 
   private verifyAfterMinutes() {
@@ -98,6 +102,9 @@ export class VerifyService {
       AND: [
         { OR: [{ verifyClaimedUntil: null }, { verifyClaimedUntil: { lt: now } }] },
         { post: postWhere(scopeOf(acting)) },
+        // Un profil sauveteur va poser le lien : ne pas supprimer ce post
+        // pendant ce temps (sans sauveteur en 6 h, le vérificateur reprend).
+        { OR: [{ rescueStatus: null }, { rescueStatus: { notIn: ['pending', 'claimed'] } }] },
       ],
       // Sans adresse Facebook aussi : le vérificateur cherche alors le post
       // dans le groupe, et rapporte l'adresse trouvée.
@@ -116,6 +123,8 @@ export class VerifyService {
     if (moderator.moderatorPaused) {
       return { tasks: [], paused: true, verifyAfterMinutes: this.verifyAfterMinutes() };
     }
+    // Les posts sans lien sont d'abord confiés à un sauveteur.
+    await this.rescue?.sweep(now).catch(() => undefined);
     const due = await this.prisma.postTarget.findMany({
       where: this.dueWhere(acting, now),
       orderBy: { publishedAt: 'asc' },

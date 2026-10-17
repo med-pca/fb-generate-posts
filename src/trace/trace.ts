@@ -26,6 +26,9 @@ export const TRACE_KINDS = {
   RECREATED: 'Recréé à la main depuis l’article',
   NEEDS_ACTION: 'À traiter',
   RESOLVED_OK: 'Validé à la main',
+  RESCUE_REQUESTED: '🛟 Lien manquant : sauvetage demandé à un autre profil du groupe',
+  RESCUED: '🛟 Lien posé par un profil sauveteur',
+  RESCUE_FAILED: '🛟 Sauvetage impossible : le vérificateur reprend la main',
 } as const;
 export type TraceKind = keyof typeof TRACE_KINDS;
 

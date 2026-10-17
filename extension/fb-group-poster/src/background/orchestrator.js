@@ -21,6 +21,7 @@ import { fetchImage, ImageError } from './media.js';
 import { publishPost, findPublished } from './publish.js';
 import { placeLinks, placeLinkNow, ensureComment } from './links.js';
 import { checkApprovals } from './approvals.js';
+import { rescueLinks } from './rescue.js';
 import { askControl, applyPushedSettings, facebookUserId } from './control.js';
 import * as tab from './tab.js';
 import { SUSPENDED_KEY } from './tab.js';
@@ -299,6 +300,16 @@ async function doClaim(config, api, state) {
       await checkApprovals(config, api);
     } catch (err) {
       await warn(`Revérification des posts en attente interrompue : ${err.message}`);
+    }
+  }
+
+  // 🛟 Profil sauveteur : les posts d'autres profils de ses groupes publiés
+  // sans leur lien. Il le pose, avant de prendre son propre lot.
+  if (!config.groupExternalId) {
+    try {
+      await rescueLinks(config, api);
+    } catch (err) {
+      await warn(`Sauvetage des liens interrompu : ${err.message}`);
     }
   }
 

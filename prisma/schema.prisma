@@ -713,6 +713,19 @@ model PostTarget {
   /// Effacée quand la publication est remise dans la file ; l'ancienne reste
   /// dans l'historique (`traces`).
   facebookUrl             String?              @map("facebook_url") @db.Text
+  /// 🛟 Sauvetage : publié, mais le lien n'a pas été mis dans le premier
+  /// commentaire par son auteur. Un AUTRE de nos profils du groupe ouvre le
+  /// post et y pose le lien (son propre commentaire). pending → claimed →
+  /// done | failed. Le vérificateur attend la fin du sauvetage.
+  rescueStatus            String?              @map("rescue_status")
+  rescueProfileId         String?              @map("rescue_profile_id")
+  rescueClaimedUntil      DateTime?            @map("rescue_claimed_until")
+  rescueAttempts          Int                  @default(0) @map("rescue_attempts")
+  /// Les profils qui ont déjà essayé (pas deux fois le même).
+  rescueTriedBy           String[]             @default([]) @map("rescue_tried_by")
+  rescueRequestedAt       DateTime?            @map("rescue_requested_at")
+  rescueDoneAt            DateTime?            @map("rescue_done_at")
+  rescueDetail            String?              @map("rescue_detail") @db.Text
   jobItems                PublicationJobItem[]
   logs                    ActivityLog[]
   traces                  PublicationTrace[]
@@ -723,6 +736,7 @@ model PostTarget {
   @@index([groupId, status])
   @@index([forcedProfileId])
   @@index([status, verifyStatus])
+  @@index([rescueStatus])
   @@map("post_targets")
 }
 

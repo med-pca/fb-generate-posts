@@ -96,6 +96,20 @@ export class JobApi {
     });
   }
 
+  /* 🛟 Les posts d'autres profils à sauver (lien manquant), réservés pour celui-ci. */
+  rescuesDue(profileExternalId, limit = 2) {
+    return this.request('GET', `/jobs/rescues/profile/${encodeURIComponent(profileExternalId)}?limit=${limit}`);
+  }
+
+  reportRescue(targetId, profileExternalId, outcome, { detail = '', commentExternalId = '' } = {}) {
+    return this.request('POST', `/jobs/rescues/${encodeURIComponent(targetId)}`, {
+      profileExternalId,
+      outcome,
+      ...(detail ? { detail: String(detail).slice(0, 500) } : {}),
+      ...(commentExternalId ? { commentExternalId } : {}),
+    });
+  }
+
   /* Une session Facebook est de nouveau ouverte : le profil déconnecté reprend. */
   reportReconnected(profileExternalId) {
     return this.request('POST', `/jobs/profiles/${encodeURIComponent(profileExternalId)}/reconnected`, {});

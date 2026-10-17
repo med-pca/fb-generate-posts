@@ -309,3 +309,41 @@ async function waitForPreview(tabId, commentId, config, where) {
   if (card.ok) await info(`Apercu du site charge ${label} (${took}s)`);
   else await warn(`Apercu du site non detecte ${label} apres ${took}s : ${card.reason}`);
 }
+
+/* 🛟 Remplacer le texte d'UN commentaire (le nôtre) par le lien, puis le
+ * vérifier sur la page rechargée : le même chemin que pour nos propres posts,
+ * sans passer par le lot (le profil sauveteur n'en a pas). */
+export async function editToLink(tabId, config, commentId, postUrl, link) {
+  const targetOf = (id) => `${postUrl}${postUrl.includes('?') ? '&' : '?'}comment_id=${id}`;
+  const stepMs = config.stepTimeoutSeconds * 1000;
+  let trusted = false;
+  try {
+    await cdp.attach(tabId);
+    trusted = true;
+  } catch (err) {
+    await warn(`Saisie de confiance indisponible (${err.message}) : essai en evenements simules`);
+  }
+  try {
+    let saved = { ok: false, reason: 'not tried' };
+    for (let round = 1; round <= MAX_TRIES; round += 1) {
+      await tab.navigate(tabId, targetOf(commentId), config);
+      saved = trusted
+        ? await editTrusted(tabId, commentId, link, stepMs, config)
+        : await tab.step(tabId, 'editCommentById', { commentId, newText: link, stepTimeoutMs: stepMs }, stepMs + 20000);
+      if (!saved.ok) {
+        if (saved.skipped) return saved;
+        continue;
+      }
+      await tab.navigate(tabId, targetOf(commentId), config);
+      const kept = await until(tabId, 'commentHoldsText', { commentId, text: link }, 15000);
+      if (kept.ok) return { ok: true };
+      saved = { ok: false, reason: `apres rechargement, le commentaire ne porte pas le lien : ${kept.reason}` };
+    }
+    return saved;
+  } finally {
+    if (trusted) {
+      await cdp.pressEscape(tabId).catch(() => null);
+      await cdp.detach(tabId);
+    }
+  }
+}

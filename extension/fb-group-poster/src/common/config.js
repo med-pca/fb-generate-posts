@@ -28,6 +28,9 @@ export const DEFAULTS = {
   // URL right after. A plain "." rather than the whole description: the
   // comment is a placeholder, and repeating the post reads as spam.
   addFirstComment: true,
+  // 🛟 Profil sauveteur : avant de prendre un lot, poser le lien sous les posts
+  // d'AUTRES profils de ses groupes publiés sans lui (2 au plus par passage).
+  rescueLinks: true,
   // Empty = the description, as before.
   firstCommentText: '.',
 
@@ -87,6 +90,7 @@ export const DEFAULTS = {
  */
 export const PUSHABLE = [
   'addFirstComment',
+  'rescueLinks',
   'firstCommentText',
   'linkPreviewMinSeconds',
   'linkPreviewWaitSeconds',
