@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { postWhere, profileWhere, scopeOf } from '../auth/scope';
 import { trace } from '../trace/trace';
-import { claimablePostWhere, profilesForPostWhere } from './claimable';
+import { claimablePostWhere, profilesForPostWhere, type ClaimPost } from './claimable';
 
 /** Deux profils sauveteurs au plus par post : au-delà, le vérificateur reprend
  * la main (supprimer et republier, comme avant). */
@@ -37,11 +37,7 @@ export class RescueService {
   /** Les profils qui peuvent sauver ce post : membres du groupe, actifs,
    * pas suspendus, pas modérateurs, ni l'auteur, ni ceux qui ont essayé —
    * et du compte à qui est le post (chaque compte garde ses publications). */
-  private rescuersWhere(
-    groupId: string,
-    exclude: string[],
-    post: { ownerId: string | null; owner?: { role: string } | null },
-  ): Prisma.ProfileGroupWhereInput {
+  private rescuersWhere(groupId: string, exclude: string[], post: ClaimPost): Prisma.ProfileGroupWhereInput {
     return {
       groupId,
       status: 'ACTIVE',
@@ -120,7 +116,13 @@ export class RescueService {
         rescueAttempts: true,
         rescueTriedBy: true,
         facebookUrl: true,
-        post: { select: { ownerId: true, owner: { select: { role: true } } } },
+        post: {
+          select: {
+            ownerId: true,
+            owner: { select: { role: true } },
+            article: { select: { source: { select: { access: { select: { userId: true } } } } } },
+          },
+        },
       },
     });
     if (!target || target.rescueStatus === 'done' || target.rescueAttempts >= MAX_RESCUES || !target.facebookUrl) return false;

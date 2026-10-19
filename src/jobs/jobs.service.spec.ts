@@ -559,13 +559,19 @@ describe('JobsService — groupes rejoints uniquement', () => {
     ]);
   });
 
-  it('un profil de gestionnaire ne cherche que ses posts et ceux de son compte', async () => {
+  it('un profil de gestionnaire cherche ses posts, ceux de son compte et des sites qui lui sont partagés', async () => {
     const { service, prisma } = makeClaimHarness();
     await service.claimByProfileExternalId('demo-profile');
     const [[{ where }]] = prisma.group.findMany.mock.calls;
     expect(where.targets.some.post).toEqual({
       status: 'AVAILABLE',
-      OR: [{ profileId: 'profile_1' }, { profileId: null, OR: [{ ownerId: 'u1' }] }],
+      OR: [
+        { profileId: 'profile_1' },
+        {
+          profileId: null,
+          OR: [{ ownerId: 'u1' }, { article: { source: { access: { some: { userId: 'u1' } } } } }],
+        },
+      ],
     });
   });
 
@@ -581,10 +587,17 @@ describe('JobsService — groupes rejoints uniquement', () => {
     expect([manager, admin, synced].map((p) => mayPublishPost(p, adminPost))).toEqual([false, true, true]);
     expect([manager, admin, synced].map((p) => mayPublishPost(p, openPost))).toEqual([false, true, true]);
     expect([manager, admin, synced].map((p) => mayPublishPost(p, karimPost))).toEqual([true, false, false]);
+    // Un site partagé avec karim : ses profils publient aussi les posts de
+    // l'admin qui en viennent (le dépôt WordPress les donne au propriétaire
+    // du site).
+    const sharedPost = { ...adminPost, article: { source: { access: [{ userId: 'karim' }] } } };
+    expect([manager, admin, synced].map((p) => mayPublishPost(p, sharedPost))).toEqual([true, true, true]);
+    const otherManager = { id: 'po', ownerId: 'sara', owner: { role: 'MANAGER' } };
+    expect(mayPublishPost(otherManager, sharedPost)).toBe(false);
     // Un post attribué à un profil ne va qu'à lui.
     expect(mayPublishPost(admin, { ...adminPost, profileId: 'pm' })).toBe(false);
-    expect(claimablePostWhere(admin)).toEqual({
-      OR: [{ profileId: 'pa' }, { profileId: null, OR: [{ ownerId: 'boss' }, { ownerId: null }, { owner: { role: 'ADMIN' } }] }],
+    expect(claimablePostWhere(synced)).toEqual({
+      OR: [{ profileId: 'ps' }, { profileId: null, OR: [{ ownerId: null }, { owner: { role: 'ADMIN' } }] }],
     });
   });
 });

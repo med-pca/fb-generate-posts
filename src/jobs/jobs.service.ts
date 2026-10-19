@@ -236,7 +236,8 @@ export class JobsService {
           -- (sauf envoi forcé vers lui par l'admin).
           AND (pt.avoid_profile_id IS NULL OR pt.avoid_profile_id <> ${dto.profileId} OR pt.forced_profile_id = ${dto.profileId})
           -- Chaque compte garde ses publications (claimablePostWhere) : un
-          -- profil de gestionnaire, les posts de son gestionnaire ; un profil
+          -- profil de gestionnaire, les posts de son gestionnaire et ceux des
+          -- sites qui lui sont partagés ; un profil
           -- de la maison (sans propriétaire ou ADMIN), ceux des ADMIN et sans
           -- propriétaire. Chaque cible ne part qu'une fois : le premier
           -- profil qui la réserve publie dans ce groupe.
@@ -246,6 +247,13 @@ export class JobsService {
               p.profile_id IS NULL
               AND (
                 p.owner_id = pr.owner_id
+                OR (
+                  pr.owner_id IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1 FROM site_access sa
+                    WHERE sa.source_id = a.source_id AND sa.user_id = pr.owner_id
+                  )
+                )
                 OR (
                   (p.owner_id IS NULL OR u.role = 'ADMIN'::"Role")
                   AND (pr.owner_id IS NULL OR pu.role = 'ADMIN'::"Role")

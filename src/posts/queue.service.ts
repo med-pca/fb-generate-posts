@@ -11,6 +11,7 @@ import type { CurrentUser } from '../auth/current-user';
 import { groupWhere, postWhere, profileWhere, scopeOf } from '../auth/scope';
 import { RescueService } from '../jobs/rescue.service';
 import { claimablePostWhere, mayPublishPost } from '../jobs/jobs.service';
+import type { ClaimPost } from '../jobs/claimable';
 import { PriorityDto, QueueQueryDto } from './dto/queue.dto';
 import { TRACE_KINDS, groupKeyOf, normalizeFacebookUrl, trace } from '../trace/trace';
 
@@ -21,7 +22,8 @@ const POST_FIELDS = {
   imageUrl: true,
   priority: true,
   createdAt: true,
-  article: { select: { id: true, title: true } },
+  // Le site de l'article et ses partages : ses profils le publient aussi.
+  article: { select: { id: true, title: true, source: { select: { access: { select: { userId: true } } } } } },
   // Un visuel (image seule, sans lien) : la file le distingue d'un article.
   visualId: true,
   noComment: true,
@@ -43,7 +45,7 @@ const PROFILE_FIELDS = { id: true, name: true, externalId: true } as const;
 /** Les profils proposés pour un post : membres du groupe, et du compte à
  * qui appartient le post (chaque compte garde ses publications). */
 function candidatesFor(
-  post: { profileId: string | null; ownerId: string | null; owner: { role: string } | null },
+  post: ClaimPost,
   group: { profiles: Array<{ profile: { id: string; name: string; externalId: string | null; ownerId: string | null; owner: { role: string } | null } }> },
 ) {
   return group.profiles
