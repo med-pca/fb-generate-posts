@@ -14,7 +14,7 @@ import { QueryArticlesDto } from './dto/query-articles.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { paginated } from '../common/paginated';
 import type { CurrentUser } from '../auth/current-user';
-import { articleWhere, groupWhere, scopeOf } from '../auth/scope';
+import { articleManageWhere, articleWhere, groupWhere, scopeOf, siteManageWhere, siteWhere } from '../auth/scope';
 import { postGroupIds } from '../posts/post-groups';
 import { assertSafeRemoteUrl } from '../common/safe-fetch';
 
@@ -137,13 +137,24 @@ export class ArticlesService {
     return article;
   }
 
+  /** Modifier ou supprimer un article appartient au propriétaire de son
+   * site : un site partagé en prête l'usage, pas la gestion. */
+  private async manageable(id: string, acting: CurrentUser | null) {
+    const article = await this.prisma.article.findFirst({
+      where: { id, ...articleManageWhere(scopeOf(acting)) },
+      select: { id: true },
+    });
+    if (!article) throw new NotFoundException('Article introuvable');
+    return article;
+  }
+
   async update(id: string, dto: UpdateArticleDto, acting: CurrentUser | null) {
-    await this.reachable(id, acting);
+    await this.manageable(id, acting);
     return this.prisma.article.update({ where: { id }, data: dto });
   }
 
   async remove(id: string, acting: CurrentUser | null) {
-    await this.reachable(id, acting);
+    await this.manageable(id, acting);
     return this.prisma.article.delete({ where: { id } });
   }
 
@@ -165,6 +176,26 @@ export class ArticlesService {
     const coverImageUrl = payload.coverImage
       ? new URL(payload.coverImage, articleUrl.origin).toString()
       : undefined;
+    // Un site déjà connu n'accueille que les articles de son propriétaire ou
+    // de ceux avec qui il est partagé ; seul le propriétaire le renomme.
+    const scope = scopeOf(acting);
+    const known = await this.prisma.contentSource.findUnique({
+      where: { originUrl: articleUrl.origin },
+      select: { id: true },
+    });
+    if (known) {
+      const usable = await this.prisma.contentSource.findFirst({
+        where: { id: known.id, ...siteWhere(scope) },
+        select: { id: true },
+      });
+      if (!usable) throw new NotFoundException('Site introuvable');
+    }
+    const owns =
+      !known ||
+      !!(await this.prisma.contentSource.findFirst({
+        where: { id: known.id, ...siteManageWhere(scope) },
+        select: { id: true },
+      }));
     const source = await this.prisma.contentSource.upsert({
       where: { originUrl: articleUrl.origin },
       create: {
@@ -172,7 +203,8 @@ export class ArticlesService {
         name: dto.sourceName?.trim() || articleUrl.hostname,
         ownerId: acting?.id ?? null,
       },
-      update: dto.sourceName?.trim() ? { name: dto.sourceName.trim() } : {},
+      update:
+        owns && dto.sourceName?.trim() ? { name: dto.sourceName.trim() } : {},
     });
 
     return this.prisma.article.upsert({

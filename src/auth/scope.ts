@@ -73,8 +73,23 @@ export const siteManageWhere = (scope: Scope): Prisma.ContentSourceWhereInput =>
 /** Un post porte son propriétaire (`ownerId`) : un post ouvert n'a pas de
  * profil pour le dire. Les anciens posts, liés à un profil, restent aussi
  * reconnus par le propriétaire de ce profil. Un article, lui, hérite de son
- * site. */
+ * site.
+ *
+ * Partager un site partage aussi ses articles et les posts qui en sont
+ * tirés : le bénéficiaire les voit et s'en sert (publier, en tirer de
+ * nouveaux posts), mais seul leur propriétaire les modifie ou les supprime. */
 export const postWhere = (scope: Scope): Prisma.PostWhereInput =>
+  scope
+    ? {
+        OR: [
+          { ownerId: scope.ownerId },
+          { profile: { ownerId: scope.ownerId } },
+          { article: { source: siteWhere(scope) } },
+        ],
+      }
+    : {};
+
+export const postManageWhere = (scope: Scope): Prisma.PostWhereInput =>
   scope
     ? {
         OR: [
@@ -85,7 +100,10 @@ export const postWhere = (scope: Scope): Prisma.PostWhereInput =>
     : {};
 
 export const articleWhere = (scope: Scope): Prisma.ArticleWhereInput =>
-  scope ? { source: { ownerId: scope.ownerId } } : {};
+  scope ? { source: siteWhere(scope) } : {};
+
+export const articleManageWhere = (scope: Scope): Prisma.ArticleWhereInput =>
+  scope ? { source: siteManageWhere(scope) } : {};
 
 export const jobWhere = (scope: Scope): Prisma.PublicationJobWhereInput =>
   scope ? { profile: { ownerId: scope.ownerId } } : {};

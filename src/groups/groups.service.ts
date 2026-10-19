@@ -12,7 +12,7 @@ import type { CurrentUser } from '../auth/current-user';
 import {
   groupManageWhere,
   groupWhere,
-  postWhere,
+  postManageWhere,
   profileWhere,
   scopeOf,
 } from '../auth/scope';
@@ -248,7 +248,7 @@ export class GroupsService {
     ];
     const where: Prisma.PostTargetWhereInput = {
       groupId: id,
-      post: postWhere(scopeOf(acting)),
+      post: postManageWhere(scopeOf(acting)),
       OR: pending,
     };
     const [removable, kept] = await Promise.all([
@@ -256,7 +256,7 @@ export class GroupsService {
       this.prisma.postTarget.count({
         where: {
           groupId: id,
-          post: postWhere(scopeOf(acting)),
+          post: postManageWhere(scopeOf(acting)),
           OR: [
             { status: { in: [TargetStatus.PUBLISHED, TargetStatus.CONSUMED] } },
             { status: TargetStatus.CLAIMED, claimExpiresAt: { gte: now } },

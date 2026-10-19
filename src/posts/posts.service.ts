@@ -7,7 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
-import { postWhere, scopeOf } from '../auth/scope';
+import { postManageWhere, postWhere, scopeOf } from '../auth/scope';
 import { postGroupIds } from './post-groups';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -76,17 +76,18 @@ export class PostsService {
    * de portée sont simplement ignorés. */
   async bulkRepeat({ ids, repeatTimes, repeatEveryHours }: BulkRepeatDto, acting: CurrentUser | null) {
     const { count } = await this.prisma.post.updateMany({
-      where: { id: { in: ids }, ...postWhere(scopeOf(acting)) },
+      where: { id: { in: ids }, ...postManageWhere(scopeOf(acting)) },
       data: { repeatTimes: repeatTimes ?? null, repeatEveryHours: repeatEveryHours ?? null },
     });
     return { updated: count };
   }
 
   /** Un post qu'on n'a pas le droit de voir est introuvable, pas interdit :
-   * répondre 403 confirmerait son existence. */
+   * répondre 403 confirmerait son existence. Modifier ou supprimer suppose
+   * de le posséder : un post vu par un site partagé reste à son auteur. */
   private async reachable(id: string, acting: CurrentUser | null) {
     const post = await this.prisma.post.findFirst({
-      where: { id, ...postWhere(scopeOf(acting)) },
+      where: { id, ...postManageWhere(scopeOf(acting)) },
       select: { id: true },
     });
     if (!post) throw new NotFoundException('Post introuvable');
@@ -119,7 +120,7 @@ export class PostsService {
         'Précisez au moins ids, profileId, groupId, articleId, status ou sourceType',
       );
     }
-    const where = this.buildWhere(filters, acting);
+    const where = this.buildWhere(filters, acting, true);
 
     return this.prisma.$transaction(async (tx) => {
       const matched = await tx.post.count({ where });
@@ -178,10 +179,11 @@ export class PostsService {
   private buildWhere(
     filters: PostFilters,
     acting: CurrentUser | null,
+    manage = false,
   ): Prisma.PostWhereInput {
     // La portée et la recherche sont deux `OR` : réunis dans un `AND`, aucun
     // n'écrase l'autre.
-    const scope = postWhere(scopeOf(acting));
+    const scope = (manage ? postManageWhere : postWhere)(scopeOf(acting));
     const and: Prisma.PostWhereInput[] = Object.keys(scope).length
       ? [scope]
       : [];

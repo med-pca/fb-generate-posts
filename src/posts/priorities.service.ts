@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
-import { articleWhere, groupWhere, postWhere, scopeOf } from '../auth/scope';
+import { articleManageWhere, articleWhere, groupWhere, postWhere, scopeOf } from '../auth/scope';
 import type { PriorityMove } from './dto/queue.dto';
 import { startOfLocalDay } from '../insights/insights.service';
 
@@ -107,7 +107,9 @@ export class PrioritiesService {
   /** La priorité d'un article devient celle de tous ses posts encore à publier. */
   async setArticle(id: string, dto: { move?: PriorityMove; priority?: number }, acting: CurrentUser | null) {
     const scope = scopeOf(acting);
-    const article = await this.prisma.article.findFirst({ where: { id, ...articleWhere(scope) }, select: { id: true, title: true, priority: true } });
+    // La priorité d'un article vaut pour tous ses posts, ceux du propriétaire
+    // compris : elle se règle sur son site, pas par un partage.
+    const article = await this.prisma.article.findFirst({ where: { id, ...articleManageWhere(scope) }, select: { id: true, title: true, priority: true } });
     if (!article) throw new NotFoundException('Article introuvable');
     const top = await this.prisma.article.aggregate({ where: articleWhere(scope), _max: { priority: true } });
     const priority = nextPriority(article.priority, top._max.priority ?? 0, dto.move, dto.priority);

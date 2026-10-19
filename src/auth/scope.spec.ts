@@ -1,10 +1,12 @@
 import { RecordStatus, Role } from '@prisma/client';
 import type { CurrentUser } from './current-user';
 import {
+  articleManageWhere,
   articleWhere,
   groupManageWhere,
   groupWhere,
   logWhere,
+  postManageWhere,
   postWhere,
   profileWhere,
   scopeOf,
@@ -65,10 +67,26 @@ describe('les conditions de lecture', () => {
    * propriétaire de son profil, un article à celui de son site. */
   it('font hériter les posts et les articles', () => {
     // Un post ouvert porte son propriétaire ; un ancien post, son profil.
-    expect(postWhere(manager)).toEqual({
+    expect(postManageWhere(manager)).toEqual({
       OR: [{ ownerId: 'u1' }, { profile: { ownerId: 'u1' } }],
     });
-    expect(articleWhere(manager)).toEqual({ source: { ownerId: 'u1' } });
+    expect(articleManageWhere(manager)).toEqual({ source: { ownerId: 'u1' } });
+  });
+
+  /** Partager un site partage ses articles et les posts qui en sont tirés,
+   * pour s'en servir — pas pour les modifier. */
+  it('étendent un site partagé à ses articles et à leurs posts', () => {
+    const site = siteWhere(manager);
+    expect(articleWhere(manager)).toEqual({ source: site });
+    expect(postWhere(manager)).toEqual({
+      OR: [
+        { ownerId: 'u1' },
+        { profile: { ownerId: 'u1' } },
+        { article: { source: site } },
+      ],
+    });
+    expect(articleWhere(null)).toEqual({});
+    expect(postManageWhere(null)).toEqual({});
   });
 
   it('rattachent un journal à son profil ou à son groupe, partagé compris', () => {
