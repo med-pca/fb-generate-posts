@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { JobStatus, JoinStatus, TargetStatus } from '@prisma/client';
-import { JobsService } from './jobs.service';
+import { JobsService, claimablePostWhere, mayPublishPost } from './jobs.service';
 
 const CLAIM_EXPIRES = new Date('2026-09-14T12:00:00.000Z');
 
@@ -559,17 +559,32 @@ describe('JobsService — groupes rejoints uniquement', () => {
     ]);
   });
 
-  it('cherche ses posts, les posts ouverts de son compte, et ceux créés par un admin', async () => {
+  it('un profil de gestionnaire ne cherche que ses posts et ceux de son compte', async () => {
     const { service, prisma } = makeClaimHarness();
     await service.claimByProfileExternalId('demo-profile');
     const [[{ where }]] = prisma.group.findMany.mock.calls;
     expect(where.targets.some.post).toEqual({
       status: 'AVAILABLE',
-      OR: [
-        { profileId: 'profile_1' },
-        // Sans propriétaire, créé par un ADMIN, ou du compte du profil.
-        { profileId: null, OR: [{ ownerId: null }, { owner: { role: 'ADMIN' } }, { ownerId: 'u1' }] },
-      ],
+      OR: [{ profileId: 'profile_1' }, { profileId: null, OR: [{ ownerId: 'u1' }] }],
+    });
+  });
+
+  /** Chaque compte garde ses publications : les posts des ADMIN (et sans
+   * propriétaire) restent aux profils de la maison. */
+  it('chaque compte garde ses publications', () => {
+    const manager = { id: 'pm', ownerId: 'karim', owner: { role: 'MANAGER' } };
+    const admin = { id: 'pa', ownerId: 'boss', owner: { role: 'ADMIN' } };
+    const synced = { id: 'ps', ownerId: null };
+    const adminPost = { ownerId: 'boss', owner: { role: 'ADMIN' } };
+    const openPost = { ownerId: null };
+    const karimPost = { ownerId: 'karim', owner: { role: 'MANAGER' } };
+    expect([manager, admin, synced].map((p) => mayPublishPost(p, adminPost))).toEqual([false, true, true]);
+    expect([manager, admin, synced].map((p) => mayPublishPost(p, openPost))).toEqual([false, true, true]);
+    expect([manager, admin, synced].map((p) => mayPublishPost(p, karimPost))).toEqual([true, false, false]);
+    // Un post attribué à un profil ne va qu'à lui.
+    expect(mayPublishPost(admin, { ...adminPost, profileId: 'pm' })).toBe(false);
+    expect(claimablePostWhere(admin)).toEqual({
+      OR: [{ profileId: 'pa' }, { profileId: null, OR: [{ ownerId: 'boss' }, { ownerId: null }, { owner: { role: 'ADMIN' } }] }],
     });
   });
 });

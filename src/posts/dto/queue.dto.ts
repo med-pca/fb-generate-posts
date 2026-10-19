@@ -77,6 +77,16 @@ export class FacebookUrlDto {
   facebookUrl!: string;
 }
 
+/** Un lien de post collé à la main ; `targetId` quand on a choisi parmi
+ * les publications proposées. */
+export class AttachFacebookUrlDto extends FacebookUrlDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  targetId?: string;
+}
+
 export class OptionalFacebookUrlDto {
   @ApiPropertyOptional({ example: 'https://www.facebook.com/groups/123/posts/456' })
   @IsOptional()

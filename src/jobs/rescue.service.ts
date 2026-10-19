@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { postWhere, profileWhere, scopeOf } from '../auth/scope';
 import { trace } from '../trace/trace';
+import { claimablePostWhere, profilesForPostWhere } from './claimable';
 
 /** Deux profils sauveteurs au plus par post : au-delà, le vérificateur reprend
  * la main (supprimer et republier, comme avant). */
@@ -34,14 +35,19 @@ export class RescueService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Les profils qui peuvent sauver ce post : membres du groupe, actifs,
-   * pas suspendus, pas modérateurs, ni l'auteur, ni ceux qui ont essayé. */
-  private rescuersWhere(groupId: string, exclude: string[]): Prisma.ProfileGroupWhereInput {
+   * pas suspendus, pas modérateurs, ni l'auteur, ni ceux qui ont essayé —
+   * et du compte à qui est le post (chaque compte garde ses publications). */
+  private rescuersWhere(
+    groupId: string,
+    exclude: string[],
+    post: { ownerId: string | null; owner?: { role: string } | null },
+  ): Prisma.ProfileGroupWhereInput {
     return {
       groupId,
       status: 'ACTIVE',
       joinStatus: JoinStatus.JOINED,
       profileId: { notIn: exclude },
-      profile: { status: 'ACTIVE', isModerator: false, facebookSuspension: null },
+      profile: { status: 'ACTIVE', isModerator: false, facebookSuspension: null, ...profilesForPostWhere(post) },
     };
   }
 
@@ -107,12 +113,20 @@ export class RescueService {
   async request(targetId: string, reason: string, now = new Date()) {
     const target = await this.prisma.postTarget.findUnique({
       where: { id: targetId },
-      select: { id: true, groupId: true, rescueStatus: true, rescueAttempts: true, rescueTriedBy: true, facebookUrl: true },
+      select: {
+        id: true,
+        groupId: true,
+        rescueStatus: true,
+        rescueAttempts: true,
+        rescueTriedBy: true,
+        facebookUrl: true,
+        post: { select: { ownerId: true, owner: { select: { role: true } } } },
+      },
     });
     if (!target || target.rescueStatus === 'done' || target.rescueAttempts >= MAX_RESCUES || !target.facebookUrl) return false;
     const author = await this.authorOf(targetId);
     const exclude = [...target.rescueTriedBy, ...(author ? [author.profileId] : [])];
-    const rescuers = await this.prisma.profileGroup.count({ where: this.rescuersWhere(target.groupId, exclude) });
+    const rescuers = await this.prisma.profileGroup.count({ where: this.rescuersWhere(target.groupId, exclude, target.post) });
     if (!rescuers) {
       // Personne pour le sauver : noté, le vérificateur fera comme avant.
       await this.prisma.postTarget.update({ where: { id: targetId }, data: { rescueStatus: 'failed', rescueDetail: 'aucun autre de nos profils dans ce groupe' } });
@@ -133,7 +147,7 @@ export class RescueService {
   async due(profileExternalId: string, acting: CurrentUser | null, limit = 2, now = new Date()) {
     const profile = await this.prisma.profile.findFirst({
       where: { externalId: profileExternalId, status: 'ACTIVE', ...profileWhere(scopeOf(acting)) },
-      select: { id: true, isModerator: true, facebookSuspension: true },
+      select: { id: true, ownerId: true, owner: { select: { role: true } }, isModerator: true, facebookSuspension: true },
     });
     if (!profile) throw new NotFoundException(`Profil introuvable pour externalId=${profileExternalId}`);
     if (profile.isModerator || profile.facebookSuspension) return [];
@@ -145,7 +159,8 @@ export class RescueService {
         NOT: { rescueTriedBy: { has: profile.id } },
         OR: [{ rescueStatus: 'pending' }, { rescueStatus: 'claimed', rescueClaimedUntil: { lt: now } }],
         group: { profiles: { some: { profileId: profile.id, status: 'ACTIVE', joinStatus: JoinStatus.JOINED } } },
-        post: postWhere(scopeOf(acting)),
+        // Les posts de son compte seulement.
+        post: { AND: [postWhere(scopeOf(acting)), claimablePostWhere(profile)] },
         jobItems: { none: { status: TargetStatus.PUBLISHED, job: { profileId: profile.id } } },
       },
       orderBy: { rescueRequestedAt: 'asc' },

@@ -29,6 +29,7 @@ import { QueryPostsDto } from './dto/query-posts.dto';
 import { BulkDeletePostsDto } from './dto/bulk-delete-posts.dto';
 import { BulkRepeatDto } from './dto/repeat.dto';
 import {
+  AttachFacebookUrlDto,
   FacebookUrlDto,
   ForceTargetDto,
   OptionalFacebookUrlDto,
@@ -151,6 +152,19 @@ export class PostsController {
   @ApiOperation({ summary: 'Historique d’une publication : tentatives, adresses, vérifications' })
   history(@Param('targetId') targetId: string, @ActingUser() acting: CurrentUser) {
     return this.queueService.history(targetId, acting);
+  }
+
+  @Post('attach-url')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Coller le lien d’un post publié à la main',
+    description:
+      'Le groupe se lit dans le lien ; la publication de ce groupe à qui il manque ' +
+      'son lien est complétée, puis le travail reprend (lien en commentaire, ' +
+      'vérification). Plusieurs possibles : renvoie la liste, à rappeler avec `targetId`.',
+  })
+  attachUrl(@Body() dto: AttachFacebookUrlDto, @ActingUser() acting: CurrentUser) {
+    return this.queueService.attachUrl(dto.facebookUrl, dto.targetId, acting);
   }
 
   @Get('targets-by-url')

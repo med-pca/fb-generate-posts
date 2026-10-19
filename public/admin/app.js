@@ -1695,7 +1695,6 @@ function renderObjective() {
   const f = $('#objective-form');
   // Ne pas écraser ce que l'on est en train de saisir.
   if (!f.contains(document.activeElement)) {
-    f.elements.dailyTarget.value = o.settings.dailyTarget || '';
     f.elements.objectiveStart.value = minutesToTime(o.settings.objectiveStart);
     f.elements.objectiveEnd.value = minutesToTime(o.settings.objectiveEnd);
     setObjectiveZone(o.settings.objectiveTimezone || 'Europe/Paris');
@@ -1733,7 +1732,7 @@ function renderObjective() {
         .map(([cls, n, label]) => `<i class="${cls}" style="flex:${Math.max(n, 0.6)}" title="${n} ${label}">${n} ${label}</i>`)
         .join('') +
       `</div>`
-    : '<p class="muted">Réglez un objectif de posts par jour pour voir le plan en articles.</p>';
+    : '<p class="muted">Créez une campagne active pour voir le plan du jour en articles.</p>';
 
   // La cadence adaptative, d'après les profils au travail.
   const pc = o.pacing;
@@ -1853,13 +1852,12 @@ $('#objective-form').onsubmit = async (e) => {
     await api('/settings', {
       method: 'PATCH',
       body: JSON.stringify({
-        dailyTarget: Number(f.dailyTarget.value || 0),
         objectiveStart: timeToMinutes(f.objectiveStart.value) ?? 480,
         objectiveEnd: timeToMinutes(f.objectiveEnd.value) ?? 1320,
         objectiveTimezone: f.objectiveTimezone.value,
       }),
     });
-    notice('Objectif enregistré.');
+    notice('Plage horaire enregistrée.');
     document.activeElement?.blur?.();
     await loadObjective();
     loadCounters();
@@ -2921,10 +2919,6 @@ function renderCampaigns() {
         );
       })
       .join('') || '<div class="empty">Aucune campagne pour l’instant.</div>';
-  // L'ancien objectif global ne sert plus dès qu'une campagne est active.
-  const legacy = $('#objective-form [name="dailyTarget"]')?.closest('label');
-  if (legacy) legacy.classList.toggle('hidden', active.length > 0);
-  $('#objective-legacy-note').hidden = !active.length;
 }
 
 async function openCampaign(id, scroll = true) {
@@ -5051,15 +5045,48 @@ async function openHistory(targetId) {
   $('#history-modal').showModal();
 }
 
-/** Retrouver la publication derrière un lien Facebook (actuel ou ancien). */
+/** Un lien Facebook collé : la publication qu'il désigne déjà (son
+ * historique), ou — post publié à la main, parti en spam, lien manquant —
+ * celle de ce groupe qui l'attend, complétée pour que le travail reprenne. */
+const ATTACH_STATUS = { PUBLISHED: '✓ publié sans lien', FAILED: '⚠ en échec', AVAILABLE: '⏳ en file', CLAIMED: '▶ réservation expirée' };
+async function attachUrl(url, targetId) {
+  const r = await api('/posts/attach-url', { method: 'POST', body: JSON.stringify({ facebookUrl: url, ...(targetId ? { targetId } : {}) }) });
+  if (r.result === 'known') {
+    if (r.targets.length > 1) notice(`${r.targets.length} publications pour ce lien : la première est affichée.`);
+    return openHistory(r.targets[0].targetId);
+  }
+  if (r.result === 'attached') {
+    notice(
+      `Lien rattaché à « ${r.post.title} » dans « ${r.group.name} ». ` +
+        (r.rescue ? 'Un profil du groupe va poser le lien de l’article en commentaire, puis il sera vérifié.' : 'Il sera vérifié au prochain passage.'),
+    );
+    $('#url-search').reset();
+    return loadQueue();
+  }
+  if (!r.candidates.length) return notice(`Aucune publication n’attend ce lien dans « ${r.groups.join(', ')} ».`, 'error');
+  const day = (d) => (d ? new Date(d).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
+  const pick = await pfDialog({
+    title: 'À quelle publication appartient ce lien ?',
+    message: `Groupe « ${r.groups.join(', ')} » : plusieurs publications peuvent le recevoir. Choisissez celle que vous avez publiée à la main.`,
+    tone: 'info',
+    kicker: 'LIEN COLLÉ',
+    actions: [
+      ...r.candidates.map((c) => ({
+        key: c.targetId,
+        label: `${ATTACH_STATUS[c.status] || c.status} · ${c.post.title.slice(0, 60)}${c.publishedAt || c.updatedAt ? ` · ${day(c.publishedAt || c.updatedAt)}` : ''}`,
+        cls: `${c.missingLink ? 'primary' : 'secondary'} choice`,
+      })),
+      { key: '__cancel', label: 'Annuler', cls: 'secondary' },
+    ],
+  });
+  if (!pick || pick === '__cancel' || pick === '__ok') return;
+  return attachUrl(url, pick);
+}
 $('#url-search').addEventListener('submit', async (e) => {
   e.preventDefault();
   const url = e.target.elements.url.value.trim();
   try {
-    const found = await api(`/posts/targets-by-url?url=${encodeURIComponent(url)}`);
-    if (!found.length) return notice('Aucune publication connue pour ce lien.', 'error');
-    if (found.length > 1) notice(`${found.length} publications pour ce lien : la première est affichée.`);
-    await openHistory(found[0].targetId);
+    await attachUrl(url);
   } catch (x) {
     notice(x.message, 'error');
   }

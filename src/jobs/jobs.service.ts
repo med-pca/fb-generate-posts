@@ -10,7 +10,8 @@ import { JobStatus, JoinStatus, Prisma, TargetStatus } from '@prisma/client';
 import { normalizeFacebookUrl, trace } from '../trace/trace';
 import { startOfLocalDay } from '../insights/insights.service';
 import { localClock } from '../runners/window';
-import { adaptiveGap, pace } from '../insights/objective';
+import { adaptiveGap } from '../insights/objective';
+import { claimablePostWhere, type ClaimProfile } from './claimable';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { cycleRule, cycleSince } from '../runners/cycle';
 import { PrismaService } from '../prisma/prisma.service';
@@ -96,29 +97,7 @@ type LinkPhaseItem = {
 /** Les posts qu'un profil peut publier : les siens, et les posts ouverts de
  * son compte (ceux sans propriétaire servent tout le monde). Même règle que
  * la requête SQL de `claim`. */
-export function claimablePostWhere(profile: {
-  id: string;
-  ownerId: string | null;
-}): Prisma.PostWhereInput {
-  return {
-    OR: [
-      { profileId: profile.id },
-      {
-        profileId: null,
-        OR: [
-          // Sans propriétaire, ou créé par un ADMIN : pour tous les profils.
-          // Un post créé à la main dans l'admin appartient au compte admin,
-          // alors que les profils ajoutés par la synchronisation NSTBrowser
-          // n'ont pas de propriétaire : exiger le même compte les excluait.
-          { ownerId: null },
-          { owner: { role: 'ADMIN' } },
-          // Créé par un gestionnaire : pour ses profils seulement.
-          ...(profile.ownerId ? [{ ownerId: profile.ownerId }] : []),
-        ],
-      },
-    ],
-  };
-}
+export { claimablePostWhere, isHouseProfile, mayPublishPost, type ClaimProfile } from './claimable';
 
 /** Les cibles qu'un profil peut prendre : celles qui ne sont pas forcées
  * vers un AUTRE profil. */
@@ -243,6 +222,7 @@ export class JobsService {
         INNER JOIN posts p ON p.id = pt.post_id
         LEFT JOIN users u ON u.id = p.owner_id
         INNER JOIN profiles pr ON pr.id = ${dto.profileId}
+        LEFT JOIN users pu ON pu.id = pr.owner_id
         INNER JOIN groups g ON g.id = pt.group_id
         LEFT JOIN articles a ON a.id = p.article_id
         WHERE pt.group_id = ${dto.groupId}
@@ -255,17 +235,21 @@ export class JobsService {
           -- Republication d'un post incomplet : pas par le profil qui l'avait raté
           -- (sauf envoi forcé vers lui par l'admin).
           AND (pt.avoid_profile_id IS NULL OR pt.avoid_profile_id <> ${dto.profileId} OR pt.forced_profile_id = ${dto.profileId})
-          -- Ses propres posts, ou un post ouvert de son compte (sans
-          -- propriétaire : de tous). Chaque cible ne part qu'une fois : le
-          -- premier profil qui la réserve publie dans ce groupe.
+          -- Chaque compte garde ses publications (claimablePostWhere) : un
+          -- profil de gestionnaire, les posts de son gestionnaire ; un profil
+          -- de la maison (sans propriétaire ou ADMIN), ceux des ADMIN et sans
+          -- propriétaire. Chaque cible ne part qu'une fois : le premier
+          -- profil qui la réserve publie dans ce groupe.
           AND (
             p.profile_id = ${dto.profileId}
             OR (
               p.profile_id IS NULL
               AND (
-                p.owner_id IS NULL
-                OR u.role = 'ADMIN'::"Role"
-                OR p.owner_id = pr.owner_id
+                p.owner_id = pr.owner_id
+                OR (
+                  (p.owner_id IS NULL OR u.role = 'ADMIN'::"Role")
+                  AND (pr.owner_id IS NULL OR pu.role = 'ADMIN'::"Role")
+                )
               )
             )
           )
@@ -332,7 +316,7 @@ export class JobsService {
 
     if (!job) return { job: null, posts: [] };
     // En retard sur l'objectif : l'attente après chaque post est raccourcie.
-    const gap = await this.pacedGap();
+    const gap = await this.pacedGap(job.profile.ownerId);
     return {
       jobId: job.id,
       claimExpiresAt: job.claimExpiresAt,
@@ -487,6 +471,7 @@ export class JobsService {
         status: 'ACTIVE',
         ...profileWhere(scopeOf(acting)),
       },
+      include: { owner: { select: { role: true } } },
     });
     if (!profile) {
       throw new NotFoundException(
@@ -695,7 +680,7 @@ export class JobsService {
    * post », que le profil n'ait rejoint aucun groupe, que ses posts attendent
    * ailleurs, ou qu'ils soient réservés à un autre compte. */
   async explainNothingToClaim(
-    profile: { id: string; ownerId: string | null },
+    profile: ClaimProfile,
     groupExternalId?: string,
   ): Promise<{ reason: EmptyReason; message: string; diagnosis: Record<string, unknown> }> {
     const links = await this.prisma.profileGroup.findMany({
@@ -800,36 +785,29 @@ export class JobsService {
     };
   }
 
-  /** La cadence adaptative, recalculée au plus toutes les 2 minutes : le
-   * même chiffre pour tous les profils, d'après l'objectif du jour, ce qui
-   * est publié, et les profils au travail. */
-  private paced: { at: number; gap: number | null } = { at: 0, gap: null };
-  private async pacedGap(now = new Date()): Promise<number | null> {
-    if (now.getTime() - this.paced.at < 120_000) return this.paced.gap;
+  /** La cadence adaptative, recalculée au plus toutes les 2 minutes : par
+   * compte, d'après SES campagnes actives et SES profils au travail. Chaque
+   * gestionnaire a ses objectifs ; le retard de l'un ne presse pas les
+   * profils de l'autre. Sans campagne active, aucune cadence imposée. */
+  private paced = new Map<string, { at: number; gap: number | null }>();
+  private async pacedGap(ownerId: string | null, now = new Date()): Promise<number | null> {
+    const key = ownerId ?? '';
+    const cached = this.paced.get(key);
+    if (cached && now.getTime() - cached.at < 120_000) return cached.gap;
     let gap: number | null = null;
     try {
       const s = await this.prisma.automationSetting.findUnique({ where: { id: 'global' } });
-      // Les campagnes actives donnent le rythme nécessaire ; sans campagne,
-      // l'ancien objectif du jour garde la main (rien ne change avant d'en créer).
-      const need = s?.adaptivePacing ? await this.campaigns?.pacingNeed(now).catch(() => null) : null;
+      const need = s?.adaptivePacing ? await this.campaigns?.pacingNeed(now, ownerId).catch(() => null) : null;
       if (s?.adaptivePacing && need) {
-        const profiles = await this.prisma.profileRunner.count({ where: { running: true, lastSeenAt: { gte: new Date(now.getTime() - 180_000) }, mode: { not: 'OFF' } } });
+        const profiles = await this.prisma.profileRunner.count({
+          where: { running: true, lastSeenAt: { gte: new Date(now.getTime() - 180_000) }, mode: { not: 'OFF' }, profile: { ownerId } },
+        });
         gap = adaptiveGap({ neededPerHour: need.neededPerHour, ratePerHour: need.ratePerHour, profiles, minGap: s.minPostGapMinutes, status: need.status });
-      } else if (s?.adaptivePacing && s.dailyTarget > 0) {
-        const tz = s.objectiveTimezone || 'Europe/Paris';
-        const dayStart = startOfLocalDay(now, tz);
-        const [published, lastHour, profiles] = await Promise.all([
-          this.prisma.postTarget.count({ where: { status: TargetStatus.PUBLISHED, approvalPendingSince: null, publishedAt: { gte: dayStart } } }),
-          this.prisma.postTarget.count({ where: { status: TargetStatus.PUBLISHED, approvalPendingSince: null, publishedAt: { gte: new Date(now.getTime() - 3_600_000) } } }),
-          this.prisma.profileRunner.count({ where: { running: true, lastSeenAt: { gte: new Date(now.getTime() - 180_000) }, mode: { not: 'OFF' } } }),
-        ]);
-        const p = pace({ target: s.dailyTarget, start: s.objectiveStart, end: s.objectiveEnd, nowMinutes: localClock(now, tz).minutes, published, lastHour });
-        gap = adaptiveGap({ neededPerHour: p.neededPerHour, ratePerHour: p.ratePerHour, profiles, minGap: s.minPostGapMinutes, status: p.status });
       }
     } catch {
       gap = null;
     }
-    this.paced = { at: now.getTime(), gap };
+    this.paced.set(key, { at: now.getTime(), gap });
     return gap;
   }
 
@@ -844,7 +822,7 @@ export class JobsService {
    * l'un de ses groupes : forcés vers lui d'abord, puis par priorité, puis
    * le plus ancien. Les premiers seulement : si le premier vient d'être pris
    * partout, on passe au suivant. */
-  private async currentArticles(profile: { id: string; ownerId: string | null }, groupIds: string[], exclude: Prisma.PostTargetWhereInput | null = null) {
+  private async currentArticles(profile: ClaimProfile, groupIds: string[], exclude: Prisma.PostTargetWhereInput | null = null) {
     const base: Prisma.PostTargetWhereInput = {
       groupId: { in: groupIds },
       status: TargetStatus.AVAILABLE,
@@ -894,7 +872,7 @@ export class JobsService {
    * À égalité, le hasard répartit toujours la charge entre les groupes. */
   private async byTopPriority(
     groups: Array<{ id: string }>,
-    profile: { id: string; ownerId: string | null },
+    profile: ClaimProfile,
   ) {
     // Les groupes où un AUTRE profil publie en ce moment, ou vient de publier :
     // deux comptes qui postent ensemble dans un groupe se gênent (Facebook

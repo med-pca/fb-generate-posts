@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { LogLevel, Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import type { CurrentUser } from '../auth/current-user';
 import {
   articleWhere,
@@ -14,6 +15,7 @@ import {
   siteWhere,
 } from '../auth/scope';
 import { localClock } from '../runners/window';
+import { claimablePostWhere } from '../jobs/jobs.service';
 import { adaptiveGap, minutesIntoWindow, pace, PUBLISH_MINUTES, windowLength } from './objective';
 
 /** Au-delà, un profil qui dit travailler ne compte plus comme au travail :
@@ -36,7 +38,10 @@ export function startOfLocalDay(now: Date, timeZone: string) {
  * qu'il manque, et où ça coince. */
 @Injectable()
 export class InsightsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly campaigns?: CampaignsService,
+  ) {}
 
   private settings() {
     return this.prisma.automationSetting.upsert({
@@ -123,7 +128,8 @@ export class InsightsService {
       logErrors,
       users,
       publishedToday,
-      dailyTarget: settings.dailyTarget,
+      // L'objectif du jour du compte : la part d'aujourd'hui de ses campagnes.
+      dailyTarget: (await this.campaigns?.dailyTarget(now, scope ? scope.ownerId : undefined).catch(() => 0)) ?? 0,
     };
   }
 
@@ -139,6 +145,7 @@ export class InsightsService {
       select: {
         id: true,
         ownerId: true,
+        owner: { select: { role: true } },
         runner: {
           select: {
             mode: true,
@@ -200,19 +207,7 @@ export class InsightsService {
                 postWhere(scope),
                 { status: 'AVAILABLE' },
                 { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] },
-                {
-                  OR: [
-                    { profileId: profile.id },
-                    {
-                      profileId: null,
-                      OR: [
-                        { ownerId: null },
-                        { owner: { role: 'ADMIN' } },
-                        ...(profile.ownerId ? [{ ownerId: profile.ownerId }] : []),
-                      ],
-                    },
-                  ],
-                },
+                claimablePostWhere(profile),
               ],
             },
           },
@@ -345,8 +340,13 @@ export class InsightsService {
     const stockBy = new Map(stockRows.map((row) => [row.groupId, row._count._all]));
 
     const nowMinutes = localClock(now, tz).minutes;
+    // Plus d'objectif global : chaque compte fixe les siens par campagne.
+    // L'objectif du jour est la part d'aujourd'hui de SES campagnes actives
+    // (toutes pour un ADMIN), et la cadence les suit.
+    const owner = scope ? scope.ownerId : undefined;
+    const dailyTarget = (await this.campaigns?.dailyTarget(now, owner).catch(() => 0)) ?? 0;
     const result = pace({
-      target: settings.dailyTarget,
+      target: dailyTarget,
       start: settings.objectiveStart,
       end: settings.objectiveEnd,
       nowMinutes,
@@ -441,7 +441,7 @@ export class InsightsService {
       (p) => (p.runner?.mode ?? 'OFF') !== 'OFF' && p._count.profileGroups > 0,
     );
     const share = participating.length
-      ? Math.ceil(settings.dailyTarget / participating.length)
+      ? Math.ceil(result.target / participating.length)
       : 0;
     const profileRows = profiles.map((p) => {
       const mode = p.runner?.mode ?? 'OFF';
@@ -467,8 +467,11 @@ export class InsightsService {
     const working = profiles.filter(
       (p) => (p.runner?.mode ?? 'OFF') !== 'OFF' && p.runner?.running && p.runner.lastSeenAt && now.getTime() - p.runner.lastSeenAt.getTime() < AT_WORK_SECONDS * 1000,
     ).length;
-    const gap = settings.adaptivePacing
-      ? adaptiveGap({ neededPerHour: result.neededPerHour, ratePerHour: result.ratePerHour, profiles: working, minGap: settings.minPostGapMinutes, status: result.status })
+    const need = settings.adaptivePacing
+      ? await this.campaigns?.pacingNeed(now, owner).catch(() => null) ?? null
+      : null;
+    const gap = need
+      ? adaptiveGap({ neededPerHour: need.neededPerHour, ratePerHour: need.ratePerHour, profiles: working, minGap: settings.minPostGapMinutes, status: need.status })
       : null;
     const pacing = {
       enabled: settings.adaptivePacing,
@@ -484,7 +487,7 @@ export class InsightsService {
     });
 
     const plan = await this.articlePlan({
-      target: settings.dailyTarget,
+      target: result.target,
       start: settings.objectiveStart,
       end: settings.objectiveEnd,
       nowMinutes,
@@ -499,11 +502,8 @@ export class InsightsService {
     if (plan.articlesPerDay && plan.missing > 0) {
       advice.push({
         level: plan.ready + plan.inProgress === 0 ? 'error' : 'warn',
-        text: `Plan du jour : ${plan.articlesPerDay} article(s) (${settings.dailyTarget} posts ÷ ${plan.postsPerArticle} groupes). ${plan.done} terminé(s), ${plan.inProgress} en cours, ${plan.ready} prêt(s) : il manque ${plan.missing} article(s) à importer aujourd’hui.`,
+        text: `Plan du jour : ${plan.articlesPerDay} article(s) (${result.target} posts ÷ ${plan.postsPerArticle} groupes). ${plan.done} terminé(s), ${plan.inProgress} en cours, ${plan.ready} prêt(s) : il manque ${plan.missing} article(s) à importer aujourd’hui.`,
       });
-    }
-    if (!settings.dailyTarget) {
-      advice.push({ level: 'warn', text: 'Aucun objectif réglé : indiquez un nombre de posts par jour.' });
     }
     if (deficit > 0) {
       advice.push({
@@ -529,10 +529,10 @@ export class InsightsService {
           .join(', ')}${blocked.length > 5 ? '…' : ''}).`,
       });
     }
-    if (result.status === 'late' && settings.adaptivePacing && pacing.profiles && result.neededPerHour > pacing.maxPerHour) {
+    if (need?.status === 'late' && pacing.profiles && need.neededPerHour > pacing.maxPerHour) {
       advice.push({
         level: 'error',
-        text: `Même au plus vite (un post toutes les ${settings.minPostGapMinutes} min par profil), ${pacing.profiles} profil(s) font au plus ${pacing.maxPerHour}/h : il faut ${result.neededPerHour}/h. Allumez d’autres profils.`,
+        text: `Même au plus vite (un post toutes les ${settings.minPostGapMinutes} min par profil), ${pacing.profiles} profil(s) font au plus ${pacing.maxPerHour}/h : vos campagnes demandent ${need.neededPerHour}/h. Allumez d’autres profils.`,
       });
     }
     if (result.status === 'late') {
@@ -541,7 +541,7 @@ export class InsightsService {
         text: `En retard de ${-result.delta} post(s) : il faut tenir ${result.neededPerHour}/h d’ici la fin (rythme actuel ${result.ratePerHour}/h). Allumez des profils ou faites rejoindre des groupes.`,
       });
     }
-    if (settings.dailyTarget && !participating.length) {
+    if (need && !participating.length) {
       advice.push({ level: 'error', text: 'Aucun profil ne participe : allumez des profils qui ont rejoint des groupes.' });
     }
     if (!advice.length) {
@@ -550,7 +550,7 @@ export class InsightsService {
 
     return {
       settings: {
-        dailyTarget: settings.dailyTarget,
+        dailyTarget,
         objectiveStart: settings.objectiveStart,
         objectiveEnd: settings.objectiveEnd,
         objectiveTimezone: tz,

@@ -20,6 +20,12 @@ const group = (
   _count: { profiles: pendingJoins },
 });
 
+/** L'objectif du jour vient des campagnes du compte, plus des réglages. */
+const campaignsWith = (dailyTarget: number, need: unknown = null): any => ({
+  dailyTarget: async () => dailyTarget,
+  pacingNeed: async () => need,
+});
+
 function setup() {
   const prisma: any = {
     automationSetting: {
@@ -52,7 +58,7 @@ function setup() {
     },
     article: { count: async () => 3 },
   };
-  return new InsightsService(prisma);
+  return new InsightsService(prisma, campaignsWith(200));
 }
 
 describe('InsightsService.objective', () => {
@@ -110,7 +116,7 @@ describe('InsightsService.objective — plan du jour en articles', () => {
       profile: { findMany: async () => [{ id: 'salim', name: 'Salim', runner: { mode: 'AUTO', running: true, lastSeenAt: now }, _count: { profileGroups: 20 } }] },
       article: { count: async () => 0 },
     };
-    const o: any = await new InsightsService(prisma).objective(null, now);
+    const o: any = await new InsightsService(prisma, campaignsWith(300)).objective(null, now);
     expect(o.plan).toMatchObject({ postsPerArticle: 20, articlesPerDay: 15, done: 1, inProgress: 1, ready: 2, missing: 11 });
     // Plage 8 h → 22 h = 840 min : un article toutes les 56 min.
     expect(o.plan.everyMinutes).toBe(56);
@@ -158,7 +164,9 @@ describe('InsightsService.objective — plage de 24 h', () => {
       profile: { findMany: async () => [{ id: 'salim', name: 'Salim', runner: { mode: 'AUTO', running: true, lastSeenAt: now }, _count: { profileGroups: 10 } }] },
       article: { count: async () => 0 },
     };
-    const o: any = await new InsightsService(prisma).objective(null, now);
+    // En retard sur ses campagnes : la cadence se resserre.
+    const late = { neededPerHour: 20, ratePerHour: 0, status: 'late' };
+    const o: any = await new InsightsService(prisma, campaignsWith(200, late)).objective(null, now);
     expect(o.plan.articlesPerDay).toBe(20);
     expect(o.plan.everyMinutes).toBe(72); // 1440 min ÷ 20
     expect(o.plan.expectedNow).toBeGreaterThan(0); // 15 h à Paris

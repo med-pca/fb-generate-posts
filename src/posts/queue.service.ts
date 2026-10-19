@@ -3,14 +3,16 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
-import { postWhere, profileWhere, scopeOf } from '../auth/scope';
-import { claimablePostWhere } from '../jobs/jobs.service';
+import { groupWhere, postWhere, profileWhere, scopeOf } from '../auth/scope';
+import { RescueService } from '../jobs/rescue.service';
+import { claimablePostWhere, mayPublishPost } from '../jobs/jobs.service';
 import { PriorityDto, QueueQueryDto } from './dto/queue.dto';
-import { TRACE_KINDS, normalizeFacebookUrl, trace } from '../trace/trace';
+import { TRACE_KINDS, groupKeyOf, normalizeFacebookUrl, trace } from '../trace/trace';
 
 const POST_FIELDS = {
   id: true,
@@ -23,6 +25,10 @@ const POST_FIELDS = {
   // Un visuel (image seule, sans lien) : la file le distingue d'un article.
   visualId: true,
   noComment: true,
+  // À qui il est : seuls les profils de ce compte le publient.
+  ownerId: true,
+  profileId: true,
+  owner: { select: { role: true } },
 } as const;
 
 const GROUP_FIELDS = {
@@ -34,13 +40,25 @@ const GROUP_FIELDS = {
 
 const PROFILE_FIELDS = { id: true, name: true, externalId: true } as const;
 
+/** Les profils proposés pour un post : membres du groupe, et du compte à
+ * qui appartient le post (chaque compte garde ses publications). */
+function candidatesFor(
+  post: { profileId: string | null; ownerId: string | null; owner: { role: string } | null },
+  group: { profiles: Array<{ profile: { id: string; name: string; externalId: string | null; ownerId: string | null; owner: { role: string } | null } }> },
+) {
+  return group.profiles
+    .map(({ profile }) => profile)
+    .filter((p) => mayPublishPost(p, post))
+    .map(({ id, name, externalId }) => ({ id, name, externalId }));
+}
+
 /** Les profils qui peuvent publier dans un groupe : ceux qui l'ont rejoint. */
 const GROUP_WITH_CANDIDATES = {
   select: {
     ...GROUP_FIELDS,
     profiles: {
       where: { status: 'ACTIVE' as const, joinStatus: 'JOINED' as const },
-      select: { profile: { select: PROFILE_FIELDS } },
+      select: { profile: { select: { ...PROFILE_FIELDS, ownerId: true, owner: { select: { role: true } } } } },
     },
     // Les demandes d'adhésion en attente : souvent acceptées depuis, sans que
     // rien ne l'ait remonté. C'est ce qui explique un groupe « sans profil ».
@@ -70,7 +88,10 @@ const by = (acting: CurrentUser | null) => acting?.username ?? 'clé globale';
  */
 @Injectable()
 export class QueueService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly rescue?: RescueService,
+  ) {}
 
   async queue(query: QueueQueryDto, acting: CurrentUser | null) {
     const now = new Date();
@@ -256,7 +277,7 @@ export class QueueService {
         post: row.post,
         group: withoutCandidates(row.group),
         // Une republication écarte le profil qui avait raté le post.
-        candidates: row.group.profiles.map(({ profile }) => profile).filter((p) => p.id !== row.avoidProfileId),
+        candidates: candidatesFor(row.post, row.group).filter((p) => p.id !== row.avoidProfileId),
         avoidProfile: row.group.profiles.map(({ profile }) => profile).find((p) => p.id === row.avoidProfileId) ?? null,
         forcedProfile: row.forcedProfile,
         forcedAt: row.forcedAt,
@@ -271,7 +292,7 @@ export class QueueService {
         post: row.post,
         group: withoutCandidates(row.group),
         profile: row.jobItems[0]?.job.profile ?? null,
-        candidates: row.group.profiles.map(({ profile }) => profile),
+        candidates: candidatesFor(row.post, row.group),
       })),
       published: publishedRows.map((row) => {
         const item = row.jobItems[0];
@@ -530,6 +551,156 @@ export class QueueService {
     return rows.map((r) => ({ ...r, targetId: r.id, current: r.facebookUrl === url }));
   }
 
+  /* ── Lien collé à la main ──────────────────────────────────────────────
+   *
+   * Un post parti en spam, ou que l'extension n'a pas pu rapporter, est
+   * publié à la main. On colle son lien : le groupe se lit dans l'adresse,
+   * et la publication de ce groupe à qui il manque son lien est complétée —
+   * puis le travail reprend (lien en commentaire par un sauveteur, puis
+   * vérification). Sans choix évident, on propose plutôt que deviner. */
+
+  /** Ce qui peut recevoir le lien, du plus probable au moins probable :
+   * publié sans adresse ou en échec ; puis encore en file (le publier à la
+   * main évite qu'un profil le publie une seconde fois). */
+  private attachableWhere(groupIds: string[], acting: CurrentUser | null): Prisma.PostTargetWhereInput {
+    return {
+      groupId: { in: groupIds },
+      post: postWhere(scopeOf(acting)),
+      OR: [
+        { status: TargetStatus.PUBLISHED, facebookUrl: null },
+        { status: TargetStatus.FAILED },
+        { status: TargetStatus.AVAILABLE },
+        { status: TargetStatus.CLAIMED, claimExpiresAt: { lt: new Date() } },
+      ],
+    };
+  }
+
+  async attachUrl(rawUrl: string, targetId: string | undefined, acting: CurrentUser | null) {
+    const url = this.facebookUrl(rawUrl);
+    const known = await this.findByUrl(url, acting);
+    if (known.length) return { result: 'known' as const, facebookUrl: url, targets: known };
+
+    const key = groupKeyOf(url);
+    if (!key) {
+      throw new BadRequestException(
+        'Ce lien ne dit pas dans quel groupe est le post : ouvrez le post dans son groupe et copiez le lien de sa date',
+      );
+    }
+    const groups = (
+      await this.prisma.group.findMany({
+        where: {
+          ...groupWhere(scopeOf(acting)),
+          OR: [{ externalId: { equals: key, mode: 'insensitive' } }, { url: { contains: `/groups/${key}`, mode: 'insensitive' } }],
+        },
+        select: { id: true, name: true, url: true, externalId: true },
+      })
+    ).filter((g) => g.externalId?.toLowerCase() === key || groupKeyOf(g.url) === key);
+    if (!groups.length) throw new NotFoundException('Aucun de vos groupes ne correspond à ce lien');
+
+    const where = this.attachableWhere(groups.map((g) => g.id), acting);
+    if (targetId) return this.attach(targetId, url, where, acting);
+
+    const rows = await this.prisma.postTarget.findMany({
+      where,
+      take: 50,
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        publishedAt: true,
+        updatedAt: true,
+        lastError: true,
+        approvalPendingSince: true,
+        post: { select: { id: true, title: true, imageUrl: true } },
+        group: { select: { id: true, name: true } },
+      },
+    });
+    const rank = (s: TargetStatus) => (s === TargetStatus.PUBLISHED ? 0 : s === TargetStatus.FAILED ? 1 : 2);
+    const candidates = rows
+      .sort((a, b) => rank(a.status) - rank(b.status) || b.updatedAt.getTime() - a.updatedAt.getTime())
+      .slice(0, 8)
+      .map(({ id, ...r }) => ({ ...r, targetId: id, missingLink: rank(r.status) < 2 }));
+    // Une seule publication à qui il manque son lien : c'est elle.
+    const missing = candidates.filter((c) => c.missingLink);
+    if (missing.length === 1) return this.attach(missing[0].targetId, url, where, acting);
+    return { result: 'choose' as const, facebookUrl: url, groups: groups.map((g) => g.name), candidates };
+  }
+
+  private async attach(targetId: string, url: string, where: Prisma.PostTargetWhereInput, acting: CurrentUser | null) {
+    const target = await this.prisma.postTarget.findFirst({
+      where: { AND: [where, { id: targetId }] },
+      select: {
+        id: true,
+        status: true,
+        postId: true,
+        groupId: true,
+        publishedAt: true,
+        linkUpdatedAt: true,
+        rescueStatus: true,
+        post: { select: { title: true, url: true, noComment: true } },
+        group: { select: { name: true } },
+      },
+    });
+    if (!target) throw new NotFoundException('Cette publication ne peut pas recevoir ce lien');
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.postTarget.update({
+        where: { id: target.id },
+        data: {
+          status: TargetStatus.PUBLISHED,
+          publishedAt: target.publishedAt ?? now,
+          facebookUrl: url,
+          lastError: null,
+          claimedAt: null,
+          claimExpiresAt: null,
+          forcedProfileId: null,
+          forcedAt: null,
+          // Le lien prouve qu'il est en ligne : plus d'attente de validation,
+          // et une vérification neuve sur la bonne adresse.
+          approvalPendingSince: null,
+          verifyStatus: null,
+          verifyDetail: null,
+          verifyClaimedUntil: null,
+          // Un sauvetage raté avant d'avoir l'adresse peut être retenté.
+          ...(target.rescueStatus === 'failed' ? { rescueStatus: null } : {}),
+        },
+      }),
+      trace(this.prisma, {
+        postTargetId: target.id,
+        kind: 'URL_ATTACHED',
+        facebookUrl: url,
+        actor: by(acting),
+        detail: `était ${target.status}`,
+      }),
+      this.prisma.activityLog.create({
+        data: {
+          postId: target.postId,
+          groupId: target.groupId,
+          postTargetId: target.id,
+          facebookUrl: url,
+          eventType: 'TARGET_URL_ATTACHED',
+          message: `Lien collé à la main pour « ${target.post.title} » dans « ${target.group.name} » : ${url}`,
+          metadata: { by: by(acting), previousStatus: target.status },
+        },
+      }),
+    ]);
+    // La suite : le lien de l'article en commentaire, par un de nos profils
+    // du groupe (le vérificateur prend le relais s'il n'y en a pas).
+    let rescue = false;
+    if (target.post.url && !target.post.noComment && !target.linkUpdatedAt) {
+      rescue = (await this.rescue?.request(target.id, 'publié à la main : le lien de l’article reste à poser en commentaire', now).catch(() => false)) ?? false;
+    }
+    return {
+      result: 'attached' as const,
+      facebookUrl: url,
+      targetId: target.id,
+      previousStatus: target.status,
+      post: { title: target.post.title },
+      group: { name: target.group.name },
+      rescue,
+    };
+  }
+
   /** Retirer un post d'UN groupe. S'il ne vise plus aucun groupe, il
    * disparaît. Une publication faite ou en cours ne se retire pas : c'est
    * l'historique, ou un post en train de partir. */
@@ -598,6 +769,7 @@ export class QueueService {
         id: true,
         name: true,
         ownerId: true,
+        owner: { select: { role: true } },
         runner: { select: { mode: true } },
         profileGroups: {
           where: {

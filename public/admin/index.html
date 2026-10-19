@@ -424,13 +424,14 @@
                 ><input id="queue-search" type="search" placeholder="Rechercher un post" />
               </div>
               <div class="toolbar-group">
-                <button class="link" type="button" id="url-search-toggle">🔗 Retrouver par lien Facebook</button>
+                <button class="link" type="button" id="url-search-toggle" title="Retrouver une publication par son lien, ou compléter celle publiée à la main (spam, lien manquant)">🔗 Coller un lien Facebook</button>
                 <button class="secondary" id="queue-refresh" type="button" title="Se rafraîchit aussi seule toutes les 15 s">↻</button>
               </div>
             </div>
             <form class="url-search" id="url-search" hidden>
               <input name="url" type="url" placeholder="Coller un lien de post Facebook…" aria-label="Retrouver une publication par son lien Facebook" required
-              ><button class="secondary" type="submit">Retrouver</button>
+              ><button class="secondary" type="submit">Retrouver ou compléter</button>
+              <small class="form-help">Post publié à la main (parti en spam, lien manquant) : collez son lien, la publication de ce groupe qui l’attend est complétée et le travail reprend.</small>
             </form>
 
             <nav class="q-tabs" id="q-tabs" role="tablist">
@@ -1170,10 +1171,9 @@
           <!-- La vue globale de la journée (toutes publications confondues). -->
           <div class="panel objective" id="objective">
             <div class="panel-head">
-              <div><small>VUE GLOBALE · TOUTES PUBLICATIONS</small><h2 id="obj-title">Publications du jour</h2>
-                <p class="form-help" id="objective-legacy-note" hidden>Les campagnes actives fixent maintenant le rythme : l’objectif global n’est plus utilisé.</p></div>
+              <div><small>VUE DU JOUR · VOS CAMPAGNES</small><h2 id="obj-title">Publications du jour</h2>
+                <p class="form-help" id="objective-legacy-note">L’objectif du jour est la part d’aujourd’hui de vos campagnes actives : chaque gestionnaire a les siens.</p></div>
               <form id="objective-form" class="objective-form">
-                <label>Objectif<input name="dailyTarget" type="number" min="0" max="100000" placeholder="200" /><span>posts / jour</span></label>
                 <label>De<input name="objectiveStart" type="time" /></label>
                 <label>à<input name="objectiveEnd" type="time" /></label>
                 <label title="Les heures « De » et « à » sont celles de ce pays"

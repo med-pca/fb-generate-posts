@@ -187,11 +187,24 @@ export class CampaignsService {
     return rows;
   }
 
-  /** Le besoin total des campagnes actives, pour la cadence adaptative. `null`
-   * quand aucune campagne n'est active : l'ancien objectif global prend alors
-   * le relais (rien ne change tant qu'on n'a pas créé de campagne). */
-  async pacingNeed(now = new Date()) {
-    const active = await this.active(now);
+  /** L'objectif du jour d'un compte : la part d'aujourd'hui de chacune de
+   * ses campagnes actives (une campagne de la semaine compte pour 1/7, du
+   * mois pour 1/N). `ownerId` omis = toutes les campagnes. */
+  async dailyTarget(now = new Date(), ownerId?: string | null) {
+    let total = 0;
+    for (const c of await this.active(now, ownerId)) {
+      const { days } = periodBounds(c.period as Period, now, c.timezone);
+      total += Math.ceil(c.target / days);
+    }
+    return total;
+  }
+
+  /** Le besoin des campagnes actives, pour la cadence adaptative. Chaque
+   * compte a ses objectifs : `ownerId` ne garde que ses campagnes (omis =
+   * toutes). `null` quand aucune n'est active : pas d'objectif, pas de
+   * cadence imposée. */
+  async pacingNeed(now = new Date(), ownerId?: string | null) {
+    const active = await this.active(now, ownerId);
     if (!active.length) return null;
     let neededPerHour = 0;
     let ratePerHour = 0;
@@ -308,9 +321,14 @@ export class CampaignsService {
 
   /* ── Interne ─────────────────────────────────────────────────────────── */
 
-  private active(now: Date) {
+  private active(now: Date, ownerId?: string | null) {
     return this.prisma.campaign.findMany({
-      where: { status: 'ACTIVE', startsAt: { lte: now }, OR: [{ endsAt: null }, { endsAt: { gt: now } }] },
+      where: {
+        status: 'ACTIVE',
+        startsAt: { lte: now },
+        OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+        ...(ownerId !== undefined ? { ownerId } : {}),
+      },
       include: CAMPAIGN_INCLUDE,
     });
   }

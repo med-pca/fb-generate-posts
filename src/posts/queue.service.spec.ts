@@ -281,3 +281,72 @@ describe('QueueService — actions sur une publication', () => {
     expect(prisma.postTarget.update.mock.calls[0][0].data).toEqual({ forcedProfileId: null, forcedAt: null });
   });
 });
+
+describe('QueueService.attachUrl — lien collé à la main', () => {
+  const at = (min: number) => new Date(Date.UTC(2026, 9, 19, 10, min));
+  const row = (id: string, status: string, min: number) => ({
+    id, status, publishedAt: null, updatedAt: at(min), lastError: null, approvalPendingSince: null,
+    post: { id: `p-${id}`, title: `Post ${id}`, imageUrl: null }, group: { id: 'g1', name: 'Recettes FR' },
+  });
+  function setup(rows: any[], opts: { known?: any[]; groups?: any[] } = {}) {
+    const prisma: any = {
+      postTarget: {
+        findMany: jest.fn(async (args: any) => (args.where.OR?.some((o: any) => 'facebookUrl' in o && typeof o.facebookUrl === 'string') ? opts.known ?? [] : rows)),
+        findFirst: jest.fn(async (args: any) => {
+          const id = args.where.AND[1].id;
+          const r = rows.find((x) => x.id === id);
+          return r ? { ...r, postId: r.post.id, groupId: 'g1', linkUpdatedAt: null, rescueStatus: null, post: { title: r.post.title, url: 'https://site.test/a', noComment: false } } : null;
+        }),
+        update: jest.fn((args: any) => args),
+      },
+      group: { findMany: jest.fn(async () => opts.groups ?? [{ id: 'g1', name: 'Recettes FR', url: 'https://www.facebook.com/groups/recettesfr', externalId: '123' }]) },
+      activityLog: { create: jest.fn((args: any) => args) },
+      publicationTrace: { create: jest.fn(async (args: any) => args) },
+      $transaction: jest.fn(async (ops: any[]) => ops),
+    };
+    const rescue: any = { request: jest.fn(async () => true) };
+    return { service: new QueueService(prisma, rescue), prisma, rescue };
+  }
+
+  it('une seule publication sans lien dans le groupe : le lien y est rattaché, et le sauveteur prévenu', async () => {
+    const { service, prisma, rescue } = setup([row('a', 'AVAILABLE', 9), row('b', 'FAILED', 5)]);
+    const r: any = await service.attachUrl('https://m.facebook.com/groups/123/posts/777/?mibextid=x', undefined, null);
+    expect(r).toMatchObject({ result: 'attached', targetId: 'b', previousStatus: 'FAILED', rescue: true });
+    expect(prisma.postTarget.update.mock.calls[0][0].data).toMatchObject({
+      status: 'PUBLISHED', facebookUrl: 'https://www.facebook.com/groups/123/posts/777', verifyStatus: null, approvalPendingSince: null,
+    });
+    expect(prisma.publicationTrace.create.mock.calls[0][0].data.kind).toBe('URL_ATTACHED');
+    expect(rescue.request).toHaveBeenCalledWith('b', expect.any(String), expect.any(Date));
+  });
+
+  it('le groupe se reconnaît aussi par le nom de son adresse', async () => {
+    const { service } = setup([row('b', 'PUBLISHED', 5)]);
+    const r: any = await service.attachUrl('https://www.facebook.com/groups/RecettesFR/permalink/9/', undefined, null);
+    expect(r.result).toBe('attached');
+  });
+
+  it('plusieurs possibles : propose, sans deviner, les publications sans lien d’abord', async () => {
+    const { service, prisma } = setup([row('a', 'AVAILABLE', 9), row('b', 'FAILED', 5), row('c', 'PUBLISHED', 1)]);
+    const r: any = await service.attachUrl('https://www.facebook.com/groups/123/posts/777', undefined, null);
+    expect(r.result).toBe('choose');
+    expect(r.candidates.map((c: any) => c.targetId)).toEqual(['c', 'b', 'a']);
+    expect(prisma.postTarget.update).not.toHaveBeenCalled();
+    const chosen: any = await service.attachUrl('https://www.facebook.com/groups/123/posts/777', 'a', null);
+    expect(chosen).toMatchObject({ result: 'attached', targetId: 'a', previousStatus: 'AVAILABLE' });
+  });
+
+  it('un lien déjà connu renvoie sa publication, sans rien changer', async () => {
+    const known = [{ id: 'k', status: 'PUBLISHED', facebookUrl: 'https://www.facebook.com/groups/123/posts/777', post: { id: 'p', title: 'X' }, group: { id: 'g1', name: 'G' } }];
+    const { service, prisma } = setup([], { known });
+    const r: any = await service.attachUrl('https://www.facebook.com/groups/123/posts/777', undefined, null);
+    expect(r.result).toBe('known');
+    expect(prisma.postTarget.update).not.toHaveBeenCalled();
+  });
+
+  it('refuse un lien sans groupe, ou d’un groupe qui n’est pas à nous', async () => {
+    const { service } = setup([]);
+    await expect(service.attachUrl('https://www.facebook.com/permalink.php?story_fbid=1&id=2', undefined, null)).rejects.toThrow('quel groupe');
+    const other = setup([], { groups: [] });
+    await expect(other.service.attachUrl('https://www.facebook.com/groups/999/posts/1', undefined, null)).rejects.toThrow(NotFoundException);
+  });
+});

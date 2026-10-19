@@ -11,6 +11,7 @@ export const TRACE_KINDS = {
   MARKED_PUBLISHED: 'Marqué publié à la main',
   URL_SET: 'Adresse Facebook enregistrée',
   URL_FOUND: 'Adresse retrouvée par le vérificateur',
+  URL_ATTACHED: 'Lien collé à la main : publication retrouvée et complétée',
   VERIFIED_OK: 'Vérifié : en ligne avec son lien',
   VERIFY_PENDING: 'Vérifié : en attente de validation',
   APPROVAL_PENDING: 'Soumis : en attente de validation par l’administrateur du groupe',
@@ -58,6 +59,18 @@ export function trace(client: Client, input: TraceInput) {
       detail: input.detail ? String(input.detail).slice(0, 2000) : null,
     },
   });
+}
+
+/** Le groupe nommé dans une adresse Facebook (`/groups/<id ou nom>/…`), en
+ * minuscules ; `null` si l'adresse ne le dit pas. */
+export function groupKeyOf(raw: string | null | undefined): string | null {
+  const m = /\/groups\/([^/?#]+)/i.exec(String(raw ?? ''));
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]).toLowerCase();
+  } catch {
+    return m[1].toLowerCase();
+  }
 }
 
 /** Une adresse Facebook comparable : sans protocole, sans www/m., sans

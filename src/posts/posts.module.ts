@@ -5,8 +5,10 @@ import { QueueService } from './queue.service';
 import { RepeatService } from './repeat.service';
 import { PublishedService } from './published.service';
 import { PrioritiesService } from './priorities.service';
+import { RescueModule } from '../jobs/rescue.module';
 
 @Module({
+  imports: [RescueModule],
   controllers: [PostsController],
   providers: [PostsService, QueueService, RepeatService, PublishedService, PrioritiesService],
   exports: [RepeatService],
