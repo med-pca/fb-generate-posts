@@ -50,6 +50,8 @@ function delete_option($name) { unset($GLOBALS['options'][$name]); return true; 
 function wp_parse_url($url, $component = -1) { return $component === -1 ? parse_url($url) : parse_url($url, $component); }
 if (!defined('OBJECT')) { define('OBJECT', 'OBJECT'); }
 function get_page_by_path($path, $output, $type) { return $GLOBALS['by_slug'][$path] ?? null; }
+function do_action($hook, ...$args) { $GLOBALS['actions'][] = $hook; }
+function rocket_clean_domain() { $GLOBALS['purged'][] = 'rocket'; }
 function current_user_can($cap) { return $GLOBALS['logged_editor'] ?? false; }
 function wp_redirect($url, $code, $by = '') { throw new DFB_Redirect($url, $code); }
 class DFB_Redirect extends Exception { public $url; public $status; function __construct($url, $code) { $this->url = $url; $this->status = $code; parent::__construct('redirect'); } }
@@ -264,7 +266,7 @@ check(DFB_Posting::unlock(true) === true, 'An already authenticated request is l
 $_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/status';
 $_SERVER['HTTP_X_API_KEY'] = 'secret';
 check(DFB_Posting::unlock($locked) === true, 'The status route is unlocked too');
-check(DFB_Posting::status_route()['version'] === '1.6.0', 'The status route reports the version');
+check(DFB_Posting::status_route()['version'] === '1.6.1', 'The status route reports the version');
 check(isset($GLOBALS['routes']['dfb/v1/status']), 'The status route is registered');
 
 
@@ -303,7 +305,7 @@ $article = DFB_Posting::read_route(array('id' => '77'));
 check(is_array($article) && $article['postId'] === '77' && $article['ingestRef'] === 'ing_42', 'It returns the delivery payload, capture reference included');
 $GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'draft', 'post_password' => '', 'post_title' => 'x', 'post_content' => 'x', 'post_excerpt' => '');
 check(is_wp_error(DFB_Posting::read_route(array('id' => '78'))), 'A draft is never readable');
-check(DFB_Posting::VERSION === '1.6.0', 'Version 1.6.0');
+check(DFB_Posting::VERSION === '1.6.1', 'Version 1.6.1');
 
 // 1.4.1 : la plateforme vient chercher ce que le site n'a pas pu envoyer.
 check(isset($GLOBALS['routes']['dfb/v1/pending']) && $GLOBALS['routes']['dfb/v1/pending']['permission_callback'] === array('DFB_Posting', 'authorized'), 'The pending route is protected by the key');
@@ -348,6 +350,7 @@ check(is_wp_error(DFB_Posting::redirect_route(new DFB_Request(array('target' => 
 check(is_wp_error(DFB_Posting::redirect_route(new DFB_Request(array('target' => 'https://example.com')))), 'A site never redirects to itself');
 $set = DFB_Posting::redirect_route(new DFB_Request(array('target' => 'https://relais.example/')));
 check($set['redirect'] === 'https://relais.example' && DFB_Posting::status_route()['redirect'] === 'https://relais.example', 'The redirect is stored and reported');
+check(in_array('rocket', $GLOBALS['purged'] ?? array(), true) && in_array('litespeed_purge_all', $GLOBALS['actions'] ?? array(), true), 'Page caches are purged so the redirect shows at once');
 $_SERVER['REQUEST_URI'] = '/tarte-aux-pommes/?utm=fb';
 try { DFB_Posting::redirect_visitor(); check(false, 'A visitor is redirected'); } catch (DFB_Redirect $r) {
     check($r->url === 'https://relais.example/tarte-aux-pommes/?utm=fb' && $r->status === 302, 'A visitor goes to the same path on the relay, temporarily (302)');

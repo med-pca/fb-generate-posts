@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Data FB Posting
  * Description: Envoie les articles publiés vers Data FB Posting, resynchronise leurs modifications (titre, contenu, image), et reçoit les articles réécrits que l'API dépose.
- * Version: 1.6.0
+ * Version: 1.6.1
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
 if (!defined('ABSPATH')) { exit; }
 
 final class DFB_Posting {
-    const VERSION = '1.6.0';
+    const VERSION = '1.6.1';
     const OPTION = 'dfb_posting_settings';
     const HOOK = 'dfb_posting_deliver';
     const INGEST_META = '_dfb_ingest';
@@ -344,6 +344,7 @@ final class DFB_Posting {
         $raw = is_array($body) && isset($body['target']) ? trim((string) $body['target']) : '';
         if ($raw === '') {
             delete_option(self::REDIRECT_OPTION);
+            self::purge_caches();
             return array('redirect' => null);
         }
         $parts = wp_parse_url($raw);
@@ -355,7 +356,27 @@ final class DFB_Posting {
             return new WP_Error('dfb_self', 'Le site ne peut pas se rediriger vers lui-même.', array('status' => 400));
         }
         update_option(self::REDIRECT_OPTION, array('target' => $target, 'since' => gmdate('c')), false);
+        self::purge_caches();
         return array('redirect' => $target);
+    }
+
+    /** Un cache de pages sert ses copies sans passer par PHP : ni la
+     * redirection posée, ni son retrait ne se verraient. On vide celui des
+     * extensions courantes ; un cache externe (Cloudflare, hébergeur) reste à
+     * vider à la main. */
+    public static function purge_caches() {
+        if (function_exists('rocket_clean_domain')) { rocket_clean_domain(); }
+        if (function_exists('w3tc_flush_all')) { w3tc_flush_all(); }
+        if (function_exists('wp_cache_clear_cache')) { wp_cache_clear_cache(); }
+        if (function_exists('sg_cachepress_purge_cache')) { sg_cachepress_purge_cache(); }
+        if (function_exists('wpfc_clear_all_cache')) { wpfc_clear_all_cache(true); }
+        if (class_exists('autoptimizeCache') && method_exists('autoptimizeCache', 'clearall')) { autoptimizeCache::clearall(); }
+        if (function_exists('do_action')) {
+            do_action('litespeed_purge_all');
+            do_action('breeze_clear_all_cache');
+            do_action('cache_enabler_clear_complete_cache');
+        }
+        if (function_exists('wp_cache_flush')) { wp_cache_flush(); }
     }
 
     public static function redirect_target() {
@@ -371,6 +392,8 @@ final class DFB_Posting {
         if (!$target || (function_exists('current_user_can') && current_user_can('edit_posts'))) { return; }
         $path = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '/';
         if ($path === '' || $path[0] !== '/') { $path = '/'; }
+        // Jamais mise en cache : à la réactivation, le visiteur doit revenir.
+        if (function_exists('nocache_headers')) { nocache_headers(); }
         wp_redirect($target . $path, 302, 'Data FB Posting');
         exit;
     }
