@@ -1,22 +1,34 @@
 # WordPress → Data FB Posting
 
-## Installation
+## Installation (2.0 — une clé par site)
 
-1. Configurer une clé aléatoire dédiée dans l’environnement du serveur : `WORDPRESS_API_KEY`. Elle est différente de `AUTOMATION_API_KEY` et ne donne accès qu’à la réception WordPress.
-2. Construire et redémarrer l’API avec cette version (`npm run build`, puis le mécanisme de déploiement habituel). Aucune migration supplémentaire ni dépendance n’est nécessaire.
-3. Dans WordPress : **Extensions → Ajouter une extension → Téléverser**, sélectionner `data-fb-posting.zip`, installer et activer.
-4. Dans **Réglages → Data FB Posting**, renseigner l’URL complète `https://VOTRE-API/api/wordpress/articles` et la même clé `WORDPRESS_API_KEY`.
-5. Publier un nouvel article public, avec une image à la une si souhaité. La colonne **Facebook** dans la liste des articles indique « En attente », « Mise à jour en attente », une erreur explicite ou « Transmis ».
-6. Vérifier dans Data FB Posting l’article importé et les posts associés aux profils actifs. Les groupes actifs associés à chaque profil deviennent les destinataires.
-7. Modifier ensuite l’article (titre, contenu, extrait, image à la une, lien ou date) : après le passage de WP-Cron, l’article et les posts pas encore publiés reprennent la nouvelle version.
+1. Côté serveur, rien d’obligatoire : les clés sont chiffrées avec `SITE_KEY_SECRET` (ou, à défaut, `AUTH_SECRET`). Garder ce secret stable : le changer rend illisibles les clés enregistrées, qu’il faudrait alors régénérer.
+2. Dans la plateforme, page **Sites** : ajouter le site. Une **clé propre à ce site** (`dfb_<idSite>_<secret>`) est générée et montrée **une seule fois** (copiée dans le presse-papiers). Pour un site existant, ou en cas de perte : bouton **Clé**. L’ancienne clé cesse aussitôt de valoir.
+3. Dans WordPress : **Extensions → Ajouter une extension → Téléverser**, sélectionner `data-fb-posting.zip` (2.0.0), installer et activer.
+4. Dans **Réglages → Data FB Posting** : l’URL `https://VOTRE-API/api/wordpress/articles` et la clé du site. La page confirme la clé enregistrée (`dfb_<idSite>_…abcd`) sans jamais la réafficher.
+5. Page **Sites** de la plateforme : **Vérifier**. L’état doit passer à « connectée ».
+6. Publier un article public. La colonne **Facebook** de la liste des articles indique « En attente », une erreur explicite ou « Transmis ».
 
-Mise à jour depuis une version antérieure : remplacer l’extension par le nouveau ZIP. Les articles déjà transmis sont repris automatiquement à leur première modification, sans renvoi inutile. La 1.2.0 n’ajoute aucun réglage : la route entrante utilise la clé déjà enregistrée.
+## Sécurité (2.0)
 
-Le site WordPress, ses liens d’article et d’image, ainsi que l’API doivent utiliser HTTPS. Le serveur API doit être accessible depuis l’hébergement WordPress. WordPress 5.6+ et PHP 7.4+ requis.
+- **Une clé par site**, générée par la plateforme, jamais choisie à la main ni partagée. Chaque gestionnaire génère et régénère les clés des sites qu’il possède ; un site qui lui est seulement partagé ne lui donne pas accès à sa clé.
+- **La clé ne circule jamais.** Chaque requête, dans les deux sens (site → plateforme et plateforme → site), porte `x-dfb-site`, `x-dfb-timestamp`, `x-dfb-nonce` et `x-dfb-signature` = HMAC-SHA256 du secret sur `DFB1\n<idSite>\n<horodatage>\n<nonce>\n<MÉTHODE>\n<sha256 du corps>`.
+- **Pas de rejeu** : une signature n’est acceptée qu’une fois, et seulement dans les 5 minutes (l’heure du serveur WordPress doit être juste).
+- **Pas d’usurpation** : le site est désigné par la clé, pas par le corps. Un article envoyé avec la clé du site A au nom du site B est refusé (403). Les articles tirés par la plateforme (`dfb/v1/pending`) sont toujours rattachés au site interrogé.
+- **Chiffrement au repos** : côté plateforme en AES-256-GCM ; côté WordPress en AES-256-GCM avec les sels de `wp-config.php` (une copie de la base seule ne révèle pas la clé). Changer ces sels oblige à recoller la clé.
+- **Révocation** : régénérer la clé d’un site coupe immédiatement l’ancienne.
+
+### Transition depuis la 1.x
+
+Tant que `WORDPRESS_LEGACY_KEYS` ne vaut pas `false`, la plateforme accepte encore les extensions 1.x (clé en clair `x-api-key`) — mais :
+- la clé globale `WORDPRESS_API_KEY` ne vaut plus pour un site qui a sa propre clé (elle permettait d’écrire au nom de n’importe quel site) ;
+- un site passé en 2.0 (clé `dfb_…` générée) refuse toute clé en clair.
+
+Pour chaque site : installer l’extension 2.0, cliquer **Clé**, coller la clé. Quand la colonne Clé de la page Sites indique « clé 2.x » partout, mettre `WORDPRESS_LEGACY_KEYS=false`.
 
 ## Réception des articles réécrits (1.2.0)
 
-La 1.2.0 ouvre une route entrante, `POST /wp-json/dfb/v1/articles`, par laquelle l’API dépose les articles qu’elle a fait réécrire à partir d’une publication Facebook. Elle est protégée par la **même clé** que les envois sortants, comparée en temps constant ; sans clé enregistrée, la route reste fermée.
+La 1.2.0 ouvre une route entrante, `POST /wp-json/dfb/v1/articles`, par laquelle l’API dépose les articles qu’elle a fait réécrire à partir d’une publication Facebook. Depuis la 2.0, elle n’accepte que des requêtes signées avec la clé du site (voir Sécurité) ; sans clé enregistrée, la route reste fermée.
 
 - Corps attendu : `title`, `contentHtml` (obligatoires), puis `slug`, `excerpt`, `ingestRef`, et `image` (`{data, mimeType, filename}`, base64, 10 Mo maximum, JPEG/PNG/WebP/GIF). Le corps passe par `wp_kses_post`, le titre et l’extrait par `sanitize_text_field`.
 - **Publication en deux temps** : l’article est d’abord créé en brouillon, le temps de poser la référence de reprise et l’image à la une, puis mis en ligne. C’est la mise en ligne qui déclenche l’envoi vers l’API, et il doit porter ces deux éléments — les poser après aurait produit un premier envoi incomplet.
@@ -25,7 +37,7 @@ La 1.2.0 ouvre une route entrante, `POST /wp-json/dfb/v1/articles`, par laquelle
 - Seuls des articles standards (`post`) sont créés, avec l’auteur par défaut de `wp_insert_post`.
 - **Coupures de page** : l’API dépose un corps déjà découpé sur `<!--nextpage-->`, ce qui fait lire l’article en plusieurs pages. Le filtrage s’applique page par page, puis recolle : passer le corps entier à `wp_kses_post` reviendrait à parier sur son traitement des commentaires (depuis la 1.3.0).
 - Les données sont passées **échappées** à `wp_insert_post`, qui leur applique `wp_unslash`. Sans cela, tout antislash du contenu disparaît : un `\n` écrit en toutes lettres par le modèle ressortait en « n » isolé au milieu de l’article (corrigé en 1.2.3).
-- **Sites dont l’API REST est fermée** (réponse `rest_login_required`) : beaucoup d’extensions de sécurité verrouillent l’API REST pour les visiteurs non connectés, et ce verrou s’applique *avant* le `permission_callback` de chaque route. Depuis la 1.2.1, l’extension rouvre **sa seule route**, et seulement quand la clé présentée est déjà la bonne ; tout le reste de l’API REST demeure fermé. Rien à configurer.
+- **Sites dont l’API REST est fermée** (réponse `rest_login_required`) : beaucoup d’extensions de sécurité verrouillent l’API REST pour les visiteurs non connectés, et ce verrou s’applique *avant* le `permission_callback` de chaque route. Depuis la 1.2.1, l’extension rouvre **sa seule route**, et seulement quand la signature présentée est valide ; tout le reste de l’API REST demeure fermé. Rien à configurer.
 
 ## Fonctionnement
 

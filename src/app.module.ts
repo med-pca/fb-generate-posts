@@ -1,4 +1,5 @@
 import { WordpressModule } from './wordpress/wordpress.module';
+import { SiteKeysModule } from './wordpress/site-keys.service';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
@@ -34,6 +35,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     ConfigModule.forRoot({ isGlobal: true }),
     AuthModule,
     PrismaModule,
+    SiteKeysModule,
     ProfilesModule,
     GroupsModule,
     PostsModule,

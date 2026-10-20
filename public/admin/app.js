@@ -435,6 +435,16 @@ function askText(message, value = '', opts = {}) {
   });
 }
 
+/** La clé d'un site, montrée une seule fois : la plateforme ne la relit plus. */
+async function showSiteKey(name, key) {
+  try { await navigator.clipboard?.writeText(key); } catch { /* copie manuelle */ }
+  await askText(
+    `Clé d’extension de « ${name} »\nCopiée dans le presse-papiers. À coller dans Réglages > Data FB Posting du WordPress. Elle ne sera plus affichée : en cas de perte, en générer une nouvelle.`,
+    key,
+    { kicker: 'CLÉ DU SITE', confirmLabel: 'J’ai copié la clé', label: 'Clé' },
+  );
+}
+
 function notice(message, type = 'success') {
   const n = $('#notice');
   n.textContent = message;
@@ -3425,13 +3435,14 @@ function renderSites() {
           `<td><a href="${esc(s.originUrl)}" target="_blank" rel="noreferrer">${esc(s.originUrl)}</a></td>` +
           `<td>${s.category ? `<span class="chip">${esc(s.category)}</span>` : '<span class="muted">aucune — pas de post</span>'}</td>` +
           pluginCell(s) +
-          `<td>${s.hasOwnKey ? 'propre à ce site' : '<span class="muted">clé globale</span>'}</td>` +
+          `<td>${s.keyType === 'v2' ? 'clé 2.x (signée)' : `<span class="muted">${s.hasOwnKey ? 'ancienne clé' : 'clé globale'} — à régénérer</span>`}</td>` +
           `<td>${s.articles}</td>` +
           (s.status === 'ACTIVE'
             ? '<td><span class="pill">Actif</span></td>'
             : '<td><span class="pill plugin-unknown" title="Les articles publiés pendant la désactivation sont ignorés, et le restent ; à la réactivation, les suivants sont créés normalement">Inactif</span><small>nouveaux articles ignorés</small></td>') +
           `<td><div class="row-actions"><button class="edit" data-check-site="${s.id}">Vérifier</button>` +
           `<button class="edit" data-share-site="${s.id}">Partager</button>` +
+          `<button class="edit" data-key-site="${s.id}">Clé</button>` +
           `<button class="edit" data-edit-site="${s.id}">Modifier</button>` +
           (s.articles
             ? ''
@@ -4462,17 +4473,15 @@ $('#site-form').onsubmit = async (e) => {
   const d = Object.fromEntries(new FormData(e.target)),
     id = d.id;
   delete d.id;
-  // Une clé vide ne doit pas effacer celle en place : l'interface ne la relit
-  // jamais, donc elle ne peut pas la renvoyer.
-  if (!d.depositKey) delete d.depositKey;
   try {
-    await api(id ? `/sites/${id}` : '/sites', {
+    const saved = await api(id ? `/sites/${id}` : '/sites', {
       method: id ? 'PATCH' : 'POST',
       body: JSON.stringify(d),
     });
     e.target.closest('dialog').close();
     await load();
     notice(id ? 'Site mis à jour.' : 'Site ajouté.');
+    if (saved?.siteKey) await showSiteKey(saved.name, saved.siteKey);
   } catch (x) {
     notice(x.message, 'error');
   }
@@ -5795,6 +5804,17 @@ document.addEventListener('click', async (e) => {
       .catch((x) => notice(x.message, 'error'));
     return;
   }
+  const keySite = state.sites.find((x) => x.id === e.target.dataset.keySite);
+  if (keySite) {
+    if (!await ask(`Régénérer la clé de « ${keySite.name} » ?\nL’ancienne cesse aussitôt de valoir : le site ne pourra plus rien envoyer ni recevoir tant que la nouvelle n’est pas collée dans son extension WordPress (2.0 ou plus).`)) return;
+    api(`/sites/${keySite.id}/key`, { method: 'POST' })
+      .then(async (r) => {
+        await load();
+        await showSiteKey(keySite.name, r.siteKey);
+      })
+      .catch((x) => notice(x.message, 'error'));
+    return;
+  }
   const checkSite = e.target.dataset.checkSite;
   if (checkSite) {
     e.target.disabled = true;
@@ -5844,7 +5864,6 @@ document.addEventListener('click', async (e) => {
     const f = $('#site-form');
     for (const k of ['id', 'name', 'originUrl', 'status', 'categoryId'])
       f.elements[k].value = site[k] ?? '';
-    f.elements.depositKey.value = '';
     $('h2', $('#site-modal')).textContent = 'Modifier le site';
     return;
   }

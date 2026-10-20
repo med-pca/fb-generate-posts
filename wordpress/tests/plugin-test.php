@@ -38,10 +38,31 @@ function is_wp_error($v) { return $v instanceof WP_Error || $v instanceof Except
 class WP_Error { public $code; public $message; public $data;
     public function __construct($code = '', $message = '', $data = array()) { $this->code = $code; $this->message = $message; $this->data = $data; }
     public function get_error_message() { return $this->message; } }
-class DFB_Request { private $body; private $headers;
-    public function __construct($body, $headers = array()) { $this->body = $body; $this->headers = $headers; }
+class DFB_Request { private $body; private $headers; private $method; private $raw;
+    public function __construct($body, $headers = array(), $method = 'POST', $raw = null) {
+        $this->body = $body; $this->headers = $headers; $this->method = $method;
+        $this->raw = $raw ?? ($method === 'GET' ? '' : json_encode($body)); }
     public function get_json_params() { return $this->body; }
+    public function get_body() { return $this->raw; }
+    public function get_method() { return $this->method; }
     public function get_header($name) { return $this->headers[$name] ?? ''; } }
+function esc_url_raw($u, $p = null) { return $u; }
+function wp_parse_url($u, $c = -1) { return parse_url($u, $c); }
+function add_settings_error(...$a) { $GLOBALS['settings_errors'][] = $a; }
+function wp_salt($scheme) { return 'sel-de-test-wp-config'; }
+function get_transient($k) { return $GLOBALS['transients'][$k] ?? false; }
+function set_transient($k, $v, $ttl) { $GLOBALS['transients'][$k] = $v; return true; }
+// La clé d'un site, telle que la plateforme la génère.
+define('SITE_ID', 'clsite0001');
+define('SECRET', str_repeat('ab12', 16));
+define('KEY', 'dfb_' . SITE_ID . '_' . SECRET);
+/** Une requête signée comme la plateforme la signe. */
+function signed($body, $method = 'POST', $key = KEY, $overrides = array()) {
+    preg_match(DFB_Posting::KEY_PATTERN, $key, $m);
+    $raw = $method === 'GET' ? '' : json_encode($body);
+    $headers = DFB_Posting::signed_headers(array('site' => $m[1], 'secret' => $m[2]), $method, $raw);
+    return new DFB_Request($body, array_merge($headers, $overrides), $method, $raw);
+}
 function get_post($id) { return $GLOBALS['post']; }
 function get_posts($args) { return $GLOBALS['pending_ids'] ?? array(); }
 function get_option($name, $default) { return $GLOBALS['options'][$name] ?? $default; }
@@ -105,7 +126,7 @@ check(get_post_meta(42, '_dfb_pending', true)['content'] === 'Contenu corrigé',
 unset($GLOBALS['events'][42]); // WP-Cron removes the current event before executing it.
 DFB_Posting::deliver(42);
 check(isset($GLOBALS['events'][42]) && !get_post_meta(42, '_dfb_sent', true), 'Missing configuration retries');
-$GLOBALS['options'][DFB_Posting::OPTION] = array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => 'test');
+$GLOBALS['options'][DFB_Posting::OPTION] = array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => KEY);
 $GLOBALS['response'] = new Exception('timeout');
 unset($GLOBALS['events'][42]); DFB_Posting::deliver(42);
 check(isset($GLOBALS['events'][42]) && !get_post_meta(42, '_dfb_sent', true), 'Network failure retries');
@@ -126,6 +147,12 @@ check((bool) get_post_meta(42, '_dfb_sent', true) && empty($GLOBALS['events']), 
 check(!get_post_meta(42, '_dfb_pending', true) && rendered(42) === 'Transmis', 'Nothing stays pending after delivery');
 check(sent_body()['content'] === 'Contenu corrigé', 'Retries send the last saved version');
 check($GLOBALS['request']['redirection'] === 0, 'API key is never forwarded through redirects');
+// 2.0 : la clé ne part jamais, la requête est signée sur ses octets exacts.
+$h = $GLOBALS['request']['headers'];
+check(!isset($h['x-api-key']) && strpos(json_encode($GLOBALS['request']), SECRET) === false, 'The key itself is never sent');
+check($h['x-dfb-site'] === SITE_ID && hash_equals(
+    hash_hmac('sha256', DFB_Posting::canonical(SITE_ID, $h['x-dfb-timestamp'], $h['x-dfb-nonce'], 'POST', $GLOBALS['request']['body']), SECRET),
+    $h['x-dfb-signature']), 'Deliveries are signed over the exact body');
 unset($GLOBALS['request']); DFB_Posting::deliver(42);
 check(!isset($GLOBALS['request']), 'Delivered articles are never sent again');
 
@@ -168,21 +195,42 @@ check(get_post_meta(9, '_dfb_pending', true)['title'] === 'Ancien corrigé', 'Ad
 // ---------------------------------------------------------------------------
 // Réception : l'API dépose un article réécrit.
 // ---------------------------------------------------------------------------
-$GLOBALS['options'][DFB_Posting::OPTION] = array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => 'secret');
+$GLOBALS['options'][DFB_Posting::OPTION] = array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => KEY);
 DFB_Posting::routes();
 check(isset($GLOBALS['routes']['dfb/v1/articles']), 'The inbound route is registered');
 
-$deposit = function ($body, $key = 'secret') { return array(
-    'auth' => DFB_Posting::authorized(new DFB_Request($body, array('x-api-key' => $key))),
-    'body' => $body); };
-
-$refused = $deposit(array('title' => 'T', 'contentHtml' => '<p>x</p>'), 'mauvaise');
-check($refused['auth'] instanceof WP_Error, 'A wrong key is refused');
-check(DFB_Posting::authorized(new DFB_Request(array(), array())) instanceof WP_Error, 'A missing key is refused');
+$deposit = array('title' => 'T', 'contentHtml' => '<p>x</p>');
+$other = 'dfb_' . SITE_ID . '_' . str_repeat('cd34', 16);
+check(DFB_Posting::authorized(signed($deposit, 'POST', $other)) instanceof WP_Error, 'A request signed with another key is refused');
+check(DFB_Posting::authorized(new DFB_Request(array(), array())) instanceof WP_Error, 'An unsigned request is refused');
+check(DFB_Posting::authorized(new DFB_Request(array(), array('x-api-key' => KEY))) instanceof WP_Error, 'The 1.x plain key header is no longer accepted');
 $GLOBALS['options'][DFB_Posting::OPTION]['key'] = '';
-check(DFB_Posting::authorized(new DFB_Request(array(), array('x-api-key' => ''))) instanceof WP_Error, 'An unconfigured site accepts nothing');
-$GLOBALS['options'][DFB_Posting::OPTION]['key'] = 'secret';
-check(DFB_Posting::authorized(new DFB_Request(array(), array('x-api-key' => 'secret'))) === true, 'The right key is accepted');
+check(DFB_Posting::authorized(signed($deposit)) instanceof WP_Error, 'An unconfigured site accepts nothing');
+$GLOBALS['options'][DFB_Posting::OPTION]['key'] = KEY;
+$good = signed($deposit);
+check(DFB_Posting::authorized($good) === true, 'A correctly signed request is accepted');
+$replay = DFB_Posting::authorized($good);
+check($replay instanceof WP_Error && $replay->code === 'dfb_replay', 'The same signed request is refused the second time');
+$tampered = signed($deposit);
+$tampered = new DFB_Request(array('title' => 'Autre'), array(
+    'x-dfb-site' => $tampered->get_header('x-dfb-site'), 'x-dfb-timestamp' => $tampered->get_header('x-dfb-timestamp'),
+    'x-dfb-nonce' => $tampered->get_header('x-dfb-nonce'), 'x-dfb-signature' => $tampered->get_header('x-dfb-signature')));
+check(DFB_Posting::authorized($tampered) instanceof WP_Error, 'A modified body breaks the signature');
+$old = signed($deposit, 'POST', KEY, array('x-dfb-timestamp' => (string) (time() - 3600)));
+check(DFB_Posting::authorized($old) instanceof WP_Error, 'An old request is refused');
+check(DFB_Posting::authorized(signed(array(), 'GET')) === true, 'Signed GET requests (status, pending) work');
+check(DFB_Posting::authorized(signed($deposit, 'POST', 'dfb_autresite99_' . SECRET)) instanceof WP_Error, 'A request for another site is refused');
+
+// La clé est chiffrée dans la base, et validée à l'enregistrement.
+$GLOBALS['options'][DFB_Posting::OPTION] = array();
+$saved = DFB_Posting::sanitize(array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => KEY));
+check(strpos($saved['key'], 'enc:') === 0 && strpos($saved['key'], SECRET) === false, 'The key is stored encrypted');
+check(DFB_Posting::reveal($saved['key']) === KEY, 'And decrypted with the site salts');
+$GLOBALS['options'][DFB_Posting::OPTION] = $saved;
+check(DFB_Posting::key_parts()['site'] === SITE_ID, 'The encrypted key is usable');
+$kept = DFB_Posting::sanitize(array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => 'ancienne-cle-globale'));
+check($kept === $saved, 'A key that is not a 2.0 site key is rejected');
+$GLOBALS['options'][DFB_Posting::OPTION] = array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => KEY);
 
 check(DFB_Posting::receive(new DFB_Request(array('title' => '', 'contentHtml' => '<p>x</p>'))) instanceof WP_Error, 'A deposit without a title is refused');
 check(DFB_Posting::receive(new DFB_Request(array('title' => 'T', 'contentHtml' => '   '))) instanceof WP_Error, 'A deposit without a body is refused');
@@ -221,29 +269,40 @@ check(DFB_Posting::attach_image(1, null) === null, 'A deposit without an image p
 // Beaucoup de sites ferment toute l'API REST : ce verrou s'applique avant le
 // `permission_callback`, donc avant toute vérification de notre clé.
 $locked = new WP_Error('rest_login_required', 'REST API restricted to authenticated users.');
-$GLOBALS['options'][DFB_Posting::OPTION]['key'] = 'secret';
+$GLOBALS['options'][DFB_Posting::OPTION]['key'] = KEY;
 $_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/articles';
+// `unlock` lit la requête brute : en-têtes HTTP_X_DFB_*, méthode, corps.
+$_SERVER['REQUEST_METHOD'] = 'GET';
+$sign_server = function ($key = KEY) {
+    $r = signed(array(), 'GET', $key);
+    foreach (array('site', 'timestamp', 'nonce', 'signature') as $f) {
+        $_SERVER['HTTP_X_DFB_' . strtoupper($f)] = $r->get_header('x-dfb-' . $f);
+    }
+};
+$unsign_server = function () {
+    foreach (array('SITE', 'TIMESTAMP', 'NONCE', 'SIGNATURE') as $f) { unset($_SERVER['HTTP_X_DFB_' . $f]); }
+};
 
-$_SERVER['HTTP_X_API_KEY'] = 'secret';
-check(DFB_Posting::unlock($locked) === true, 'A global REST lockdown is lifted for our route with the right key');
+$sign_server();
+check(DFB_Posting::unlock($locked) === true, 'A global REST lockdown is lifted for our route with a valid signature');
 // Trois refus distincts : rendre le verrou du site tel quel ne disait pas
 // si l'extension avait seulement eu la parole.
-$_SERVER['HTTP_X_API_KEY'] = 'mauvaise';
+$sign_server('dfb_' . SITE_ID . '_' . str_repeat('cd34', 16));
 $refus = DFB_Posting::unlock($locked);
 check($refus instanceof WP_Error && $refus->code === 'dfb_bad_key', 'A wrong key is named as such');
 check($refus->data['version'] === DFB_Posting::VERSION, 'The refusal says which version answered');
-unset($_SERVER['HTTP_X_API_KEY']);
+$unsign_server();
 $sans = DFB_Posting::unlock($locked);
 check($sans instanceof WP_Error && $sans->code === 'dfb_no_header', 'A missing header is named as such');
 $GLOBALS['options'][DFB_Posting::OPTION]['key'] = '';
 $vide = DFB_Posting::unlock($locked);
 check($vide instanceof WP_Error && $vide->code === 'dfb_no_key', 'An unsaved key is named as such');
-$GLOBALS['options'][DFB_Posting::OPTION]['key'] = 'secret';
+$GLOBALS['options'][DFB_Posting::OPTION]['key'] = KEY;
 
 // Rouvrir tout le reste de l'API REST serait une régression de sécurité du
 // site, pas une correction.
 $_SERVER['REQUEST_URI'] = '/wp-json/wp/v2/users';
-$_SERVER['HTTP_X_API_KEY'] = 'secret';
+$sign_server();
 check(DFB_Posting::unlock($locked) === $locked, 'Other REST routes stay locked even with the key');
 
 // Un site qui ne verrouille rien ne doit pas voir son état modifié.
@@ -254,15 +313,16 @@ check(DFB_Posting::unlock(true) === true, 'An already authenticated request is l
 
 // La route de diagnostic doit franchir le même verrou que le dépôt.
 $_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/status';
-$_SERVER['HTTP_X_API_KEY'] = 'secret';
+$sign_server();
 check(DFB_Posting::unlock($locked) === true, 'The status route is unlocked too');
-check(DFB_Posting::status_route()['version'] === '1.4.1', 'The status route reports the version');
+check(DFB_Posting::status_route()['version'] === '2.0.0', 'The status route reports the version');
+check(DFB_Posting::status_route()['auth'] === 'signed', 'And that it expects signed requests');
 check(isset($GLOBALS['routes']['dfb/v1/status']), 'The status route is registered');
 
 
 // Un « \n » écrit en toutes lettres par le modèle ressortait en « n » isolé :
 // `wp_insert_post` déséchappe ce qu'on lui donne, et l'antislash disparaissait.
-$GLOBALS['options'][DFB_Posting::OPTION]['key'] = 'secret';
+$GLOBALS['options'][DFB_Posting::OPTION]['key'] = KEY;
 $slashed = DFB_Posting::receive(new DFB_Request(array(
     'title' => 'Un titre',
     'contentHtml' => '<p>Avant</p>' . chr(92) . 'n' . chr(92) . 'n<p>Après</p>',
@@ -274,7 +334,7 @@ check(!preg_match('/<\/p>n/', $stored), 'It never degrades into a stray "n"');
 
 // Les coupures de page font vivre l'article sur plusieurs vues : les perdre
 // au filtrage reviendrait à rendre l'article d'un seul tenant.
-$GLOBALS['options'][DFB_Posting::OPTION]['key'] = 'secret';
+$GLOBALS['options'][DFB_Posting::OPTION]['key'] = KEY;
 $paged = DFB_Posting::receive(new DFB_Request(array(
     'title' => 'Article en pages',
     'contentHtml' => '<h2>Un</h2><p>Texte.</p><p>Suite</p>' . DFB_Posting::NEXT_PAGE
@@ -295,7 +355,7 @@ $article = DFB_Posting::read_route(array('id' => '77'));
 check(is_array($article) && $article['postId'] === '77' && $article['ingestRef'] === 'ing_42', 'It returns the delivery payload, capture reference included');
 $GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'draft', 'post_password' => '', 'post_title' => 'x', 'post_content' => 'x', 'post_excerpt' => '');
 check(is_wp_error(DFB_Posting::read_route(array('id' => '78'))), 'A draft is never readable');
-check(DFB_Posting::VERSION === '1.4.1', 'Version 1.4.1');
+check(DFB_Posting::VERSION === '2.0.0', 'Version 2.0.0');
 
 // 1.4.1 : la plateforme vient chercher ce que le site n'a pas pu envoyer.
 check(isset($GLOBALS['routes']['dfb/v1/pending']) && $GLOBALS['routes']['dfb/v1/pending']['permission_callback'] === array('DFB_Posting', 'authorized'), 'The pending route is protected by the key');
@@ -319,7 +379,7 @@ DFB_Posting::ack_route(new DFB_Request(array('articles' => array(array('postId' 
 check((bool) get_post_meta(56, '_dfb_pending', true), 'An edit made since the pull still has to be sent');
 
 // La vraie cause d'un échec réseau est montrée, pas seulement « API inaccessible ».
-$GLOBALS['options'][DFB_Posting::OPTION] = array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => 'test');
+$GLOBALS['options'][DFB_Posting::OPTION] = array('endpoint' => 'https://api.example.com/api/wordpress/articles', 'key' => KEY);
 $GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'publish', 'post_password' => '', 'post_title' => 'x', 'post_content' => 'x', 'post_excerpt' => '');
 update_post_meta(60, '_dfb_pending', array('title' => 'x'));
 $GLOBALS['response'] = new WP_Error('http_request_failed', 'cURL error 6: Could not resolve host: api.example.com');

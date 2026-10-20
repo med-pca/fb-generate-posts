@@ -11,6 +11,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../auth/current-user';
 import { CreateSiteDto, UpdateSiteDto } from './dto/site.dto';
+import { SiteKeysService } from '../wordpress/site-keys.service';
+import { keyHint } from '../wordpress/site-key';
 import {
   groupWhere,
   scopeOf,
@@ -37,12 +39,15 @@ export function normalizeSiteUrl(value: string) {
 
 /** Ce qu'on montre d'un site : jamais la clé, seulement le fait qu'il en ait
  * une. Elle ne ressort d'aucune lecture, y compris pour un administrateur. */
+export type SiteKeyType = 'v2' | 'legacy' | null;
+
 export function publicSite(
   site: ContentSource & {
     _count?: { articles: number };
     owner?: { username: string } | null;
     category?: { id: string; name: string } | null;
   },
+  keyType: SiteKeyType = site.depositKey ? 'legacy' : null,
 ) {
   return {
     id: site.id,
@@ -52,6 +57,9 @@ export function publicSite(
     ownerId: site.ownerId,
     owner: site.owner?.username ?? null,
     hasOwnKey: Boolean(site.depositKey),
+    // v2 : clé générée, requêtes signées. legacy : clé 1.x en clair (ou
+    // clé globale si `hasOwnKey` est faux) — à régénérer.
+    keyType,
     categoryId: site.categoryId,
     category: site.category?.name ?? null,
     // L'extension WordPress : branchée ou non, et depuis quand on le sait.
@@ -110,7 +118,31 @@ export class SitesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly categories: CategoriesService,
+    private readonly keys: SiteKeysService,
   ) {}
+
+  private view(site: Parameters<typeof publicSite>[0]) {
+    const type: SiteKeyType = this.keys.parsed(site.depositKey) ? 'v2' : site.depositKey ? 'legacy' : null;
+    return publicSite(site, type);
+  }
+
+  /** Une nouvelle clé 2.x pour le site : l'ancienne cesse aussitôt de valoir.
+   * Réservé au propriétaire (ou à un ADMIN). La clé n'est montrée qu'ici. */
+  async rotateKey(id: string, acting: CurrentUser | null) {
+    const site = await this.owned(id, acting);
+    const key = await this.keys.rotate(site.id);
+    await this.prisma.activityLog
+      .create({
+        data: {
+          eventType: 'SITE_KEY_ROTATED',
+          level: 'INFO',
+          message: `${site.name} : nouvelle clé d’extension (${keyHint(key)})${acting ? ` par ${acting.username}` : ''}`,
+          metadata: { siteId: site.id, by: acting?.id ?? null },
+        },
+      })
+      .catch(() => undefined);
+    return { siteId: site.id, siteKey: key, hint: keyHint(key) };
+  }
 
   async findAll(acting: CurrentUser | null) {
     const sites = await this.prisma.contentSource.findMany({
@@ -118,7 +150,7 @@ export class SitesService {
       include: SITE_INCLUDE,
       orderBy: [{ status: 'asc' }, { name: 'asc' }],
     });
-    return sites.map(publicSite);
+    return sites.map((site) => this.view(site));
   }
 
   /** Ce que l'extension reçoit pour proposer une destination : de quoi
@@ -193,7 +225,7 @@ export class SitesService {
       include: SITE_INCLUDE,
     });
     if (!site) throw new NotFoundException('Site introuvable');
-    return publicSite(site);
+    return this.view(site);
   }
 
   async create(dto: CreateSiteDto, owner: CurrentUser | null) {
@@ -210,14 +242,16 @@ export class SitesService {
       data: {
         name: dto.name.trim(),
         originUrl,
-        depositKey: dto.depositKey?.trim() || null,
         categoryId: (await this.categories.resolve(dto.categoryId)) ?? null,
         ownerId: owner?.id ?? null,
         status: dto.status ?? RecordStatus.ACTIVE,
       },
       include: SITE_INCLUDE,
     });
-    return publicSite(site);
+    // Chaque site naît avec sa clé : jamais de clé partagée, jamais de clé
+    // choisie à la main. Montrée une seule fois, dans cette réponse.
+    const siteKey = await this.keys.rotate(site.id);
+    return { ...publicSite(site, 'v2'), siteKey };
   }
 
   async update(id: string, dto: UpdateSiteDto, acting: CurrentUser | null) {
@@ -230,9 +264,6 @@ export class SitesService {
         ...(dto.originUrl !== undefined
           ? { originUrl: normalizeSiteUrl(dto.originUrl) }
           : {}),
-        // Une clé absente du corps laisse celle en place : l'interface ne la
-        // relit jamais, donc elle ne peut pas la renvoyer.
-        ...(dto.depositKey ? { depositKey: dto.depositKey.trim() } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(category !== undefined ? { categoryId: category } : {}),
         // Chaîne vide : on retire le propriétaire. Absent : on n'y touche pas.
@@ -244,7 +275,7 @@ export class SitesService {
       // réattribution réussie : la relation n'est pas rechargée toute seule.
       include: SITE_INCLUDE,
     });
-    return publicSite(site);
+    return this.view(site);
   }
 
   /** Un site qui porte des articles ne se supprime pas : la suppression

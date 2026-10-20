@@ -9,6 +9,7 @@ import { assertSafeRemoteUrl } from '../common/safe-fetch';
 import { paginateByParagraphs, paginateHtml } from './paginate';
 import { PrismaService } from '../prisma/prisma.service';
 import { GeneratedArticle } from './rewriter.service';
+import { SiteKeysService } from '../wordpress/site-keys.service';
 
 /** Ce que le plugin renvoie une fois l'article déposé. `imageWarning` dit
  * qu'un article est bien en ligne mais sans image : c'est une gêne, pas un
@@ -26,8 +27,8 @@ export type DepositInput = {
   imageUrl: string | null;
   /** Décide la langue de l'invitation « page suivante ». */
   language?: string | null;
-  /** La clé du plugin de CE site. Absente, la clé globale sert : deux sites
-   * n'ont aucune raison de partager la même. */
+  /** La clé du plugin de CE site, telle que stockée (chiffrée). Clé 2.x :
+   * le dépôt est signé. Absente : la clé globale des plugins 1.x. */
   apiKey?: string | null;
 };
 
@@ -84,10 +85,15 @@ export function plainText(html: string | undefined | null, max = 100_000) {
 }
 @Injectable()
 export class WordpressWriterService {
+  private readonly keys: SiteKeysService;
+
   constructor(
     private readonly config: ConfigService,
     @Optional() private readonly prisma?: PrismaService,
-  ) {}
+    @Optional() keys?: SiteKeysService,
+  ) {
+    this.keys = keys ?? new SiteKeysService(config, prisma);
+  }
 
   /** Le découpage réglé dans la plateforme (Sites → Découpage en pages). */
   private async splitting() {
@@ -100,11 +106,10 @@ export class WordpressWriterService {
   }
 
   async deposit(input: DepositInput): Promise<WordpressDeposit> {
-    const key = input.apiKey || this.config.get<string>('WORDPRESS_API_KEY');
-    if (!key) {
+    // Contrôle avant la mise en page et l'image : sans clé, inutile d'aller plus loin.
+    if (!this.keys.headersFor(input.apiKey, 'POST', '')) {
       throw new ServiceUnavailableException(
-        `Aucune clé pour ${input.siteUrl} : la renseigner sur le site, ` +
-          'ou configurer WORDPRESS_API_KEY',
+        `Aucune clé pour ${input.siteUrl} : générer la clé du site dans la page Sites`,
       );
     }
     // Le découpage se fait ici, pas à la réécriture : le texte conservé sur
@@ -120,20 +125,21 @@ export class WordpressWriterService {
         : paginateHtml(input.article.contentHtml, Number.isFinite(fixed) ? fixed : 0, input.language);
     const image = input.imageUrl ? await this.fetchImage(input.imageUrl) : null;
     const endpoint = `${input.siteUrl}/wp-json/dfb/v1/articles`;
+    const payload = JSON.stringify({
+      title: input.article.title,
+      slug: input.article.slug,
+      excerpt: input.article.excerpt,
+      contentHtml,
+      ingestRef: input.ingestRef,
+      image,
+    });
     let response: Response;
     try {
       response = await fetch(endpoint, {
         method: 'POST',
         signal: AbortSignal.timeout(TIMEOUT_MS),
-        headers: { 'content-type': 'application/json', 'x-api-key': key },
-        body: JSON.stringify({
-          title: input.article.title,
-          slug: input.article.slug,
-          excerpt: input.article.excerpt,
-          contentHtml,
-          ingestRef: input.ingestRef,
-          image,
-        }),
+        headers: { 'content-type': 'application/json', ...this.keys.headersFor(input.apiKey, 'POST', payload) },
+        body: payload,
       });
     } catch {
       throw new BadGatewayException(`Site WordPress injoignable (${endpoint})`);
@@ -176,12 +182,12 @@ export class WordpressWriterService {
     postId?: string | null;
     slug?: string | null;
   }): Promise<PulledArticle> {
-    const key = input.apiKey || this.config.get<string>('WORDPRESS_API_KEY') || '';
     const get = async (url: string, withKey: boolean) => {
       try {
+        const auth = withKey ? this.keys.headersFor(input.apiKey, 'GET') : null;
         const response = await fetch(url, {
           signal: AbortSignal.timeout(TIMEOUT_MS),
-          headers: { accept: 'application/json', ...(withKey && key ? { 'x-api-key': key } : {}) },
+          headers: { accept: 'application/json', ...(auth ?? {}) },
         });
         const text = await response.text();
         let json: unknown = null;

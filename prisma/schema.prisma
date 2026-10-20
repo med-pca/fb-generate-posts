@@ -425,8 +425,9 @@ model ContentSource {
   id              String           @id @default(cuid())
   name            String
   originUrl       String           @unique @map("origin_url")
-  /// Clé du plugin de CE site. Vide : la clé globale WORDPRESS_API_KEY sert.
-  /// Deux sites n'ont aucune raison de partager la même.
+  /// Clé du plugin de CE site, chiffrée (AES-256-GCM, `enc:v1:`). Clé 2.x :
+  /// `dfb_<id>_<secret>`, générée par la plateforme. Vide : la clé globale
+  /// WORDPRESS_API_KEY des plugins 1.x, le temps de la transition.
   depositKey      String?          @map("deposit_key")
   /// Un site inactif n'est plus proposé comme destination ; ses articles et
   /// ses posts restent intacts.

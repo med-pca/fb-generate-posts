@@ -21,17 +21,6 @@ export class CreateSiteDto {
   @MaxLength(2000)
   originUrl!: string;
 
-  @ApiPropertyOptional({
-    description:
-      'Clé du plugin de ce site. Laissée vide, la clé globale ' +
-      'WORDPRESS_API_KEY sert. Vide à la modification : la clé en place est ' +
-      'conservée.',
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  depositKey?: string;
-
   @ApiPropertyOptional({ enum: RecordStatus })
   @IsOptional()
   @IsEnum(RecordStatus)

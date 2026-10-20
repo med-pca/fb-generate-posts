@@ -68,7 +68,7 @@ export class SitesController {
   @ApiOperation({
     summary: 'Modifier un site',
     description:
-      'Une clé absente du corps laisse en place celle déjà enregistrée.',
+      'La clé ne se modifie pas ici : POST /sites/:id/key en génère une nouvelle.',
   })
   update(
     @Param('id') id: string,
@@ -76,6 +76,18 @@ export class SitesController {
     @ActingUser() acting: CurrentUser,
   ) {
     return this.sites.update(id, dto, acting);
+  }
+
+  @Post(':id/key')
+  @ApiOperation({
+    summary: 'Générer une nouvelle clé d’extension pour ce site',
+    description:
+      'Clé 2.x (requêtes signées), propre à ce site. L’ancienne cesse ' +
+      'aussitôt de valoir. Montrée une seule fois : la coller dans ' +
+      'Réglages > Data FB Posting du WordPress.',
+  })
+  rotateKey(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.sites.rotateKey(id, acting);
   }
 
   @Delete(':id')

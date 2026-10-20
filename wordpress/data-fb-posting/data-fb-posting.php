@@ -2,14 +2,18 @@
 /**
  * Plugin Name: Data FB Posting
  * Description: Envoie les articles publiés vers Data FB Posting, resynchronise leurs modifications (titre, contenu, image), et reçoit les articles réécrits que l'API dépose.
- * Version: 1.4.1
+ * Version: 2.0.0
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
 if (!defined('ABSPATH')) { exit; }
 
 final class DFB_Posting {
-    const VERSION = '1.4.1';
+    const VERSION = '2.0.0';
+    /** Clé de site générée par la plateforme : `dfb_<idSite>_<secret>`. */
+    const KEY_PATTERN = '/^dfb_([a-z0-9]{8,40})_([0-9a-f]{64})$/';
+    /** Écart toléré entre les horloges, en secondes. */
+    const WINDOW = 300;
     const OPTION = 'dfb_posting_settings';
     const HOOK = 'dfb_posting_deliver';
     const INGEST_META = '_dfb_ingest';
@@ -114,15 +118,19 @@ final class DFB_Posting {
             return;
         }
         $settings = get_option(self::OPTION, array());
-        if (empty($settings['endpoint']) || empty($settings['key'])) {
-            self::failed($id, 'Configurer l’URL API et la clé dans Réglages > Data FB Posting.');
+        $parts = self::key_parts();
+        if (empty($settings['endpoint']) || !$parts) {
+            self::failed($id, 'Configurer l’URL API et la clé du site (dfb_…) dans Réglages > Data FB Posting.');
             return;
         }
+        // La clé ne part pas : la requête est signée, et la signature porte
+        // sur ces octets exacts.
+        $body = wp_json_encode($payload);
         $response = wp_remote_post($settings['endpoint'], array(
             'timeout' => 40,
             'redirection' => 0,
-            'headers' => array('Content-Type' => 'application/json', 'x-api-key' => $settings['key']),
-            'body' => wp_json_encode($payload),
+            'headers' => array_merge(array('Content-Type' => 'application/json'), self::signed_headers($parts, 'POST', $body)),
+            'body' => $body,
         ));
         if (is_wp_error($response)) {
             // La vraie cause (cURL error 6 : nom introuvable, 28 : délai, 60 :
@@ -194,17 +202,103 @@ final class DFB_Posting {
         ));
     }
 
-    /** Même clé que les envois sortants, comparée en temps constant. Sans clé
-     * enregistrée, la route reste fermée : un site fraîchement installé ne
-     * doit pas accepter d'articles. */
-    public static function authorized($request) {
+    /* ------------------------------------------------------------------
+     * Clé et signatures (2.0)
+     *
+     * La plateforme génère une clé PAR SITE. Elle ne circule jamais : chaque
+     * requête, dans les deux sens, porte un horodatage, un nonce et une
+     * signature HMAC-SHA256 calculée avec le secret de la clé. Une requête
+     * interceptée ne peut être ni modifiée, ni rejouée.
+     * ------------------------------------------------------------------ */
+
+    /** Chiffrée dans la base avec les sels de wp-config.php : une copie de
+     * la base seule ne suffit pas à la lire. */
+    private static function cipher_key() {
+        return hash('sha256', wp_salt('auth') . '|dfb-posting', true);
+    }
+
+    public static function conceal($plain) {
+        if ($plain === '' || !function_exists('openssl_encrypt')) { return $plain; }
+        $iv = random_bytes(12);
+        $tag = '';
+        $cipher = openssl_encrypt($plain, 'aes-256-gcm', self::cipher_key(), OPENSSL_RAW_DATA, $iv, $tag);
+        return $cipher === false ? $plain : 'enc:' . base64_encode($iv . $tag . $cipher);
+    }
+
+    public static function reveal($stored) {
+        $stored = (string) $stored;
+        if (strpos($stored, 'enc:') !== 0) { return $stored; }
+        $raw = base64_decode(substr($stored, 4), true);
+        if ($raw === false || strlen($raw) < 29 || !function_exists('openssl_decrypt')) { return ''; }
+        $plain = openssl_decrypt(substr($raw, 28), 'aes-256-gcm', self::cipher_key(), OPENSSL_RAW_DATA,
+            substr($raw, 0, 12), substr($raw, 12, 16));
+        return $plain === false ? '' : $plain;
+    }
+
+    /** L'identifiant du site et le secret, ou null sans clé 2.x valide. */
+    public static function key_parts() {
         $settings = get_option(self::OPTION, array());
-        $key = isset($settings['key']) ? (string) $settings['key'] : '';
-        $provided = (string) $request->get_header('x-api-key');
-        if ($key === '' || $provided === '' || !hash_equals($key, $provided)) {
-            return new WP_Error('dfb_forbidden', 'Clé invalide.', array('status' => 401));
+        $key = self::reveal(isset($settings['key']) ? $settings['key'] : '');
+        if (!preg_match(self::KEY_PATTERN, $key, $m)) { return null; }
+        return array('site' => $m[1], 'secret' => $m[2]);
+    }
+
+    /** Ce qui est signé — la plateforme construit exactement la même chaîne. */
+    public static function canonical($site, $timestamp, $nonce, $method, $body) {
+        return implode("\n", array('DFB1', $site, $timestamp, $nonce, strtoupper($method), hash('sha256', (string) $body)));
+    }
+
+    public static function signed_headers($parts, $method, $body) {
+        $timestamp = (string) time();
+        $nonce = bin2hex(random_bytes(16));
+        return array(
+            'x-dfb-site' => $parts['site'],
+            'x-dfb-timestamp' => $timestamp,
+            'x-dfb-nonce' => $nonce,
+            'x-dfb-signature' => hash_hmac('sha256', self::canonical($parts['site'], $timestamp, $nonce, $method, $body), $parts['secret']),
+        );
+    }
+
+    /** Vérifie une requête de la plateforme. `$consume` retient le nonce :
+     * la même signature ne passera plus. */
+    public static function verify($method, $body, $site, $timestamp, $nonce, $signature, $consume) {
+        $status = array('status' => 401, 'version' => self::VERSION);
+        $parts = self::key_parts();
+        if (!$parts) {
+            return new WP_Error('dfb_no_key', 'Aucune clé de site (dfb_…) enregistrée dans Réglages > Data FB Posting.', $status);
+        }
+        if ($signature === '') {
+            return new WP_Error('dfb_no_header', 'Requête non signée : la plateforme doit utiliser la clé 2.x de ce site.', $status);
+        }
+        if (!hash_equals($parts['site'], (string) $site)) {
+            return new WP_Error('dfb_bad_key', 'Requête signée pour un autre site : vérifier la clé collée ici.', $status);
+        }
+        if (!ctype_digit((string) $timestamp) || abs(time() - (int) $timestamp) > self::WINDOW) {
+            return new WP_Error('dfb_bad_key', 'Signature expirée : vérifier l’heure du serveur.', $status);
+        }
+        if (!preg_match('/^[0-9a-f]{16,64}$/', (string) $nonce)) {
+            return new WP_Error('dfb_bad_key', 'Nonce invalide.', $status);
+        }
+        $expected = hash_hmac('sha256', self::canonical($parts['site'], $timestamp, $nonce, $method, $body), $parts['secret']);
+        if (!hash_equals($expected, (string) $signature)) {
+            return new WP_Error('dfb_bad_key', 'Signature refusée : la clé ne correspond pas à celle du site sur la plateforme.', $status);
+        }
+        if ($consume) {
+            $seen = 'dfb_n_' . md5($parts['site'] . $nonce);
+            if (get_transient($seen)) {
+                return new WP_Error('dfb_replay', 'Requête déjà reçue (rejeu refusé).', $status);
+            }
+            set_transient($seen, 1, 2 * self::WINDOW);
         }
         return true;
+    }
+
+    /** Sans clé enregistrée, les routes restent fermées : un site fraîchement
+     * installé n'accepte aucun article. */
+    public static function authorized($request) {
+        return self::verify($request->get_method(), $request->get_body(),
+            (string) $request->get_header('x-dfb-site'), (string) $request->get_header('x-dfb-timestamp'),
+            (string) $request->get_header('x-dfb-nonce'), (string) $request->get_header('x-dfb-signature'), true);
     }
 
     /** Un article public, dans la forme exacte de l'envoi (référence de
@@ -282,6 +376,8 @@ final class DFB_Posting {
             'version' => self::VERSION,
             'endpointConfigured' => !empty($settings['endpoint']),
             'endpoint' => isset($settings['endpoint']) ? (string) $settings['endpoint'] : '',
+            'siteUrl' => untrailingslashit(home_url()),
+            'auth' => 'signed',
             'pending' => count($waiting),
             'lastError' => $error,
             'cronDisabled' => defined('DISABLE_WP_CRON') && DISABLE_WP_CRON,
@@ -293,7 +389,7 @@ final class DFB_Posting {
      * `permission_callback` de chaque route : sans cela, notre dépôt serait
      * refusé même avec la bonne clé. On rouvre donc la seule route dfb, et
      * seulement quand la clé est déjà correcte — le `permission_callback` la
-     * revérifie juste après. */
+     * revérifie juste après (et c'est lui qui retient le nonce). */
     public static function unlock($result) {
         if (!is_wp_error($result)) { return $result; }
         $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '';
@@ -302,22 +398,13 @@ final class DFB_Posting {
         // seulement eu la parole. Trois réponses distinctes, et la version
         // qui a répondu : de quoi trancher à distance entre « extension
         // inactive », « aucune clé » et « clé différente ».
-        $settings = get_option(self::OPTION, array());
-        $key = isset($settings['key']) ? (string) $settings['key'] : '';
-        $provided = isset($_SERVER['HTTP_X_API_KEY']) ? (string) wp_unslash($_SERVER['HTTP_X_API_KEY']) : '';
-        if ($key === '') {
-            return new WP_Error('dfb_no_key', 'Aucune clé enregistrée dans Réglages > Data FB Posting.',
-                array('status' => 401, 'version' => self::VERSION));
-        }
-        if ($provided === '') {
-            return new WP_Error('dfb_no_header', 'En-tête x-api-key absent.',
-                array('status' => 401, 'version' => self::VERSION));
-        }
-        if (!hash_equals($key, $provided)) {
-            return new WP_Error('dfb_bad_key', 'La clé présentée ne correspond pas à celle enregistrée.',
-                array('status' => 401, 'version' => self::VERSION, 'expectedLength' => strlen($key)));
-        }
-        return true;
+        $header = function ($name) {
+            return isset($_SERVER[$name]) ? (string) wp_unslash($_SERVER[$name]) : '';
+        };
+        $method = isset($_SERVER['REQUEST_METHOD']) ? (string) $_SERVER['REQUEST_METHOD'] : 'GET';
+        $body = (string) file_get_contents('php://input');
+        return self::verify($method, $body, $header('HTTP_X_DFB_SITE'), $header('HTTP_X_DFB_TIMESTAMP'),
+            $header('HTTP_X_DFB_NONCE'), $header('HTTP_X_DFB_SIGNATURE'), false);
     }
 
     /** Dépose l'article réécrit. Publié en deux temps : brouillon d'abord, le
@@ -424,23 +511,36 @@ final class DFB_Posting {
             add_settings_error(self::OPTION, 'url', 'Une URL API HTTPS sans identifiants est requise.');
             return $old;
         }
-        $key = sanitize_text_field($input['key'] ?? '');
-        return array('endpoint' => $endpoint, 'key' => $key !== '' ? $key : ($old['key'] ?? ''));
+        $key = trim(sanitize_text_field($input['key'] ?? ''));
+        if ($key !== '' && !preg_match(self::KEY_PATTERN, $key)) {
+            add_settings_error(self::OPTION, 'key', 'Clé invalide : copier la clé du site générée par la plateforme (elle commence par dfb_).');
+            return $old;
+        }
+        return array('endpoint' => $endpoint, 'key' => $key !== '' ? self::conceal($key) : ($old['key'] ?? ''));
     }
 
     public static function page() {
         if (!current_user_can('manage_options')) { return; }
         $settings = get_option(self::OPTION, array());
+        $parts = self::key_parts();
+        $saved = !empty($settings['key']);
         ?>
         <div class="wrap"><h1>Data FB Posting</h1>
+        <?php if ($parts) : ?>
+            <div class="notice notice-success inline"><p>Clé du site enregistrée : <code>dfb_<?php echo esc_html($parts['site']); ?>_…<?php echo esc_html(substr($parts['secret'], -4)); ?></code></p></div>
+        <?php elseif ($saved) : ?>
+            <div class="notice notice-error inline"><p>La clé enregistrée n’est pas une clé 2.0 (ou n’est plus lisible après un changement des sels de wp-config.php). Coller la clé de ce site générée par la plateforme.</p></div>
+        <?php else : ?>
+            <div class="notice notice-warning inline"><p>Aucune clé : rien ne sera envoyé ni accepté tant que la clé de ce site n’est pas collée ci-dessous.</p></div>
+        <?php endif; ?>
         <p>Chaque nouvel article public prépare un post pour tous les profils actifs. Modifier ensuite le titre, le contenu, l’extrait, le lien, la date ou l’image à la une met à jour les posts qui n’ont pas encore été publiés.</p>
         <form action="options.php" method="post">
             <?php settings_fields('dfb_posting'); ?>
             <table class="form-table"><tr><th><label for="dfb-url">URL de réception</label></th><td>
             <input class="regular-text" type="url" required id="dfb-url" name="dfb_posting_settings[endpoint]" value="<?php echo esc_attr($settings['endpoint'] ?? ''); ?>" placeholder="https://api.exemple.com/api/wordpress/articles">
-            </td></tr><tr><th><label for="dfb-key">Clé WordPress</label></th><td>
+            </td></tr><tr><th><label for="dfb-key">Clé du site</label></th><td>
             <input class="regular-text" type="password" autocomplete="new-password" id="dfb-key" name="dfb_posting_settings[key]" value="">
-            <p class="description">Valeur WORDPRESS_API_KEY du serveur. Laisser vide pour conserver la clé enregistrée.</p>
+            <p class="description">La clé propre à ce site, générée dans la plateforme (page Sites, bouton « Clé »). Elle n’est jamais réaffichée. Laisser vide pour conserver la clé enregistrée.</p>
             </td></tr></table><?php submit_button(); ?>
         </form><p>Les envois et les nouvelles tentatives utilisent WP-Cron. Leur état est visible dans la liste des articles, colonne Facebook.</p>
         </div>

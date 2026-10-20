@@ -3,11 +3,13 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PluginState } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertSafeRemoteUrl } from '../common/safe-fetch';
+import { SiteKeysService } from '../wordpress/site-keys.service';
 
 const TIMEOUT_MS = 10_000;
 const DEFAULT_INTERVAL_MINUTES = 360;
@@ -103,10 +105,15 @@ export class PluginCheckService implements OnModuleInit, OnModuleDestroy {
   private startup?: NodeJS.Timeout;
   private running = false;
 
+  private readonly keys: SiteKeysService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-  ) {}
+    @Optional() keys?: SiteKeysService,
+  ) {
+    this.keys = keys ?? new SiteKeysService(config, prisma);
+  }
 
   onModuleInit() {
     const raw = Number(
@@ -173,9 +180,13 @@ export class PluginCheckService implements OnModuleInit, OnModuleDestroy {
       site.lastDeliveryAt ?? site.articles[0]?.importedAt ?? null;
     const result = await this.probe(
       site.originUrl,
-      site.depositKey || this.config.get<string>('WORDPRESS_API_KEY') || '',
+      site.depositKey,
       Boolean(lastDeliveryAt),
     );
+    // Clé 2.x, extension 1.x : elle attend une clé en clair qu'on n'envoie plus.
+    if (result.state === PluginState.BAD_KEY && /^1\./.test(result.version ?? '') && this.keys.parsed(site.depositKey)) {
+      result.message = `Extension ${result.version} : ce site a une clé 2.x, installer l’extension 2.0 puis y coller la clé`;
+    }
     await this.prisma.contentSource.update({
       where: { id: site.id },
       data: {
@@ -211,7 +222,7 @@ export class PluginCheckService implements OnModuleInit, OnModuleDestroy {
 
   private async probe(
     originUrl: string,
-    key: string,
+    storedKey: string | null,
     delivers: boolean,
   ): Promise<PluginCheck> {
     const endpoint = `${originUrl}/wp-json/dfb/v1/status`;
@@ -221,7 +232,7 @@ export class PluginCheckService implements OnModuleInit, OnModuleDestroy {
       response = await fetch(endpoint, {
         signal: AbortSignal.timeout(TIMEOUT_MS),
         redirect: 'manual',
-        headers: key ? { 'x-api-key': key } : {},
+        headers: this.keys.headersFor(storedKey, 'GET') ?? {},
       });
     } catch (error) {
       return {

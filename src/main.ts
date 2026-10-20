@@ -14,6 +14,9 @@ async function bootstrap() {
     // 15 Mo : une image importée (rubrique Visuels) arrive en base64 dans le
     // corps ; au-delà de 1 Mo (défaut de Fastify), elle était refusée.
     new FastifyAdapter({ bodyLimit: 15 * 1024 * 1024 }),
+    // Le corps brut : la signature des envois WordPress (plugin 2.x) porte
+    // sur les octets reçus, pas sur l'objet reparsé.
+    { rawBody: true },
   );
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

@@ -1,10 +1,11 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
 import { WordpressService } from './wordpress.service';
 import { WordpressArticleDto } from './wordpress.dto';
+import { SiteKeysService } from './site-keys.service';
 
 const DEFAULT_INTERVAL_MINUTES = 2;
 const STARTUP_DELAY_MS = 30_000;
@@ -30,12 +31,16 @@ export class WordpressPullService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private startup?: NodeJS.Timeout;
   private running = false;
+  private readonly keys: SiteKeysService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly wordpress: WordpressService,
-  ) {}
+    @Optional() keys?: SiteKeysService,
+  ) {
+    this.keys = keys ?? new SiteKeysService(config, prisma);
+  }
 
   onModuleInit() {
     const raw = Number(this.config.get<string>('WORDPRESS_PULL_INTERVAL_MINUTES') ?? DEFAULT_INTERVAL_MINUTES);
@@ -72,11 +77,11 @@ export class WordpressPullService implements OnModuleInit, OnModuleDestroy {
   }
 
   async pullSite(site: { id: string; name: string; originUrl: string; depositKey: string | null }) {
-    const key = site.depositKey || this.config.get<string>('WORDPRESS_API_KEY') || '';
-    if (!key) return { site: site.name, received: 0, skipped: 'aucune clé' };
+    const auth = this.keys.headersFor(site.depositKey, 'GET');
+    if (!auth) return { site: site.name, received: 0, skipped: 'aucune clé' };
     const response = await fetch(`${site.originUrl}/wp-json/dfb/v1/pending`, {
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { accept: 'application/json', 'x-api-key': key },
+      headers: { accept: 'application/json', ...auth },
     });
     // Plugin plus ancien que 1.4.1 : pas de route, rien à tirer.
     if (response.status === 404) return { site: site.name, received: 0, skipped: 'plugin < 1.4.1' };
@@ -92,7 +97,9 @@ export class WordpressPullService implements OnModuleInit, OnModuleDestroy {
       if (article.error) reasons.add(article.error);
       try {
         // Les mêmes règles qu'un envoi reçu sur POST /wordpress/articles.
-        const dto = plainToInstance(WordpressArticleDto, article.payload);
+        // Le site qu'on interroge, quoi que dise le contenu : un site ne
+        // peut pas déposer d'articles au nom d'un autre.
+        const dto = plainToInstance(WordpressArticleDto, { ...article.payload, siteUrl: site.originUrl });
         const problems = await validate(dto, { whitelist: true });
         if (problems.length) {
           throw new Error(`article invalide (${problems.map((p) => p.property).join(', ')})`);
@@ -105,11 +112,12 @@ export class WordpressPullService implements OnModuleInit, OnModuleDestroy {
       }
     }
     if (acked.length) {
+      const ack = JSON.stringify({ articles: acked });
       await fetch(`${site.originUrl}/wp-json/dfb/v1/ack`, {
         method: 'POST',
         signal: AbortSignal.timeout(TIMEOUT_MS),
-        headers: { 'content-type': 'application/json', 'x-api-key': key },
-        body: JSON.stringify({ articles: acked }),
+        headers: { 'content-type': 'application/json', ...this.keys.headersFor(site.depositKey, 'POST', ack) },
+        body: ack,
       }).catch(() => undefined);
       const why = reasons.size ? ` Le site ne les envoyait pas : ${[...reasons].join(' ; ')}` : '';
       await this.prisma.activityLog.create({
