@@ -97,7 +97,10 @@ export class QueueService {
 
   async queue(query: QueueQueryDto, acting: CurrentUser | null) {
     const now = new Date();
-    const scope = postWhere(scopeOf(acting));
+    // Un site choisi : les posts de ses articles seulement, dans tous les onglets.
+    const scope: Prisma.PostWhereInput = query.siteId
+      ? { AND: [postWhere(scopeOf(acting)), { article: { sourceId: query.siteId } }] }
+      : postWhere(scopeOf(acting));
     const group: Prisma.GroupWhereInput = query.categoryId
       ? { categoryId: query.categoryId }
       : {};

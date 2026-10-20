@@ -38,7 +38,7 @@ const API = '/api',
     },
     // Les filtres sont appliqués par l'API : la sélection « tout » doit porter
     // sur le même ensemble que celui que la suppression en masse vise.
-    postFilters: { profileId: '', articleId: '', groupId: '' },
+    postFilters: { profileId: '', siteId: '', articleId: '', groupId: '' },
     // Les filtres de la page Profils (appliqués par l'API).
     profileFilters: { search: '', status: '', health: '', activity: '', categoryId: '', sort: 'recent' },
     groupFilters: { search: '', categoryId: '', status: '', profileId: '', join: '', stock: '', sort: 'recent' },
@@ -46,7 +46,7 @@ const API = '/api',
     // Les filtres du Pilotage survivent au rafraîchissement automatique.
     runnerFilters: { search: '', mode: '', state: '', owner: '', categoryId: '', groupId: '', team: '', sort: '' },
     // La file de publication : ses filtres et combien on en montre.
-    queue: { tab: 'queue', section: 'upcoming', search: '', categoryId: '', groupId: '', limit: 10, publishedLimit: 20, data: null },
+    queue: { tab: 'queue', section: 'upcoming', search: '', siteId: '', categoryId: '', groupId: '', limit: 10, publishedLimit: 20, data: null },
     selection: new Set(),
   };
 // La session vit dans un cookie HttpOnly que ce script ne voit pas : aucun
@@ -3907,7 +3907,9 @@ function fillProfiles() {
  * possible. Les groupes se limitent au profil choisi, sinon la liste propose
  * des cibles qui ne peuvent rien renvoyer. */
 function fillPostFilters() {
-  const { profileId, articleId, groupId } = state.postFilters,
+  state.postFilters.siteId = fillSiteFilter($('#post-site-filter'), state.postFilters.siteId);
+  const { profileId, articleId, groupId, siteId } = state.postFilters,
+    articles = siteId ? state.articleOptions.filter((a) => a.sourceId === siteId) : state.articleOptions,
     articleSelect = $('#post-article-filter'),
     groupSelect = $('#post-group-filter'),
     groups = profileId
@@ -3919,7 +3921,7 @@ function fillPostFilters() {
       : state.groupOptions;
   articleSelect.innerHTML =
     '<option value="">Tous les articles</option>' +
-    state.articleOptions
+    articles
       .map((a) => `<option value="${a.id}">${esc(a.title)}</option>`)
       .join('');
   groupSelect.innerHTML =
@@ -3930,7 +3932,7 @@ function fillPostFilters() {
   // Un article ou un groupe supprimé entre-temps ne doit pas rester appliqué
   // en silence : le filtre retombe sur « tous » plutôt que de vider la liste
   // sans que rien ne l'explique à l'écran.
-  articleSelect.value = state.articleOptions.some((a) => a.id === articleId)
+  articleSelect.value = articles.some((a) => a.id === articleId)
     ? articleId
     : '';
   groupSelect.value = groups.some((g) => g.id === groupId) ? groupId : '';
@@ -4337,6 +4339,10 @@ $('#post-filter').onchange = (e) => {
     state.postFilters.groupId = '';
   applyPostFilters();
 };
+$('#post-site-filter').onchange = (e) => {
+  state.postFilters.siteId = e.target.value;
+  applyPostFilters();
+};
 $('#post-article-filter').onchange = (e) => {
   state.postFilters.articleId = e.target.value;
   applyPostFilters();
@@ -4739,8 +4745,20 @@ $('#post-form').onsubmit = async (e) => {
 };
 /* ── File d'attente des posts ─────────────────────────────────────── */
 
+/** Les sites, pour les filtres : par nom, un site en pause marqué ⏸. Un
+ * site disparu entre-temps ne reste pas appliqué en silence. */
+function fillSiteFilter(select, current) {
+  const sites = [...(state.sites || [])].sort((a, b) => a.name.localeCompare(b.name));
+  select.innerHTML =
+    '<option value="">Tous les sites</option>' +
+    sites.map((s) => `<option value="${s.id}">${s.pause ? '⏸ ' : ''}${esc(s.name)}</option>`).join('');
+  select.value = sites.some((s) => s.id === current) ? current : '';
+  return select.value;
+}
+
 function fillQueueFilters() {
   const q = state.queue;
+  q.siteId = fillSiteFilter($('#queue-site'), q.siteId);
   const categories = $('#queue-category');
   categories.innerHTML =
     '<option value="">Toutes les catégories</option>' +
@@ -4758,6 +4776,7 @@ function fillQueueFilters() {
 async function loadQueue() {
   const q = state.queue;
   const query = new URLSearchParams({ limit: q.limit, publishedLimit: q.publishedLimit });
+  if (q.siteId) query.set('siteId', q.siteId);
   if (q.categoryId) query.set('categoryId', q.categoryId);
   if (q.groupId) query.set('groupId', q.groupId);
   try {
@@ -4978,6 +4997,7 @@ function pubQuery(page = state.pub.page) {
   if (f.from) q.set('from', new Date(f.from).toISOString());
   if (f.to) q.set('to', new Date(f.to).toISOString());
   for (const k of ['profileId', 'verify', 'link', 'url', 'kind']) if (f[k]) q.set(k, f[k]);
+  if (state.queue.siteId) q.set('siteId', state.queue.siteId);
   if (state.queue.categoryId) q.set('categoryId', state.queue.categoryId);
   if (state.queue.groupId) q.set('groupId', state.queue.groupId);
   if (state.queue.search) q.set('search', state.queue.search);
@@ -5527,6 +5547,11 @@ $('#repeat-bulk-form').onsubmit = (e) => {
 };
 $('#repeat-bulk-reset').onclick = () => void applyBulkRepeat({ repeatTimes: null, repeatEveryHours: null });
 $$('[data-posts-tab]').forEach((b) => (b.onclick = () => showPostsTab(b.dataset.postsTab)));
+$('#queue-site').onchange = (e) => {
+  state.queue.siteId = e.target.value;
+  loadQueue();
+  if (state.queue.section === 'published') loadPublished();
+};
 $('#queue-category').onchange = (e) => {
   state.queue.categoryId = e.target.value;
   fillQueueFilters();

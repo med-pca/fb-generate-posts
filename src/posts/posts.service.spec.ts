@@ -176,3 +176,16 @@ describe('PostsService — post ouvert', () => {
     ).rejects.toThrow('introuvable');
   });
 });
+
+describe('PostsService — filtre par site', () => {
+  it('ne garde que les posts des articles de ce site, et sert aussi à la suppression en masse', async () => {
+    const findMany = jest.fn(async () => []);
+    const count = jest.fn(async () => 0);
+    const prisma: any = { post: { findMany, count }, $transaction: jest.fn(async (ops: any[]) => Promise.all(ops)) };
+    await new PostsService(prisma).findAll({ page: 1, limit: 12, siteId: 'site_1' } as any, null);
+    expect((findMany.mock.calls[0] as any)[0].where.article).toEqual({ sourceId: 'site_1' });
+    const bulk = makeHarness({ matched: 2 });
+    const r = await bulk.service.bulkRemove({ siteId: 'site_1', dryRun: true } as any);
+    expect(r.matched).toBe(2);
+  });
+});

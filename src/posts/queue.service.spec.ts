@@ -350,3 +350,18 @@ describe('QueueService.attachUrl — lien collé à la main', () => {
     await expect(other.service.attachUrl('https://www.facebook.com/groups/999/posts/1', undefined, null)).rejects.toThrow(NotFoundException);
   });
 });
+
+describe('QueueService.queue — filtre par site', () => {
+  it('chaque onglet ne montre que les posts des articles du site choisi', async () => {
+    const findMany = jest.fn(async () => []);
+    const prisma: any = {
+      postTarget: { findMany, groupBy: jest.fn(async () => []), count: jest.fn(async () => 0) },
+      profile: { findMany: jest.fn(async () => []) },
+    };
+    await new QueueService(prisma).queue({ siteId: 'site_1', limit: 10, publishedLimit: 10 } as any, null).catch(() => undefined);
+    expect(findMany.mock.calls.length).toBeGreaterThan(0);
+    for (const call of findMany.mock.calls as any[]) {
+      expect(JSON.stringify(call[0].where)).toContain('"sourceId":"site_1"');
+    }
+  });
+});

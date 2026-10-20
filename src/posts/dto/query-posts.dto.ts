@@ -17,6 +17,11 @@ export class QueryPostsDto extends PaginationDto {
   @IsString()
   articleId?: string;
 
+  /** Le site WordPress de l'article. */
+  @IsOptional()
+  @IsString()
+  siteId?: string;
+
   @IsOptional()
   @IsEnum(PostStatus)
   status?: PostStatus;

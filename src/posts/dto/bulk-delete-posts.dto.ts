@@ -35,6 +35,10 @@ export class BulkDeletePostsDto {
   articleId?: string;
 
   @IsOptional()
+  @IsString()
+  siteId?: string;
+
+  @IsOptional()
   @IsEnum(PostStatus)
   status?: PostStatus;
 

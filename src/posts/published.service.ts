@@ -58,6 +58,7 @@ export class PublishedService {
     }
     if (q.groupId) and.push({ groupId: q.groupId });
     if (q.categoryId) and.push({ group: { categoryId: q.categoryId } });
+    if (q.siteId) and.push({ post: { article: { sourceId: q.siteId } } });
     if (q.profileId) and.push({ jobItems: { some: { status: TargetStatus.PUBLISHED, job: { profileId: q.profileId } } } });
     if (q.verify === 'ok') and.push({ verifyStatus: VerifyStatus.OK });
     if (q.verify === 'republished') and.push({ verifyStatus: VerifyStatus.REPUBLISHED });

@@ -117,7 +117,7 @@ export class PostsService {
     const { dryRun, force, ...filters } = dto;
     if (!this.hasCriteria(filters)) {
       throw new BadRequestException(
-        'Précisez au moins ids, profileId, groupId, articleId, status ou sourceType',
+        'Précisez au moins ids, profileId, groupId, articleId, siteId, status ou sourceType',
       );
     }
     const where = this.buildWhere(filters, acting, true);
@@ -168,6 +168,7 @@ export class PostsService {
       filters.profileId ||
       filters.groupId ||
       filters.articleId ||
+      filters.siteId ||
       filters.status ||
       filters.sourceType,
     );
@@ -191,6 +192,7 @@ export class PostsService {
     if (filters.ids?.length) where.id = { in: [...new Set(filters.ids)] };
     if (filters.profileId) where.profileId = filters.profileId;
     if (filters.articleId) where.articleId = filters.articleId;
+    if (filters.siteId) where.article = { sourceId: filters.siteId };
     if (filters.status) where.status = filters.status;
     if (filters.sourceType) where.sourceType = filters.sourceType;
     if (filters.groupId) where.targets = { some: { groupId: filters.groupId } };

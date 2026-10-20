@@ -19,6 +19,12 @@ export class QueueQueryDto {
   @IsString()
   categoryId?: string;
 
+  /** Le site WordPress de l'article (ses posts seulement). */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  siteId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -116,6 +122,8 @@ export class PublishedQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsString() profileId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() groupId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() categoryId?: string;
+  /** Le site WordPress de l'article. */
+  @ApiPropertyOptional() @IsOptional() @IsString() siteId?: string;
 
   @ApiPropertyOptional({ enum: PUBLISHED_VERIFY })
   @IsOptional()
