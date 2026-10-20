@@ -425,7 +425,8 @@ model ContentSource {
   id              String           @id @default(cuid())
   name            String
   originUrl       String           @unique @map("origin_url")
-  /// Clé du plugin de CE site. Vide : la clé globale WORDPRESS_API_KEY sert.
+  /// Clé du plugin de CE site, générée à sa déclaration ; elle n'ouvre que
+  /// lui. Vide : site d'avant, encore sur la clé globale (transition).
   /// Deux sites n'ont aucune raison de partager la même.
   depositKey      String?          @map("deposit_key")
   /// Un site inactif n'est plus proposé comme destination ; ses articles et
@@ -443,6 +444,21 @@ model ContentSource {
   pluginMessage   String?          @map("plugin_message") @db.Text
   pluginCheckedAt DateTime?        @map("plugin_checked_at")
   lastDeliveryAt  DateTime?        @map("last_delivery_at")
+  /// ⏸ En pause (limite publicitaire…), à la main : ses posts ne partent
+  /// plus jusqu'à la réactivation, à la main aussi. NULL = actif.
+  pausedAt        DateTime?        @map("paused_at")
+  pauseReason     String?          @map("pause_reason")
+  /// Le site qui prend le relais pendant la pause : ses articles y sont
+  /// copiés (même slug), ses posts en attente y sont déplacés, et l'ancien
+  /// site redirige ses visiteurs vers lui (même chemin, redirection 302).
+  relayId         String?          @map("relay_id")
+  relay           ContentSource?   @relation("SiteRelay", fields: [relayId], references: [id], onDelete: SetNull)
+  relayFor        ContentSource[]  @relation("SiteRelay")
+  /// La redirection posée par le plugin de CE site (vers son relais) : depuis
+  /// quand, ou pourquoi elle n'a pas pu l'être.
+  redirectSince   DateTime?        @map("redirect_since")
+  redirectError   String?          @map("redirect_error") @db.Text
+  articleCopies   ArticleCopy[]    @relation("CopyTarget")
   articles        Article[]
   ignoredArticles IgnoredArticle[]
   access          SiteAccess[]
@@ -529,6 +545,9 @@ model Article {
   updatedAt       DateTime      @updatedAt @map("updated_at")
 
   campaignArticles CampaignArticle[]
+  /// Ses copies vers un site relais, et la copie dont il est né.
+  copies           ArticleCopy[]     @relation("CopyFrom")
+  copiedFrom       ArticleCopy[]     @relation("CopyTo")
 
   @@unique([sourceId, externalId])
   @@unique([sourceId, slug])
@@ -1142,4 +1161,30 @@ model AiProviderSetting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("ai_provider_settings")
+}
+
+/// La copie d'un article vers le site qui prend le relais d'un site en pause
+/// (limite publicitaire). Même slug sur le nouveau site, posts en attente
+/// déplacés ; les posts déjà publiés gardent leur lien, que l'ancien site
+/// redirige. pending → done | failed (| skipped : rien à copier).
+model ArticleCopy {
+  id              String        @id @default(cuid())
+  sourceArticleId String        @map("source_article_id")
+  sourceArticle   Article       @relation("CopyFrom", fields: [sourceArticleId], references: [id], onDelete: Cascade)
+  targetSiteId    String        @map("target_site_id")
+  targetSite      ContentSource @relation("CopyTarget", fields: [targetSiteId], references: [id], onDelete: Cascade)
+  status          String        @default("pending")
+  slug            String?
+  wpPostId        String?       @map("wp_post_id")
+  permalink       String?       @db.Text
+  newArticleId    String?       @map("new_article_id")
+  newArticle      Article?      @relation("CopyTo", fields: [newArticleId], references: [id], onDelete: SetNull)
+  movedPosts      Int           @default(0) @map("moved_posts")
+  error           String?       @db.Text
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@unique([sourceArticleId, targetSiteId])
+  @@index([targetSiteId, status])
+  @@map("article_copies")
 }

@@ -3415,8 +3415,23 @@ $('#sites-paging').onsubmit = async (e) => {
     notice(x.message, 'error');
   }
 };
+/** La clé du plugin : son propriétaire ou un ADMIN (un site partagé ne
+ * prête pas sa clé). */
+const canManageSite = (s) => state.me?.role === 'ADMIN' || s.ownerId === state.me?.id;
+
 function renderSites() {
   renderSitesPaging();
+  // Transition : les sites encore sur la clé globale, à migrer un par un.
+  const legacy = state.sites.filter((s) => !s.hasOwnKey);
+  const banner = $('#sites-key-migration');
+  if (banner) {
+    banner.hidden = !legacy.length;
+    banner.innerHTML = legacy.length
+      ? `<b>⚠ ${legacy.length} site(s) utilisent encore la clé globale</b> : ${legacy.map((s) => esc(s.name)).join(', ')}. ` +
+        'Pour chacun : « Générer sa clé », puis collez-la dans Réglages → Data FB Posting du WordPress. ' +
+        'Quand la liste est vide, la clé globale peut être coupée (WORDPRESS_ALLOW_GLOBAL_KEY=false).'
+      : '';
+  }
   $('#site-rows').innerHTML =
     state.sites
       .map(
@@ -3425,12 +3440,23 @@ function renderSites() {
           `<td><a href="${esc(s.originUrl)}" target="_blank" rel="noreferrer">${esc(s.originUrl)}</a></td>` +
           `<td>${s.category ? `<span class="chip">${esc(s.category)}</span>` : '<span class="muted">aucune — pas de post</span>'}</td>` +
           pluginCell(s) +
-          `<td>${s.hasOwnKey ? 'propre à ce site' : '<span class="muted">clé globale</span>'}</td>` +
+          `<td>${s.hasOwnKey ? '🔑 propre à ce site' : '<span class="bad" title="Ce site utilise encore la clé globale : générez sa clé et collez-la dans son plugin">⚠ clé globale — à migrer</span>'}` +
+          (canManageSite(s) ? `<button class="link" type="button" data-site-key="${s.id}">${s.hasOwnKey ? 'Voir la clé' : 'Générer sa clé'}</button>` : '') +
+          `</td>` +
           `<td>${s.articles}</td>` +
-          (s.status === 'ACTIVE'
+          (s.pause
+            ? siteRelayCell(s)
+            : s.status === 'ACTIVE'
             ? '<td><span class="pill">Actif</span></td>'
             : '<td><span class="pill plugin-unknown" title="Les articles publiés pendant la désactivation sont ignorés, et le restent ; à la réactivation, les suivants sont créés normalement">Inactif</span><small>nouveaux articles ignorés</small></td>') +
           `<td><div class="row-actions"><button class="edit" data-check-site="${s.id}">Vérifier</button>` +
+          (canManageSite(s)
+            ? s.pause
+              ? `<button class="edit" data-site-resume="${s.id}" title="Fin de la limite : la redirection est retirée, le site repart">▶ Réactiver</button>`
+              : s.status === 'ACTIVE'
+              ? `<button class="edit" data-site-pause="${s.id}" title="Site limité (publicité…) : ses posts s’arrêtent, un autre site peut prendre le relais">⏸ Pause (limite)</button>`
+              : ''
+            : '') +
           `<button class="edit" data-share-site="${s.id}">Partager</button>` +
           `<button class="edit" data-edit-site="${s.id}">Modifier</button>` +
           (s.articles
@@ -3440,6 +3466,148 @@ function renderSites() {
       )
       .join('') ||
     '<tr><td colspan="8" class="empty">Aucun site déclaré. L’extension ne pourra rien déposer.</td></tr>';
+}
+
+/** ⏸ Un site en pause : depuis quand, son relais, la redirection. */
+function siteRelayCell(s) {
+  const p = s.pause;
+  const redirect = p.redirectSince
+    ? `<small>↪ redirige vers ${esc(p.relay?.name || 'le relais')} depuis ${esc(when(p.redirectSince))}</small>`
+    : p.redirectError
+    ? `<small class="bad">${esc(p.redirectError)}</small>`
+    : p.relay
+    ? '<small class="muted">copie des articles en cours…</small>'
+    : '';
+  return (
+    `<td><span class="pill plugin-unknown" title="${esc(p.reason || 'limite')}">⏸ En pause</span>` +
+    `<small>${esc(p.reason || 'limite')} · depuis ${esc(when(p.since))}</small>` +
+    (p.relay ? `<small>→ relais : <b>${esc(p.relay.name)}</b></small>` : '<small class="muted">sans relais : ses posts attendent</small>') +
+    redirect +
+    (p.relay ? `<button class="link" type="button" data-site-relay="${s.id}">Suivi</button>` : '') +
+    `</td>`
+  );
+}
+
+/** Mettre en pause : choisir le site qui prend le relais (même slug, posts
+ * en attente déplacés, redirection), ou une simple pause. */
+async function pauseSite(id) {
+  const site = state.sites.find((s) => s.id === id);
+  const relays = state.sites.filter((s) => s.id !== id && s.status === 'ACTIVE' && !s.pause && canManageSite(s));
+  const pick = await pfDialog({
+    title: `Mettre « ${site?.name} » en pause (limite) ?`,
+    kicker: 'SITE LIMITÉ',
+    tone: 'warn',
+    message:
+      'Ses posts pas encore publiés s’arrêtent tout de suite.\n' +
+      'Choisissez le site qui prend le relais :\n' +
+      '• ses articles y sont copiés avec le même slug (plugin 1.6.0 sur les deux sites) ;\n' +
+      '• ses posts en attente y passent, avec le nouveau lien ;\n' +
+      '• les posts déjà publiés ne changent pas : le site en pause redirige ses visiteurs vers le relais, au même chemin.\n' +
+      'À la fin de la limite : « Réactiver ».',
+    actions: [
+      ...relays.map((s) => ({ key: s.id, label: `→ ${s.name} prend le relais`, cls: 'primary choice' })),
+      { key: '__none', label: 'Pause sans relais (les posts attendent)', cls: 'secondary choice' },
+      { key: '__cancel', label: 'Annuler', cls: 'secondary' },
+    ],
+  });
+  if (!pick || pick === '__cancel' || pick === '__ok') return;
+  const r = await api(`/sites/${id}/relay/pause`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: 'limite', ...(pick !== '__none' ? { relaySiteId: pick } : {}) }),
+  });
+  await load();
+  notice(
+    r.relay
+      ? `⏸ ${r.name} en pause : ${r.copies} article(s) à copier sur ${r.relay.name}. La redirection sera posée une fois les copies faites.`
+      : `⏸ ${r.name} en pause : ses posts attendent la réactivation.`,
+  );
+  if (r.warnings?.length) await pfDialog({ title: 'À vérifier', tone: 'warn', message: r.warnings.join('\n'), cancelLabel: '', confirmLabel: 'Compris' });
+}
+
+/** Le suivi d'une pause : copies, posts déplacés, redirection. */
+async function showSiteRelay(id) {
+  const d = await api(`/sites/${id}/relay`);
+  const c = d.copies;
+  const lines = [
+    `Relais : ${d.relay ? `${d.relay.name} (${d.relay.originUrl})` : 'aucun'}`,
+    `• Articles copiés : ${c.done} / ${c.total}${c.pending ? ` · ${c.pending} en cours` : ''}${c.failed ? ` · ${c.failed} en erreur` : ''}${c.skipped ? ` · ${c.skipped} ignoré(s)` : ''}`,
+    `• Publications déplacées sur le relais : ${c.movedPosts}`,
+    `• Redirection : ${d.redirect.since ? `posée le ${when(d.redirect.since)} → ${d.redirect.target}` : d.redirect.error || (d.running ? 'après les copies' : 'pas encore posée')}`,
+    ...d.errors.map((e) => `• ${e.status === 'skipped' ? 'Ignoré' : 'Erreur'} — ${e.title} : ${e.error || ''}`),
+  ];
+  const pick = await pfDialog({
+    title: `${d.name} — pause (${d.reason || 'limite'})`,
+    kicker: d.running ? 'COPIE EN COURS' : 'SITE EN PAUSE',
+    tone: c.failed || d.redirect.error ? 'warn' : 'info',
+    message: lines.join('\n'),
+    actions: [
+      ...(c.failed ? [{ key: 'retry', label: 'Réessayer les copies', cls: 'primary' }] : []),
+      ...(!d.redirect.since && d.relay ? [{ key: 'redirect', label: 'Rediriger maintenant', cls: 'secondary' }] : []),
+      { key: 'refresh', label: 'Actualiser', cls: 'secondary' },
+      { key: '__cancel', label: 'Fermer', cls: 'secondary' },
+    ],
+  });
+  if (pick === 'retry') await api(`/sites/${id}/relay/retry`, { method: 'POST' });
+  if (pick === 'redirect') {
+    if (!(await ask('Rediriger maintenant ?\nLes articles pas encore copiés donneront une page introuvable sur le relais.', { tone: 'warn', confirmLabel: 'Rediriger' }))) return;
+    await api(`/sites/${id}/relay/redirect`, { method: 'POST' });
+  }
+  if (pick === 'retry' || pick === 'redirect' || pick === 'refresh') {
+    await load();
+    return showSiteRelay(id);
+  }
+}
+
+/** La clé du plugin d'un site : l'afficher pour la coller dans WordPress,
+ * la générer (site encore sur la clé globale) ou la remplacer. */
+async function showSiteKey(id) {
+  const site = state.sites.find((s) => s.id === id);
+  let k = await api(`/sites/${id}/key`);
+  if (!k.key) {
+    const go = await ask(
+      `Générer la clé de « ${site?.name || k.originUrl} » ?\n` +
+        'Dès maintenant, ce site n’acceptera plus la clé globale : collez la nouvelle clé dans son plugin WordPress juste après, sinon ses articles ne passeront plus.',
+      { tone: 'warn', confirmLabel: 'Générer la clé' },
+    );
+    if (!go) return;
+    k = await api(`/sites/${id}/key`, { method: 'POST' });
+    await load();
+  }
+  const pick = await pfDialog({
+    title: `Clé du plugin — ${site?.name || k.originUrl}`,
+    kicker: 'WORDPRESS',
+    tone: 'info',
+    message:
+      'Dans le WordPress de ce site : Réglages → Data FB Posting.\n' +
+      `• URL de réception : ${k.endpoint}\n` +
+      '• Clé WordPress : la clé ci-dessous\n' +
+      'Cette clé n’ouvre que ce site. Ne la partagez pas.',
+    input: { label: 'Clé du site', value: k.key },
+    actions: [
+      { key: 'copy', label: 'Copier la clé', cls: 'primary' },
+      { key: 'regen', label: 'Régénérer', cls: 'secondary' },
+      { key: '__cancel', label: 'Fermer', cls: 'secondary' },
+    ],
+  });
+  if (pick === 'copy') {
+    try {
+      await navigator.clipboard.writeText(k.key);
+      notice('Clé copiée : collez-la dans le plugin WordPress du site.');
+    } catch {
+      notice('Copie impossible : sélectionnez la clé et copiez-la à la main.', 'error');
+    }
+    return;
+  }
+  if (pick === 'regen') {
+    const sure = await ask(
+      'Remplacer la clé de ce site ?\nL’ancienne cesse aussitôt de fonctionner : le plugin WordPress refusera nos dépôts et ses articles ne passeront plus tant que la nouvelle n’y est pas collée.',
+      { tone: 'danger', confirmLabel: 'Régénérer' },
+    );
+    if (!sure) return;
+    await api(`/sites/${id}/key`, { method: 'POST' });
+    notice('Nouvelle clé générée : collez-la dans le plugin.');
+    return showSiteKey(id);
+  }
 }
 
 /** La liste gérée des catégories. Renommer et supprimer touchent les
@@ -5770,6 +5938,30 @@ document.addEventListener('click', async (e) => {
       })
       .then(load)
       .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  if (e.target.dataset.sitePause) {
+    void pauseSite(e.target.dataset.sitePause).catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  if (e.target.dataset.siteRelay) {
+    void showSiteRelay(e.target.dataset.siteRelay).catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  if (e.target.dataset.siteResume) {
+    const site = state.sites.find((s) => s.id === e.target.dataset.siteResume);
+    void ask(`Réactiver « ${site?.name} » ?\nLa redirection vers le relais est retirée. Les posts déjà déplacés restent sur le relais ; les autres repartent d’ici.`, { tone: 'info', confirmLabel: 'Réactiver' })
+      .then(async (go) => {
+        if (!go) return;
+        const r = await api(`/sites/${site.id}/relay/resume`, { method: 'POST' });
+        await load();
+        notice(r.warnings?.length ? r.warnings[0] : `▶ ${r.name} réactivé : redirection retirée.`, r.warnings?.length ? 'error' : undefined);
+      })
+      .catch((x) => notice(x.message, 'error'));
+    return;
+  }
+  if (e.target.dataset.siteKey) {
+    void showSiteKey(e.target.dataset.siteKey).catch((x) => notice(x.message, 'error'));
     return;
   }
   const shareSite = state.sites.find((x) => x.id === e.target.dataset.shareSite);

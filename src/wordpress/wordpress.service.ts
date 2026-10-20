@@ -321,10 +321,15 @@ export class WordpressService {
         const existing = await tx.article.findUnique({
           where: { sourceId_externalId: { sourceId: source.id, externalId } },
         });
+        // La copie d'un article d'un site en pause, si elle attend bien ce site.
+        const copy = dto.copyRef
+          ? await tx.articleCopy.findFirst({ where: { id: dto.copyRef, targetSiteId: source.id } })
+          : null;
         if (existing) {
           // Un renvoi identique ne touche rien, mais il doit quand même
           // refermer la reprise : sans cela elle resterait en attente.
           if (ingest) await this.closeIngest(tx, ingest.id, existing.id);
+          if (copy && copy.status !== 'done') await this.moveCopiedPosts(tx, copy, existing);
           return this.synchronize(tx, existing, fields);
         }
         const article = await tx.article.create({
@@ -337,6 +342,21 @@ export class WordpressService {
             ...fields,
           },
         });
+        if (copy) {
+          // Une copie : pas de nouveaux posts dans toute la catégorie, mais
+          // les posts en attente de l'article d'origine, déplacés ici.
+          const moved = copy.status === 'done' ? 0 : await this.moveCopiedPosts(tx, copy, article);
+          return {
+            articleId: article.id,
+            duplicate: false,
+            updated: false,
+            generated: moved,
+            groups: moved,
+            noPost: null,
+            synchronized: 0,
+            skipped: 0,
+          };
+        }
         // UN post par groupe de la catégorie, mêmes données partout : chaque
         // groupe a le sien, qui se priorise, se modifie et se retire seul.
         // L'identifiant `article:group:<groupe>` interdit un second exemplaire
@@ -382,6 +402,63 @@ export class WordpressService {
       },
       { timeout: 30000 },
     );
+  }
+
+  /** Les posts en attente de l'article d'origine (site en pause) passent sur
+   * sa copie : même texte, même priorité, même historique — seuls le lien et
+   * l'image changent de site. Ceux déjà publiés ne bougent pas : leur lien
+   * mène au site en pause, qui redirige vers le relais. Un post à moitié
+   * publié est dédoublé : la partie publiée reste, la partie en attente part
+   * sur un nouveau post. Rend le nombre de publications déplacées. */
+  private async moveCopiedPosts(
+    tx: Prisma.TransactionClient,
+    copy: { id: string; sourceArticleId: string },
+    article: { id: string; articleUrl: string; coverImageUrl: string | null },
+  ) {
+    const now = new Date();
+    const posts = await tx.post.findMany({
+      where: { articleId: copy.sourceArticleId },
+      include: { targets: true },
+    });
+    const waiting = (t: { status: TargetStatus; claimExpiresAt: Date | null }) =>
+      t.status === TargetStatus.AVAILABLE ||
+      t.status === TargetStatus.FAILED ||
+      (t.status === TargetStatus.CLAIMED && (t.claimExpiresAt?.getTime() ?? 0) < now.getTime());
+    const renamed = (externalId: string | null) =>
+      externalId?.startsWith(`${copy.sourceArticleId}:`)
+        ? `${article.id}${externalId.slice(copy.sourceArticleId.length)}`
+        : externalId;
+    const fresh = { status: TargetStatus.AVAILABLE, lastError: null, claimedAt: null, claimExpiresAt: null };
+    const site = { articleId: article.id, url: article.articleUrl, ...(article.coverImageUrl ? { imageUrl: article.coverImageUrl } : {}) };
+    let moved = 0;
+    for (const post of posts) {
+      const pending = post.targets.filter(waiting);
+      if (!pending.length) continue;
+      const ids = pending.map((t) => t.id);
+      if (pending.length === post.targets.length) {
+        // Tout attend : le post entier change de site.
+        await tx.post.update({ where: { id: post.id }, data: { ...site, externalId: renamed(post.externalId) } });
+      } else {
+        const { id, targets, createdAt, updatedAt, externalId, rawData, ...fields } = post;
+        void id; void targets; void createdAt; void updatedAt;
+        const copyPost = await tx.post.create({
+          data: {
+            ...fields,
+            ...site,
+            rawData: rawData ?? Prisma.JsonNull,
+            externalId: externalId ? `${renamed(externalId)}:relay` : null,
+          },
+        });
+        await tx.postTarget.updateMany({ where: { id: { in: ids } }, data: { postId: copyPost.id } });
+      }
+      await tx.postTarget.updateMany({ where: { id: { in: ids } }, data: fresh });
+      moved += ids.length;
+    }
+    await tx.articleCopy.update({
+      where: { id: copy.id },
+      data: { status: 'done', newArticleId: article.id, movedPosts: moved, error: null },
+    });
+    return moved;
   }
 
   /** Ce qu'une réception apprend de l'extension du site.

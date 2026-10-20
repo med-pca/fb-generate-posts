@@ -78,6 +78,24 @@ export class SitesController {
     return this.sites.update(id, dto, acting);
   }
 
+  @Get(':id/key')
+  @ApiOperation({
+    summary: 'La clé du plugin WordPress de ce site',
+    description: 'Propriétaire du site ou ADMIN. `key: null` : le site utilise encore la clé globale (à migrer).',
+  })
+  pluginKey(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.sites.pluginKey(id, acting);
+  }
+
+  @Post(':id/key')
+  @ApiOperation({
+    summary: 'Générer une nouvelle clé de plugin pour ce site',
+    description: 'L’ancienne clé (et la clé globale) cesse aussitôt de fonctionner pour ce site.',
+  })
+  regeneratePluginKey(@Param('id') id: string, @ActingUser() acting: CurrentUser) {
+    return this.sites.regeneratePluginKey(id, acting);
+  }
+
   @Delete(':id')
   @ApiOperation({
     summary: 'Supprimer un site sans article',

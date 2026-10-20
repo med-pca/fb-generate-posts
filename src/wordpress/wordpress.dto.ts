@@ -55,4 +55,12 @@ export class WordpressArticleDto {
   @IsString()
   @MaxLength(64)
   ingestRef?: string;
+
+  /** Posé par le plugin (≥ 1.6.0) quand l'article est la copie d'un article
+   * d'un site en pause : ses posts en attente y sont déplacés, au lieu d'en
+   * créer de nouveaux dans tous les groupes de la catégorie. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  copyRef?: string;
 }

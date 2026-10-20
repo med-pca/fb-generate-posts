@@ -16,6 +16,7 @@ import { SettingsModule } from './settings/settings.module';
 import { AuthModule } from './auth/auth.module';
 import { IngestModule } from './ingest/ingest.module';
 import { SitesModule } from './sites/sites.module';
+import { SiteRelayModule } from './site-relay/site-relay.module';
 import { UsersModule } from './users/users.module';
 import { AccessModule } from './access/access.module';
 import { RunnersModule } from './runners/runners.module';
@@ -46,6 +47,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     WordpressModule,
     IngestModule,
     SitesModule,
+    SiteRelayModule,
     UsersModule,
     AccessModule,
     RunnersModule,

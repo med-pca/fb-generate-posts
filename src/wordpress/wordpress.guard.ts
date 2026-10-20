@@ -14,10 +14,19 @@ import { PrismaService } from '../prisma/prisma.service';
 const digest = (value: string) => createHmac('sha256', 'wordpress').update(value).digest();
 const same = (a: string, b: string) => Boolean(a && b) && timingSafeEqual(digest(a), digest(b));
 
-/** La clé d'un renvoi WordPress : la clé globale (`WORDPRESS_API_KEY`), ou la
- * clé propre du site qui envoie. Le plugin n'a qu'UNE clé, celle avec laquelle
- * la plateforme lui dépose ses articles : un site doté de sa propre clé
- * renvoyait donc ses articles avec elle, et se les voyait tous refuser. */
+/** La clé d'un envoi WordPress : celle du site qui envoie.
+ *
+ * Chaque site a sa clé (générée dans Sites) et elle n'ouvre QUE ce site : un
+ * gestionnaire ne peut rien envoyer au nom du site d'un autre. Le plugin n'a
+ * qu'UNE clé, celle avec laquelle la plateforme lui dépose aussi ses
+ * articles.
+ *
+ * La clé globale (`WORDPRESS_API_KEY`) n'est plus qu'une transition : elle
+ * n'est acceptée que pour un site DÉJÀ déclaré qui n'a pas encore la sienne,
+ * et plus du tout avec `WORDPRESS_ALLOW_GLOBAL_KEY=false`. Un site inconnu
+ * est refusé : il doit d'abord être déclaré par son propriétaire, sans quoi
+ * il naîtrait sans propriétaire et ses posts partiraient sur les profils de
+ * la maison. */
 @Injectable()
 export class WordpressGuard implements CanActivate {
   constructor(
@@ -25,19 +34,26 @@ export class WordpressGuard implements CanActivate {
     @Optional() private readonly prisma?: PrismaService,
   ) {}
 
+  private globalKey() {
+    const allowed = String(this.config.get<string>('WORDPRESS_ALLOW_GLOBAL_KEY') ?? 'true').toLowerCase() !== 'false';
+    return allowed ? this.config.get<string>('WORDPRESS_API_KEY') || '' : '';
+  }
+
   canActivate(context: ExecutionContext): boolean | Promise<boolean> {
-    const expected = this.config.get<string>('WORDPRESS_API_KEY') || '';
-    if (!expected && !this.prisma)
-      throw new ServiceUnavailableException('WORDPRESS_API_KEY doit être configuré');
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     const provided = String(request.headers['x-api-key'] || '');
+    if (!this.prisma) {
+      // Sans base (tests unitaires) : la clé globale seule.
+      const expected = this.globalKey();
+      if (!expected) throw new ServiceUnavailableException('WORDPRESS_API_KEY doit être configuré');
+      if (same(provided, expected)) return true;
+      throw new UnauthorizedException('Clé WordPress invalide');
+    }
     if (!provided) throw new UnauthorizedException('Clé WordPress invalide');
-    if (same(provided, expected)) return true;
-    if (!this.prisma) throw new UnauthorizedException('Clé WordPress invalide');
     return this.siteKeyMatches(request, provided);
   }
 
-  /** La clé du site désigné par le corps de l'envoi (`siteUrl`). */
+  /** Le site désigné par le corps de l'envoi (`siteUrl`), et SA clé. */
   private async siteKeyMatches(request: FastifyRequest, provided: string) {
     const raw = (request.body as { siteUrl?: unknown } | undefined)?.siteUrl;
     let origin = '';
@@ -51,7 +67,20 @@ export class WordpressGuard implements CanActivate {
       where: { originUrl: origin },
       select: { depositKey: true },
     });
-    if (site?.depositKey && same(provided, site.depositKey)) return true;
-    throw new UnauthorizedException('Clé WordPress invalide');
+    if (!site) {
+      throw new UnauthorizedException(
+        `Site inconnu (${origin}) : déclarez-le dans la plateforme (Sites), puis collez sa clé dans le plugin`,
+      );
+    }
+    if (site.depositKey) {
+      if (same(provided, site.depositKey)) return true;
+      throw new UnauthorizedException('Clé WordPress invalide pour ce site');
+    }
+    // Transition : un site existant sans clé propre garde la clé globale.
+    const global = this.globalKey();
+    if (global && same(provided, global)) return true;
+    throw new UnauthorizedException(
+      'Ce site n’a pas encore sa clé : générez-la dans la plateforme (Sites), puis collez-la dans le plugin',
+    );
   }
 }

@@ -11,7 +11,7 @@ import { normalizeFacebookUrl, trace } from '../trace/trace';
 import { startOfLocalDay } from '../insights/insights.service';
 import { localClock } from '../runners/window';
 import { adaptiveGap } from '../insights/objective';
-import { claimablePostWhere, type ClaimProfile } from './claimable';
+import { claimablePostWhere, publishableArticleWhere, type ClaimProfile } from './claimable';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { cycleRule, cycleSince } from '../runners/cycle';
 import { PrismaService } from '../prisma/prisma.service';
@@ -264,7 +264,16 @@ export class JobsService {
           AND p.status = 'AVAILABLE'::"PostStatus"
           AND pr.status = 'ACTIVE'::"RecordStatus"
           AND g.status = 'ACTIVE'::"RecordStatus"
-          AND (p.article_id IS NULL OR a.status = 'ACTIVE'::"RecordStatus")
+          -- Article actif, et son site pas en pause (publishableArticleWhere).
+          AND (
+            p.article_id IS NULL
+            OR (
+              a.status = 'ACTIVE'::"RecordStatus"
+              AND NOT EXISTS (
+                SELECT 1 FROM content_sources cs WHERE cs.id = a.source_id AND cs.paused_at IS NOT NULL
+              )
+            )
+          )
         -- La file : priorité d'abord, puis le plus ancien. C'est l'ordre que
         -- la page « File d'attente » affiche ; le hasard le rendait
         -- impossible à prévoir comme à piloter.
@@ -592,7 +601,7 @@ export class JobsService {
         targets: {
           some: {
             status: TargetStatus.AVAILABLE,
-            post: { status: 'AVAILABLE', ...claimablePostWhere(profile) },
+            post: { status: 'AVAILABLE', AND: [claimablePostWhere(profile), publishableArticleWhere] },
             ...notForcedElsewhere(profile.id),
             ...(exclude ? { NOT: exclude } : {}),
           },
@@ -713,10 +722,7 @@ export class JobsService {
     // En attente, quel que soit le profil : ce qui est publiable en général.
     const waiting: Prisma.PostTargetWhereInput = {
       status: TargetStatus.AVAILABLE,
-      post: {
-        status: 'AVAILABLE',
-        OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }],
-      },
+      post: { status: 'AVAILABLE', ...publishableArticleWhere },
     };
     const joined = links.filter((l) => l.joinStatus === JoinStatus.JOINED);
     const notJoined = links.filter((l) => l.joinStatus !== JoinStatus.JOINED);
@@ -836,7 +842,7 @@ export class JobsService {
       status: TargetStatus.AVAILABLE,
       post: {
         status: 'AVAILABLE',
-        AND: [claimablePostWhere(profile), { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] }],
+        AND: [claimablePostWhere(profile), publishableArticleWhere],
       },
       ...notForcedElsewhere(profile.id),
       ...(exclude ? { NOT: exclude } : {}),
@@ -924,7 +930,7 @@ export class JobsService {
           where: {
             groupId: group.id,
             status: TargetStatus.AVAILABLE,
-            post: { status: 'AVAILABLE', ...claimablePostWhere(profile) },
+            post: { status: 'AVAILABLE', AND: [claimablePostWhere(profile), publishableArticleWhere] },
             ...notForcedElsewhere(profile.id),
           },
           orderBy: [

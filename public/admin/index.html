@@ -317,6 +317,7 @@
               <button class="primary" type="submit">Enregistrer</button>
             </form>
           </div>
+          <p class="form-help bad" id="sites-key-migration" hidden></p>
           <div class="panel table-wrap">
             <table>
               <thead>
@@ -1724,9 +1725,9 @@
           >Clé du plugin
           <input name="depositKey" type="password" autocomplete="new-password" />
           <small
-            >Celle saisie dans Réglages &gt; Data FB Posting du site. Laissée
-            vide, la clé globale WORDPRESS_API_KEY sert. À la modification,
-            vide conserve la clé enregistrée.</small
+            >Laissée vide, une clé propre à ce site est générée : retrouvez-la
+            avec « Voir la clé » et collez-la dans Réglages &gt; Data FB Posting
+            du site. À la modification, vide conserve la clé enregistrée.</small
           ></label
         ><label
           >État<select name="status">

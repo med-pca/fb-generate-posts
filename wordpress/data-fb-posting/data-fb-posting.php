@@ -2,17 +2,21 @@
 /**
  * Plugin Name: Data FB Posting
  * Description: Envoie les articles publiés vers Data FB Posting, resynchronise leurs modifications (titre, contenu, image), et reçoit les articles réécrits que l'API dépose.
- * Version: 1.4.1
+ * Version: 1.6.0
  * Requires at least: 5.6
  * Requires PHP: 7.4
  */
 if (!defined('ABSPATH')) { exit; }
 
 final class DFB_Posting {
-    const VERSION = '1.4.1';
+    const VERSION = '1.6.0';
     const OPTION = 'dfb_posting_settings';
     const HOOK = 'dfb_posting_deliver';
     const INGEST_META = '_dfb_ingest';
+    /** La copie (site en pause → site relais) dont cet article est né. */
+    const COPY_META = '_dfb_copy';
+    /** La redirection de tout le site vers son relais, posée par la plateforme. */
+    const REDIRECT_OPTION = 'dfb_posting_redirect';
     /** Marqueur de coupure de page reconnu par WordPress. */
     const NEXT_PAGE = '<!--nextpage-->';
     /** Le corps arrive en JSON : une image de plus de 10 Mo n'y a pas sa place. */
@@ -22,6 +26,10 @@ final class DFB_Posting {
     public static function boot() {
         add_action('wp_after_insert_post', array(__CLASS__, 'saved'), 10, 4);
         add_action('rest_api_init', array(__CLASS__, 'routes'));
+        // Site en pause : ses visiteurs partent vers le site relais. Seulement
+        // les pages du site (template_redirect) : l'API, l'admin et la
+        // connexion restent ouvertes, la plateforme continue de lui parler.
+        add_action('template_redirect', array(__CLASS__, 'redirect_visitor'), 0);
         // Priorité maximale : le filtre d'un plugin de sécurité doit avoir
         // rendu son verdict avant qu'on rouvre notre seule route. À 99, un
         // plugin accroché plus tard reprenait la main.
@@ -59,6 +67,8 @@ final class DFB_Posting {
         // du catalogue à la première sauvegarde.
         $ingest = get_post_meta($id, self::INGEST_META, true);
         if ($ingest) { $payload['ingestRef'] = $ingest; }
+        $copy = get_post_meta($id, self::COPY_META, true);
+        if ($copy) { $payload['copyRef'] = $copy; }
         return $payload;
     }
 
@@ -185,6 +195,19 @@ final class DFB_Posting {
             'callback' => array(__CLASS__, 'ack_route'),
             'permission_callback' => array(__CLASS__, 'authorized'),
         ));
+        // Copier un article vers le site relais : son contenu complet (HTML,
+        // slug, image), pas le texte brut de l'envoi.
+        register_rest_route('dfb/v1', '/export/(?P<id>\d+)', array(
+            'methods' => 'GET',
+            'callback' => array(__CLASS__, 'export_route'),
+            'permission_callback' => array(__CLASS__, 'authorized'),
+        ));
+        // Poser (ou retirer) la redirection de tout le site vers son relais.
+        register_rest_route('dfb/v1', '/redirect', array(
+            'methods' => 'POST',
+            'callback' => array(__CLASS__, 'redirect_route'),
+            'permission_callback' => array(__CLASS__, 'authorized'),
+        ));
         // De quoi vérifier, sans rien publier, que l'extension est bien la
         // bonne version et que la clé passe le verrou du site.
         register_rest_route('dfb/v1', '/status', array(
@@ -285,7 +308,71 @@ final class DFB_Posting {
             'pending' => count($waiting),
             'lastError' => $error,
             'cronDisabled' => defined('DISABLE_WP_CRON') && DISABLE_WP_CRON,
+            // Deux sites qui se relaient doivent avoir la même structure de
+            // liens : la redirection garde le chemin.
+            'permalinkStructure' => (string) get_option('permalink_structure'),
+            'redirect' => self::redirect_target(),
         );
+    }
+
+    /** Un article public, complet : de quoi le recréer à l'identique ailleurs
+     * (même slug). Un brouillon ou un article protégé n'existe pas. */
+    public static function export_route($request) {
+        $id = (int) $request['id'];
+        $post = $id ? get_post($id) : null;
+        if (!$post || $post->post_type !== 'post' || $post->post_status !== 'publish' || $post->post_password !== '') {
+            return new WP_Error('dfb_not_found', 'Article introuvable.', array('status' => 404));
+        }
+        $image = get_the_post_thumbnail_url($id, 'full');
+        return array(
+            'postId' => (string) $id,
+            'slug' => (string) $post->post_name,
+            'title' => (string) $post->post_title,
+            'excerpt' => (string) $post->post_excerpt,
+            'contentHtml' => (string) $post->post_content,
+            'imageUrl' => $image ? (string) $image : null,
+            'permalink' => get_permalink($id),
+            'publishedAt' => get_post_time('c', true, $post),
+        );
+    }
+
+    /** `{ target: "https://relais.com" }` pose la redirection, `{ target:
+     * null }` la retire. Une origine HTTPS seule : le chemin demandé par le
+     * visiteur y est ajouté tel quel. */
+    public static function redirect_route($request) {
+        $body = $request->get_json_params();
+        $raw = is_array($body) && isset($body['target']) ? trim((string) $body['target']) : '';
+        if ($raw === '') {
+            delete_option(self::REDIRECT_OPTION);
+            return array('redirect' => null);
+        }
+        $parts = wp_parse_url($raw);
+        if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https' || empty($parts['host']) || !empty($parts['user']) || !empty($parts['pass'])) {
+            return new WP_Error('dfb_bad_target', 'Une adresse HTTPS sans identifiants est attendue.', array('status' => 400));
+        }
+        $target = 'https://' . $parts['host'] . (isset($parts['port']) ? ':' . intval($parts['port']) : '') . untrailingslashit($parts['path'] ?? '');
+        if (untrailingslashit($target) === untrailingslashit(home_url())) {
+            return new WP_Error('dfb_self', 'Le site ne peut pas se rediriger vers lui-même.', array('status' => 400));
+        }
+        update_option(self::REDIRECT_OPTION, array('target' => $target, 'since' => gmdate('c')), false);
+        return array('redirect' => $target);
+    }
+
+    public static function redirect_target() {
+        $redirect = get_option(self::REDIRECT_OPTION, array());
+        return is_array($redirect) && !empty($redirect['target']) ? (string) $redirect['target'] : null;
+    }
+
+    /** Le visiteur part vers le même chemin sur le site relais, en 302 : la
+     * pause est temporaire, Google ne doit pas croire à un déménagement. Les
+     * rédacteurs connectés restent sur le site, pour pouvoir y travailler. */
+    public static function redirect_visitor() {
+        $target = self::redirect_target();
+        if (!$target || (function_exists('current_user_can') && current_user_can('edit_posts'))) { return; }
+        $path = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '/';
+        if ($path === '' || $path[0] !== '/') { $path = '/'; }
+        wp_redirect($target . $path, 302, 'Data FB Posting');
+        exit;
     }
 
     /** Beaucoup de sites ferment toute l'API REST aux visiteurs non
@@ -334,6 +421,16 @@ final class DFB_Posting {
         if ($title === '' || trim($content) === '') {
             return new WP_Error('dfb_incomplete', 'title et contentHtml sont requis.', array('status' => 400));
         }
+        $copy = isset($body['copyRef']) ? sanitize_text_field((string) $body['copyRef']) : '';
+        // Une copie dont le slug existe déjà ici : on garde l'article en place
+        // (pas de doublon « -2 »), et la redirection mène à lui.
+        if (!empty($body['keepExisting']) && !empty($body['slug'])) {
+            $existing = get_page_by_path(sanitize_title((string) $body['slug']), OBJECT, 'post');
+            if ($existing && $existing->post_status === 'publish') {
+                if ($copy !== '') { update_post_meta($existing->ID, self::COPY_META, $copy); }
+                return array('postId' => (string) $existing->ID, 'permalink' => get_permalink($existing->ID), 'imageWarning' => null, 'existing' => true);
+            }
+        }
         // `wp_insert_post` attend des données ÉCHAPPÉES : il leur applique
         // `wp_unslash`. Sans `wp_slash`, tout antislash du contenu est mangé,
         // et un « \n » écrit en toutes lettres par le modèle ressortait en
@@ -347,7 +444,10 @@ final class DFB_Posting {
             'post_content' => wp_slash(self::clean_body($content)),
             // Posée à l'insertion : `wp_after_insert_post` la lira au passage
             // en ligne, et l'API saura à quelle reprise rattacher l'article.
-            'meta_input' => array(self::INGEST_META => isset($body['ingestRef']) ? sanitize_text_field((string) $body['ingestRef']) : ''),
+            'meta_input' => array(
+                self::INGEST_META => isset($body['ingestRef']) ? sanitize_text_field((string) $body['ingestRef']) : '',
+                self::COPY_META => $copy,
+            ),
         ), true);
         if (is_wp_error($id)) { return $id; }
         $warning = self::attach_image($id, isset($body['image']) ? $body['image'] : null);
@@ -440,7 +540,7 @@ final class DFB_Posting {
             <input class="regular-text" type="url" required id="dfb-url" name="dfb_posting_settings[endpoint]" value="<?php echo esc_attr($settings['endpoint'] ?? ''); ?>" placeholder="https://api.exemple.com/api/wordpress/articles">
             </td></tr><tr><th><label for="dfb-key">Clé WordPress</label></th><td>
             <input class="regular-text" type="password" autocomplete="new-password" id="dfb-key" name="dfb_posting_settings[key]" value="">
-            <p class="description">Valeur WORDPRESS_API_KEY du serveur. Laisser vide pour conserver la clé enregistrée.</p>
+            <p class="description">La clé de CE site : dans la plateforme, Sites → « Voir la clé » (ou « Générer sa clé »). Elle n’ouvre que ce site. Laisser vide pour conserver la clé enregistrée.</p>
             </td></tr></table><?php submit_button(); ?>
         </form><p>Les envois et les nouvelles tentatives utilisent WP-Cron. Leur état est visible dans la liste des articles, colonne Facebook.</p>
         </div>

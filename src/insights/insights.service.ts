@@ -16,6 +16,7 @@ import {
 } from '../auth/scope';
 import { localClock } from '../runners/window';
 import { claimablePostWhere } from '../jobs/jobs.service';
+import { publishableArticleWhere } from '../jobs/claimable';
 import { adaptiveGap, minutesIntoWindow, pace, PUBLISH_MINUTES, windowLength } from './objective';
 
 /** Au-delà, un profil qui dit travailler ne compte plus comme au travail :
@@ -61,7 +62,7 @@ export class InsightsService {
         AND: [
           scope,
           { status: 'AVAILABLE' },
-          { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] },
+          publishableArticleWhere,
         ],
       },
     };
@@ -206,7 +207,7 @@ export class InsightsService {
               AND: [
                 postWhere(scope),
                 { status: 'AVAILABLE' },
-                { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] },
+                publishableArticleWhere,
                 claimablePostWhere(profile),
               ],
             },

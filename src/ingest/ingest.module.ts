@@ -28,6 +28,6 @@ import { VisualsController } from '../visuals/visuals.controller';
     VisualsService,
   ],
 
-  exports: [IngestService, SourceReaderService, RewriterService, ImageTranslatorService],
+  exports: [IngestService, SourceReaderService, RewriterService, ImageTranslatorService, WordpressWriterService],
 })
 export class IngestModule {}

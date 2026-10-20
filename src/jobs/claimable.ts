@@ -79,3 +79,11 @@ export function profilesForPostWhere(post: ClaimPost): Prisma.ProfileWhereInput 
     ],
   };
 }
+
+/** Un post qui peut partir : sans article, ou d'un article actif dont le
+ * site n'est pas en pause (⏸ limite publicitaire…). Un site en pause garde
+ * ses posts, qui repartent à sa réactivation — ou sont déplacés vers le site
+ * qui prend le relais. */
+export const publishableArticleWhere: Prisma.PostWhereInput = {
+  OR: [{ articleId: null }, { article: { status: 'ACTIVE', source: { pausedAt: null } } }],
+};

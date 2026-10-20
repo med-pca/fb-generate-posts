@@ -11,7 +11,7 @@ import type { CurrentUser } from '../auth/current-user';
 import { groupWhere, postWhere, profileWhere, scopeOf } from '../auth/scope';
 import { RescueService } from '../jobs/rescue.service';
 import { claimablePostWhere, mayPublishPost } from '../jobs/jobs.service';
-import type { ClaimPost } from '../jobs/claimable';
+import { publishableArticleWhere, type ClaimPost } from '../jobs/claimable';
 import { PriorityDto, QueueQueryDto } from './dto/queue.dto';
 import { TRACE_KINDS, groupKeyOf, normalizeFacebookUrl, trace } from '../trace/trace';
 
@@ -124,7 +124,7 @@ export class QueueService {
         AND: [
           scope,
           { status: 'AVAILABLE' },
-          { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] },
+          publishableArticleWhere,
         ],
       },
     };

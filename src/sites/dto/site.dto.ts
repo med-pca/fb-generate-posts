@@ -23,9 +23,9 @@ export class CreateSiteDto {
 
   @ApiPropertyOptional({
     description:
-      'Clé du plugin de ce site. Laissée vide, la clé globale ' +
-      'WORDPRESS_API_KEY sert. Vide à la modification : la clé en place est ' +
-      'conservée.',
+      'Clé du plugin de ce site. Laissée vide à la création, une clé propre ' +
+      'est générée (GET /sites/:id/key). Vide à la modification : la clé en ' +
+      'place est conservée.',
   })
   @IsOptional()
   @IsString()

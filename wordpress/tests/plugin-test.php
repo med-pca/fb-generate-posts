@@ -44,7 +44,15 @@ class DFB_Request { private $body; private $headers;
     public function get_header($name) { return $this->headers[$name] ?? ''; } }
 function get_post($id) { return $GLOBALS['post']; }
 function get_posts($args) { return $GLOBALS['pending_ids'] ?? array(); }
-function get_option($name, $default) { return $GLOBALS['options'][$name] ?? $default; }
+function get_option($name, $default = false) { return $GLOBALS['options'][$name] ?? $default; }
+function update_option($name, $value, $autoload = null) { $GLOBALS['options'][$name] = $value; return true; }
+function delete_option($name) { unset($GLOBALS['options'][$name]); return true; }
+function wp_parse_url($url, $component = -1) { return $component === -1 ? parse_url($url) : parse_url($url, $component); }
+if (!defined('OBJECT')) { define('OBJECT', 'OBJECT'); }
+function get_page_by_path($path, $output, $type) { return $GLOBALS['by_slug'][$path] ?? null; }
+function current_user_can($cap) { return $GLOBALS['logged_editor'] ?? false; }
+function wp_redirect($url, $code, $by = '') { throw new DFB_Redirect($url, $code); }
+class DFB_Redirect extends Exception { public $url; public $status; function __construct($url, $code) { $this->url = $url; $this->status = $code; parent::__construct('redirect'); } }
 function wp_json_encode($v) { return json_encode($v); }
 function wp_remote_post($url, $args) {
     $GLOBALS['request'] = $args;
@@ -256,7 +264,7 @@ check(DFB_Posting::unlock(true) === true, 'An already authenticated request is l
 $_SERVER['REQUEST_URI'] = '/wp-json/dfb/v1/status';
 $_SERVER['HTTP_X_API_KEY'] = 'secret';
 check(DFB_Posting::unlock($locked) === true, 'The status route is unlocked too');
-check(DFB_Posting::status_route()['version'] === '1.4.1', 'The status route reports the version');
+check(DFB_Posting::status_route()['version'] === '1.6.0', 'The status route reports the version');
 check(isset($GLOBALS['routes']['dfb/v1/status']), 'The status route is registered');
 
 
@@ -295,7 +303,7 @@ $article = DFB_Posting::read_route(array('id' => '77'));
 check(is_array($article) && $article['postId'] === '77' && $article['ingestRef'] === 'ing_42', 'It returns the delivery payload, capture reference included');
 $GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'draft', 'post_password' => '', 'post_title' => 'x', 'post_content' => 'x', 'post_excerpt' => '');
 check(is_wp_error(DFB_Posting::read_route(array('id' => '78'))), 'A draft is never readable');
-check(DFB_Posting::VERSION === '1.4.1', 'Version 1.4.1');
+check(DFB_Posting::VERSION === '1.6.0', 'Version 1.6.0');
 
 // 1.4.1 : la plateforme vient chercher ce que le site n'a pas pu envoyer.
 check(isset($GLOBALS['routes']['dfb/v1/pending']) && $GLOBALS['routes']['dfb/v1/pending']['permission_callback'] === array('DFB_Posting', 'authorized'), 'The pending route is protected by the key');
@@ -325,3 +333,39 @@ update_post_meta(60, '_dfb_pending', array('title' => 'x'));
 $GLOBALS['response'] = new WP_Error('http_request_failed', 'cURL error 6: Could not resolve host: api.example.com');
 DFB_Posting::deliver(60);
 check(strpos(get_post_meta(60, '_dfb_error', true), 'Could not resolve host') !== false, 'A network failure says why (cURL error)');
+
+// 1.6.0 : site en pause (limite) → copie vers un site relais et redirection.
+DFB_Posting::routes();
+check(isset($GLOBALS['routes']['dfb/v1/export/(?P<id>\\d+)']) && $GLOBALS['routes']['dfb/v1/export/(?P<id>\\d+)']['permission_callback'] === array('DFB_Posting', 'authorized'), 'The export route is protected by the key');
+check(isset($GLOBALS['routes']['dfb/v1/redirect']) && $GLOBALS['routes']['dfb/v1/redirect']['permission_callback'] === array('DFB_Posting', 'authorized'), 'The redirect route is protected by the key');
+$GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'publish', 'post_password' => '', 'post_name' => 'tarte-aux-pommes', 'post_title' => 'Tarte', 'post_content' => '<p>Corps <b>riche</b></p><!--nextpage--><p>Suite</p>', 'post_excerpt' => 'Résumé');
+$export = DFB_Posting::export_route(array('id' => '81'));
+check($export['slug'] === 'tarte-aux-pommes' && strpos($export['contentHtml'], '<b>riche</b>') !== false && strpos($export['contentHtml'], '<!--nextpage-->') !== false, 'The export keeps the slug and the full HTML, page breaks included');
+$GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'draft', 'post_password' => '', 'post_name' => 'x', 'post_title' => 'x', 'post_content' => 'x', 'post_excerpt' => '');
+check(is_wp_error(DFB_Posting::export_route(array('id' => '82'))), 'A draft is never exported');
+
+check(is_wp_error(DFB_Posting::redirect_route(new DFB_Request(array('target' => 'http://relais.example')))), 'A redirect must be HTTPS');
+check(is_wp_error(DFB_Posting::redirect_route(new DFB_Request(array('target' => 'https://example.com')))), 'A site never redirects to itself');
+$set = DFB_Posting::redirect_route(new DFB_Request(array('target' => 'https://relais.example/')));
+check($set['redirect'] === 'https://relais.example' && DFB_Posting::status_route()['redirect'] === 'https://relais.example', 'The redirect is stored and reported');
+$_SERVER['REQUEST_URI'] = '/tarte-aux-pommes/?utm=fb';
+try { DFB_Posting::redirect_visitor(); check(false, 'A visitor is redirected'); } catch (DFB_Redirect $r) {
+    check($r->url === 'https://relais.example/tarte-aux-pommes/?utm=fb' && $r->status === 302, 'A visitor goes to the same path on the relay, temporarily (302)');
+}
+$GLOBALS['logged_editor'] = true;
+DFB_Posting::redirect_visitor();
+check(true, 'A logged-in editor stays on the site');
+$GLOBALS['logged_editor'] = false;
+$off = DFB_Posting::redirect_route(new DFB_Request(array('target' => null)));
+check($off['redirect'] === null && DFB_Posting::status_route()['redirect'] === null, 'The redirect is removed at reactivation');
+DFB_Posting::redirect_visitor();
+check(true, 'Without redirect, visitors stay');
+
+// Une copie dont le slug existe déjà : pas de doublon, l'article en place sert.
+$GLOBALS['by_slug']['tarte-aux-pommes'] = (object) array('ID' => 91, 'post_status' => 'publish');
+$kept = DFB_Posting::receive(new DFB_Request(array('title' => 'Tarte', 'contentHtml' => '<p>x</p>', 'slug' => 'tarte-aux-pommes', 'keepExisting' => true, 'copyRef' => 'cp_1')));
+check($kept['postId'] === '91' && $kept['existing'] === true && get_post_meta(91, DFB_Posting::COPY_META, true) === 'cp_1', 'An existing slug is kept, and tagged with the copy');
+update_post_meta(92, DFB_Posting::COPY_META, 'cp_2');
+$GLOBALS['post'] = (object) array('post_type' => 'post', 'post_status' => 'publish', 'post_password' => '', 'post_title' => 'Copie', 'post_content' => 'x', 'post_excerpt' => '');
+check(DFB_Posting::payload(92, $GLOBALS['post'])['copyRef'] === 'cp_2', 'A copied article tells the platform which copy it is');
+

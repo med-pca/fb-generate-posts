@@ -2,10 +2,10 @@
 
 ## Installation
 
-1. Configurer une clé aléatoire dédiée dans l’environnement du serveur : `WORDPRESS_API_KEY`. Elle est différente de `AUTOMATION_API_KEY` et ne donne accès qu’à la réception WordPress.
+1. Déclarer le site dans la plateforme (**Sites → Ajouter**) : il reçoit sa propre clé, qui n’ouvre que lui. Son propriétaire (gestionnaire ou admin) la retrouve avec **Voir la clé**, et peut la régénérer. La clé globale `WORDPRESS_API_KEY` n’est plus qu’une transition pour les sites déclarés avant (coupée avec `WORDPRESS_ALLOW_GLOBAL_KEY=false`) ; un site non déclaré est refusé.
 2. Construire et redémarrer l’API avec cette version (`npm run build`, puis le mécanisme de déploiement habituel). Aucune migration supplémentaire ni dépendance n’est nécessaire.
 3. Dans WordPress : **Extensions → Ajouter une extension → Téléverser**, sélectionner `data-fb-posting.zip`, installer et activer.
-4. Dans **Réglages → Data FB Posting**, renseigner l’URL complète `https://VOTRE-API/api/wordpress/articles` et la même clé `WORDPRESS_API_KEY`.
+4. Dans **Réglages → Data FB Posting**, renseigner l’URL complète `https://VOTRE-API/api/wordpress/articles` et la clé du site copiée depuis la plateforme.
 5. Publier un nouvel article public, avec une image à la une si souhaité. La colonne **Facebook** dans la liste des articles indique « En attente », « Mise à jour en attente », une erreur explicite ou « Transmis ».
 6. Vérifier dans Data FB Posting l’article importé et les posts associés aux profils actifs. Les groupes actifs associés à chaque profil deviennent les destinataires.
 7. Modifier ensuite l’article (titre, contenu, extrait, image à la une, lien ou date) : après le passage de WP-Cron, l’article et les posts pas encore publiés reprennent la nouvelle version.
@@ -76,3 +76,14 @@ php wordpress/tests/plugin-test.php
 Les tests PHP utilisent un double de l’API WordPress ; une validation finale sur un vrai site WordPress reste nécessaire. La suite Jest historique contient un test `app.controller.spec.ts` « Hello World » déjà en échec avant cette modification (PrismaService non fourni).
 
 Références WordPress : [hook après enregistrement et métadonnées](https://developer.wordpress.org/reference/hooks/wp_after_insert_post/), [planification et dépendance aux visites](https://developer.wordpress.org/reference/functions/wp_schedule_single_event/).
+
+## Site limité : pause et relais (1.6.0)
+
+Quand un site est limité (publicité…), page **Sites → ⏸ Pause (limite)** :
+
+1. ses posts pas encore publiés s'arrêtent ;
+2. le site choisi comme **relais** reçoit une copie de ses articles, **avec le même slug** (route `dfb/v1/export` du site en pause, dépôt sur le relais ; un slug déjà présent n'est pas dupliqué) ;
+3. les posts en attente passent sur le relais, avec le nouveau lien (texte, priorité et historique gardés) ; les posts déjà publiés ne changent pas ;
+4. une fois les copies faites, le site en pause **redirige** ses visiteurs vers le relais, au même chemin, en **302** (temporaire). L'API, l'admin et les rédacteurs connectés ne sont pas redirigés.
+
+À la fin de la limite : **▶ Réactiver** retire la redirection. Les deux sites doivent avoir le plugin 1.6.0 et la même structure de liens (Réglages → Permaliens).

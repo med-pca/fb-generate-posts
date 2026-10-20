@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesService } from '../categories/categories.service';
 import type { CurrentUser } from '../auth/current-user';
 import { CreateSiteDto, UpdateSiteDto } from './dto/site.dto';
+import { generateSiteKey } from './site-key';
 import {
   groupWhere,
   scopeOf,
@@ -42,6 +43,7 @@ export function publicSite(
     _count?: { articles: number };
     owner?: { username: string } | null;
     category?: { id: string; name: string } | null;
+    relay?: { id: string; name: string } | null;
   },
 ) {
   return {
@@ -63,6 +65,16 @@ export function publicSite(
       lastDeliveryAt: site.lastDeliveryAt,
     },
     articles: site._count?.articles ?? 0,
+    // ⏸ En pause (limite), son relais, et la redirection vers lui.
+    pause: site.pausedAt
+      ? {
+          since: site.pausedAt,
+          reason: site.pauseReason,
+          relay: site.relay ?? null,
+          redirectSince: site.redirectSince,
+          redirectError: site.redirectError,
+        }
+      : null,
     createdAt: site.createdAt,
   };
 }
@@ -103,6 +115,7 @@ const SITE_INCLUDE = {
   _count: { select: { articles: true } },
   owner: { select: { username: true } },
   category: { select: { id: true, name: true } },
+  relay: { select: { id: true, name: true } },
 } as const;
 
 @Injectable()
@@ -127,7 +140,8 @@ export class SitesService {
    * plus. La clé globale, elle, les voit tous. */
   async targets(acting: CurrentUser | null) {
     const sites = await this.prisma.contentSource.findMany({
-      where: { status: RecordStatus.ACTIVE, ...siteWhere(scopeOf(acting)) },
+      // Un site en pause (limite) ne reçoit plus de reprise : son relais, oui.
+      where: { status: RecordStatus.ACTIVE, pausedAt: null, ...siteWhere(scopeOf(acting)) },
       select: {
         id: true,
         name: true,
@@ -210,7 +224,8 @@ export class SitesService {
       data: {
         name: dto.name.trim(),
         originUrl,
-        depositKey: dto.depositKey?.trim() || null,
+        // Chaque site naît avec sa clé : la clé globale ne lui ouvre rien.
+        depositKey: dto.depositKey?.trim() || generateSiteKey(),
         categoryId: (await this.categories.resolve(dto.categoryId)) ?? null,
         ownerId: owner?.id ?? null,
         status: dto.status ?? RecordStatus.ACTIVE,
@@ -276,6 +291,41 @@ export class SitesService {
 
   /** Modifier suppose posséder : un site partagé sert à y déposer, pas à
    * le renommer ni à changer sa clé. */
+  /* ── La clé du plugin ────────────────────────────────────────────────
+   * Seuls le propriétaire du site et un ADMIN la voient : un site partagé
+   * prête son usage, pas sa clé. */
+
+  /** La clé à coller dans le plugin (`null` : le site est encore sur la clé
+   * globale, à migrer). */
+  async pluginKey(id: string, acting: CurrentUser | null) {
+    const site = await this.owned(id, acting);
+    return { siteId: site.id, originUrl: site.originUrl, key: site.depositKey ?? null, endpoint: this.endpoint() };
+  }
+
+  /** Une nouvelle clé : l'ancienne cesse aussitôt de fonctionner (et la clé
+   * globale aussi pour ce site). À coller dans le plugin juste après. */
+  async regeneratePluginKey(id: string, acting: CurrentUser | null) {
+    const site = await this.owned(id, acting);
+    const key = generateSiteKey();
+    await this.prisma.$transaction([
+      this.prisma.contentSource.update({ where: { id: site.id }, data: { depositKey: key } }),
+      this.prisma.activityLog.create({
+        data: {
+          eventType: 'SITE_KEY_REGENERATED',
+          message: `Nouvelle clé de plugin pour « ${site.name} » : l’ancienne ne fonctionne plus`,
+          metadata: { siteId: site.id, by: acting?.username ?? 'clé globale', hadOwnKey: Boolean(site.depositKey) },
+        },
+      }),
+    ]);
+    return { siteId: site.id, originUrl: site.originUrl, key, endpoint: this.endpoint() };
+  }
+
+  /** L'adresse de réception à coller dans le plugin. */
+  private endpoint() {
+    const base = (process.env.PUBLIC_URL || 'https://post.pulserecipe.com').replace(/\/+$/, '');
+    return `${base}/api/wordpress/articles`;
+  }
+
   private async owned(id: string, acting: CurrentUser | null) {
     const site = await this.prisma.contentSource.findFirst({
       where: { id, ...siteManageWhere(scopeOf(acting)) },

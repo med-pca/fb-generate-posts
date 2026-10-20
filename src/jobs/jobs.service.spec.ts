@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { JobStatus, JoinStatus, TargetStatus } from '@prisma/client';
 import { JobsService, claimablePostWhere, mayPublishPost } from './jobs.service';
+import { publishableArticleWhere } from './claimable';
 
 const CLAIM_EXPIRES = new Date('2026-09-14T12:00:00.000Z');
 
@@ -565,12 +566,18 @@ describe('JobsService — groupes rejoints uniquement', () => {
     const [[{ where }]] = prisma.group.findMany.mock.calls;
     expect(where.targets.some.post).toEqual({
       status: 'AVAILABLE',
-      OR: [
-        { profileId: 'profile_1' },
+      AND: [
         {
-          profileId: null,
-          OR: [{ ownerId: 'u1' }, { article: { source: { access: { some: { userId: 'u1' } } } } }],
+          OR: [
+            { profileId: 'profile_1' },
+            {
+              profileId: null,
+              OR: [{ ownerId: 'u1' }, { article: { source: { access: { some: { userId: 'u1' } } } } }],
+            },
+          ],
         },
+        // Ni l'article d'un site en pause (limite).
+        publishableArticleWhere,
       ],
     });
   });
