@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { JobStatus, LogLevel, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeFacebookUrl } from '../trace/trace';
@@ -7,7 +7,8 @@ import { QueryLogsDto } from './dto/query-logs.dto';
 import { LogsSummaryDto } from './dto/logs-summary.dto';
 import { paginated } from '../common/paginated';
 import type { CurrentUser } from '../auth/current-user';
-import { logWhere, scopeOf, seesEverything } from '../auth/scope';
+import { jobWhere, logWhere, scopeOf, seesEverything } from '../auth/scope';
+import { RescueService } from '../jobs/rescue.service';
 import {
   domainOf,
   domainWhere,
@@ -38,10 +39,15 @@ const csvCell = (value: unknown) => {
 
 @Injectable()
 export class LogsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(LogsService.name);
 
-  create(dto: CreateLogDto) {
-    return this.prisma.activityLog.create({
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly rescue?: RescueService,
+  ) {}
+
+  async create(dto: CreateLogDto, acting: CurrentUser | null = null) {
+    const log = await this.prisma.activityLog.create({
       data: {
         ...dto,
         // Même forme que partout ailleurs, pour que le filtre par lien trouve.
@@ -49,6 +55,20 @@ export class LogsService {
         metadata: dto.metadata as Prisma.InputJsonValue,
       },
     });
+    // 🛟 L'extension n'a pas d'autre façon de dire que l'auteur a abandonné
+    // le lien (3 essais) : c'est ce log. Le sauvetage part aussitôt.
+    if (dto.eventType === 'WORKER_LINK_FAILED' && dto.jobId && dto.postId && this.rescue) {
+      const job = await this.prisma.publicationJob.findFirst({
+        where: { id: dto.jobId, ...jobWhere(scopeOf(acting)) },
+        select: { id: true },
+      });
+      if (job) {
+        await this.rescue
+          .authorGaveUp(job.id, dto.postId)
+          .catch((error) => this.logger.warn(`Sauvetage non demandé : ${error instanceof Error ? error.message : error}`));
+      }
+    }
+    return log;
   }
 
   findAll(profileId: string | undefined, acting: CurrentUser | null) {

@@ -92,7 +92,12 @@ type LinkPhaseItem = {
   commentedAt: Date | null;
   linkUpdatedAt: Date | null;
   post: { url: string | null };
+  postTarget?: { rescueStatus: string | null } | null;
 };
+
+/** Un sauveteur a pris le lien (en cours ou fait) : l'auteur ne le retente
+ * pas, sinon le post porterait deux commentaires avec le lien. */
+const RESCUE_TAKES_OVER = new Set(['pending', 'claimed', 'done']);
 
 /** Les posts qu'un profil peut publier : les siens, et les posts ouverts de
  * son compte (ceux sans propriétaire servent tout le monde). Même règle que
@@ -1690,7 +1695,7 @@ export class JobsService {
       include: {
         profile: { select: { id: true, name: true, externalId: true } },
         group: { select: { id: true, name: true, externalId: true } },
-        items: { include: { post: { select: { url: true, title: true } } } },
+        items: { include: { post: { select: { url: true, title: true } }, postTarget: { select: { rescueStatus: true } } } },
       },
     });
     if (!job) throw new NotFoundException('Job introuvable');
@@ -1706,7 +1711,7 @@ export class JobsService {
       profile: job.profile,
       group: job.group,
       updates: job.items
-        .filter((item) => this.awaitsLink(item))
+        .filter((item) => this.awaitsLink(item) && !RESCUE_TAKES_OVER.has(item.postTarget?.rescueStatus ?? ''))
         .map((item) => ({
           postId: item.postId,
           title: item.post.title,
@@ -1737,7 +1742,7 @@ export class JobsService {
       include: {
         profile: { select: { id: true, name: true, externalId: true } },
         group: { select: { id: true, name: true, externalId: true } },
-        items: { include: { post: { select: { url: true, title: true } } } },
+        items: { include: { post: { select: { url: true, title: true } }, postTarget: { select: { rescueStatus: true } } } },
       },
       orderBy: { completedAt: 'asc' },
       take: limit,
@@ -1749,7 +1754,7 @@ export class JobsService {
         profile: job.profile,
         group: job.group,
         updates: job.items
-          .filter((item) => this.awaitsLink(item))
+          .filter((item) => this.awaitsLink(item) && !RESCUE_TAKES_OVER.has(item.postTarget?.rescueStatus ?? ''))
           .map((item) => ({
             postId: item.postId,
             title: item.post.title,

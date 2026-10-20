@@ -105,6 +105,33 @@ export class RescueService {
     return { requested, gaveUp: gaveUp.count };
   }
 
+  /** L'auteur vient d'abandonner le lien de ce post (ses 3 essais ont
+   * échoué) : le sauvetage est demandé TOUT DE SUITE, sans attendre la
+   * clôture de son lot — qui peut durer une heure ou deux quand ses posts
+   * sont espacés. Le balayage reste le filet de sécurité. */
+  async authorGaveUp(jobId: string, postId: string, now = new Date()) {
+    const item = await this.prisma.publicationJobItem.findFirst({
+      where: { jobId, postId, status: TargetStatus.PUBLISHED, linkUpdatedAt: null },
+      select: {
+        postTarget: {
+          select: {
+            id: true,
+            linkUpdatedAt: true,
+            rescueStatus: true,
+            facebookUrl: true,
+            approvalPendingSince: true,
+            post: { select: { url: true, noComment: true } },
+          },
+        },
+      },
+    });
+    const t = item?.postTarget;
+    if (!t || t.linkUpdatedAt || t.rescueStatus || t.approvalPendingSince || !t.facebookUrl || !t.post.url || t.post.noComment) {
+      return false;
+    }
+    return this.request(t.id, 'l’auteur n’a pas pu poser le lien après ses 3 essais', now);
+  }
+
   /** Mettre un post « à sauver », s'il reste un sauveteur possible. */
   async request(targetId: string, reason: string, now = new Date()) {
     const target = await this.prisma.postTarget.findUnique({

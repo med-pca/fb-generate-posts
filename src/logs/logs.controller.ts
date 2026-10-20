@@ -22,8 +22,8 @@ export class LogsController {
   constructor(private readonly logs: LogsService) {}
 
   @Post()
-  create(@Body() dto: CreateLogDto) {
-    return this.logs.create(dto);
+  create(@Body() dto: CreateLogDto, @ActingUser() acting: CurrentUser | null) {
+    return this.logs.create(dto, acting);
   }
 
   @Get()
