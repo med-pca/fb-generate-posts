@@ -5,6 +5,7 @@ const svc = new CampaignsService({} as any);
 const campaign = (over: Partial<DayPlan['campaigns'][number]>): DayPlan['campaigns'][number] => ({
   id: 'c',
   name: 'Tera',
+  closed: null,
   ownerId: null,
   ownerIsAdmin: true,
   managed: false,
@@ -96,3 +97,28 @@ describe('withSuspension', () => {
     expect(withSuspension({ run: true, reason: 'x' }, null)).toEqual({ run: true, reason: 'x' });
   });
 });
+
+describe('Campagne fermée : plage horaire et rythme', () => {
+  const where = (site: string) => ({ post: { article: { sourceId: site } } });
+  it('ses publications sont fermées à tous les profils, sauf si une campagne ouverte les couvre', () => {
+    const plan = { campaigns: [campaign({ id: 'a', name: 'Tera', closed: 'hors de sa plage horaire (08:00 → 22:00)', where: where('s1') })] };
+    const day = svc.profileDay({ id: 'p1', ownerId: null, team: null }, plan);
+    expect(day.exclude).toEqual({ OR: [{ OR: [where('s1')] }] });
+    expect(day.closed[0]).toContain('hors de sa plage horaire');
+    const both = { campaigns: [...plan.campaigns, campaign({ id: 'b', name: 'Autre', where: where('s2') })] };
+    expect(svc.profileDay({ id: 'p1', ownerId: null, team: null }, both).exclude).toEqual({
+      OR: [{ AND: [{ OR: [where('s1')] }, { NOT: { OR: [where('s2')] } }] }],
+    });
+  });
+  it('une campagne à rotation fermée met le profil au repos', () => {
+    const plan = { campaigns: [campaign({ managed: true, closed: 'objectif atteint (100/100)', where: where('s1') })] };
+    const day = svc.profileDay({ id: 'p1', ownerId: null, team: null }, plan);
+    expect(day.resting).toBe(true);
+    expect(day.reason).toContain('objectif atteint');
+  });
+  it('ouverte, elle ne ferme rien', () => {
+    const day = svc.profileDay({ id: 'p1', ownerId: null, team: null }, { campaigns: [campaign({ where: where('s1') })] });
+    expect(day.exclude).toBeNull();
+  });
+});
+

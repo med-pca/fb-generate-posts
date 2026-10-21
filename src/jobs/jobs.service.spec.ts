@@ -767,6 +767,15 @@ describe('JobsService — profil limité par Facebook', () => {
     expect(RATE_LIMITED.test('the "Write something..." box is not on the page')).toBe(false);
   });
 
+  it('reconnaît le message arabe tel quel, voyelles et hamza comprises', () => {
+    const { isRateLimited } = require('./jobs.service');
+    expect(
+      isRateLimited('نقيّد معدل تكرار النشر أو التعليق أو القيام بأشياء أخرى خلال فترة زمنية محددة. يمكنك إعادة المحاولة لاحقًا.'),
+    ).toBe(true);
+    expect(isRateLimited('يمكنك إعادة المحاولة لاحقًا')).toBe(true);
+    expect(isRateLimited('إنشاء منشور')).toBe(false);
+  });
+
   it('pause de 5 jours, lot libéré, envois forcés rendus, posts propres ouverts aux autres', async () => {
     const { service, prisma } = harness();
     const now = new Date('2026-10-06T10:00:00Z');

@@ -121,7 +121,16 @@ export function notForcedElsewhere(
 /** Le message de Facebook quand il limite un compte, dans les langues de nos
  * profils (et le libellé que l'extension en fait). */
 export const RATE_LIMITED =
-  /publication bloqu|limit how often|try again later|temporarily blocked|limitons la fr[ée]quence|r[ée]essayez plus tard|temporairement bloqu|limitamos|int[ée]ntalo de nuevo m[aá]s tarde|wir begrenzen|حاول مرة أخرى لاحق|نحد من|محظور مؤقت/i;
+  /publication bloqu|limit how often|try again later|temporarily blocked|limitons la fr[ée]quence|r[ée]essayez plus tard|temporairement bloqu|limitamos|int[ée]ntalo de nuevo m[aá]s tarde|wir begrenzen|حاول مرة اخرى لاحق|حاول مرة أخرى لاحق|نحد من|محظور مؤقت|نقيد معدل|اعادة المحاولة لاحق/i;
+
+/** L'arabe s'écrit avec des voyelles (« نقيّد », « لاحقًا ») et plusieurs
+ * formes d'alef : on les replie avant de comparer, comme l'extension. */
+export function isRateLimited(text: string | null | undefined) {
+  const folded = String(text ?? '')
+    .replace(/[\u064b-\u065f\u0670\u0640]/g, '')
+    .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627');
+  return RATE_LIMITED.test(folded);
+}
 
 /** Un post qui n'est jamais parti repart seul dans la file au plus ce
  * nombre de fois (tentatives comptées à la réservation). */
@@ -616,10 +625,16 @@ export class JobsService {
     });
 
     if (!groups.length) {
+      const why = await this.explainNothingToClaim(profile, groupExternalId);
+      // Une campagne fermée explique souvent l'attente : la plage horaire
+      // n'est pas commencée, ou l'objectif est en avance sur l'heure.
+      const closed = day?.closed?.length ? ` — Campagnes en attente : ${day.closed.slice(0, 2).join(' ; ')}.` : '';
       return {
         job: null,
         posts: [],
-        ...(await this.explainNothingToClaim(profile, groupExternalId)),
+        ...why,
+        message: why.message + closed,
+        diagnosis: { ...why.diagnosis, ...(day?.closed?.length ? { campaignsClosed: day.closed } : {}) },
       };
     }
 
@@ -1248,7 +1263,7 @@ export class JobsService {
     const item = await this.updateItem(jobId, postId, TargetStatus.FAILED, { error });
     // Facebook limite ce compte : pause, et son travail passe aux autres —
     // signalé par l'extension, ou reconnu au message (anciennes extensions).
-    if (blocked || RATE_LIMITED.test(error)) await this.pauseForRateLimit(jobId, error);
+    if (blocked || isRateLimited(error)) await this.pauseForRateLimit(jobId, error);
     if (requeue || blocked) await this.requeueUnpublished(jobId, postId, error);
     return item;
   }

@@ -90,6 +90,10 @@
     'we limit how often', 'limit how often you can post', 'nous limitons la frequence', 'nous limitons le nombre',
     'limitamos la frecuencia', 'limitamos a frequencia', 'wir begrenzen', 'limitiamo la frequenza',
     'نحن نحد من', 'نقيد عدد المرات', 'نحد من عدد المرات',
+    // « نقيّد معدل تكرار النشر أو التعليق… يمكنك إعادة المحاولة لاحقًا » :
+    // la forme que voient la plupart des profils en arabe (repliée : ni
+    // chadda ni tanwin, alef simple).
+    'نقيد معدل تكرار', 'نقيد معدل النشر', 'نحد من معدل', 'يمكنك اعادة المحاولة لاحقا', 'اعادة المحاولة لاحقا',
     'vous ne pouvez pas publier', 'impossible de publier', 'réessayez plus tard', 'temporairement bloqu', 'nous avons limit',
     'no puedes publicar', 'inténtalo de nuevo más tarde', 'vorübergehend gesperrt',
     'لا يمكنك النشر', 'تعذر النشر', 'حاول مرة أخرى لاحقا', 'محظور مؤقتا', 'تم حظرك',

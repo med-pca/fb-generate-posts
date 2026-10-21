@@ -94,3 +94,43 @@ export function rotationTeamOf(teams: string[], startsAt: Date, now: Date, timeZ
   const index = Math.max(0, Math.round(day(now) - day(startsAt)));
   return { team: teams[index % teams.length], index: index % teams.length, day: index };
 }
+
+/** L'heure locale est-elle dans la plage de publication ? Une plage peut
+ * passer minuit (22 h → 6 h) ; des bornes égales = toute la journée. */
+export function inWindow(minutes: number, start: number, end: number) {
+  if (start === end) return true;
+  return end > start ? minutes >= start && minutes < end : minutes >= start || minutes < end;
+}
+
+const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+/** Une campagne ferme-t-elle ses publications en ce moment ? Elle respecte
+ * sa plage horaire et étale son objectif dessus :
+ *   - hors de la plage : rien ne part ;
+ *   - objectif de la période atteint : rien de plus ;
+ *   - en avance sur le rythme (plus que l'attendu à cette heure, avec une
+ *     petite marge) : on attend que l'heure rattrape, au lieu de tout
+ *     publier en début de plage.
+ * Rend la raison, ou `null` quand elle est ouverte. */
+export function campaignGate(input: {
+  now: Date;
+  timezone: string;
+  windowStart: number;
+  windowEnd: number;
+  target: number;
+  published: number;
+  expected: number;
+}) {
+  const minutes = localClock(input.now, input.timezone).minutes;
+  if (!inWindow(minutes, input.windowStart, input.windowEnd)) {
+    return `hors de sa plage horaire (${hhmm(input.windowStart)} → ${hhmm(input.windowEnd)})`;
+  }
+  if (input.target > 0 && input.published >= input.target) {
+    return `objectif atteint (${input.published}/${input.target})`;
+  }
+  const slack = Math.max(1, Math.ceil(input.target * 0.05));
+  if (input.target > 0 && input.published >= input.expected + slack) {
+    return `en avance sur son rythme (${input.published} publiés, ${input.expected} attendus à cette heure)`;
+  }
+  return null;
+}

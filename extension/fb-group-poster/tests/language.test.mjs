@@ -48,5 +48,8 @@ test('limitation de Facebook reconnue (« We limit how often you can post… »)
   assert.ok(D.BLOCKED.test('Nous limitons la fréquence à laquelle vous pouvez publier, commenter ou faire d’autres choses. Réessayez plus tard.'));
   assert.ok(D.BLOCKED.test('نحن نحد من عدد المرات التي يمكنك فيها النشر. حاول مرة أخرى لاحقاً.'));
   assert.ok(D.BLOCKED.test('Limitamos la frecuencia con la que puedes publicar'));
+  // Le message arabe le plus courant, tel quel (chadda, tanwin, hamza).
+  assert.ok(D.BLOCKED.test('نقيّد معدل تكرار النشر أو التعليق أو القيام بأشياء أخرى خلال فترة زمنية محددة للمساعدة على حماية المجتمع من المحتوى غير المهم أو الاحتيالي. يمكنك إعادة المحاولة لاحقًا. تعرف على المزيد'));
+  assert.ok(D.BLOCKED.test('يمكنك إعادة المحاولة لاحقًا'));
   assert.ok(!D.BLOCKED.test('Create post · Islam Houbous · Public group'), 'le composeur seul n’est pas un blocage');
 });

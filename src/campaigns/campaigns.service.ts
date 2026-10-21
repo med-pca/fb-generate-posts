@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { articleWhere, groupWhere, ownedWhere, profileWhere, scopeOf, siteWhere } from '../auth/scope';
 import { localClock } from '../runners/window';
-import { campaignPace, periodBounds, rotationTeamOf, type Period } from './period';
+import { campaignGate, campaignPace, periodBounds, rotationTeamOf, type Period } from './period';
 import type { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
 
 const CAMPAIGN_INCLUDE = {
@@ -251,9 +251,21 @@ export class CampaignsService {
         });
         for (const i of items) used.set(i.job.profileId, (used.get(i.job.profileId) ?? 0) + 1);
       }
+      // Plage horaire et rythme : fermée, ses publications attendent.
+      const p = await this.progress(c, now);
+      const closed = campaignGate({
+        now,
+        timezone: c.timezone,
+        windowStart: c.windowStart,
+        windowEnd: c.windowEnd,
+        target: c.target,
+        published: p.published,
+        expected: p.expected,
+      });
       campaigns.push({
         id: c.id,
         name: c.name,
+        closed,
         ownerId: c.ownerId,
         ownerIsAdmin: !c.ownerId || c.owner?.role === 'ADMIN',
         managed,
@@ -280,6 +292,16 @@ export class CampaignsService {
    *   - `left` : ce qu'il peut encore publier avant le premier plafond. */
   profileDay(profile: { id: string; ownerId: string | null; team: string | null }, plan: DayPlan) {
     const mine = plan.campaigns.filter((c) => c.ownerIsAdmin || c.ownerId === profile.ownerId);
+    // Une campagne fermée (hors plage, objectif atteint, en avance) ferme
+    // ses publications à TOUS les profils — sauf celles qu'une campagne
+    // ouverte couvre aussi.
+    const closed = plan.campaigns.filter((c) => c.closed);
+    const openWhere = plan.campaigns.filter((c) => !c.closed).map((c) => c.where);
+    const closedClause: Prisma.PostTargetWhereInput | null = closed.length
+      ? openWhere.length
+        ? { AND: [{ OR: closed.map((c) => c.where) }, { NOT: { OR: openWhere } }] }
+        : { OR: closed.map((c) => c.where) }
+      : null;
     const working: DayPlan['campaigns'] = [];
     const blocking: Array<{ c: DayPlan['campaigns'][number]; why: string }> = [];
     for (const c of mine) {
@@ -287,15 +309,18 @@ export class CampaignsService {
       const teamOk = !c.teamToday || c.teamToday === profile.team;
       const done = c.used.get(profile.id) ?? 0;
       const underMax = c.max == null || done < c.max;
-      if (inList && teamOk && underMax) working.push(c);
+      if (inList && teamOk && underMax && !c.closed) working.push(c);
+      else if (c.managed && c.closed) blocking.push({ c, why: `« ${c.name} » ${c.closed}` });
       else if (c.managed)
         blocking.push({ c, why: !inList ? `hors des profils de « ${c.name} »` : !teamOk ? `pas son équipe aujourd'hui (« ${c.name} »)` : `plafond du jour atteint pour « ${c.name} » (${done}/${c.max})` });
     }
     const resting = mine.some((c) => c.managed) && !working.length;
     const workWhere = working.map((c) => c.where);
-    const exclude: Prisma.PostTargetWhereInput | null = blocking.length
-      ? { OR: blocking.map(({ c }) => (workWhere.length ? { AND: [c.where, { NOT: { OR: workWhere } }] } : c.where)) }
-      : null;
+    const parts: Prisma.PostTargetWhereInput[] = [
+      ...blocking.map(({ c }) => (workWhere.length ? { AND: [c.where, { NOT: { OR: workWhere } }] } : c.where)),
+      ...(closedClause ? [closedClause] : []),
+    ];
+    const exclude: Prisma.PostTargetWhereInput | null = parts.length ? { OR: parts } : null;
     const caps = working.filter((c) => c.max != null).map((c) => (c.max as number) - (c.used.get(profile.id) ?? 0));
     return {
       resting,
@@ -303,6 +328,8 @@ export class CampaignsService {
       exclude,
       left: caps.length ? Math.max(0, Math.min(...caps)) : null,
       campaigns: working.map((c) => c.name),
+      // Pour expliquer un « Rien à publier ».
+      closed: closed.filter((c) => mine.includes(c)).map((c) => `« ${c.name} » ${c.closed}`),
     };
   }
 
@@ -467,6 +494,8 @@ export type DayPlan = {
   campaigns: Array<{
     id: string;
     name: string;
+    /** Fermée en ce moment (hors plage, objectif atteint, en avance) : la raison. */
+    closed: string | null;
     ownerId: string | null;
     ownerIsAdmin: boolean;
     /** Rotation ou plafond par profil : elle décide qui travaille. */
