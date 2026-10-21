@@ -23,10 +23,11 @@ describe('profileDay — rotation, plafond, repos', () => {
     expect(svc.profileDay(me, { campaigns: [] })).toMatchObject({ resting: false, exclude: null, left: null });
   });
 
-  it('les campagnes existantes (sans rotation ni plafond) ne retiennent personne', () => {
-    const day = svc.profileDay(me, { campaigns: [campaign({ profileIds: ['autre'] })] });
+  it('sans rotation ni plafond : pas de repos, mais ses posts restent à ses profils', () => {
+    const c = campaign({ profileIds: ['autre'] });
+    const day = svc.profileDay(me, { campaigns: [c] });
     expect(day.resting).toBe(false);
-    expect(day.exclude).toBeNull();
+    expect(day.exclude).toEqual({ OR: [{ OR: [c.where] }] });
   });
 
   it('son équipe est de service : il travaille', () => {
@@ -119,6 +120,22 @@ describe('Campagne fermée : plage horaire et rythme', () => {
   it('ouverte, elle ne ferme rien', () => {
     const day = svc.profileDay({ id: 'p1', ownerId: null, team: null }, { campaigns: [campaign({ where: where('s1') })] });
     expect(day.exclude).toBeNull();
+  });
+});
+
+describe('Campagne : sa liste de groupes est respectée', () => {
+  const where = { post: { article: { sourceId: 's1' } }, groupId: { in: ['g1'] } };
+  const outside = { post: { article: { sourceId: 's1' } }, groupId: { notIn: ['g1'] } };
+  it('les posts de son site ne partent pas dans un groupe hors de sa liste', () => {
+    const day = svc.profileDay({ id: 'p1', ownerId: null, team: null }, { campaigns: [campaign({ where, outside })] });
+    expect(day.exclude).toEqual({ OR: [{ AND: [{ OR: [outside] }, { NOT: { OR: [where] } }] }] });
+  });
+  it('sauf si une autre campagne ouverte du même site vise ce groupe', () => {
+    const other = { post: { article: { sourceId: 's1' } }, groupId: { in: ['g2'] } };
+    const day = svc.profileDay({ id: 'p1', ownerId: null, team: null }, {
+      campaigns: [campaign({ where, outside }), campaign({ id: 'b', name: 'B', where: other, outside: { post: { article: { sourceId: 's1' } }, groupId: { notIn: ['g2'] } } })],
+    });
+    expect(JSON.stringify(day.exclude)).toContain('"NOT":{"OR":[' + JSON.stringify(where) + ',' + JSON.stringify(other) + ']}');
   });
 });
 

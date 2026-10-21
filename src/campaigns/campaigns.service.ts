@@ -274,6 +274,7 @@ export class CampaignsService {
         max: c.maxPerProfilePerDay,
         used,
         where: this.targetWhere(c),
+        outside: this.outsideWhere(c),
       });
     }
     const plan = { campaigns };
@@ -302,6 +303,25 @@ export class CampaignsService {
         ? { AND: [{ OR: closed.map((c) => c.where) }, { NOT: { OR: openWhere } }] }
         : { OR: closed.map((c) => c.where) }
       : null;
+    // Le périmètre : les posts d'une campagne ne partent QUE dans ses groupes
+    // (sauf qu'une autre campagne ouverte du même site les y envoie).
+    const outside = plan.campaigns.filter((c) => c.outside).map((c) => c.outside as Prisma.PostTargetWhereInput);
+    const outsideClause: Prisma.PostTargetWhereInput | null = outside.length
+      ? openWhere.length
+        ? { AND: [{ OR: outside }, { NOT: { OR: openWhere } }] }
+        : { OR: outside }
+      : null;
+    // Ses profils : une campagne qui a choisi ses profils ne publie que par
+    // eux, quelle que soit la rotation.
+    const notMine = plan.campaigns.filter((c) => c.profileIds.length && !c.profileIds.includes(profile.id));
+    const acceptWhere = plan.campaigns
+      .filter((c) => !c.closed && (!c.profileIds.length || c.profileIds.includes(profile.id)))
+      .map((c) => c.where);
+    const notMineClause: Prisma.PostTargetWhereInput | null = notMine.length
+      ? acceptWhere.length
+        ? { AND: [{ OR: notMine.map((c) => c.where) }, { NOT: { OR: acceptWhere } }] }
+        : { OR: notMine.map((c) => c.where) }
+      : null;
     const working: DayPlan['campaigns'] = [];
     const blocking: Array<{ c: DayPlan['campaigns'][number]; why: string }> = [];
     for (const c of mine) {
@@ -319,6 +339,8 @@ export class CampaignsService {
     const parts: Prisma.PostTargetWhereInput[] = [
       ...blocking.map(({ c }) => (workWhere.length ? { AND: [c.where, { NOT: { OR: workWhere } }] } : c.where)),
       ...(closedClause ? [closedClause] : []),
+      ...(outsideClause ? [outsideClause] : []),
+      ...(notMineClause ? [notMineClause] : []),
     ];
     const exclude: Prisma.PostTargetWhereInput | null = parts.length ? { OR: parts } : null;
     const caps = working.filter((c) => c.max != null).map((c) => (c.max as number) - (c.used.get(profile.id) ?? 0));
@@ -329,7 +351,10 @@ export class CampaignsService {
       left: caps.length ? Math.max(0, Math.min(...caps)) : null,
       campaigns: working.map((c) => c.name),
       // Pour expliquer un « Rien à publier ».
-      closed: closed.filter((c) => mine.includes(c)).map((c) => `« ${c.name} » ${c.closed}`),
+      closed: [
+        ...closed.filter((c) => mine.includes(c)).map((c) => `« ${c.name} » ${c.closed}`),
+        ...notMine.filter((c) => mine.includes(c)).map((c) => `« ${c.name} » réservée à ses profils`),
+      ],
     };
   }
 
@@ -368,6 +393,19 @@ export class CampaignsService {
       post: { article: { sourceId: c.siteId, ...(articleIds.length ? { id: { in: articleIds } } : {}) } },
       ...(groupIds.length ? { groupId: { in: groupIds } } : c.categoryId ? { group: { categoryId: c.categoryId } } : {}),
     };
+  }
+
+  /** Les publications de SES articles qui tombent hors de son périmètre :
+   * dans un groupe hors de sa liste (ou hors de sa catégorie). Le dépôt
+   * WordPress crée un post par groupe de la catégorie du site ; la campagne
+   * décide où ils partent vraiment. `null` : ni liste, ni catégorie. */
+  outsideWhere(c: CampaignRow): Prisma.PostTargetWhereInput | null {
+    const groupIds = c.groups.map((g) => g.group.id);
+    const articleIds = c.articles.map((a) => a.article.id);
+    const post = { article: { sourceId: c.siteId, ...(articleIds.length ? { id: { in: articleIds } } : {}) } };
+    if (groupIds.length) return { post, groupId: { notIn: groupIds } };
+    if (c.categoryId) return { post, group: { OR: [{ categoryId: null }, { categoryId: { not: c.categoryId } }] } };
+    return null;
   }
 
   private async publications(c: CampaignRow, from: Date, to: Date) {
@@ -505,6 +543,8 @@ export type DayPlan = {
     max: number | null;
     used: Map<string, number>;
     where: Prisma.PostTargetWhereInput;
+    /** Ses posts hors de son périmètre (groupes hors liste) : fermés. */
+    outside?: Prisma.PostTargetWhereInput | null;
   }>;
 };
 
