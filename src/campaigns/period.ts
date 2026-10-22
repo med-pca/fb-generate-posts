@@ -53,12 +53,21 @@ export function campaignPace(input: {
   timezone: string;
   windowStart: number;
   windowEnd: number;
+  /** Lancée en cours de période : son objectif s'étale sur ce qui reste de
+   * la plage depuis son lancement, pas sur la période entière. */
+  startsAt?: Date;
 }) {
   const { from, to, days, dayIndex } = periodBounds(input.period, input.now, input.timezone);
   const perDay = windowLength(input.windowStart, input.windowEnd);
+  // Les minutes de plage écoulées depuis le début de la période, à l'instant t.
+  const worked = (t: Date) => {
+    const index = Math.min(days - 1, Math.max(0, Math.round((startOfLocalDay(t, input.timezone).getTime() - from.getTime()) / DAY)));
+    return index * perDay + minutesIntoWindow(localClock(t, input.timezone).minutes, input.windowStart, input.windowEnd);
+  };
+  const offset = input.startsAt && input.startsAt > from ? Math.min(perDay * days, worked(input.startsAt)) : 0;
   const today = minutesIntoWindow(localClock(input.now, input.timezone).minutes, input.windowStart, input.windowEnd);
-  const total = perDay * days;
-  const into = Math.min(total, dayIndex * perDay + today);
+  const total = perDay * days - offset;
+  const into = Math.max(0, Math.min(total, dayIndex * perDay + today - offset));
   const left = Math.max(0, total - into);
   const elapsed = total ? into / total : 1;
   const expected = Math.round(input.target * elapsed);

@@ -66,3 +66,19 @@ describe('rotationTeamOf', () => {
     expect(rotationTeamOf(['A', 'B'], start, new Date('2026-10-10T10:00:00Z'), 'Europe/Paris')?.team).toBe('A');
   });
 });
+
+describe('campaignPace — lancée en cours de journée', () => {
+  // 18 h à Paris ; plage 08:00 → 22:00 ; lancée à 15 h.
+  const now = new Date('2026-10-22T16:00:00Z');
+  const startsAt = new Date('2026-10-22T13:00:00Z');
+  const base = { period: 'day' as const, target: 70, lastHour: 0, now, timezone: 'Europe/Paris', windowStart: 480, windowEnd: 1320 };
+  it('son objectif s’étale sur la plage restante depuis son lancement', () => {
+    // 3 h écoulées sur les 7 h restantes à son lancement : 30 attendus sur 70.
+    expect(campaignPace({ ...base, published: 0, startsAt }).expected).toBe(30);
+    // Sans date de lancement : toute la journée (10 h sur 14) → 50.
+    expect(campaignPace({ ...base, published: 0 }).expected).toBe(50);
+  });
+  it('pas encore commencée tant que son lancement n’est pas passé', () => {
+    expect(campaignPace({ ...base, published: 0, startsAt: now }).status).toBe('not_started');
+  });
+});

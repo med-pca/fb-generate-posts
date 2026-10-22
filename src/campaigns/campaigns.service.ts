@@ -42,7 +42,7 @@ export class CampaignsService {
   async detail(id: string, acting: CurrentUser | null, now = new Date()) {
     const c = await this.reachable(id, acting);
     const progress = await this.progress(c, now);
-    const items = await this.publications(c, progress.from, progress.to);
+    const items = await this.publications(c, progress.since, progress.to);
     const count = <K extends string>(key: (i: (typeof items)[number]) => K | null, label: (k: K) => string) => {
       const map = new Map<K, number>();
       for (const i of items) {
@@ -241,7 +241,9 @@ export class CampaignsService {
       if (c.maxPerProfilePerDay != null) {
         // Publiés aujourd'hui (jour de la campagne) + en cours : un lot déjà
         // réservé compte, sinon le plafond serait dépassé d'un lot.
-        const { from } = periodBounds('day', now, c.timezone);
+        // Depuis le début du jour, ou de la campagne si elle date d'aujourd'hui.
+        const day = periodBounds('day', now, c.timezone).from;
+        const from = c.startsAt > day ? c.startsAt : day;
         const items = await this.prisma.publicationJobItem.findMany({
           where: {
             postTarget: this.targetWhere(c),
@@ -423,9 +425,13 @@ export class CampaignsService {
   }
 
   private async progress(c: CampaignRow, now: Date) {
-    // Toute la période en cours compte, même si la campagne a été créée en
-    // cours de route (l'objectif vaut pour le jour, la semaine ou le mois).
-    const { from, to } = periodBounds(c.period as Period, now, c.timezone);
+    // Chaque campagne a SON objectif : seules comptent les publications
+    // faites depuis son lancement. Sans cela, une nouvelle campagne sur le
+    // même site héritait de ce que la précédente avait publié le même jour,
+    // se croyait « objectif atteint » et ne publiait rien.
+    const period = periodBounds(c.period as Period, now, c.timezone);
+    const from = c.startsAt > period.from ? c.startsAt : period.from;
+    const to = period.to;
     const items = await this.publications(c, from, to);
     const hourAgo = now.getTime() - 3_600_000;
     const pace = campaignPace({
@@ -434,6 +440,7 @@ export class CampaignsService {
       published: items.length,
       lastHour: items.filter((i) => i.publishedAt && i.publishedAt.getTime() >= hourAgo).length,
       now,
+      startsAt: c.startsAt,
       timezone: c.timezone,
       windowStart: c.windowStart,
       windowEnd: c.windowEnd,
@@ -444,7 +451,7 @@ export class CampaignsService {
     });
     const state =
       c.status === 'PAUSED' ? 'paused' : c.status === 'ENDED' || (c.endsAt && c.endsAt <= now) ? 'ended' : c.startsAt > now ? 'scheduled' : pace.status;
-    return { ...pace, published: items.length, target: c.target, stock, deficit: Math.max(0, pace.remaining - stock), state };
+    return { ...pace, since: from, published: items.length, target: c.target, stock, deficit: Math.max(0, pace.remaining - stock), state };
   }
 
   private async names(items: Array<{ profileId: string; groupId: string; articleId: string | null }>) {
