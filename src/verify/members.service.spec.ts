@@ -186,6 +186,15 @@ describe('Pré-approbation marquée à la main', () => {
     expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('MEMBER_PREAPPROVED_MANUAL');
   });
 
+  it('un gestionnaire : ses profils seulement, dans ses groupes (possédés ou partagés)', async () => {
+    const { service, prisma } = harness();
+    const karim: any = { id: 'k1', username: 'karim', role: 'MANAGER', status: 'ACTIVE' };
+    await service.markManual(['pg1'], 'preapproved', karim, NOW);
+    const { where } = prisma.profileGroup.updateMany.mock.calls[0][0];
+    expect(where.profile).toMatchObject({ isModerator: false, ownerId: 'k1' });
+    expect(where.group).toEqual({ OR: [{ ownerId: 'k1' }, { access: { some: { userId: 'k1' } } }] });
+  });
+
   it('annuler : la pré-approbation est retirée', async () => {
     const { service, prisma } = harness();
     await service.markManual(['pg1'], 'clear', admin, NOW);
@@ -193,3 +202,21 @@ describe('Pré-approbation marquée à la main', () => {
     expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('MEMBER_PREAPPROVAL_CLEARED');
   });
 });
+
+describe('Demander au modérateur — gestionnaire', () => {
+  it('la demande ne porte que sur ses profils, dans ses groupes', async () => {
+    const prisma: any = {
+      profileGroup: { updateMany: jest.fn(async () => ({ count: 3 })), findMany: jest.fn(async () => []) },
+      profile: { findMany: jest.fn(async () => [{ id: 'm1', moderatorPaused: false, moderatorMembers: true }]), updateMany: jest.fn(async () => ({ count: 1 })) },
+      activityLog: { create: jest.fn(async (a: any) => a) },
+    };
+    const service = new MembersService(prisma, { moderator: jest.fn() } as any);
+    const karim: any = { id: 'k1', username: 'karim', role: 'MANAGER', status: 'ACTIVE' };
+    const r = await service.request('preapprove', {}, karim, new Date());
+    expect(r.requested).toBe(3);
+    const { where } = prisma.profileGroup.updateMany.mock.calls[0][0];
+    expect(where.profile).toMatchObject({ ownerId: 'k1' });
+    expect(where.group).toMatchObject({ OR: [{ ownerId: 'k1' }, { access: { some: { userId: 'k1' } } }] });
+  });
+});
+

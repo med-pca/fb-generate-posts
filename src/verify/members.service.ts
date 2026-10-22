@@ -242,9 +242,11 @@ export class MembersService {
     now = new Date(),
   ) {
     const s = scopeOf(acting);
+    // Ses profils, dans les groupes qu'il possède ou qu'on lui a partagés.
     const where: Prisma.ProfileGroupWhereInput = {
       id: { in: profileGroupIds },
       profile: { isModerator: false, ...profileWhere(s) },
+      group: groupWhere(s),
     };
     const { count } =
       state === 'preapproved'

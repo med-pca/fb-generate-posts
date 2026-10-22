@@ -6531,11 +6531,12 @@ async function loadMemberActions() {
     return;
   }
   if (!m || typeof m.approve !== 'number') return;
-  const admin = isAdminUser();
+  // Gestionnaires compris : la demande ne porte que sur leurs profils, dans
+  // les groupes qu'ils possèdent ou qu'on leur a partagés.
   const card = (kind, icon, title, todo, blocked, help) =>
     `<article class="member-action"><div><b>${icon} ${title}</b><small>${help}</small></div>` +
     `<p><strong>${todo}</strong> à faire${blocked ? ` · <span class="bad" title="Leur identifiant Facebook n’est pas connu : l’extension de publication ≥ 1.3 le remonte au prochain battement, ou saisissez-le dans le Pilotage">${blocked} impossible(s) : compte Facebook inconnu</span>` : ''}</p>` +
-    (admin ? `<button class="primary" type="button" data-member-request="${kind}" ${todo ? '' : 'disabled'}>${title}${todo ? ` (${todo})` : ''}</button>` : '') +
+    `<button class="primary" type="button" data-member-request="${kind}" ${todo ? '' : 'disabled'}>${title}${todo ? ` (${todo})` : ''}</button>` +
     `</article>`;
   $('#member-actions').innerHTML =
     card('approve', '✓', 'Accepter les adhésions en attente', m.approve, m.approveBlocked, 'Nos profils qui ont demandé à rejoindre un groupe (« Demande envoyée » / « Questions »).') +

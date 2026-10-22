@@ -63,26 +63,25 @@ export class ModeratorsController {
     return this.members.summary(acting);
   }
 
+  // Ouvert aux gestionnaires : la demande ne porte que sur LEURS profils,
+  // dans les groupes qu'ils possèdent ou qu'on leur a partagés (kindWhere).
   @Post('members')
   @HttpCode(200)
-  @UseGuards(AdminRoleGuard)
-  @ApiOperation({ summary: 'Demander au modérateur d’accepter les adhésions / de pré-approuver (tout, un profil, des liaisons) (admin)' })
+  @ApiOperation({ summary: 'Demander au modérateur d’accepter les adhésions / de pré-approuver (tout, un profil, des liaisons) — ses profils, ses groupes' })
   requestMembers(@Body() dto: MemberRequestDto, @ActingUser() acting: CurrentUser) {
     return this.members.request(dto.kind, { profileGroupIds: dto.profileGroupIds, profileId: dto.profileId }, acting);
   }
 
   @Post('members/manual')
   @HttpCode(200)
-  @UseGuards(AdminRoleGuard)
-  @ApiOperation({ summary: 'Marquer des pré-approbations faites à la main sur Facebook, ou annuler ce marquage (admin)' })
+  @ApiOperation({ summary: 'Marquer des pré-approbations faites à la main sur Facebook, ou annuler ce marquage — ses profils, ses groupes' })
   markManual(@Body() dto: MemberManualDto, @ActingUser() acting: CurrentUser) {
     return this.members.markManual(dto.profileGroupIds, dto.state, acting);
   }
 
   @Post('audit')
   @HttpCode(200)
-  @UseGuards(AdminRoleGuard)
-  @ApiOperation({ summary: 'Contrôler la pré-approbation de nos profils (tous, un profil, ou des liaisons précises) (admin)' })
+  @ApiOperation({ summary: 'Contrôler la pré-approbation de nos profils (tous, un profil, ou des liaisons précises) — ses profils, ses groupes' })
   requestAudit(@Body() dto: AuditRequestDto, @ActingUser() acting: CurrentUser) {
     return this.audit.request(dto, acting);
   }
