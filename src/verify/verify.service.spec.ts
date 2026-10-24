@@ -69,7 +69,13 @@ describe('VerifyService', () => {
   it('ne réserve que des posts publiés depuis 30 min, et les verrouille', async () => {
     const { service, prisma } = setup();
     const res = await service.claim('m', 5, null, NOW);
-    const where = prisma.postTarget.findMany.mock.calls[0][0].where;
+    // D'abord l'urgent (sans adresse ou sans lien), dans les mêmes conditions.
+    const [due, urgent] = prisma.postTarget.findMany.mock.calls[0][0].where.AND;
+    expect(urgent.OR).toEqual([
+      { facebookUrl: null },
+      { linkUpdatedAt: null, post: { url: { not: null }, noComment: false } },
+    ]);
+    const where = due;
     expect(where.status).toBe('PUBLISHED');
     expect(where.publishedAt.lte).toEqual(new Date('2026-10-02T11:30:00Z'));
     // Sans adresse aussi : le vérificateur la cherche dans le groupe.

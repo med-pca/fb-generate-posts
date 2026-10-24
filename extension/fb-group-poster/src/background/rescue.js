@@ -8,7 +8,8 @@
  * sur la page rechargée. Le lien est sous le post : la publication est sauvée,
  * sans suppression ni republication.
  *
- * Avant chaque lot, 2 au plus par passage (la plateforme les réserve pour lui).
+ * Avant chaque lot, 2 au plus par passage (la plateforme les réserve pour
+ * lui) ; et pendant l'attente entre deux posts d'un lot, 1 à la fois.
  */
 
 import { info, warn } from '../common/log.js';

@@ -237,6 +237,11 @@ async function drive() {
     const state = await getState();
     if (!state.running) return;
     if (state.nextDueAt > Date.now()) {
+      // 🛟 L'attente entre deux posts d'un lot (10 à 60 min) sert aux liens
+      // manquants des autres : un post déjà en ligne sans son lien fait
+      // perdre des visiteurs à chaque minute. Un sauvetage dure une minute
+      // ou deux : on ne le tente que s'il reste assez d'attente.
+      if (await rescueWhileWaiting(config, state)) continue;
       // Une longue attente : fermer le navigateur, l'agent local le rouvrira
       // à l'heure (option « Fermer le navigateur entre deux lots »).
       const plan = sleepPlan(config, state);
@@ -281,6 +286,26 @@ async function drive() {
 }
 
 // -- phases ----------------------------------------------------------------
+
+/** Pendant l'attente entre deux posts d'un lot : un sauvetage au plus, et
+ * pas plus d'un passage toutes les RESCUE_EVERY_MS. Rend vrai s'il a tourné
+ * (l'état est relu ensuite). */
+const RESCUE_MIN_WAIT_MS = 4 * 60 * 1000;
+const RESCUE_EVERY_MS = 3 * 60 * 1000;
+async function rescueWhileWaiting(config, state) {
+  if (state.phase !== 'wait' || config.rescueLinks === false || config.groupExternalId) return false;
+  const now = Date.now();
+  if (state.nextDueAt - now < RESCUE_MIN_WAIT_MS) return false;
+  if (state.rescueCheckedAt && now - state.rescueCheckedAt < RESCUE_EVERY_MS) return false;
+  await setState({ rescueCheckedAt: now });
+  try {
+    const { rescued } = await rescueLinks(config, new JobApi(config.apiBaseUrl, config.apiKey), 1);
+    if (rescued) await info('Lien manquant pose pendant l\'attente entre deux posts');
+  } catch (err) {
+    await warn(`Sauvetage pendant l'attente interrompu : ${err.message}`);
+  }
+  return true;
+}
 
 async function doClaim(config, api, state) {
   if (config.maxPostsPerRun > 0 && state.stats.published >= config.maxPostsPerRun) {

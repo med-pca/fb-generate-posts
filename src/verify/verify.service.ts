@@ -125,30 +125,52 @@ export class VerifyService {
     }
     // Les posts sans lien sont d'abord confiés à un sauveteur.
     await this.rescue?.sweep(now).catch(() => undefined);
-    const due = await this.prisma.postTarget.findMany({
-      where: this.dueWhere(acting, now),
-      orderBy: { publishedAt: 'asc' },
-      // Le plus petit du réglage et de la demande : l'extension demande un
-      // lot variable (rythme humain), jamais plus que le réglage.
-      take: Math.max(1, Math.min(20, moderator.moderatorBatch || 5, limit || 20)),
-      select: {
-        id: true,
-        publishedAt: true,
-        republishCount: true,
-        facebookUrl: true,
-        post: { select: { id: true, title: true, description: true, url: true } },
-        group: { select: { id: true, name: true, url: true, externalId: true } },
-        jobItems: {
-          where: { status: TargetStatus.PUBLISHED },
-          orderBy: { publishedAt: 'desc' },
-          take: 1,
-          select: {
-            externalPostUrl: true,
-            job: { select: { profile: { select: { name: true, externalId: true, facebookUserId: true } } } },
-          },
+    // Le plus petit du réglage et de la demande : l'extension demande un
+    // lot variable (rythme humain), jamais plus que le réglage.
+    const take = Math.max(1, Math.min(20, moderator.moderatorBatch || 5, limit || 20));
+    // D'abord l'urgent : un post déjà en ligne sans son adresse Facebook ou
+    // sans le lien de l'article. Les visiteurs le voient sans lien : chaque
+    // minute est perdue. Ensuite, le reste, du plus ancien au plus récent.
+    const urgent: Prisma.PostTargetWhereInput = {
+      OR: [
+        { facebookUrl: null },
+        { linkUpdatedAt: null, post: { url: { not: null }, noComment: false } },
+      ],
+    };
+    const select = {
+      id: true,
+      publishedAt: true,
+      republishCount: true,
+      facebookUrl: true,
+      post: { select: { id: true, title: true, description: true, url: true } },
+      group: { select: { id: true, name: true, url: true, externalId: true } },
+      jobItems: {
+        where: { status: TargetStatus.PUBLISHED },
+        orderBy: { publishedAt: 'desc' },
+        take: 1,
+        select: {
+          externalPostUrl: true,
+          job: { select: { profile: { select: { name: true, externalId: true, facebookUserId: true } } } },
         },
       },
+    } satisfies Prisma.PostTargetSelect;
+    const first = await this.prisma.postTarget.findMany({
+      where: { AND: [this.dueWhere(acting, now), urgent] },
+      orderBy: { publishedAt: 'asc' },
+      take,
+      select,
     });
+    const due = first.length >= take
+      ? first
+      : [
+          ...first,
+          ...(await this.prisma.postTarget.findMany({
+            where: { AND: [this.dueWhere(acting, now), { id: { notIn: first.map((t) => t.id) } }] },
+            orderBy: { publishedAt: 'asc' },
+            take: take - first.length,
+            select,
+          })),
+        ];
     if (!due.length) {
       return { tasks: [], verifyAfterMinutes: this.verifyAfterMinutes() };
     }
