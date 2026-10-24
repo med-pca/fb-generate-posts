@@ -5361,6 +5361,9 @@ $('#url-search-toggle').onclick = () => {
   form.hidden = !form.hidden;
   if (!form.hidden) form.elements.url.focus();
 };
+$('#url-search-close').onclick = () => {
+  $('#url-search').hidden = true;
+};
 
 async function queueAction(request, success, button) {
   if (button) button.disabled = true;

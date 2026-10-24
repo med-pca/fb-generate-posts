@@ -13,7 +13,7 @@ import { RescueService } from '../jobs/rescue.service';
 import { claimablePostWhere, mayPublishPost } from '../jobs/jobs.service';
 import { publishableArticleWhere, type ClaimPost } from '../jobs/claimable';
 import { PriorityDto, QueueQueryDto } from './dto/queue.dto';
-import { TRACE_KINDS, groupKeyOf, normalizeFacebookUrl, trace } from '../trace/trace';
+import { TRACE_KINDS, canonicalGroupPostUrl, groupKeyOf, normalizeFacebookUrl, trace } from '../trace/trace';
 
 const POST_FIELDS = {
   id: true,
@@ -433,7 +433,9 @@ export class QueueService {
 
   /** Une adresse de post Facebook, ou un refus clair. */
   private facebookUrl(raw: string) {
-    const url = normalizeFacebookUrl(raw);
+    // Un lien de photo ou de fil de groupe devient le lien du post lui-même :
+    // c'est sous cette forme que l'extension enregistre les adresses.
+    const url = normalizeFacebookUrl(canonicalGroupPostUrl(raw) ?? raw);
     if (!url) throw new BadRequestException('Ce n’est pas une adresse de post Facebook');
     return url;
   }
@@ -588,7 +590,7 @@ export class QueueService {
     const key = groupKeyOf(url);
     if (!key) {
       throw new BadRequestException(
-        'Ce lien ne dit pas dans quel groupe est le post : ouvrez le post dans son groupe et copiez le lien de sa date',
+        'Ce lien ne dit pas dans quel groupe est le post : ouvrez le post dans son groupe, puis copiez le lien de sa date (…/groups/…/posts/…) ou de sa photo',
       );
     }
     const groups = (

@@ -319,6 +319,13 @@ describe('QueueService.attachUrl — lien collé à la main', () => {
     expect(rescue.request).toHaveBeenCalledWith('b', expect.any(String), expect.any(Date));
   });
 
+  it('le lien de la photo du post marche aussi, et c’est le lien du post qui est gardé', async () => {
+    const { service, prisma } = setup([row('b', 'FAILED', 5)]);
+    const r: any = await service.attachUrl('https://www.facebook.com/photo/?fbid=1&set=gm.777&idorvanity=123', undefined, null);
+    expect(r).toMatchObject({ result: 'attached', facebookUrl: 'https://www.facebook.com/groups/123/posts/777' });
+    expect(prisma.postTarget.update.mock.calls[0][0].data.facebookUrl).toBe('https://www.facebook.com/groups/123/posts/777');
+  });
+
   it('le groupe se reconnaît aussi par le nom de son adresse', async () => {
     const { service } = setup([row('b', 'PUBLISHED', 5)]);
     const r: any = await service.attachUrl('https://www.facebook.com/groups/RecettesFR/permalink/9/', undefined, null);
@@ -363,5 +370,17 @@ describe('QueueService.queue — filtre par site', () => {
     for (const call of findMany.mock.calls as any[]) {
       expect(JSON.stringify(call[0].where)).toContain('"sourceId":"site_1"');
     }
+  });
+});
+
+describe('Lien de la photo d’un post de groupe', () => {
+  it('se lit comme le lien du post : même groupe, même post', async () => {
+    const { canonicalGroupPostUrl, groupKeyOf } = require('../trace/trace');
+    const photo = 'https://www.facebook.com/photo/?fbid=3786886241476982&set=gm.2977368365960822&idorvanity=2308217362875929';
+    expect(canonicalGroupPostUrl(photo)).toBe('https://www.facebook.com/groups/2308217362875929/posts/2977368365960822');
+    expect(groupKeyOf(photo)).toBe('2308217362875929');
+    expect(canonicalGroupPostUrl('https://www.facebook.com/groups/123/?multi_permalinks=456')).toBe('https://www.facebook.com/groups/123/posts/456');
+    expect(canonicalGroupPostUrl('https://m.facebook.com/groups/abc/permalink/789/')).toBe('https://www.facebook.com/groups/abc/posts/789');
+    expect(canonicalGroupPostUrl('https://www.facebook.com/permalink.php?story_fbid=1&id=2')).toBeNull();
   });
 });

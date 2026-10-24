@@ -431,9 +431,15 @@
               </div>
             </div>
             <form class="url-search" id="url-search" hidden>
-              <input name="url" type="url" placeholder="Coller un lien de post Facebook…" aria-label="Retrouver une publication par son lien Facebook" required
-              ><button class="secondary" type="submit">Retrouver ou compléter</button>
-              <small class="form-help">Post publié à la main (parti en spam, lien manquant) : collez son lien, la publication de ce groupe qui l’attend est complétée et le travail reprend.</small>
+              <div class="url-search-head">
+                <b>🔗 Lien d’un post Facebook</b>
+                <button class="link" type="button" id="url-search-close" aria-label="Fermer">✕</button>
+              </div>
+              <div class="url-search-row">
+                <input name="url" type="url" inputmode="url" autocomplete="off" placeholder="https://www.facebook.com/groups/…/posts/…" aria-label="Lien d’un post Facebook" required
+                ><button class="primary" type="submit">Retrouver ou compléter</button>
+              </div>
+              <small class="form-help">Lien du post (sa date) ou de sa photo. Déjà connu : son historique s’ouvre. Publié à la main (spam, lien manquant) : la publication de ce groupe qui l’attend est complétée, et le travail reprend.</small>
             </form>
 
             <nav class="q-tabs" id="q-tabs" role="tablist">

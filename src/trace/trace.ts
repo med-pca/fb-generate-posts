@@ -61,10 +61,43 @@ export function trace(client: Client, input: TraceInput) {
   });
 }
 
-/** Le groupe nommé dans une adresse Facebook (`/groups/<id ou nom>/…`), en
- * minuscules ; `null` si l'adresse ne le dit pas. */
+/** Le lien d'un post de groupe sous sa forme de référence,
+ * `https://www.facebook.com/groups/<groupe>/posts/<post>`, quand l'adresse
+ * collée en a une autre :
+ *   - lien de la PHOTO d'un post : `/photo/?fbid=…&set=gm.<post>&idorvanity=<groupe>` ;
+ *   - fil du groupe ouvert sur le post : `/groups/<groupe>/?multi_permalinks=<post>` ;
+ *   - ancienne forme : `/groups/<groupe>/permalink/<post>`.
+ * `null` si l'adresse ne désigne pas un post de groupe reconnaissable. */
+export function canonicalGroupPostUrl(raw: string | null | undefined): string | null {
+  let u: URL;
+  try {
+    u = new URL(String(raw ?? '').trim());
+  } catch {
+    return null;
+  }
+  if (!/(^|\.)facebook\.com$/i.test(u.hostname)) return null;
+  const make = (group: string, post: string) => `https://www.facebook.com/groups/${group}/posts/${post}`;
+  const path = u.pathname.replace(/\/+$/, '');
+  const inGroup = /^\/groups\/([^/]+)(?:\/(posts|permalink)\/(\d+))?$/i.exec(path);
+  if (inGroup) {
+    if (inGroup[3]) return make(inGroup[1], inGroup[3]);
+    const multi = (u.searchParams.get('multi_permalinks') || '').split(',')[0];
+    return /^\d+$/.test(multi) ? make(inGroup[1], multi) : null;
+  }
+  if (/^\/photo(\.php)?$/i.test(path)) {
+    const set = /^gm\.(\d+)$/.exec(u.searchParams.get('set') || '');
+    const group = u.searchParams.get('idorvanity');
+    return set && group ? make(group, set[1]) : null;
+  }
+  return null;
+}
+
+/** Le groupe nommé dans une adresse Facebook (`/groups/<id ou nom>/…`, ou le
+ * paramètre `idorvanity` d'un lien de photo), en minuscules ; `null` si
+ * l'adresse ne le dit pas. */
 export function groupKeyOf(raw: string | null | undefined): string | null {
-  const m = /\/groups\/([^/?#]+)/i.exec(String(raw ?? ''));
+  const canonical = canonicalGroupPostUrl(raw);
+  const m = /\/groups\/([^/?#]+)/i.exec(canonical ?? String(raw ?? ''));
   if (!m) return null;
   try {
     return decodeURIComponent(m[1]).toLowerCase();
