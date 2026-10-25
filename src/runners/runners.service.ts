@@ -652,6 +652,17 @@ export class RunnersService {
           sleepUntil: asleep ? profile.runner!.sleepUntil : null,
           // Déconnecté : le navigateur reste ouvert, pour qu'on s'y reconnecte.
           mayClose: !run && !busy && profile.facebookSuspension !== 'logged_out',
+          // Hors service (suspendu, vérification, limité, désactivé) : sa
+          // session NSTBrowser est FERMÉE, même si l'agent garde d'habitude
+          // les navigateurs ouverts — elle ne servirait à rien qu'à occuper
+          // de la mémoire. Un profil du pool en réserve prend sa place.
+          forceClose:
+            !run &&
+            !busy &&
+            (profile.status !== 'ACTIVE' ||
+              profile.facebookSuspension === 'disabled' ||
+              profile.facebookSuspension === 'checkpoint' ||
+              Boolean(profile.runner?.pausedUntil && profile.runner.pausedUntil.getTime() > now.getTime())),
           workerRunning: profile.runner?.running ?? false,
           workerSeenAt: profile.runner?.lastSeenAt ?? null,
           browserState: profile.runner?.browserState ?? BrowserState.STOPPED,

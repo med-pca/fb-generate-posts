@@ -1104,6 +1104,11 @@ model Campaign {
   /// Facultatif : au plus N publications par jour et par profil pour cette
   /// campagne.
   maxPerProfilePerDay Int?              @map("max_per_profile_per_day")
+  /// Facultatif : le pool. N profils publient en même temps, les autres
+  /// (de sa liste, ou du compte) restent en réserve ; un profil actif qui
+  /// tombe (suspendu, limité, déconnecté, désactivé) est remplacé par le
+  /// premier de la réserve. NULL = tous en même temps.
+  activeProfiles      Int?              @map("active_profiles")
   /// Facultatif : la rotation. Les équipes (groupes NSTBrowser), dans l'ordre ;
   /// une par jour, en boucle, à partir du jour de début de la campagne.
   rotationTeams       String[]          @default([]) @map("rotation_teams")

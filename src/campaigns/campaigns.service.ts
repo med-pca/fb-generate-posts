@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { articleWhere, groupWhere, ownedWhere, profileWhere, scopeOf, siteWhere } from '../auth/scope';
 import { localClock } from '../runners/window';
-import { campaignGate, campaignPace, periodBounds, rotationTeamOf, type Period } from './period';
+import { campaignGate, campaignPace, periodBounds, poolOf, rotationTeamOf, type Period } from './period';
 import type { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
 
 const CAMPAIGN_INCLUDE = {
@@ -36,12 +36,24 @@ export class CampaignsService {
       include: CAMPAIGN_INCLUDE,
       orderBy: [{ status: 'asc' }, { priority: 'desc' }, { createdAt: 'desc' }],
     });
-    return Promise.all(rows.map(async (c) => ({ ...this.shape(c), progress: await this.progress(c, now) })));
+    return Promise.all(
+      rows.map(async (c) => {
+        const pool = c.activeProfiles && c.status === 'ACTIVE' ? await this.pool(c, now) : null;
+        return {
+          ...this.shape(c),
+          progress: await this.progress(c, now),
+          // Le résumé du pool, pour la carte : actifs, réserve, tombés, manque.
+          pool: pool && { size: pool.size, active: pool.active.length, standby: pool.standby.length, unavailable: pool.unavailable.length, missing: pool.missing },
+        };
+      }),
+    );
   }
 
   async detail(id: string, acting: CurrentUser | null, now = new Date()) {
     const c = await this.reachable(id, acting);
     const progress = await this.progress(c, now);
+    // Le pool : qui publie, qui attend en réserve, qui est tombé et pourquoi.
+    const pool = c.activeProfiles ? await this.pool(c, now) : null;
     const items = await this.publications(c, progress.since, progress.to);
     const count = <K extends string>(key: (i: (typeof items)[number]) => K | null, label: (k: K) => string) => {
       const map = new Map<K, number>();
@@ -67,6 +79,7 @@ export class CampaignsService {
     return {
       ...this.shape(c),
       progress,
+      pool,
       series,
       byArticle: count((i) => i.articleId, (k) => names.articles.get(k) ?? k).slice(0, 50),
       byProfile: count((i) => i.profileId, (k) => names.profiles.get(k) ?? k).slice(0, 50),
@@ -94,6 +107,7 @@ export class CampaignsService {
         priority: dto.priority ?? 0,
         notes: dto.notes ?? null,
         maxPerProfilePerDay: dto.maxPerProfilePerDay ?? null,
+        activeProfiles: dto.activeProfiles ?? null,
         rotationTeams: cleanTeams(dto.rotationTeams),
         groups: { create: scope.groupIds.map((groupId) => ({ groupId })) },
         profiles: { create: scope.profileIds.map((profileId) => ({ profileId })) },
@@ -147,6 +161,7 @@ export class CampaignsService {
           priority: dto.priority,
           notes: dto.notes,
           maxPerProfilePerDay: dto.maxPerProfilePerDay,
+          activeProfiles: dto.activeProfiles,
           rotationTeams: dto.rotationTeams ? cleanTeams(dto.rotationTeams) : undefined,
         },
         include: CAMPAIGN_INCLUDE,
@@ -236,7 +251,9 @@ export class CampaignsService {
     ).catch(() => null);
     const campaigns: DayPlan['campaigns'] = [];
     for (const c of rows ?? []) {
-      const managed = c.rotationTeams.length > 0 || c.maxPerProfilePerDay != null;
+      // Le pool : N profils actifs, les autres en réserve (au repos).
+      const pool = c.activeProfiles ? await this.pool(c, now) : null;
+      const managed = c.rotationTeams.length > 0 || c.maxPerProfilePerDay != null || Boolean(pool);
       const used = new Map<string, number>();
       if (c.maxPerProfilePerDay != null) {
         // Publiés aujourd'hui (jour de la campagne) + en cours : un lot déjà
@@ -271,7 +288,9 @@ export class CampaignsService {
         ownerId: c.ownerId,
         ownerIsAdmin: !c.ownerId || c.owner?.role === 'ADMIN',
         managed,
-        profileIds: c.profiles.map((p) => p.profile.id),
+        // Avec un pool, seuls ses profils actifs publient pour elle.
+        profileIds: pool ? pool.active.map((p) => p.id) : c.profiles.map((p) => p.profile.id),
+        standby: pool ? pool.standby.map((p) => p.id) : [],
         teamToday: rotationTeamOf(c.rotationTeams, c.startsAt, now, c.timezone)?.team ?? null,
         max: c.maxPerProfilePerDay,
         used,
@@ -334,7 +353,7 @@ export class CampaignsService {
       if (inList && teamOk && underMax && !c.closed) working.push(c);
       else if (c.managed && c.closed) blocking.push({ c, why: `« ${c.name} » ${c.closed}` });
       else if (c.managed)
-        blocking.push({ c, why: !inList ? `hors des profils de « ${c.name} »` : !teamOk ? `pas son équipe aujourd'hui (« ${c.name} »)` : `plafond du jour atteint pour « ${c.name} » (${done}/${c.max})` });
+        blocking.push({ c, why: !inList && c.standby?.includes(profile.id) ? `en réserve pour « ${c.name} » (${c.profileIds.length} profil(s) actifs)` : !inList ? `hors des profils de « ${c.name} »` : !teamOk ? `pas son équipe aujourd'hui (« ${c.name} »)` : `plafond du jour atteint pour « ${c.name} » (${done}/${c.max})` });
     }
     const resting = mine.some((c) => c.managed) && !working.length;
     const workWhere = working.map((c) => c.where);
@@ -395,6 +414,39 @@ export class CampaignsService {
       post: { article: { sourceId: c.siteId, ...(articleIds.length ? { id: { in: articleIds } } : {}) } },
       ...(groupIds.length ? { groupId: { in: groupIds } } : c.categoryId ? { group: { categoryId: c.categoryId } } : {}),
     };
+  }
+
+  /** Les profils parmi lesquels se forme le pool : ceux de sa liste, sinon
+   * ceux de son compte (la maison pour une campagne d'ADMIN). Jamais un
+   * modérateur. */
+  private async pool(c: CampaignRow & { owner?: { role: string } | null }, now: Date) {
+    const listed = c.profiles.map((p) => p.profile.id);
+    const owner =
+      c.ownerId && c.owner === undefined
+        ? await this.prisma.user.findUnique({ where: { id: c.ownerId }, select: { role: true } })
+        : c.owner ?? null;
+    const manager = Boolean(c.ownerId && owner && owner.role !== 'ADMIN');
+    const candidates = await this.prisma.profile.findMany({
+      where: {
+        isModerator: false,
+        ...(listed.length
+          ? { id: { in: listed } }
+          : manager
+            ? { ownerId: c.ownerId }
+            : { OR: [{ ownerId: null }, { owner: { role: 'ADMIN' } }] }),
+      },
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        status: true,
+        externalId: true,
+        facebookSuspension: true,
+        runner: { select: { mode: true, pausedUntil: true, running: true, lastSeenAt: true, browserState: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return poolOf(candidates, c.activeProfiles ?? candidates.length, now);
   }
 
   /** Les publications de SES articles qui tombent hors de son périmètre :
@@ -515,6 +567,7 @@ export class CampaignsService {
       priority: c.priority,
       notes: c.notes,
       maxPerProfilePerDay: c.maxPerProfilePerDay,
+      activeProfiles: c.activeProfiles,
       rotationTeams: c.rotationTeams,
       // L'équipe de service aujourd'hui (rotation), et le jour du cycle.
       rotationToday: rotationTeamOf(c.rotationTeams, c.startsAt, new Date(), c.timezone),
@@ -549,6 +602,8 @@ export type DayPlan = {
     teamToday: string | null;
     max: number | null;
     used: Map<string, number>;
+    /** Pool : ses profils en réserve (au repos tant qu'une place n'est pas libre). */
+    standby?: string[];
     where: Prisma.PostTargetWhereInput;
     /** Ses posts hors de son périmètre (groupes hors liste) : fermés. */
     outside?: Prisma.PostTargetWhereInput | null;

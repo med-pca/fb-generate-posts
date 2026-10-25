@@ -35,7 +35,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
-AGENT_VERSION = "1.1.0"
+AGENT_VERSION = "1.2.0"
 HERE = Path(__file__).resolve().parent
 CONFIG_FILE = HERE / "agent.config.json"
 LOG_FILE = HERE / "agent.log"
@@ -348,6 +348,16 @@ class Agent:
                     continue
                 running.add(pid)
                 self._report(t, RUNNING)
+            elif here and not t.get("shouldRun") and t.get("forceClose"):
+                # Hors service (suspendu, limité, désactivé) : la session est
+                # fermée pour libérer la mémoire, quel que soit closeBrowsers.
+                log.info("Fermeture de %s : hors service (%s)", name, t.get("reason") or "")
+                try:
+                    self.nst(str(t.get("nstApiKey") or "")).stop(pid)
+                    running.discard(pid)
+                    self._report(t, STOPPED, "fermé : profil hors service")
+                except NstError as exc:
+                    self._report(t, ERROR, str(exc))
             elif here and not t.get("shouldRun") and t.get("mayClose") and self.cfg.get("closeBrowsers"):
                 log.info("Fermeture de %s (%s)", name, t.get("reason") or "")
                 try:

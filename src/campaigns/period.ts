@@ -143,3 +143,57 @@ export function campaignGate(input: {
   }
   return null;
 }
+
+/** Un profil candidat au pool d'une campagne, et son état. */
+export type PoolCandidate = {
+  id: string;
+  name: string;
+  createdAt: Date;
+  status: string;
+  externalId: string | null;
+  facebookSuspension: string | null;
+  runner: {
+    mode: string;
+    pausedUntil: Date | null;
+    running: boolean;
+    lastSeenAt: Date | null;
+    browserState: string;
+  } | null;
+};
+
+/** Pourquoi un profil ne peut pas publier en ce moment, ou `null`. */
+export function unavailableReason(p: PoolCandidate, now: Date): string | null {
+  if (p.status !== 'ACTIVE') return 'désactivé dans la plateforme';
+  if (!p.externalId) return 'sans profil NSTBrowser';
+  if (p.facebookSuspension === 'disabled') return 'compte suspendu par Facebook';
+  if (p.facebookSuspension === 'checkpoint') return 'vérification demandée par Facebook';
+  if (p.facebookSuspension === 'logged_out') return 'déconnecté de Facebook';
+  if (p.runner?.pausedUntil && p.runner.pausedUntil.getTime() > now.getTime()) {
+    return `limité par Facebook jusqu’au ${p.runner.pausedUntil.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+  }
+  if (!p.runner || p.runner.mode === 'OFF') return 'arrêté dans le Pilotage';
+  if (p.runner.browserState === 'ERROR') return 'NSTBrowser n’a pas pu ouvrir son navigateur';
+  return null;
+}
+
+/** Le pool : N profils actifs, les autres en réserve. Les profils déjà au
+ * travail gardent leur place (pas de va-et-vient) ; une place libérée par un
+ * profil tombé revient au premier de la réserve (le plus ancien). `missing` :
+ * ce qu'il manque de profils en état pour remplir le pool. */
+export function poolOf(candidates: PoolCandidate[], size: number, now: Date) {
+  const unavailable = candidates
+    .map((p) => ({ p, why: unavailableReason(p, now) }))
+    .filter((x): x is { p: PoolCandidate; why: string } => Boolean(x.why))
+    .map(({ p, why }) => ({ id: p.id, name: p.name, why }));
+  const down = new Set(unavailable.map((u) => u.id));
+  const atWork = (p: PoolCandidate) =>
+    Boolean(p.runner?.running && p.runner.lastSeenAt && now.getTime() - p.runner.lastSeenAt.getTime() < 180_000) ||
+    p.runner?.browserState === 'RUNNING' ||
+    p.runner?.browserState === 'STARTING';
+  const healthy = candidates
+    .filter((p) => !down.has(p.id))
+    .sort((a, b) => Number(atWork(b)) - Number(atWork(a)) || a.createdAt.getTime() - b.createdAt.getTime());
+  const active = healthy.slice(0, size).map((p) => ({ id: p.id, name: p.name }));
+  const standby = healthy.slice(size).map((p) => ({ id: p.id, name: p.name }));
+  return { size, active, standby, unavailable, missing: Math.max(0, size - active.length) };
+}

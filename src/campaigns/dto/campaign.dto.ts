@@ -20,6 +20,8 @@ export class CreateCampaignDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) notes?: string;
   /** Facultatif : au plus N publications par jour et par profil (null = sans plafond). */
   @ApiPropertyOptional() @IsOptional() @ValidateIf((_d, v) => v !== null) @IsInt() @Min(1) @Max(1000) maxPerProfilePerDay?: number | null;
+  /** Le pool : N profils actifs en même temps, les autres en réserve. */
+  @ApiPropertyOptional() @IsOptional() @ValidateIf((_d, v) => v !== null) @IsInt() @Min(1) @Max(1000) activeProfiles?: number | null;
   /** Facultatif : la rotation — les équipes (groupes NSTBrowser), une par jour, dans l'ordre. */
   @ApiPropertyOptional() @IsOptional() @IsArray() @ArrayMaxSize(60) @IsString({ each: true }) @MaxLength(200, { each: true }) rotationTeams?: string[];
 }
@@ -43,6 +45,8 @@ export class UpdateCampaignDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) notes?: string;
   /** Facultatif : au plus N publications par jour et par profil (null = sans plafond). */
   @ApiPropertyOptional() @IsOptional() @ValidateIf((_d, v) => v !== null) @IsInt() @Min(1) @Max(1000) maxPerProfilePerDay?: number | null;
+  /** Le pool : N profils actifs en même temps, les autres en réserve. */
+  @ApiPropertyOptional() @IsOptional() @ValidateIf((_d, v) => v !== null) @IsInt() @Min(1) @Max(1000) activeProfiles?: number | null;
   /** Facultatif : la rotation — les équipes (groupes NSTBrowser), une par jour, dans l'ordre. */
   @ApiPropertyOptional() @IsOptional() @IsArray() @ArrayMaxSize(60) @IsString({ each: true }) @MaxLength(200, { each: true }) rotationTeams?: string[];
 }

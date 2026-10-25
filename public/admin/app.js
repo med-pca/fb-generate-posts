@@ -2883,6 +2883,12 @@ function campaignScope(c) {
   if (c.groups.length) chips.push(`<span class="chip" title="${esc(c.groups.map((g) => g.name).join(', '))}">${c.groups.length} groupe(s)</span>`);
   if (c.profiles.length) chips.push(`<span class="chip" title="${esc(c.profiles.map((p) => p.name).join(', '))}">${c.profiles.length} profil(s)</span>`);
   if (c.articles.length) chips.push(`<span class="chip" title="${esc(c.articles.map((a) => a.title).join(', '))}">${c.articles.length} article(s)</span>`);
+  if (c.activeProfiles) {
+    const p = c.pool;
+    chips.push(
+      `<span class="chip ${p?.missing ? 'bad' : ''}" title="Pool : ${c.activeProfiles} profil(s) publient en même temps, les autres attendent en réserve">👥 ${p ? `${p.active}/${c.activeProfiles} actifs · ${p.standby} en réserve` : `${c.activeProfiles} actifs`}${p?.unavailable ? ` · ${p.unavailable} hors service` : ''}${p?.missing ? ` · il manque ${p.missing}` : ''}</span>`,
+    );
+  }
   if (c.maxPerProfilePerDay) chips.push(`<span class="chip" title="Au plus ${c.maxPerProfilePerDay} publication(s) par profil et par jour">≤ ${c.maxPerProfilePerDay} / profil / jour</span>`);
   if (c.rotationTeams?.length) {
     const today = c.rotationToday;
@@ -2921,6 +2927,28 @@ function renderCampaigns() {
       .join('') || '<div class="empty">Aucune campagne pour l’instant.</div>';
 }
 
+/** Le pool d'une campagne : qui publie, qui attend, qui est tombé (et
+ * pourquoi), et ce qu'il manque — de quoi savoir quels profils réparer ou
+ * créer. */
+function campaignPool(p) {
+  if (!p) return '';
+  const names = (list) => list.map((x) => `<span class="chip">${esc(x.name)}</span>`).join(' ') || '<span class="muted">aucun</span>';
+  return (
+    `<div class="panel campaign-pool"><h3 class="history-h">👥 Pool : ${p.active.length}/${p.size} profil(s) actifs</h3>` +
+    (p.missing
+      ? `<p class="obj-status bad"><b>Il manque ${p.missing} profil(s)</b> pour remplir le pool : réparez les profils hors service ci-dessous, ou créez-en de nouveaux.</p>`
+      : '') +
+    `<p><b>Actifs (${p.active.length})</b> ${names(p.active)}</p>` +
+    `<p><b>En réserve (${p.standby.length})</b> ${names(p.standby)}</p>` +
+    (p.unavailable.length
+      ? `<table><thead><tr><th>Hors service (${p.unavailable.length})</th><th>Pourquoi</th></tr></thead><tbody>${p.unavailable
+          .map((u) => `<tr><td>${esc(u.name)}</td><td class="bad">${esc(u.why)}</td></tr>`)
+          .join('')}</tbody></table>`
+      : '<p class="muted">Aucun profil hors service.</p>') +
+    `</div>`
+  );
+}
+
 async function openCampaign(id, scroll = true) {
   camp.openId = id;
   let d;
@@ -2942,6 +2970,7 @@ async function openCampaign(id, scroll = true) {
     `<div class="panel-head"><div><small>CAMPAGNE · PAR ${PERIOD_NAME[d.period].toUpperCase()}</small><h2>${esc(d.name)}</h2><p>${campaignScope(d)}</p></div>` +
     `<div class="row-actions"><span class="obj-status ${tone}"><b>${label}</b></span><button class="close" type="button" data-campaign-close>×</button></div></div>` +
     `<p class="form-help">${d.progress.published} publication(s) sur ${d.progress.target} · du ${new Date(d.progress.from).toLocaleDateString('fr-FR')} au ${new Date(new Date(d.progress.to).getTime() - 1).toLocaleDateString('fr-FR')} (${esc(d.timezone)}, ${minutesToTime(d.windowStart)}–${minutesToTime(d.windowEnd)})</p>` +
+    campaignPool(d.pool) +
     `<div class="bars campaign-series">${d.series.map((s) => `<div class="bar-col" title="${esc(s.label)} : ${s.published}"><i style="height:${(s.published / max) * 100}%"></i><span>${esc(s.label)}</span></div>`).join('')}</div>` +
     `<div class="campaign-tables">${table('Par article', d.byArticle)}${table('Par profil', d.byProfile)}${table('Par groupe', d.byGroup)}</div>`;
   if (scroll) $('#campaign-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3031,6 +3060,7 @@ async function openCampaignForm(c = null) {
   f.elements.endsAt.value = c?.endsAt ? c.endsAt.slice(0, 10) : '';
   f.elements.priority.value = c?.priority ?? 0;
   f.elements.maxPerProfilePerDay.value = c?.maxPerProfilePerDay ?? '';
+  f.elements.activeProfiles.value = c?.activeProfiles ?? '';
   camp.rotation = [...(c?.rotationTeams || [])];
   $('#camp-rotation-box').open = camp.rotation.length > 0;
   openModal('campaign-modal');
@@ -3056,6 +3086,7 @@ $('#campaign-form').onsubmit = async (e) => {
     windowEnd: timeToMinutes(f.windowEnd.value) ?? 1320,
     priority: Number(f.priority.value || 0),
     maxPerProfilePerDay: f.maxPerProfilePerDay.value ? Number(f.maxPerProfilePerDay.value) : null,
+    activeProfiles: f.activeProfiles.value ? Number(f.activeProfiles.value) : null,
     rotationTeams: [...camp.rotation],
     groupIds: $$('[data-camp-groups]:checked').map((x) => x.value),
     profileIds: $$('[data-camp-profiles]:checked').map((x) => x.value),

@@ -125,6 +125,17 @@ class AgentTest(unittest.TestCase):
         self.agent(close=True).run_once()
         self.assertEqual(STATE["open"], set())
 
+    def test_ferme_un_profil_hors_service_meme_sans_closeBrowsers(self):
+        # Suspendu, limité ou désactivé : sa session NSTBrowser est fermée pour
+        # libérer la mémoire, même si l'agent garde d'habitude les navigateurs.
+        STATE["open"] = {"p1", "p2"}
+        STATE["plan"] = [
+            {"externalId": "p1", "name": "Salma", "shouldRun": False, "mayClose": True, "forceClose": True, "reason": "suspendu", "browserState": "RUNNING", "nstApiKey": "nst"},
+            {"externalId": "p2", "name": "Rihab", "shouldRun": False, "mayClose": True, "browserState": "RUNNING", "nstApiKey": "nst"},
+        ]
+        self.agent(close=False).run_once()
+        self.assertEqual(STATE["open"], {"p2"})
+
     def test_cle_refusee_message_clair(self):
         with self.assertRaises(pa.HttpError) as ctx:
             self.agent(key="mauvaise").run_once()
