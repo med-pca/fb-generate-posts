@@ -13,53 +13,88 @@
     <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+        <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></symbol>
+        <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4z"/></symbol>
+        <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></symbol>
+        <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M8 13h8M8 17h6"/></symbol>
+        <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+        <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/></symbol>
+        <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+        <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0M16 4.5a3.5 3.5 0 0 1 0 7M18 13.5a7 7 0 0 1 4 6.5"/></symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5"/></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+        <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+        <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+        <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M10 3h4v3a2 2 0 1 0 4 0V3h3v7h-3a2 2 0 1 0 0 4h3v7h-7v-3a2 2 0 1 0-4 0v3H3v-7h3a2 2 0 1 0 0-4H3V3z"/></symbol>
+        <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/></symbol>
+        <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 3h4a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H3"/></symbol>
+      </defs>
+    </svg>
     <div class="shell">
       <aside>
         <div class="brand"><b>P</b><span>PostFlow</span></div>
         <nav>
-          <button class="nav active" data-view="dashboard">⌁ <span>Vue d’ensemble</span></button>
+          <button class="nav active" data-view="dashboard"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg><span>Vue d’ensemble</span></button>
 
-          <div class="nav-group" data-group="publication">
-            <button class="nav-head" type="button" aria-expanded="true">Publication<i>▾</i></button>
+          <div class="nav-group" data-group="diffuser">
+            <button class="nav-head" type="button" aria-expanded="true">Diffuser<i>▾</i></button>
             <div class="nav-items">
-              <button class="nav" data-view="posts">▤ <span>Posts</span></button>
-              <button class="nav" data-view="articles">◫ <span>Articles</span></button>
-              <button class="nav" data-view="sites">▣ <span>Sites</span></button>
-              <button class="nav" data-view="categories">◈ <span>Catégories</span></button>
+              <button class="nav" data-goto="/pilotage/campagnes" data-nav="campaigns"><svg class="ico" aria-hidden="true"><use href="#i-target"/></svg><span>Campagnes</span></button>
+              <button class="nav" data-view="posts"><svg class="ico" aria-hidden="true"><use href="#i-send"/></svg><span>Posts</span></button>
+              <button class="nav" data-view="runners"><svg class="ico" aria-hidden="true"><use href="#i-power"/></svg><span>Pilotage</span></button>
+            </div>
+          </div>
+
+          <div class="nav-group" data-group="contenu">
+            <button class="nav-head" type="button" aria-expanded="true">Contenu<i>▾</i></button>
+            <div class="nav-items">
+              <button class="nav" data-view="articles"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg><span>Articles</span></button>
+              <button class="nav" data-view="sites"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg><span>Sites</span></button>
+              <button class="nav" data-view="categories"><svg class="ico" aria-hidden="true"><use href="#i-tag"/></svg><span>Catégories</span></button>
             </div>
           </div>
 
           <div class="nav-group" data-group="facebook">
-            <button class="nav-head" type="button" aria-expanded="true">Profils Facebook<i>▾</i></button>
+            <button class="nav-head" type="button" aria-expanded="true">Comptes Facebook<i>▾</i></button>
             <div class="nav-items">
-              <button class="nav" data-view="profiles">◎ <span>Profils</span></button>
-              <button class="nav" data-view="groups">◇ <span>Groupes</span></button>
-              <button class="nav" data-view="runners">⏻ <span>Pilotage</span></button>
-              <button class="nav" data-view="bulk">⧉ <span>Actions en masse</span></button>
+              <button class="nav" data-view="profiles"><svg class="ico" aria-hidden="true"><use href="#i-user"/></svg><span>Profils</span></button>
+              <button class="nav" data-view="groups"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg><span>Groupes</span></button>
+              <button class="nav" data-view="bulk"><svg class="ico" aria-hidden="true"><use href="#i-layers"/></svg><span>Actions en masse</span></button>
             </div>
           </div>
 
           <div class="nav-group" data-group="moderation">
             <button class="nav-head" type="button" aria-expanded="true">Modération<i>▾</i></button>
             <div class="nav-items">
-              <button class="nav" data-view="moderators">🛡 <span>Modérateurs</span></button>
-              <button class="nav" data-view="preapprovals">★ <span>Pré-approbations</span></button>
+              <button class="nav" data-view="moderators"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><span>Modérateurs</span></button>
+              <button class="nav" data-view="preapprovals"><svg class="ico" aria-hidden="true"><use href="#i-star"/></svg><span>Pré-approbations</span></button>
             </div>
           </div>
 
-          <div class="nav-group" data-group="admin">
-            <button class="nav-head" type="button" aria-expanded="true">Suivi & réglages<i>▾</i></button>
+          <div class="nav-group" data-group="suivi">
+            <button class="nav-head" type="button" aria-expanded="true">Suivi<i>▾</i></button>
             <div class="nav-items">
-              <button class="nav" data-view="analytics">📈 <span>Analyse</span></button>
-              <button class="nav" data-view="logs">≡ <span>Journaux</span></button>
-              <button class="nav" data-view="extensions">🧩 <span>Extensions</span></button>
-              <button class="nav admin-only" data-view="users">⚭ <span>Comptes</span></button>
-              <button class="nav" data-view="settings">⚙ <span>Paramètres</span></button>
+              <button class="nav" data-view="analytics"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg><span>Analyse</span></button>
+              <button class="nav" data-view="logs"><svg class="ico" aria-hidden="true"><use href="#i-list"/></svg><span>Journaux</span></button>
+            </div>
+          </div>
+
+          <div class="nav-group" data-group="reglages">
+            <button class="nav-head" type="button" aria-expanded="true">Réglages<i>▾</i></button>
+            <div class="nav-items">
+              <button class="nav" data-view="extensions"><svg class="ico" aria-hidden="true"><use href="#i-puzzle"/></svg><span>Extensions</span></button>
+              <button class="nav admin-only" data-view="users"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg><span>Comptes</span></button>
+              <button class="nav" data-view="settings"><svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg><span>Paramètres</span></button>
             </div>
           </div>
         </nav>
         <a href="/api/docs" target="_blank">Documentation API ↗</a>
-        <button id="logout" class="logout">Se déconnecter</button>
+        <button id="logout" class="logout"><svg class="ico" aria-hidden="true"><use href="#i-logout"/></svg>Se déconnecter</button>
       </aside>
       <main>
         <header>
@@ -299,24 +334,6 @@
               <button class="primary" data-open="site-modal">+ Nouveau site</button>
             </div>
           </div>
-          <div class="panel rules-panel">
-            <div class="panel-head"><div><small>ARTICLES DÉPOSÉS SUR WORDPRESS</small><h2>Découpage en pages (« page suivante »)</h2></div></div>
-            <p class="form-help">Le lecteur lit un peu, puis clique « page suivante » : chaque page vue compte pour la publicité. Un article long donne plus de pages, sans dépasser le maximum : au-delà, il est coupé en ce nombre de pages équilibrées. Une page a au moins le nombre de mots indiqué : des répliques d'une ligne se regroupent au lieu de faire une page presque vide. 0 paragraphe = article d'un seul tenant. S'applique aux prochains dépôts.</p>
-            <form id="rewrite-style-form" class="rules-pause">
-              <label>Réécriture des articles capturés
-                <select name="rewriteStyle">
-                  <option value="seo">Original SEO — même information, autre angle, autre structure, valeur ajoutée (recommandé)</option>
-                  <option value="faithful">Fidèle — paraphrase phrase par phrase (même ordre, même détail)</option>
-                </select></label>
-              <button class="primary" type="submit">Enregistrer</button>
-            </form>
-            <form id="sites-paging" class="rules-pause">
-              <label>« Page suivante » tous les <input name="articleParagraphsPerPage" type="number" min="0" max="30" required /> paragraphe(s)</label>
-              <label>au moins <input name="articleMinWordsPerPage" type="number" min="0" max="1000" step="10" required /> mots par page</label>
-              <label>et au plus <input name="articleMaxPages" type="number" min="1" max="100" required /> pages par article</label>
-              <button class="primary" type="submit">Enregistrer</button>
-            </form>
-          </div>
           <p class="form-help bad" id="sites-key-migration" hidden></p>
           <div class="panel table-wrap">
             <table>
@@ -335,6 +352,24 @@
               <tbody id="site-rows"></tbody>
             </table>
           </div>
+          <details class="panel rules-panel settings-fold">
+            <summary class="panel-head"><div><small>RÉGLAGES DES ARTICLES DÉPOSÉS</small><h2>Réécriture et découpage en pages</h2></div><span class="link">Afficher</span></summary>
+            <p class="form-help">Le lecteur lit un peu, puis clique « page suivante » : chaque page vue compte pour la publicité. Un article long donne plus de pages, sans dépasser le maximum : au-delà, il est coupé en ce nombre de pages équilibrées. Une page a au moins le nombre de mots indiqué : des répliques d'une ligne se regroupent au lieu de faire une page presque vide. 0 paragraphe = article d'un seul tenant. S'applique aux prochains dépôts.</p>
+            <form id="rewrite-style-form" class="rules-pause">
+              <label>Réécriture des articles capturés
+                <select name="rewriteStyle">
+                  <option value="seo">Original SEO — même information, autre angle, autre structure, valeur ajoutée (recommandé)</option>
+                  <option value="faithful">Fidèle — paraphrase phrase par phrase (même ordre, même détail)</option>
+                </select></label>
+              <button class="primary" type="submit">Enregistrer</button>
+            </form>
+            <form id="sites-paging" class="rules-pause">
+              <label>« Page suivante » tous les <input name="articleParagraphsPerPage" type="number" min="0" max="30" required /> paragraphe(s)</label>
+              <label>au moins <input name="articleMinWordsPerPage" type="number" min="0" max="1000" step="10" required /> mots par page</label>
+              <label>et au plus <input name="articleMaxPages" type="number" min="1" max="100" required /> pages par article</label>
+              <button class="primary" type="submit">Enregistrer</button>
+            </form>
+          </details>
         </section>
         <section id="articles" class="view">
           <!-- Deux parcours séparés : les articles (URL, WordPress, commentaire
@@ -1845,41 +1880,62 @@
           </div>
           <button class="close" type="button" data-close>×</button>
         </div>
-        <label>Nom<input name="name" required maxlength="120" placeholder="Tera — 300 posts / jour" /></label>
-        <div class="two">
-          <label>Site (obligatoire)<select name="siteId" required></select></label>
-          <label>Catégorie (facultative)<select name="categoryId"></select></label>
-        </div>
-        <div class="two">
-          <label>Objectif<input name="target" type="number" min="1" required placeholder="300" /></label>
-          <label>par<select name="period"><option value="day">jour</option><option value="week">semaine</option><option value="month">mois</option></select></label>
-        </div>
-        <div class="two">
-          <label>Du (facultatif)<input name="startsAt" type="date" /></label>
-          <label>Au (facultatif)<input name="endsAt" type="date" /></label>
-        </div>
-        <div class="two">
-          <label>Publier de<input name="windowStart" type="time" /></label>
-          <label>à<input name="windowEnd" type="time" /></label>
-        </div>
-        <div class="two">
-          <label>Heure de<select name="timezone"></select></label>
+        <fieldset class="form-step">
+          <legend><span class="step-n">1</span>L’essentiel</legend>
+          <label>Nom<input name="name" required maxlength="120" placeholder="Tera — 300 posts / jour" /></label>
+          <div class="two">
+            <label>Site<select name="siteId" required></select></label>
+            <label><span>Catégorie <span class="opt">facultative</span></span><select name="categoryId"></select></label>
+          </div>
+          <div class="two">
+            <label>Objectif<input name="target" type="number" min="1" required placeholder="300" /></label>
+            <label>par<select name="period"><option value="day">jour</option><option value="week">semaine</option><option value="month">mois</option></select></label>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-step">
+          <legend><span class="step-n">2</span>Quand publier</legend>
+          <div class="two">
+            <label>Publier de<input name="windowStart" type="time" /></label>
+            <label>à<input name="windowEnd" type="time" /></label>
+          </div>
+          <div class="two">
+            <label>Heure de<select name="timezone"></select></label>
+            <span></span>
+          </div>
+          <div class="two">
+            <label><span>Du <span class="opt">facultatif</span></span><input name="startsAt" type="date" /></label>
+            <label><span>Au <span class="opt">facultatif</span></span><input name="endsAt" type="date" /></label>
+          </div>
+          <p class="form-help">L’objectif s’étale sur cette plage horaire ; en dehors, rien ne part.</p>
+        </fieldset>
+
+        <fieldset class="form-step">
+          <legend><span class="step-n">3</span>Où publier</legend>
+          <p class="form-help">Sans choix, tous les groupes de la catégorie et tous les articles du site.</p>
+          <details class="camp-scope"><summary>Groupes</summary><div class="pick-list" id="camp-groups"></div></details>
+          <details class="camp-scope"><summary>Articles</summary><div class="pick-list" id="camp-articles"></div></details>
+        </fieldset>
+
+        <fieldset class="form-step">
+          <legend><span class="step-n">4</span>Avec quels profils</legend>
+          <div class="two">
+            <label><span>Profils actifs en même temps <span class="opt">facultatif</span></span><input name="activeProfiles" type="number" min="1" max="1000" placeholder="tous" /><small>les autres restent en réserve ; un profil suspendu, limité, déconnecté ou désactivé est remplacé aussitôt</small></label>
+            <label><span>Max par profil et par jour <span class="opt">facultatif</span></span><input name="maxPerProfilePerDay" type="number" min="1" max="1000" placeholder="sans plafond" /><small>au-delà, le profil s’arrête pour cette campagne jusqu’au lendemain</small></label>
+          </div>
+          <details class="camp-scope"><summary>Profils <span class="muted">— sinon tous ceux du compte</span></summary><div class="pick-list" id="camp-profiles"></div></details>
+          <details class="camp-scope" id="camp-rotation-box"><summary>Rotation des équipes <span id="camp-rotation-sum" class="muted"></span></summary>
+            <p class="form-help">Une équipe (groupe NSTBrowser) par jour, dans cet ordre, en boucle à partir du jour de début. Les profils des autres équipes se reposent ce jour-là : leur navigateur n’est pas ouvert (s’ils n’ont pas de travail dans une autre campagne).</p>
+            <ol class="rotation-list" id="camp-rotation"></ol>
+            <label>Ajouter le jour suivant<select id="camp-rotation-add"><option value="">+ Choisir une équipe…</option></select></label>
+            <p class="form-help" id="camp-rotation-help"></p>
+          </details>
+        </fieldset>
+
+        <details class="camp-scope">
+          <summary>Options avancées</summary>
           <label>Priorité<input name="priority" type="number" min="-100" max="100" value="0" /><small>départage deux campagnes en retard</small></label>
-        </div>
-        <div class="two">
-          <label>Max par profil et par jour (facultatif)<input name="maxPerProfilePerDay" type="number" min="1" max="1000" placeholder="sans plafond" /><small>au-delà, le profil s’arrête pour cette campagne jusqu’au lendemain</small></label>
-          <label>Profils actifs en même temps (facultatif)<input name="activeProfiles" type="number" min="1" max="1000" placeholder="tous" /><small>les autres restent en réserve ; un profil suspendu, limité, déconnecté ou désactivé est remplacé aussitôt par le suivant de la réserve</small></label>
-          <span></span>
-        </div>
-        <details class="camp-scope" id="camp-rotation-box"><summary>Rotation des équipes (facultatif) <span id="camp-rotation-sum" class="muted"></span></summary>
-          <p class="form-help">Une équipe (groupe NSTBrowser) par jour, dans cet ordre, en boucle à partir du jour de début. Les profils des autres équipes se reposent ce jour-là : leur navigateur n’est pas ouvert (s’ils n’ont pas de travail dans une autre campagne).</p>
-          <ol class="rotation-list" id="camp-rotation"></ol>
-          <label>Ajouter le jour suivant<select id="camp-rotation-add"><option value="">+ Choisir une équipe…</option></select></label>
-          <p class="form-help" id="camp-rotation-help"></p>
         </details>
-        <details class="camp-scope"><summary>Groupes (facultatif — sinon tous ceux de la catégorie)</summary><div class="pick-list" id="camp-groups"></div></details>
-        <details class="camp-scope"><summary>Profils (facultatif — sinon tous)</summary><div class="pick-list" id="camp-profiles"></div></details>
-        <details class="camp-scope"><summary>Articles (facultatif — sinon tous ceux du site)</summary><div class="pick-list" id="camp-articles"></div></details>
         <div class="actions">
           <button class="secondary" type="button" data-close>Annuler</button
           ><button class="primary">Enregistrer</button>

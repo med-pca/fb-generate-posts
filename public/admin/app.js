@@ -1400,6 +1400,10 @@ function showPilotTab(tab, { fromUrl = false } = {}) {
   if (!PIL_TABS[tab]) tab = 'profiles';
   state.pilotTab = tab;
   $$('[data-pil-tab]').forEach((b) => b.classList.toggle('active', b.dataset.pilTab === tab));
+  // Les Campagnes ont leur entrée dans le menu : elle s'allume à leur place.
+  $('.nav[data-nav="campaigns"]')?.classList.toggle('active', tab === 'objective');
+  $('.nav[data-view="runners"]')?.classList.toggle('active', tab !== 'objective');
+  if (document.getElementById('runners')?.classList.contains('active')) $('#title').textContent = tab === 'objective' ? 'Campagnes' : 'Pilotage';
   $('#pil-profiles').classList.toggle('hidden', tab !== 'profiles');
   $('#pil-objective').classList.toggle('hidden', tab !== 'objective');
   $('#pil-members').classList.toggle('hidden', tab !== 'members');
@@ -3043,7 +3047,10 @@ async function fillCampaignPickers(c) {
 async function openCampaignForm(c = null) {
   camp.editing = c;
   const f = $('#campaign-form');
-  f.reset();
+  // D'abord ouvrir (la fenêtre générique vide le formulaire et pose son
+  // propre titre), ENSUITE remplir : dans l'autre ordre, le titre devenait
+  // « Nouveau post » et la plage horaire proposée était effacée.
+  openModal('campaign-modal');
   $('#campaign-form-title').textContent = c ? 'Modifier la campagne' : 'Nouvelle campagne';
   f.elements.siteId.innerHTML = '<option value="">Choisir le site…</option>' + (state.sites || []).map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
   f.elements.categoryId.innerHTML = '<option value="">Celle du site</option>' + (state.categories || []).map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
@@ -3063,7 +3070,6 @@ async function openCampaignForm(c = null) {
   f.elements.activeProfiles.value = c?.activeProfiles ?? '';
   camp.rotation = [...(c?.rotationTeams || [])];
   $('#camp-rotation-box').open = camp.rotation.length > 0;
-  openModal('campaign-modal');
   await loadTeams();
   renderRotation();
   await fillCampaignPickers(c);
