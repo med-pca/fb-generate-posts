@@ -644,17 +644,28 @@ describe('JobsService — un lot ne bloque plus un profil pour rien', () => {
     expect(ops.find(([n]) => n === 'activityLog.create')![1].data.eventType).toBe('JOB_RELEASED');
   });
 
-  it('un post en cours de publication n’est jamais remis en file (doublon)', async () => {
+  it('un post interrompu en pleine publication passe « En échec » (jamais remis en file : doublon)', async () => {
     const { service, ops } = harness([
       { id: 'i1', status: 'CONSUMED', postTargetId: 't1' },
       { id: 'i2', status: 'CLAIMED', postTargetId: 't2' },
     ]);
     const r = await service.release('job_1');
-    expect(r).toMatchObject({ released: 1, inProgress: 1 });
-    expect(ops.find(([n]) => n === 'postTarget.updateMany')![1].where.id.in).toEqual(['t2']);
+    expect(r).toMatchObject({ released: 1, interrupted: 1 });
+    const targets = ops.filter(([n]) => n === 'postTarget.updateMany').map(([, a]) => a);
+    // Le pas commencé retourne dans la file…
+    expect(targets[0]).toMatchObject({ where: { id: { in: ['t2'] } }, data: { status: 'AVAILABLE' } });
+    // … l'interrompu sort de « En cours » pour « En échec », à vérifier.
+    expect(targets[1]).toMatchObject({ where: { id: { in: ['t1'] } }, data: { status: 'FAILED' } });
+    expect(targets[1].data.lastError).toContain('Déjà en ligne');
   });
 
-  it('un lot déjà clos ne bouge pas', async () => {
+  it('un lot déjà clos dont des posts traînent encore « en cours » est libéré quand même', async () => {
+    const { service, ops } = harness([{ id: 'i1', status: 'CONSUMED', postTargetId: 't1' }], 'EXPIRED');
+    expect(await service.release('job_1')).toMatchObject({ alreadyClosed: false, interrupted: 1 });
+    expect(ops.find(([n]) => n === 'publicationJob.update')).toBeUndefined();
+  });
+
+  it('un lot déjà clos, sans rien en cours, ne bouge pas', async () => {
     const { service, ops } = harness([], 'COMPLETED');
     expect(await service.release('job_1')).toMatchObject({ alreadyClosed: true });
     expect(ops).toEqual([]);

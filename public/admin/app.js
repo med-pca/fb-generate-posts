@@ -5406,7 +5406,8 @@ async function queueAction(request, success, button) {
   if (button) button.disabled = true;
   try {
     const result = await request();
-    notice(result?.warning ? `${success} ${result.warning}` : success, result?.warning ? 'error' : 'success');
+    // `message` remplace le texte de succès (rien n'a été fait, par exemple).
+    notice(result?.message ?? (result?.warning ? `${success} ${result.warning}` : success), result?.warning || result?.message ? 'error' : 'success');
     await loadQueue();
   } catch (x) {
     notice(x.message, 'error');
@@ -5734,10 +5735,15 @@ document.addEventListener('click', async (e) => {
   }
   if (e.target.dataset.releaseJob) {
     const { releaseJob, profile } = e.target.dataset;
-    if (!await ask(`Libérer le lot de ${profile || 'ce profil'} ?\nSes posts pas encore commencés retournent dans la file, et le profil pourra en réserver d’autres. Un post en cours de publication est laissé tel quel.`)) return;
+    if (!await ask(`Libérer le lot de ${profile || 'ce profil'} ?\nSes posts pas encore commencés retournent dans la file, et le profil pourra en réserver d’autres. Un post interrompu en pleine publication passe « En échec » : vérifiez s’il est en ligne (« Déjà en ligne »), sinon « Relancer ».`)) return;
     void queueAction(async () => {
       const r = await api(`/admin/jobs/${releaseJob}/release`, { method: 'POST' });
-      return { warning: r.inProgress ? `${r.inProgress} post(s) en cours de publication laissé(s) tel(s) quel(s).` : null };
+      if (r.alreadyClosed) return { message: 'Ce lot était déjà fermé : plus rien à libérer.' };
+      return {
+        warning: r.interrupted
+          ? `${r.interrupted} post(s) interrompu(s) en pleine publication : ils sont dans « En échec », à vérifier sur Facebook.`
+          : null,
+      };
     }, 'Lot libéré : ses posts sont de retour dans la file.', e.target);
     return;
   }

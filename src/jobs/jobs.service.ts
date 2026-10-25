@@ -1028,11 +1028,19 @@ export class JobsService {
       },
     });
     if (!job) throw new NotFoundException('Job introuvable');
-    if (job.status !== JobStatus.CLAIMED) {
-      return { jobId, released: 0, inProgress: 0, alreadyClosed: true };
-    }
+    // Pas commencés : ils retournent dans la file. Commencés (« en cours de
+    // publication ») mais abandonnés : on ne sait pas s'ils sont partis — ils
+    // passent « En échec », d'où l'on choisit « Déjà en ligne » ou
+    // « Relancer ». Les laisser tels quels les gardait dans « En cours » pour
+    // toujours ; les remettre dans la file risquait de publier deux fois.
+    // Un lot déjà fermé dont des posts traînent encore est libéré aussi.
     const waiting = job.items.filter((item) => item.status === TargetStatus.CLAIMED);
-    const inProgress = job.items.filter((item) => item.status === TargetStatus.CONSUMED).length;
+    const started = job.items.filter((item) => item.status === TargetStatus.CONSUMED);
+    if (job.status !== JobStatus.CLAIMED && !waiting.length && !started.length) {
+      return { jobId, released: 0, inProgress: 0, interrupted: 0, alreadyClosed: true };
+    }
+    const interruptedWhy =
+      'Interrompu pendant la publication (lot libéré) : vérifiez sur Facebook — « Déjà en ligne » s’il y est, sinon « Relancer »';
     await this.prisma.$transaction([
       this.prisma.postTarget.updateMany({
         where: {
@@ -1045,10 +1053,29 @@ export class JobsService {
         where: { id: { in: waiting.map((item) => item.id) } },
         data: { status: TargetStatus.FAILED, error: `Rendu à la file : ${reason}` },
       }),
-      this.prisma.publicationJob.update({
-        where: { id: jobId },
-        data: { status: JobStatus.EXPIRED, completedAt: new Date() },
+      this.prisma.postTarget.updateMany({
+        where: {
+          id: { in: started.map((item) => item.postTargetId) },
+          status: { in: [TargetStatus.CONSUMED, TargetStatus.CLAIMED] },
+        },
+        data: { status: TargetStatus.FAILED, lastError: interruptedWhy, claimedAt: null, claimExpiresAt: null },
       }),
+      this.prisma.publicationJobItem.updateMany({
+        where: { id: { in: started.map((item) => item.id) } },
+        data: { status: TargetStatus.FAILED, error: `Interrompu pendant la publication : ${reason}` },
+      }),
+      ...started.map((item) =>
+        trace(this.prisma, {
+          postTargetId: item.postTargetId,
+          kind: 'FAILED',
+          actor: acting?.username ?? 'clé globale',
+          jobId,
+          detail: interruptedWhy,
+        }),
+      ),
+      ...(job.status === JobStatus.CLAIMED
+        ? [this.prisma.publicationJob.update({ where: { id: jobId }, data: { status: JobStatus.EXPIRED, completedAt: new Date() } })]
+        : []),
       this.prisma.activityLog.create({
         data: {
           jobId,
@@ -1058,12 +1085,12 @@ export class JobsService {
           level: 'WARN',
           message:
             `Lot libéré (${reason}) : ${waiting.length} post(s) rendu(s) à la file` +
-            (inProgress ? `, ${inProgress} en cours de publication laissé(s) tel(s) quel(s)` : ''),
-          metadata: { by: acting?.username ?? 'clé globale', reason },
+            (started.length ? `, ${started.length} interrompu(s) en cours de publication → « En échec », à vérifier` : ''),
+          metadata: { by: acting?.username ?? 'clé globale', reason, released: waiting.length, interrupted: started.length },
         },
       }),
     ]);
-    return { jobId, released: waiting.length, inProgress, alreadyClosed: false };
+    return { jobId, released: waiting.length, inProgress: 0, interrupted: started.length, alreadyClosed: false };
   }
 
   async markConsumed(
