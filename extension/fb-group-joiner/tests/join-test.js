@@ -59,6 +59,22 @@ function page(body) {
   w = page('<div role="button">Rejoindre le groupe</div>');
   check('vérification : « Rejoindre » revenu → refusée/expirée', (await w.joinGroupInPage('check')).status === 'declined', null);
 
+  // Russe, roumain, ukrainien.
+  w = page('<div role="button" class="j">Вступить в группу</div>');
+  w.document.querySelector('.j').addEventListener('click', (e) => { e.target.textContent = 'Отменить запрос'; });
+  r = await w.joinGroupInPage('join');
+  check('russe : « Вступить в группу » → demande envoyée', r.status === 'requested', r);
+  w = page('<div role="button">Участник ▾</div>');
+  check('russe « Участник » : déjà membre', (await w.joinGroupInPage('join')).status === 'already', null);
+  w = page('<div role="button" class="j">Alătură-te grupului</div>');
+  w.document.querySelector('.j').addEventListener('click', (e) => { e.target.textContent = 'Membru'; });
+  r = await w.joinGroupInPage('join');
+  check('roumain : « Alătură-te grupului » → rejoint', r.status === 'joined', r);
+  w = page('<div role="button">Anulează solicitarea</div>');
+  check('roumain « Anulează solicitarea » : en attente', (await w.joinGroupInPage('check')).status === 'requested', null);
+  w = page('<div role="button">Учасник</div>');
+  check('ukrainien « Учасник » : déjà membre', (await w.joinGroupInPage('join')).status === 'already', null);
+
   console.log(ko ? `\n${ko} échec(s)` : '\nTout est bon.');
   process.exit(ko ? 1 : 0);
 })();

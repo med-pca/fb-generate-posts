@@ -290,19 +290,23 @@ async function joinGroupInPage(mode = "join") {
     "rejoindre le groupe", "rejoindre ce groupe", "rejoindre", "join group", "join",
     "انضمام إلى المجموعة", "الانضمام إلى المجموعة", "انضم إلى المجموعة", "انضمام", "انضم", "الانضمام",
     "unirte al grupo", "unirse al grupo", "unirse", "participar do grupo", "participar", "entrar no grupo", "gruppe beitreten", "beitreten", "unisciti al gruppo",
+    // Russe, roumain, ukrainien (comptes dont Facebook bloque le changement de langue).
+    "вступить в группу", "вступить", "присоединиться", "alătură-te grupului", "alătură-te", "înscrie-te în grup", "приєднатися до групи", "приєднатися", "вступити до групи",
   ]);
   const JOINED = words([
     "membre", "membre du groupe", "rejoint", "rejointe", "vous êtes membre", "joined", "you're a member", "member",
     "عضو", "عضوة", "أنت عضو", "تم الانضمام", "انضممت", "منضم", "منضمة", "تمت العضوية",
     "miembro", "te uniste", "unido", "membro", "participando", "mitglied", "beigetreten", "iscritto",
+    "участник", "вы участник", "вы вступили", "membru", "ești membru", "te-ai alăturat", "учасник", "ви учасник",
   ]);
   const PENDING = words([
     "annuler la demande", "demande envoyée", "demande en attente", "cancel request", "requested", "pending",
     "إلغاء الطلب", "تم إرسال الطلب", "الطلب معلق", "طلب معلق", "قيد الانتظار", "في انتظار الموافقة",
     "cancelar solicitud", "solicitud enviada", "pendiente", "cancelar pedido", "pedido enviado", "anfrage abbrechen", "angefragt",
+    "отменить запрос", "запрос отправлен", "на рассмотрении", "anulează solicitarea", "solicitare trimisă", "în așteptare", "скасувати запит", "запит надіслано",
   ]);
   // La zone « Écrire quelque chose… » n'existe que pour un membre.
-  const COMPOSER = /écrivez quelque chose|ecrivez quelque chose|write something|اكتب شيئ|escribe algo|escreva algo|schreib etwas|scrivi qualcosa/i;
+  const COMPOSER = /écrivez quelque chose|ecrivez quelque chose|write something|اكتب شيئ|escribe algo|escreva algo|schreib etwas|scrivi qualcosa|напишите что-нибудь|scrie ceva|напишіть щось/i;
 
   const labelOf = (el) => norm(el.getAttribute("aria-label") || el.innerText || "");
   // Exact, ou en tête (« Joined ▾ », « عضو · مشاركة »).
@@ -357,7 +361,7 @@ async function joinGroupInPage(mode = "join") {
     await sleep(500);
     const dialog = document.querySelector('[role="dialog"]');
     // Groupe avec questions d'adhésion : on ne répond pas automatiquement
-    if (dialog && /question|répondre|answer|أسئلة|سؤال|pregunta|pergunta/i.test(dialog.innerText)) {
+    if (dialog && /question|répondre|answer|أسئلة|سؤال|pregunta|pergunta|вопрос|ответьте|întreb|răspunde|питання|дайте відповідь/i.test(dialog.innerText)) {
       return { status: "questions", message: "Questions d'adhésion à remplir manuellement" };
     }
     if (findButton(PENDING)) return { status: "requested", message: "Demande envoyée (en attente)" };

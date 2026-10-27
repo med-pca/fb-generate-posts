@@ -53,3 +53,48 @@ test('limitation de Facebook reconnue (« We limit how often you can post… »)
   assert.ok(D.BLOCKED.test('يمكنك إعادة المحاولة لاحقًا'));
   assert.ok(!D.BLOCKED.test('Create post · Islam Houbous · Public group'), 'le composeur seul n’est pas un blocage');
 });
+
+/* Des comptes en russe, roumain ou ukrainien, dont Facebook bloque le
+ * changement de langue : l'extension les comprend telle quelle. */
+test('russe : composeur, publier, commenter, créer, en attente, limite, éditer', () => {
+  assert.ok(D.COMPOSER_ENTRY.test('Напишите что-нибудь...'));
+  assert.ok(D.SUBMIT_LABELS.test('Опубликовать'));
+  assert.ok(D.COMMENT_BUTTON_LABELS.test('Комментировать'));
+  assert.ok(D.COMMENT_FIELD.test('Напишите комментарий…'));
+  assert.ok(D.CREATE_POST.test('Создать публикацию'));
+  assert.ok(D.PENDING.test('Ваша публикация ожидает одобрения'));
+  assert.ok(D.BLOCKED.test('Мы ограничиваем частоту публикаций. Попробуйте позже.'));
+  assert.ok(D.PHOTO_LABELS.test('Фото/видео'));
+  assert.ok(D.EDIT_ITEM.test('Редактировать'));
+  assert.ok(D.DELETE_ITEM.test('Удалить'));
+  assert.equal(D.authorFromLabel('Комментарий от имени Марина Иванова'), 'марина иванова');
+});
+
+test('roumain : composeur, publier, commenter, créer, en attente, limite, éditer', () => {
+  assert.ok(D.COMPOSER_ENTRY.test('Scrie ceva...'));
+  assert.ok(D.SUBMIT_LABELS.test('Postează'));
+  assert.ok(D.COMMENT_BUTTON_LABELS.test('Comentează'));
+  assert.ok(D.COMMENT_FIELD.test('Scrie un comentariu…'));
+  assert.ok(D.CREATE_POST.test('Creează o postare'));
+  assert.ok(D.PENDING.test('Postarea ta este în așteptare'));
+  assert.ok(D.BLOCKED.test('Limităm frecvența cu care poți posta. Încearcă din nou mai târziu.'));
+  assert.ok(D.PHOTO_LABELS.test('Fotografie/videoclip'));
+  assert.ok(D.EDIT_ITEM.test('Editează'));
+  assert.ok(D.DELETE_ITEM.test('Șterge'));
+  assert.equal(D.authorFromLabel('Comentează ca Ana Popescu'), 'ana popescu');
+});
+
+test('ukrainien : composeur, publier, créer', () => {
+  assert.ok(D.COMPOSER_ENTRY.test('Напишіть щось...'));
+  assert.ok(D.SUBMIT_LABELS.test('Опублікувати'));
+  assert.ok(D.CREATE_POST.test('Створити допис'));
+  assert.ok(D.EDIT_ITEM.test('Редагувати'));
+});
+
+test('une langue inconnue est nommée dans le message d’échec, une langue connue non', async () => {
+  const withLang = async (lang) =>
+    (await loadContentScript('../src/content/helpers.js', { document: { documentElement: { getAttribute: () => lang } } })).FBX.dom;
+  assert.match((await withLang('hu-HU')).langNote(), /interface Facebook en « hu »/);
+  assert.equal((await withLang('ru-RU')).langNote(), '');
+  assert.equal((await withLang('ro')).langNote(), '');
+});

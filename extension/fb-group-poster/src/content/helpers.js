@@ -61,28 +61,40 @@
     'schreib etwas', 'was machst du gerade', 'scrivi qualcosa', 'a cosa stai pensando',
     'bir şeyler yaz', 'napisz coś', 'schrijf iets',
     'اكتب شيئا', 'اكتب شيئاً', 'بم تفكر', 'ماذا يدور في ذهنك', 'انشئ منشورا', 'إنشاء منشور عام',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'напишите что-нибудь', 'что у вас нового', 'создайте общедоступную публикацию', 'scrie ceva', 'la ce te gândești', 'creează o postare publică', 'напишіть щось', 'що у вас нового',
   ]);
   const SUBMIT_LABELS = exactly([
     'post', 'publier', 'publicar', 'posten', 'veröffentlichen', 'pubblica', 'paylaş', 'opublikuj', 'plaatsen',
     'نشر', 'انشر', 'نشر المنشور',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'опубликовать', 'postează', 'publică', 'опублікувати',
   ]);
   const COMMENT_BUTTON_LABELS = exactly([
     'comment', 'leave a comment', 'write a comment', 'commenter', 'écrire un commentaire', 'comentar',
     'kommentieren', 'commenta', 'yorum yap', 'skomentuj', 'reageren',
     'تعليق', 'علق', 'اكتب تعليقا', 'اكتب تعليقًا',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'комментировать', 'комментарий', 'написать комментарий', 'comentează', 'comentariu', 'scrie un comentariu', 'коментувати', 'коментар',
   ]);
   const COMMENT_FIELD = phrases([
     'comment', 'commentaire', 'comentario', 'comentar', 'kommentar', 'commento', 'yorum', 'komentarz', 'reactie',
     'تعليق', 'علق',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'комментарий', 'коммент', 'comentariu', 'comentează', 'коментар',
   ]);
   const CREATE_POST = phrases([
     'create post', 'créer une publication', 'crear publicación', 'criar publicação', 'beitrag erstellen',
     'crea post', 'gönderi oluştur', 'utwórz post', 'bericht maken',
     'إنشاء منشور', 'انشاء منشور',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'создать публикацию', 'создание публикации', 'creează o postare', 'creează postarea', 'створити допис', 'створення допису',
   ]);
   const PENDING = phrases([
     'pending', 'approval', 'en attente', 'pendiente', 'pendente', 'ausstehend', 'in attesa', 'onay bekliyor',
     'قيد المراجعة', 'بانتظار', 'في انتظار', 'بانتظار الموافقة',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'на рассмотрении', 'ожидает одобрения', 'ожидает', 'în așteptare', 'așteaptă aprobarea', 'в очікуванні', 'очікує схвалення', 'на розгляді',
   ]);
   const BLOCKED = phrases([
     "you can't post", "couldn't post", 'try again later', 'temporarily blocked',
@@ -97,36 +109,59 @@
     'vous ne pouvez pas publier', 'impossible de publier', 'réessayez plus tard', 'temporairement bloqu', 'nous avons limit',
     'no puedes publicar', 'inténtalo de nuevo más tarde', 'vorübergehend gesperrt',
     'لا يمكنك النشر', 'تعذر النشر', 'حاول مرة أخرى لاحقا', 'محظور مؤقتا', 'تم حظرك',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'мы ограничиваем', 'попробуйте позже', 'повторите попытку позже', 'временно заблокирован', 'limităm frecvența', 'încearcă din nou mai târziu', 'blocat temporar', 'ми обмежуємо', 'спробуйте пізніше', 'тимчасово заблоковано',
   ]);
   const PHOTO_LABELS = phrases([
     'photo/video', 'photo/vidéo', 'foto/video', 'foto/vídeo', 'foto/vidéo', 'fotoğraf/video', 'zdjęcie/film',
     'صورة/فيديو', 'صورة / فيديو',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'фото/видео', 'fotografie/videoclip', 'fotografie/video', 'фото/відео',
   ]);
   const ATTACHMENT_CONTROLS = phrases([
     'remove post attachment', 'edit media', 'remove photo', 'edit all', 'add photos/videos',
     'supprimer la pièce jointe', 'modifier le média', 'supprimer la photo', 'tout modifier',
     'eliminar archivo adjunto', 'editar todo', 'quitar foto',
     'إزالة مرفق', 'ازالة المرفق', 'تعديل الكل', 'تعديل الوسائط', 'إزالة الصورة',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'удалить вложение', 'редактировать все', 'удалить фото', 'elimină atașamentul', 'editează tot', 'elimină fotografia', 'видалити вкладення', 'редагувати все', 'видалити фото',
   ]);
   const REMOVE_ATTACHMENT = phrases([
     'remove post attachment', 'remove photo', 'supprimer la pièce jointe', 'supprimer la photo',
     'eliminar archivo adjunto', 'quitar foto', 'إزالة مرفق', 'ازالة المرفق', 'إزالة الصورة',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'удалить вложение', 'удалить фото', 'elimină atașamentul', 'elimină fotografia', 'видалити вкладення', 'видалити фото',
   ]);
   const COMMENT_MENU = phrases([
     'comment options', 'more options', 'edit or delete', 'options du commentaire', 'modifier ou supprimer',
     "plus d'options", 'opciones', 'optionen', 'opzioni', 'خيارات', 'مزيد من الخيارات', 'تعديل او حذف',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'действия с комментарием', 'другие действия', 'редактировать или удалить', 'ещё', 'mai multe opțiuni', 'editează sau șterge', 'opțiuni pentru comentariu', 'інші дії', 'редагувати або видалити',
   ]);
-  const EDIT_ITEM = exactly(['edit', 'modifier', 'editar', 'bearbeiten', 'modifica', 'düzenle', 'edytuj', 'تعديل']);
-  const DELETE_ITEM = exactly(['delete', 'supprimer', 'eliminar', 'löschen', 'elimina', 'sil', 'usuń', 'حذف']);
+  const EDIT_ITEM = exactly(['edit', 'modifier', 'editar', 'bearbeiten', 'modifica', 'düzenle', 'edytuj', 'تعديل', 'редактировать', 'изменить', 'editează', 'редагувати']);
+  const DELETE_ITEM = exactly(['delete', 'supprimer', 'eliminar', 'löschen', 'elimina', 'sil', 'usuń', 'حذف', 'удалить', 'șterge', 'видалити']);
   const NEW_COMMENT_BOX = phrases([
     'comment as', 'write a comment', 'write a public comment', 'écriv', 'commenter en tant',
     'escribe un comentario', 'comentar como', 'kommentieren als', 'scrivi un commento',
     'اكتب تعليقا', 'التعليق باسم', 'التعليق بصفتك', 'علق باسم',
+    // Russe, roumain, ukrainien : des comptes dont Facebook bloque le changement de langue.
+    'напишите комментарий', 'комментарий от имени', 'scrie un comentariu', 'comentează ca', 'comentezi ca', 'напишіть коментар', 'коментар від імені',
   ]);
   // Used to CUT the name out of the label, so it stays a real pattern; the
-  // label is folded first, which is why the Arabic forms carry no vowel marks.
-  const AUTHOR_LABEL = /^(?:comment as|commenter en tant que|comentar como|kommentieren als|commenta come|التعليق باسم|التعليق بصفتك|علق باسم) /i;
-  const COMMENT_ARTICLE = phrases(['comment', 'commentaire', 'comentario', 'kommentar', 'commento', 'yorum', 'komentarz', 'تعليق', 'رد']);
+  // label is folded first, which is why the Arabic forms carry no vowel marks
+  // (and why « комментарий » is written « комментарии », « comentează » « comenteaza »).
+  const AUTHOR_LABEL = /^(?:comment as|commenter en tant que|comentar como|kommentieren als|commenta come|التعليق باسم|التعليق بصفتك|علق باسم|комментарии от имени|comenteaza ca|comentezi ca|коментар від імені) /i;
+  const COMMENT_ARTICLE = phrases(['comment', 'commentaire', 'comentario', 'kommentar', 'commento', 'yorum', 'komentarz', 'تعليق', 'رد', 'комментарий', 'comentariu', 'коментар']);
+
+  // Les langues dont les libellés sont connus. Hors de cette liste, un échec
+  // le dit : « interface Facebook en … » — de quoi savoir qu'il manque une
+  // langue, au lieu d'un « bouton introuvable » sans explication.
+  const KNOWN_LANGS = ['fr', 'en', 'ar', 'es', 'pt', 'de', 'it', 'tr', 'pl', 'nl', 'ru', 'ro', 'uk'];
+  const pageLang = () => String(document.documentElement.getAttribute('lang') || '').slice(0, 2).toLowerCase();
+  const langNote = () => {
+    const lang = pageLang();
+    return lang && !KNOWN_LANGS.includes(lang) ? ` — interface Facebook en « ${lang} », langue non prise en charge par l'extension` : '';
+  };
 
   const COMPOSER_FILE_INPUT = 'div[role="dialog"] input[type="file"]';
 
@@ -443,6 +478,8 @@
 
   F.dom = {
     fold,
+    pageLang,
+    langNote,
     authorFromLabel,
     norm,
     lower,

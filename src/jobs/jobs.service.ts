@@ -121,7 +121,7 @@ export function notForcedElsewhere(
 /** Le message de Facebook quand il limite un compte, dans les langues de nos
  * profils (et le libellé que l'extension en fait). */
 export const RATE_LIMITED =
-  /publication bloqu|limit how often|try again later|temporarily blocked|limitons la fr[ée]quence|r[ée]essayez plus tard|temporairement bloqu|limitamos|int[ée]ntalo de nuevo m[aá]s tarde|wir begrenzen|حاول مرة اخرى لاحق|حاول مرة أخرى لاحق|نحد من|محظور مؤقت|نقيد معدل|اعادة المحاولة لاحق/i;
+  /publication bloqu|limit how often|try again later|temporarily blocked|limitons la fr[ée]quence|r[ée]essayez plus tard|temporairement bloqu|limitamos|int[ée]ntalo de nuevo m[aá]s tarde|wir begrenzen|حاول مرة اخرى لاحق|حاول مرة أخرى لاحق|نحد من|محظور مؤقت|نقيد معدل|اعادة المحاولة لاحق|мы ограничиваем|попробуйте позже|повторите попытку позже|ми обмежуємо|спробуйте пізніше|limităm|limitam frecven|încearcă din nou mai târziu|incearca din nou mai tarziu/i;
 
 /** L'arabe s'écrit avec des voyelles (« نقيّد », « لاحقًا ») et plusieurs
  * formes d'alef : on les replie avant de comparer, comme l'extension. */

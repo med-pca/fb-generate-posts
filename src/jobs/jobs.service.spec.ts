@@ -785,6 +785,8 @@ describe('JobsService — profil limité par Facebook', () => {
     ).toBe(true);
     expect(isRateLimited('يمكنك إعادة المحاولة لاحقًا')).toBe(true);
     expect(isRateLimited('إنشاء منشور')).toBe(false);
+    expect(isRateLimited('Мы ограничиваем частоту публикаций. Попробуйте позже.')).toBe(true);
+    expect(isRateLimited('Limităm frecvența cu care poți posta. Încearcă din nou mai târziu.')).toBe(true);
   });
 
   it('pause de 5 jours, lot libéré, envois forcés rendus, posts propres ouverts aux autres', async () => {

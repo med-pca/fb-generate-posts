@@ -15,7 +15,7 @@
 
   /* « Continuer en tant que … » (reprise d'une session connue), en plusieurs
    * langues. */
-  const CONTINUE_AS = /^(continue as|continuer en tant que|continuer comme|continuar como|continua come|weiter als|devam et|المتابعة باسم|متابعة باسم|الاستمرار باسم|المتابعة ك)/i;
+  const CONTINUE_AS = /^(continue as|continuer en tant que|continuer comme|continuar como|continua come|weiter als|devam et|المتابعة باسم|متابعة باسم|الاستمرار باسم|المتابعة ك|продолжить как|continuă ca|продовжити як)/i;
   function continueAsButton() {
     const nodes = Array.from(document.querySelectorAll('button, a, div[role="button"], [role="link"]'));
     return nodes.find((n) => CONTINUE_AS.test(D.norm(n.innerText || '')) || CONTINUE_AS.test(D.norm(n.getAttribute ? n.getAttribute('aria-label') || '' : ''))) || null;
@@ -63,7 +63,7 @@
   const composerEntry = () => {
     const els = Array.from(document.querySelectorAll('[role="button"], div[tabindex="0"], span'));
     const box = els.find((e) => D.COMPOSER_ENTRY.test(D.norm(e.innerText))) || placeholderEntry();
-    if (!box) return { ok: false, reason: 'the "Write something..." box is not on the page' };
+    if (!box) return { ok: false, reason: `the "Write something..." box is not on the page${D.langNote()}` };
     return D.centre(box) ? { ok: true, el: box } : { ok: false, reason: 'composer entry is not visible' };
   };
 
@@ -72,7 +72,7 @@
       const box = D.postBox(d);
       if (box && D.centre(box)) return { ok: true, el: box, text: D.norm(box.innerText) };
     }
-    return { ok: false, reason: 'the post text area did not appear' };
+    return { ok: false, reason: `the post text area did not appear${D.langNote()}` };
   };
 
   const submitButton = () => {
