@@ -181,3 +181,28 @@ describe('groupFilters — la barre de filtres de la page Groupes', () => {
     expect(groupFilters({}, scope)).toEqual([scope]);
   });
 });
+
+describe('GroupsService.findCatalog — un gestionnaire ne voit que ses profils', () => {
+  function catalog() {
+    const findMany = jest.fn(async () => []);
+    const prisma: any = {
+      group: { findMany, count: jest.fn(async () => 0) },
+      postTarget: { groupBy: jest.fn(async () => []) },
+      profileGroup: { groupBy: jest.fn(async () => []) },
+      $transaction: jest.fn(async (ops: any[]) => Promise.all(ops)),
+    };
+    return { service: new GroupsService(prisma, new CategoriesService(prisma)), findMany };
+  }
+
+  it('dans un groupe (même partagé), seuls SES profils sont listés', async () => {
+    const { service, findMany } = catalog();
+    await service.findCatalog({ page: 1, limit: 10 } as any, { id: 'k1', username: 'karim', role: 'MANAGER', status: 'ACTIVE' } as any);
+    expect((findMany.mock.calls[0] as any)[0].include.profiles.where).toEqual({ profile: { ownerId: 'k1' } });
+  });
+
+  it('un administrateur voit tous les profils du groupe', async () => {
+    const { service, findMany } = catalog();
+    await service.findCatalog({ page: 1, limit: 10 } as any, { id: 'a1', username: 'admin', role: 'ADMIN', status: 'ACTIVE' } as any);
+    expect((findMany.mock.calls[0] as any)[0].include.profiles.where).toBeUndefined();
+  });
+});

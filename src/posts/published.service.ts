@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, TargetStatus, VerifyStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
-import { postWhere, scopeOf } from '../auth/scope';
+import { postWhere, profileWhere, scopeOf, type Scope } from '../auth/scope';
 import { PublishedQueryDto } from './dto/queue.dto';
 
 /** Au-delà, les totaux seraient trop lourds à calculer d'un coup : la période
@@ -47,6 +47,15 @@ function hourIn(at: Date, timeZone: string) {
 /** L'audit des publications faites : combien, quand, par qui, où, et dans
  * quel état (vérifiées, lien posé, adresse connue). Les totaux portent sur
  * TOUT ce que le filtre retient ; la liste, elle, est paginée. */
+/** Le profil derrière une publication, tel qu'un compte a le droit de le
+ * voir : le sien, ou « Profil d'un autre compte » (site ou groupe partagé). */
+const OTHER = 'Profil d’un autre compte';
+function maskProfile(scope: Scope, p: { id: string; name: string; ownerId: string | null } | null) {
+  if (!p) return null;
+  if (scope && p.ownerId !== scope.ownerId) return { id: null, name: OTHER };
+  return { id: p.id, name: p.name };
+}
+
 @Injectable()
 export class PublishedService {
   constructor(private readonly prisma: PrismaService) {}
@@ -81,6 +90,7 @@ export class PublishedService {
   }
 
   async audit(q: PublishedQueryDto, acting: CurrentUser | null) {
+    const shown = (p: { id: string; name: string; ownerId: string | null } | null) => maskProfile(scopeOf(acting), p);
     const where = this.where(q, acting);
     const settings = await this.prisma.automationSetting.findUnique({ where: { id: 'global' }, select: { objectiveTimezone: true } });
     const timeZone = settings?.objectiveTimezone || 'Europe/Paris';
@@ -108,7 +118,7 @@ export class PublishedService {
             where: { status: TargetStatus.PUBLISHED },
             orderBy: { publishedAt: 'desc' },
             take: 1,
-            select: { externalPostUrl: true, job: { select: { profile: { select: { id: true, name: true } } } } },
+            select: { externalPostUrl: true, job: { select: { profile: { select: { id: true, name: true, ownerId: true } } } } },
           },
         },
       }),
@@ -146,12 +156,13 @@ export class PublishedService {
     const link = tally((r) => linkState(r));
 
     const [profiles, groups] = await Promise.all([
-      this.prisma.profile.findMany({ where: { id: { in: [...byProfileId.keys()] } }, select: { id: true, name: true } }),
+      // Un gestionnaire ne voit que les noms de SES profils.
+      this.prisma.profile.findMany({ where: { id: { in: [...byProfileId.keys()] }, ...profileWhere(scopeOf(acting)) }, select: { id: true, name: true } }),
       this.prisma.group.findMany({ where: { id: { in: [...byGroupId.keys()] } }, select: { id: true, name: true } }),
     ]);
     const named = (m: Map<string, number>, names: Array<{ id: string; name: string }>) =>
       [...m.entries()]
-        .map(([id, count]) => ({ id, name: names.find((n) => n.id === id)?.name ?? '—', count }))
+        .map(([id, count]) => ({ id, name: names.find((n) => n.id === id)?.name ?? 'Profil d’un autre compte', count }))
         .sort((a, b) => b.count - a.count);
 
     return {
@@ -173,7 +184,7 @@ export class PublishedService {
         publishedAt: r.publishedAt,
         post: r.post,
         group: r.group,
-        profile: r.jobItems[0]?.job.profile ?? null,
+        profile: shown(r.jobItems[0]?.job.profile ?? null),
         facebookUrl: r.facebookUrl ?? r.jobItems[0]?.externalPostUrl ?? null,
         link: linkState(r),
         verify: { status: r.verifyStatus, at: r.verifiedAt, detail: r.verifyDetail, republishCount: r.republishCount },
@@ -186,6 +197,9 @@ export class PublishedService {
 
   /** Le même filtre, en CSV (une ligne par publication), pour un tableur. */
   async csv(q: PublishedQueryDto, acting: CurrentUser | null) {
+    const scope = scopeOf(acting);
+    const csvProfile = (p: { name: string; ownerId: string | null } | undefined) =>
+      !p ? '' : scope && p.ownerId !== scope.ownerId ? OTHER : p.name;
     const rows = await this.prisma.postTarget.findMany({
       where: this.where(q, acting),
       orderBy: { publishedAt: 'desc' },
@@ -198,7 +212,7 @@ export class PublishedService {
         facebookUrl: true,
         post: { select: { title: true, url: true } },
         group: { select: { name: true, category: { select: { name: true } } } },
-        jobItems: { where: { status: TargetStatus.PUBLISHED }, orderBy: { publishedAt: 'desc' }, take: 1, select: { job: { select: { profile: { select: { name: true } } } } } },
+        jobItems: { where: { status: TargetStatus.PUBLISHED }, orderBy: { publishedAt: 'desc' }, take: 1, select: { job: { select: { profile: { select: { name: true, ownerId: true } } } } } },
       },
     });
     const cell = (v: unknown) => {
@@ -211,7 +225,7 @@ export class PublishedService {
     const lines = rows.map((r) =>
       [
         r.publishedAt?.toISOString() ?? '',
-        r.jobItems[0]?.job.profile.name ?? '',
+        csvProfile(r.jobItems[0]?.job.profile),
         r.group.name,
         r.group.category?.name ?? '',
         r.post.title,

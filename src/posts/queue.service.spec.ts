@@ -384,3 +384,25 @@ describe('Lien de la photo d’un post de groupe', () => {
     expect(canonicalGroupPostUrl('https://www.facebook.com/permalink.php?story_fbid=1&id=2')).toBeNull();
   });
 });
+
+describe('QueueService.queue — un gestionnaire ne voit que ses profils', () => {
+  it('les profils d’un autre compte sont retirés des profils proposés, et masqués derrière une publication', async () => {
+    const { service, prisma } = setup();
+    // Le profil « Salim » (p1) n'est pas à karim : il appartient à l'admin.
+    prisma.profile = { findMany: jest.fn(async () => [{ id: 'mine-1' }]) };
+    const karim: any = { id: 'k1', username: 'karim', role: 'MANAGER', status: 'ACTIVE' };
+    const r: any = await service.queue({ limit: 10, publishedLimit: 10 } as any, karim);
+    expect(prisma.profile.findMany.mock.calls[0][0].where).toEqual({ ownerId: 'k1' });
+    expect(r.upcoming.every((u: any) => u.candidates.length === 0)).toBe(true);
+    expect(r.upcoming[0].forcedProfile).toEqual({ id: null, name: 'Profil d’un autre compte', externalId: null });
+    expect(r.published[0].profile.name).toBe('Profil d’un autre compte');
+    expect(r.running[0].profile.name).toBe('Profil d’un autre compte');
+    expect(r.failed[0].profile.name).toBe('Profil d’un autre compte');
+  });
+
+  it('un administrateur voit tous les profils', async () => {
+    const { service } = setup();
+    const r: any = await service.queue({ limit: 10, publishedLimit: 10 } as any, null);
+    expect(r.published[0].profile.name).toBe('Salim');
+  });
+});

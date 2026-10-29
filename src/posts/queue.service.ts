@@ -259,6 +259,17 @@ export class QueueService {
       return { ...rest, pendingJoins: _count.profiles };
     };
 
+    // Un gestionnaire ne voit que SES profils : dans les profils proposés, et
+    // derrière une publication faite ou réservée par le profil d'un autre
+    // compte (site ou groupe partagé), le nom est masqué.
+    const own = scopeOf(acting);
+    const mine = own
+      ? new Set((await this.prisma.profile.findMany({ where: { ownerId: own.ownerId }, select: { id: true } })).map((p) => p.id))
+      : null;
+    const visible = <P extends { id: string } | null | undefined>(p: P) =>
+      !p || !mine || mine.has(p.id) ? p ?? null : { id: null, name: 'Profil d’un autre compte', externalId: null };
+    const candidates = (post: Parameters<typeof candidatesFor>[0], group: Parameters<typeof candidatesFor>[1]) =>
+      candidatesFor(post, group).filter((p) => !mine || mine.has(p.id));
     return {
       counts: {
         running: counts[0],
@@ -273,7 +284,7 @@ export class QueueService {
         expiresAt: row.claimExpiresAt,
         post: row.post,
         group: row.group,
-        profile: row.jobItems[0]?.job.profile ?? null,
+        profile: visible(row.jobItems[0]?.job.profile),
         jobId: row.jobItems[0]?.job.id ?? null,
       })),
       upcoming: upcomingRows.map((row, index) => ({
@@ -282,9 +293,9 @@ export class QueueService {
         post: row.post,
         group: withoutCandidates(row.group),
         // Une republication écarte le profil qui avait raté le post.
-        candidates: candidatesFor(row.post, row.group).filter((p) => p.id !== row.avoidProfileId),
-        avoidProfile: row.group.profiles.map(({ profile }) => profile).find((p) => p.id === row.avoidProfileId) ?? null,
-        forcedProfile: row.forcedProfile,
+        candidates: candidates(row.post, row.group).filter((p) => p.id !== row.avoidProfileId),
+        avoidProfile: visible(row.group.profiles.map(({ profile }) => profile).find((p) => p.id === row.avoidProfileId)),
+        forcedProfile: visible(row.forcedProfile),
         forcedAt: row.forcedAt,
         // Duplication : 0 = première publication dans ce groupe.
         repeatRound: row.repeatRound,
@@ -296,8 +307,8 @@ export class QueueService {
         error: row.lastError ?? row.jobItems[0]?.error ?? 'Échec sans message',
         post: row.post,
         group: withoutCandidates(row.group),
-        profile: row.jobItems[0]?.job.profile ?? null,
-        candidates: candidatesFor(row.post, row.group),
+        profile: visible(row.jobItems[0]?.job.profile),
+        candidates: candidates(row.post, row.group),
       })),
       published: publishedRows.map((row) => {
         const item = row.jobItems[0];
@@ -306,7 +317,7 @@ export class QueueService {
           publishedAt: row.publishedAt ?? item?.publishedAt ?? null,
           post: row.post,
           group: row.group,
-          profile: item?.job.profile ?? null,
+          profile: visible(item?.job.profile),
           facebookUrl: row.facebookUrl ?? item?.externalPostUrl ?? null,
           repeatRound: row.repeatRound,
           // Le contrôle du vérificateur : null tant qu'il n'est pas passé.

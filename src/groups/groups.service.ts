@@ -115,7 +115,9 @@ export class GroupsService {
       this.prisma.group.findMany({
         where: scoped,
         include: {
-          profiles: { include: { profile: true } },
+          // Un gestionnaire ne voit que SES profils dans un groupe, même
+          // partagé : ceux de l'administrateur n'y figurent pas.
+          profiles: { ...(scopeOf(acting) ? { where: { profile: profileWhere(scopeOf(acting)) } } : {}), include: { profile: true } },
           category: { select: { id: true, name: true } },
           _count: { select: { targets: true } },
         },
