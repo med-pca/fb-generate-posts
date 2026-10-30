@@ -156,6 +156,26 @@
           </div>
         </section>
         <section id="profiles" class="view">
+          <div class="subtabs" role="tablist">
+            <button class="subtab active" type="button" data-profiles-tab="list" role="tab">Liste des profils</button
+            ><button class="subtab" type="button" data-profiles-tab="dashboard" role="tab">📊 Tableau de bord</button>
+          </div>
+          <div id="profiles-pane-dashboard" class="hidden">
+            <div class="toolbar">
+              <p>Tous vos profils d’un coup d’œil : leur état, leur santé, ce qu’ils publient, et ceux qui demandent une action.</p>
+              <div class="toolbar-group">
+                <select id="pdash-days" aria-label="Période">
+                  <option value="1">24 heures</option>
+                  <option value="7">7 jours</option>
+                  <option value="14" selected>14 jours</option>
+                  <option value="30">30 jours</option>
+                </select>
+                <button class="secondary" type="button" id="pdash-refresh">↻ Actualiser</button>
+              </div>
+            </div>
+            <div id="pdash"><div class="empty">Chargement…</div></div>
+          </div>
+          <div id="profiles-pane-list">
           <div class="toolbar">
             <p>Configurez les profils et la taille de leurs lots. Cliquez sur un profil pour ouvrir sa page.</p>
             <div class="toolbar-group">
@@ -199,6 +219,7 @@
           <p class="runner-count" id="pf-count"></p>
           <div id="profile-cards" class="cards"></div>
           <div class="pagination" id="profiles-pagination"></div>
+          </div>
         </section>
         <section id="groups" class="view">
           <div class="toolbar">
@@ -765,6 +786,7 @@
               <div>
                 <small id="pd-sub">PROFIL</small>
                 <h2 id="pd-title">Profil</h2>
+                <p class="fb-line" id="pd-fb"></p>
               </div>
             </div>
             <div class="row-actions" id="pd-actions"></div>
@@ -1557,6 +1579,7 @@
         <label>Nom<input name="name" required /></label
         ><label>État<select name="status"><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select></label
         ><label>Identifiant externe<input name="externalId" /></label
+        ><label>Lien du profil Facebook<input name="facebookProfileUrl" type="url" placeholder="https://www.facebook.com/profile.php?id=… ou https://www.facebook.com/nom.prenom" /><small class="form-help">Pour reconnaître le profil : son nom NSTBrowser ne suit pas un renommage.</small></label
         ><label
           >Image par défaut<input
             name="defaultImageUrl"
@@ -1810,6 +1833,7 @@
           <small>Les visuels « engagement » de cette langue y seront publiés.</small></label
         ><label>État<select name="status"><option value="ACTIVE">Actif</option><option value="INACTIVE">Inactif</option></select></label
         ><label>Identifiant externe<input name="externalId" /></label
+        ><label>Lien du profil Facebook<input name="facebookProfileUrl" type="url" placeholder="https://www.facebook.com/profile.php?id=… ou https://www.facebook.com/nom.prenom" /><small class="form-help">Pour reconnaître le profil : son nom NSTBrowser ne suit pas un renommage.</small></label
         ><label
           >URL Facebook<input
             name="url"

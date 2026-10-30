@@ -74,7 +74,7 @@ export const EXTENSIONS: ExtensionDef[] = [
     letter: 'A',
     color: '#17803d',
     dir: 'extension/fb-group-joiner',
-    role: 'Demande à rejoindre les groupes liés à chaque profil (lancement manuel).',
+    role: 'Demande à rejoindre les groupes liés à chaque profil : la veille la lance seule dès qu’un groupe est « à rejoindre » (plafond par jour).',
     installOn: 'Les profils qui doivent rejoindre des groupes.',
     nstKey: 'required',
     nstKeyWhy: 'L’extension ne détectera pas le profil NSTBrowser (« Clé API Nstbrowser absente de config.js ») : elle ne chargera aucun groupe et ne démarrera pas.',

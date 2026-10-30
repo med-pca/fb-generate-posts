@@ -65,3 +65,7 @@ li .msg { display: block; font-size: 11px; color: #65676b; }
 .st.requested  { background: #cfe2ff; }
 .st.questions  { background: #ffe5b4; }
 .st.error      { background: #f8d7da; }
+
+.watch { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 2px; font-size: 12px; line-height: 1.35; cursor: pointer; }
+.watch input { margin-top: 2px; }
+.watch-info { margin: 0 0 8px 22px; font-size: 11px; color: #667085; }

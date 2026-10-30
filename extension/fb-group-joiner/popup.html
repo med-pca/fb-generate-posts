@@ -21,6 +21,9 @@
 
   <p id="info" class="info"></p>
 
+  <label class="watch"><input type="checkbox" id="autoWatch" /> <span><b>Veille automatique</b> : dès qu’un groupe est « à rejoindre », l’adhésion se lance seule.</span></label>
+  <p id="watchInfo" class="watch-info"></p>
+
   <div class="stats" id="stats"></div>
 
   <ul id="groupList"></ul>
@@ -31,6 +34,7 @@
       <label>Délai min (s)<input id="minDelay" type="number" min="30" /></label>
       <label>Délai max (s)<input id="maxDelay" type="number" min="30" /></label>
       <label>Max / session<input id="maxPerRun" type="number" min="1" /></label>
+      <label>Max / jour<input id="maxPerDay" type="number" min="1" /></label>
     </div>
     <button id="saveBtn">Enregistrer</button>
   </details>

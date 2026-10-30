@@ -28,6 +28,7 @@ import { ProfilesService } from './profiles.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { DeactivateProfileDto, QueryProfilesDto } from './dto/query-profiles.dto';
 import { ProfileHealthService } from './profile-health.service';
+import { ProfileOverviewService } from './profile-overview.service';
 
 /** Lever l'arrêt d'un compte récupéré. */
 class ClearSuspensionDto {
@@ -43,7 +44,15 @@ export class ProfilesController {
   constructor(
     private readonly profiles: ProfilesService,
     private readonly health: ProfileHealthService,
+    private readonly overviewOf: ProfileOverviewService,
   ) {}
+
+  @Get('overview')
+  @ApiOperation({ summary: 'Tableau de bord de tous les profils visibles : états, santé, publications, à traiter' })
+  overview(@Query('days') days: string | undefined, @ActingUser() acting: CurrentUser) {
+    const n = Math.min(90, Math.max(1, Number(days) || 14));
+    return this.overviewOf.overview(acting, n);
+  }
 
   @Post()
   create(@Body() dto: CreateProfileDto, @ActingUser() acting: CurrentUser) {

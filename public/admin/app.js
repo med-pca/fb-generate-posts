@@ -112,6 +112,22 @@ function facebookIdFrom(raw) {
   return m ? m[1] : '';
 }
 
+/** L'adresse du profil Facebook : le lien saisi, sinon celle que donne son
+ * numéro (remonté par l'extension). `null` : rien de connu. */
+function facebookHref(p) {
+  if (p?.facebookProfileUrl) return p.facebookProfileUrl;
+  if (p?.facebookUserId) return `https://www.facebook.com/profile.php?id=${encodeURIComponent(p.facebookUserId)}`;
+  return null;
+}
+/** Le lien vers son profil Facebook, avec le nom qu'il y porte. Sans lien
+ * connu : un bouton pour le saisir (quand `edit` est vrai). */
+function facebookLink(p, { edit = false } = {}) {
+  const href = facebookHref(p);
+  if (!href) return edit ? `<button class="link fb-missing" type="button" data-edit-profile="${p.id}">＋ Ajouter son lien Facebook</button>` : '<span class="muted">Lien Facebook inconnu</span>';
+  const label = p.facebookName || (p.facebookUserId ? `Facebook ${p.facebookUserId}` : href.replace(/^https?:\/\/(www\.|m\.)?facebook\.com\//, ''));
+  return `<a class="fb-link" href="${esc(href)}" target="_blank" rel="noreferrer" title="${esc(href)}"><span class="fb-mark">f</span>${esc(label)} ↗</a>`;
+}
+
 /* ── Rubrique Articles : articles | visuels ─────────────────────────────── */
 /** code → nom anglais, rechargé depuis /languages (Groupes → Gérer les langues). */
 const LANG_NAMES = { en: 'English', fr: 'French', ar: 'Arabic', es: 'Spanish', de: 'German', it: 'Italian', pt: 'Portuguese', nl: 'Dutch', tr: 'Turkish', pl: 'Polish', ro: 'Romanian', ru: 'Russian', hi: 'Hindi', id: 'Indonesian' };
@@ -124,6 +140,158 @@ function showArticlesTab(tab, { fromUrl = false } = {}) {
   view('articles', { fromUrl });
 }
 $$('[data-articles-tab]').forEach((b) => (b.onclick = () => showArticlesTab(b.dataset.articlesTab)));
+
+/* ── Profils : liste | tableau de bord ─────────────────────────────────── */
+function showProfilesTab(tab, { fromUrl = false } = {}) {
+  state.profilesTab = tab === 'dashboard' ? 'dashboard' : 'list';
+  $$('[data-profiles-tab]').forEach((b) => b.classList.toggle('active', b.dataset.profilesTab === state.profilesTab));
+  $('#profiles-pane-list').classList.toggle('hidden', state.profilesTab !== 'list');
+  $('#profiles-pane-dashboard').classList.toggle('hidden', state.profilesTab !== 'dashboard');
+  view('profiles', { fromUrl });
+  if (fromUrl) document.title = `PostFlow — Profils`;
+  if (state.profilesTab === 'dashboard') void loadProfileDashboard();
+}
+$$('[data-profiles-tab]').forEach((b) => (b.onclick = () => {
+  showProfilesTab(b.dataset.profilesTab);
+  // Même rubrique : view() ne change pas l'adresse, on la change ici.
+  const path = pathOf('profiles');
+  if (location.pathname !== path) history.pushState({ view: 'profiles' }, '', path);
+}));
+
+const PSTATE = {
+  working: { label: 'Au travail', tone: 'good' },
+  waiting: { label: 'En attente', tone: 'info' },
+  paused: { label: 'Limité par Facebook', tone: 'warn' },
+  off: { label: 'Arrêtés', tone: 'muted' },
+  logged_out: { label: 'Déconnectés', tone: 'warn' },
+  checkpoint: { label: 'Vérification FB', tone: 'warn' },
+  suspended: { label: 'Suspendus', tone: 'bad' },
+  inactive: { label: 'Inactifs', tone: 'muted' },
+};
+const PHEALTH = { good: 'Bonne', watch: 'À surveiller', bad: 'Mauvaise', new: 'Pas assez de données' };
+const pdash = { days: 14, data: null, seq: 0 };
+
+async function loadProfileDashboard() {
+  const seq = ++pdash.seq;
+  if (!pdash.data) $('#pdash').innerHTML = '<div class="empty">Chargement…</div>';
+  try {
+    const d = await api(`/profiles/overview?days=${pdash.days}`);
+    if (seq !== pdash.seq) return;
+    pdash.data = d;
+    renderProfileDashboard();
+  } catch (x) {
+    if (seq === pdash.seq) $('#pdash').innerHTML = `<div class="empty">${esc(x.message)}</div>`;
+  }
+}
+$('#pdash-days').onchange = (e) => {
+  pdash.days = Number(e.target.value) || 14;
+  void loadProfileDashboard();
+};
+$('#pdash-refresh').onclick = () => void loadProfileDashboard();
+
+function renderProfileDashboard() {
+  const d = pdash.data;
+  if (!d) return;
+  const t = d.totals;
+  const pct = (v) => (v === null || v === undefined ? '—' : `${Math.round(v * 100)} %`);
+  const period = d.days === 1 ? '24 h' : `${d.days} j`;
+  const kpi = (value, label, sub = '', tone = '') =>
+    `<div class="pdash-kpi ${tone}"><strong>${value}</strong><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const outOfService = d.states.suspended + d.states.checkpoint + d.states.logged_out;
+
+  // L'état de la flotte : une barre empilée, puis la légende cliquable.
+  const order = ['working', 'waiting', 'paused', 'off', 'logged_out', 'checkpoint', 'suspended', 'inactive'];
+  const total = Math.max(1, t.profiles);
+  const stateBar =
+    `<div class="pdash-stack">${order
+      .filter((k) => d.states[k])
+      .map((k) => `<span class="tone-${PSTATE[k].tone} st-${k}" style="width:${(d.states[k] / total) * 100}%" title="${PSTATE[k].label} : ${d.states[k]}"></span>`)
+      .join('')}</div>` +
+    `<ul class="pdash-legend">${order
+      .map((k) => `<li class="${d.states[k] ? '' : 'zero'}"><i class="tone-${PSTATE[k].tone} st-${k}"></i>${PSTATE[k].label}<b>${d.states[k]}</b></li>`)
+      .join('')}</ul>`;
+  const healthBar =
+    `<div class="pdash-stack">${['good', 'watch', 'bad', 'new']
+      .filter((k) => d.health[k])
+      .map((k) => `<span class="h-${k}" style="width:${(d.health[k] / total) * 100}%" title="${PHEALTH[k]} : ${d.health[k]}"></span>`)
+      .join('')}</div>` +
+    `<ul class="pdash-legend">${['good', 'watch', 'bad', 'new']
+      .map((k) => `<li class="${d.health[k] ? '' : 'zero'}"><i class="h-${k}"></i>${PHEALTH[k]}<b>${d.health[k]}</b></li>`)
+      .join('')}</ul>`;
+  const g = d.groups;
+  const groupsLine =
+    `<ul class="pdash-legend">` +
+    `<li><i class="h-good"></i>Rejoints<b>${g.joined}</b></li>` +
+    `<li><i class="h-watch"></i>Demandes envoyées<b>${g.requested}</b></li>` +
+    `<li><i class="h-new"></i>À rejoindre<b>${g.pending}</b></li>` +
+    (g.questions ? `<li><i class="h-watch"></i>Questions<b>${g.questions}</b></li>` : '') +
+    `<li class="${g.failed ? '' : 'zero'}"><i class="h-bad"></i>Échecs<b>${g.failed}</b></li></ul>`;
+
+  const who = (r) =>
+    `<button type="button" class="link" data-profile-detail="${r.id}">${esc(r.name)}</button>` +
+    (facebookHref(r) ? ` <a class="pick-fb" href="${esc(facebookHref(r))}" target="_blank" rel="noreferrer" title="Profil Facebook${r.facebookName ? ` : ${esc(r.facebookName)}` : ''}">f ↗</a>` : '');
+  const table = (rows, empty, cols) =>
+    rows.length
+      ? `<table class="pdash-table"><thead><tr>${cols.map((c) => `<th>${c[0]}</th>`).join('')}</tr></thead><tbody>${rows
+          .map((r) => `<tr>${cols.map((c) => `<td>${c[1](r)}</td>`).join('')}</tr>`)
+          .join('')}</tbody></table>`
+      : `<div class="empty">${empty}</div>`;
+  const stateChip = (r) => `<span class="pdash-chip tone-${PSTATE[r.state]?.tone || 'muted'}">${PSTATE[r.state]?.label.replace(/s$/, '') || r.state}</span>`;
+  const last = (r) => (r.lastPublishedAt ? esc(ago(r.lastPublishedAt)) : '<span class="muted">jamais</span>');
+
+  $('#pdash').innerHTML =
+    `<div class="pdash-kpis">` +
+    kpi(t.profiles, 'profils', `${t.active} actifs`) +
+    kpi(d.states.working, 'au travail maintenant', `${t.usable} utilisables`, 'good') +
+    kpi(outOfService, 'hors service', 'suspendus, vérification, déconnectés', outOfService ? 'bad' : '') +
+    kpi(t.last24h, 'publiés sur 24 h') +
+    kpi(t.published, `publiés sur ${period}`, `${t.perUsableProfile.toFixed(1)} / profil utilisable / jour`) +
+    kpi(pct(t.successRate), 'taux de réussite', `${t.failed} échec(s) sur ${period}`, t.successRate !== null && t.successRate < 0.8 ? 'warn' : '') +
+    kpi(`${t.withFacebookLink}/${t.profiles}`, 'avec lien Facebook', t.withFacebookLink < t.profiles ? 'les autres sont durs à reconnaître' : '', t.withFacebookLink < t.profiles ? 'warn' : '') +
+    `</div>` +
+    `<div class="pdash-grid">` +
+    `<div class="panel"><div class="panel-head"><div><small>ÉTAT</small><h2>Où en sont vos profils</h2></div></div>${stateBar}</div>` +
+    `<div class="panel"><div class="panel-head"><div><small>SANTÉ (14 J)</small><h2>Leur fiabilité</h2></div></div>${healthBar}<h3 class="history-h">Groupes liés</h3>${groupsLine}</div>` +
+    `</div>` +
+    `<div class="panel"><div class="panel-head"><div><small>ACTIVITÉ</small><h2>Publications et échecs par jour</h2></div></div>${profileChart(d.series)}</div>` +
+    `<div class="panel"><div class="panel-head"><div><small>À TRAITER</small><h2>${d.attention.length ? `${d.attention.length} profil(s) demandent une action` : 'Rien à traiter ✓'}</h2></div></div>` +
+    table(d.attention, 'Tous vos profils vont bien.', [
+      ['Profil', who],
+      ['Problème', (r) => esc(r.why)],
+      ['État', stateChip],
+      ['Dernière publication', last],
+    ]) +
+    `</div>` +
+    `<div class="pdash-grid">` +
+    `<div class="panel"><div class="panel-head"><div><small>LES MEILLEURS</small><h2>Ceux qui publient le plus (${period})</h2></div></div>` +
+    table(d.top, 'Aucune publication sur la période.', [
+      ['Profil', who],
+      ['Publiés', (r) => `<b>${r.published}</b>`],
+      ['Réussite', (r) => pct(r.successRate)],
+      ['Santé', (r) => (r.score === null ? '—' : `${r.score}/100`)],
+    ]) +
+    `</div>` +
+    `<div class="panel"><div class="panel-head"><div><small>À SURVEILLER</small><h2>Ceux qui échouent le plus (${period})</h2></div></div>` +
+    table(d.worst, 'Aucun profil avec 3 échecs ou plus.', [
+      ['Profil', who],
+      ['Échecs', (r) => `<b class="bad">${r.failed}</b>`],
+      ['Réussite', (r) => pct(r.successRate)],
+      ['État', stateChip],
+    ]) +
+    `</div></div>` +
+    (d.byOwner.length > 1
+      ? `<div class="panel"><div class="panel-head"><div><small>PAR COMPTE</small><h2>Répartition entre les comptes</h2></div></div>` +
+        table(d.byOwner, '', [
+          ['Compte', (r) => esc(r.owner)],
+          ['Profils', (r) => r.profiles],
+          ['Au travail', (r) => r.working],
+          ['Hors service', (r) => (r.outOfService ? `<b class="bad">${r.outOfService}</b>` : 0)],
+          [`Publiés (${period})`, (r) => `<b>${r.published}</b>`],
+          ['Échecs', (r) => r.failed],
+        ]) +
+        `</div>`
+      : '');
+}
 
 const visualsState = { page: 1, language: '', search: '', review: '', timer: null, data: null };
 function fillLanguageSelect(select, current = '', empty = 'Toutes les langues') {
@@ -758,6 +926,7 @@ async function renderProfilePage(profileId, { focusDeactivate = false } = {}) {
   $('#title').textContent = p.name;
   document.title = `PostFlow — ${p.name}`;
   $('#pd-sub').textContent = `PROFIL · ${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}${p.isModerator ? ' · VÉRIFICATEUR' : ''}`;
+  $('#pd-fb').innerHTML = facebookLink(p, { edit: true }) + (p.externalId ? ` <small class="muted">NSTBrowser ${esc(p.externalId)}</small>` : '');
   $('#pd-health').innerHTML =
     `<div class="pd-score ${h.label}"><strong>${h.score === null ? '—' : h.score}</strong><span>/100</span><small>${esc(h.labelText)}</small></div>` +
     `<div class="pd-verdict">` +
@@ -1174,7 +1343,7 @@ function render() {
     state.profiles
       .map(
         (p) =>
-          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="profile-health">${p.facebookSuspension ? `<span class="chip ${p.facebookSuspension === 'disabled' ? 'join-failed' : 'join-requested'}" title="${esc(p.suspensionDetail || '')}">${p.facebookSuspension === 'disabled' ? '🚫 Suspendu par Facebook' : p.facebookSuspension === 'logged_out' ? '🔌 Déconnecté de Facebook' : '⚠ Vérification Facebook'}</span> ` : ''}${healthBadge(p.health)}${state.me?.role === 'ADMIN' ? ` <span class="chip" title="Compte qui pilote ce profil">👤 ${esc(p.owner ? p.owner.username : 'Administration')}</span>` : ''}</p>${profileMetrics(p)}<div class="card-actions">${p.facebookSuspension ? `<button class="primary compact" data-unsuspend="${p.id}" data-name="${esc(p.name)}" data-kind="${esc(p.facebookSuspension)}">▶ Remettre au travail</button>` : ''}<button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
+          `<article class="profile-card ${p.status === 'INACTIVE' ? 'inactive' : ''} ${p.health?.suggestDeactivate ? 'flagged' : ''}"><div class="card-head"><button type="button" class="person person-link" data-profile-detail="${p.id}" title="Statistiques détaillées"><span class="avatar">${initials(p.name)}</span><div><h3>${esc(p.name)}</h3><p>${esc(p.externalId || 'Sans identifiant')}</p></div></button><span class="status">${p.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><p class="fb-line">${facebookLink(p, { edit: true })}</p><p class="profile-health">${p.facebookSuspension ? `<span class="chip ${p.facebookSuspension === 'disabled' ? 'join-failed' : 'join-requested'}" title="${esc(p.suspensionDetail || '')}">${p.facebookSuspension === 'disabled' ? '🚫 Suspendu par Facebook' : p.facebookSuspension === 'logged_out' ? '🔌 Déconnecté de Facebook' : '⚠ Vérification Facebook'}</span> ` : ''}${healthBadge(p.health)}${state.me?.role === 'ADMIN' ? ` <span class="chip" title="Compte qui pilote ce profil">👤 ${esc(p.owner ? p.owner.username : 'Administration')}</span>` : ''}</p>${profileMetrics(p)}<div class="card-actions">${p.facebookSuspension ? `<button class="primary compact" data-unsuspend="${p.id}" data-name="${esc(p.name)}" data-kind="${esc(p.facebookSuspension)}">▶ Remettre au travail</button>` : ''}<button class="edit" data-profile-detail="${p.id}">Ouvrir sa page</button><button class="edit" ${p.status === 'ACTIVE' ? `data-deactivate-profile="${p.id}"` : `data-toggle-profile="${p.id}"`}>${p.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-profile="${p.id}">Modifier</button><button class="danger" data-delete-profile="${p.id}">Supprimer</button></div></article>`,
       )
       .join('') || '<div class="empty">Créez votre premier profil.</div>';
   $('#group-rows').innerHTML =
@@ -2456,10 +2625,98 @@ $('#publishing-enabled').onchange = async (e) => {
     await loadRunners();
   }
 };
+/** La pagination : première, précédente, la page à taper, suivante,
+ * dernière. Les boutons restent désactivés pendant le chargement, pour
+ * qu'un double clic ne saute pas deux pages ni ne croise deux réponses. */
 function paginationBox(resource) {
   const meta = state.meta[resource];
   if (!meta) return '';
-  return `<button class="secondary" data-page-resource="${resource}" data-page-value="${meta.page - 1}" ${meta.page <= 1 ? 'disabled' : ''}>← Précédent</button><span>Page ${meta.page} sur ${meta.pages} · ${meta.total} élément(s)</span><button class="secondary" data-page-resource="${resource}" data-page-value="${meta.page + 1}" ${meta.page >= meta.pages ? 'disabled' : ''}>Suivant →</button>`;
+  const pages = Math.max(1, meta.pages || 1);
+  const page = Math.min(Math.max(1, meta.page || 1), pages);
+  if (pages <= 1) return `<span>${meta.total} élément(s)</span>`;
+  const busy = pageLoading.has(resource);
+  const btn = (value, label, title, off) =>
+    `<button class="secondary" type="button" data-page-resource="${resource}" data-page-value="${value}" title="${title}" ${off || busy ? 'disabled' : ''}>${label}</button>`;
+  return (
+    btn(1, '«', 'Première page', page <= 1) +
+    btn(page - 1, '← Précédent', 'Page précédente', page <= 1) +
+    `<span>Page <input class="page-jump" type="number" min="1" max="${pages}" value="${page}" data-page-jump="${resource}" aria-label="Aller à la page"> sur ${pages} · ${meta.total} élément(s)${busy ? ' · chargement…' : ''}</span>` +
+    btn(page + 1, 'Suivant →', 'Page suivante', page >= pages) +
+    btn(pages, '»', 'Dernière page', page >= pages)
+  );
+}
+/** Les listes en cours de chargement, et le numéro de la dernière demande
+ * de chacune : une réponse plus ancienne que la dernière est ignorée. */
+const pageLoading = new Set();
+const pageSeq = {};
+const PAGE_LOADERS = {
+  profiles: async () => {
+    const r = await api(`/profiles?${profileQuery()}`);
+    state.profiles = r.data;
+    state.meta.profiles = r.meta;
+  },
+  groups: async () => {
+    const r = await api(`/groups?${groupQuery()}`);
+    state.groups = r.data;
+    state.meta.groups = r.meta;
+  },
+  articles: async () => {
+    const r = await api(`/articles?${articleQuery()}`);
+    state.articles = r.data;
+    state.meta.articles = r.meta;
+  },
+  posts: async () => {
+    const q = new URLSearchParams({ page: state.page.posts, limit: 12 });
+    for (const [key, value] of Object.entries(state.postFilters)) if (value) q.set(key, value);
+    const r = await api(`/posts?${q}`);
+    state.posts = r.data;
+    state.meta.posts = r.meta;
+    state.selection.clear();
+  },
+};
+// Taper un numéro de page puis Entrée (ou quitter le champ).
+document.addEventListener('change', (e) => {
+  const jump = e.target.closest?.('[data-page-jump]');
+  if (jump) void goToPage(jump.dataset.pageJump, jump.value);
+});
+document.addEventListener('keydown', (e) => {
+  const jump = e.target.closest?.('[data-page-jump]');
+  if (jump && e.key === 'Enter') {
+    e.preventDefault();
+    jump.blur();
+  }
+});
+/** Aller à une page : seule cette liste est rechargée (pas toute l'admin). */
+async function goToPage(resource, value) {
+  const meta = state.meta[resource];
+  const pages = Math.max(1, meta?.pages || 1);
+  const page = Math.min(Math.max(1, Math.round(Number(value)) || 1), pages);
+  if (meta && page === meta.page && !pageLoading.has(resource)) return;
+  state.page[resource] = page;
+  if (resource === 'logs') return void loadLogs();
+  const loader = PAGE_LOADERS[resource];
+  if (!loader) return void load();
+  const seq = (pageSeq[resource] = (pageSeq[resource] || 0) + 1);
+  pageLoading.add(resource);
+  $(`#${resource}-pagination`).innerHTML = paginationBox(resource);
+  try {
+    await loader();
+    if (seq !== pageSeq[resource]) return;
+    // La liste a rétréci (suppressions, filtre) : on revient à la dernière page.
+    const m = state.meta[resource];
+    if (m && m.pages && m.page > m.pages) {
+      state.page[resource] = m.pages;
+      await loader();
+      if (seq !== pageSeq[resource]) return;
+    }
+  } catch (x) {
+    if (seq === pageSeq[resource]) notice(x.message, 'error');
+  } finally {
+    if (seq === pageSeq[resource]) pageLoading.delete(resource);
+  }
+  if (seq !== pageSeq[resource]) return;
+  render();
+  $(`#${resource}-pagination`)?.closest('.view')?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
 }
 /* ── Langues des groupes ─────────────────────────────────────────────────
  * La langue décide où partent les visuels « engagement ». Ici : combien de
@@ -4023,6 +4280,7 @@ async function loadGroups(profileId, boxSelector = '#post-groups') {
 const ROUTES = {
   '/': { view: 'dashboard' },
   '/profils': { view: 'profiles' },
+  '/profils/tableau-de-bord': { view: 'profiles', profilesTab: 'dashboard' },
   '/groupes': { view: 'groups' },
   '/categories': { view: 'categories' },
   '/sites': { view: 'sites' },
@@ -4052,6 +4310,7 @@ const ROUTES = {
 /** L'adresse d'une rubrique (et, pour les posts, de son onglet). */
 function pathOf(id, tab) {
   if (id === 'articles') return state.articlesTab === 'visuals' ? '/articles/visuels' : '/articles';
+  if (id === 'profiles') return state.profilesTab === 'dashboard' ? '/profils/tableau-de-bord' : '/profils';
   if (id === 'posts') {
     if ((tab || state.queue.tab) === 'all') return '/posts/tous';
     if ((tab || state.queue.tab) === 'repeat') return '/posts/duplication';
@@ -4079,7 +4338,7 @@ function routeFromUrl() {
     return;
   }
   const profile = /^\/profils\/([A-Za-z0-9_-]{6,64})\/?$/.exec(location.pathname);
-  if (profile) {
+  if (profile && profile[1] !== 'tableau-de-bord') {
     view('profile-page', { fromUrl: true });
     void renderProfilePage(profile[1]);
     return;
@@ -4100,6 +4359,10 @@ function routeFromUrl() {
   }
   if (route.view === 'articles') {
     showArticlesTab(route.articlesTab || 'articles', { fromUrl: true });
+    return;
+  }
+  if (route.view === 'profiles') {
+    showProfilesTab(route.profilesTab || 'list', { fromUrl: true });
     return;
   }
   if (route.view === 'posts') {
@@ -4510,6 +4773,9 @@ $('#profile-form').onsubmit = async (e) => {
   d.maxPostsPerJob = +d.maxPostsPerJob;
   if (!d.externalId) delete d.externalId;
   if (!d.defaultImageUrl) delete d.defaultImageUrl;
+  // Vidé : le lien est effacé (à la création, rien à envoyer).
+  d.facebookProfileUrl = d.facebookProfileUrl.trim() || null;
+  if (!id && !d.facebookProfileUrl) delete d.facebookProfileUrl;
   // Champ vidé : null efface la valeur propre au profil et le fait retomber
   // sur le réglage global. Le supprimer laisserait l'ancienne en place.
   for (const k of ['minimumAvailable', 'minimumAvailablePerGroup'])
@@ -5691,11 +5957,9 @@ async function deleteArticlePosts(article, button) {
 }
 
 document.addEventListener('click', async (e) => {
-  if (e.target.dataset.pageResource) {
-    const resource = e.target.dataset.pageResource;
-    state.page[resource] = Number(e.target.dataset.pageValue);
-    if (resource === 'logs') loadLogs();
-    else load();
+  const pageButton = e.target.closest('[data-page-resource]');
+  if (pageButton) {
+    if (!pageButton.disabled) void goToPage(pageButton.dataset.pageResource, pageButton.dataset.pageValue);
     return;
   }
   // Activer (la désactivation passe par la fiche, pour le transfert). Le
@@ -5969,6 +6233,7 @@ document.addEventListener('click', async (e) => {
       'id',
       'name',
       'externalId',
+      'facebookProfileUrl',
       'defaultImageUrl',
       'minPostsPerJob',
       'maxPostsPerJob',
@@ -6288,7 +6553,7 @@ function bulkVisible() {
   const gText = $('#bl-group-search').value.trim().toLowerCase();
   const gCat = $('#bl-group-category').value;
   return {
-    profiles: b.profiles.filter((p) => (!pStatus || p.status === pStatus) && matches(pText, p.name, p.externalId)),
+    profiles: b.profiles.filter((p) => (!pStatus || p.status === pStatus) && matches(pText, p.name, p.externalId, p.facebookName, p.facebookUserId, p.facebookProfileUrl)),
     groups: b.groups.filter((g) => inCategory(gCat, g) && matches(gText, g.name, g.url)),
   };
 }
@@ -6316,7 +6581,9 @@ function renderBulk() {
       .map(
         (p) =>
           `<label class="pick ${p.status === 'INACTIVE' ? 'inactive' : ''}"><input type="checkbox" data-bl-profile="${p.id}" ${b.selProfiles.has(p.id) ? 'checked' : ''}>` +
-          `<span><b>${esc(p.name)}</b><small>${p._count.profileGroups} groupe(s)${p.status === 'INACTIVE' ? ' · inactif' : ''}</small></span></label>`,
+          `<span><b>${esc(p.name)}</b><small>${p.facebookName ? `${esc(p.facebookName)} · ` : ''}${p._count.profileGroups} groupe(s) · ajouté ${esc(new Date(p.createdAt).toLocaleDateString('fr-FR'))}${p.status === 'INACTIVE' ? ' · inactif' : ''}</small></span>` +
+          (facebookHref(p) ? `<a class="pick-fb" href="${esc(facebookHref(p))}" target="_blank" rel="noreferrer" title="Ouvrir son profil Facebook">f ↗</a>` : '') +
+          `</label>`,
       )
       .join('') || '<div class="empty">Aucun profil pour ce filtre.</div>';
   $('#bl-groups').innerHTML =

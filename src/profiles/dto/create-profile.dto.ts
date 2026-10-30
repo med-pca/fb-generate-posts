@@ -6,6 +6,8 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
+  ValidateIf,
   Max,
   Min,
 } from 'class-validator';
@@ -24,6 +26,13 @@ export class CreateProfileDto {
   @IsOptional()
   @IsUrl({ require_tld: false })
   defaultImageUrl?: string;
+
+  /** Le lien de son profil Facebook, pour le reconnaître. Vide = effacé. */
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @Matches(/^https:\/\/([a-z0-9-]+\.)*facebook\.com\//i, { message: 'Lien Facebook attendu (https://www.facebook.com/…)' })
+  facebookProfileUrl?: string | null;
 
   @IsOptional()
   @IsInt()

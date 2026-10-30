@@ -11,8 +11,8 @@ const STATUS_LABELS = {
   error: "Erreur",
 };
 
-const SETTING_FIELDS = ["minDelay", "maxDelay", "maxPerRun"];
-const DEFAULTS = { minDelay: 60, maxDelay: 180, maxPerRun: 20 };
+const SETTING_FIELDS = ["minDelay", "maxDelay", "maxPerRun", "maxPerDay"];
+const DEFAULTS = { minDelay: 60, maxDelay: 180, maxPerRun: 20, maxPerDay: 15, autoWatch: true };
 
 function send(type) {
   return chrome.runtime.sendMessage({ type });
@@ -29,6 +29,7 @@ async function loadSettings() {
   const { settings = {} } = await chrome.storage.local.get("settings");
   const s = { ...DEFAULTS, ...settings };
   for (const f of SETTING_FIELDS) $(f).value = s[f];
+  $("autoWatch").checked = s.autoWatch !== false;
   $("profileId").textContent = s.profileExternalId || "non détecté";
 }
 
@@ -39,6 +40,7 @@ async function saveSettings() {
     minDelay: Math.max(30, Number($("minDelay").value) || DEFAULTS.minDelay),
     maxDelay: Math.max(30, Number($("maxDelay").value) || DEFAULTS.maxDelay),
     maxPerRun: Math.max(1, Number($("maxPerRun").value) || DEFAULTS.maxPerRun),
+    maxPerDay: Math.max(1, Number($("maxPerDay").value) || DEFAULTS.maxPerDay),
   };
   if (settings.maxDelay < settings.minDelay) settings.maxDelay = settings.minDelay;
   await chrome.storage.local.set({ settings });
@@ -119,6 +121,25 @@ async function refresh() {
 // ---------- Actions ----------
 
 $("saveBtn").onclick = saveSettings;
+$("autoWatch").onchange = async (e) => {
+  const { settings: stored = {} } = await chrome.storage.local.get("settings");
+  await chrome.storage.local.set({ settings: { ...stored, autoWatch: e.target.checked } });
+  showInfo(e.target.checked ? "Veille activée : premier passage dans quelques minutes." : "Veille coupée : l’adhésion ne part plus qu’avec « Démarrer ».");
+  showWatch();
+};
+
+// L'état de la veille : prochain passage, adhésions du jour.
+async function showWatch() {
+  const res = await send("watchInfo");
+  if (!res?.ok) return;
+  const w = res.data;
+  const next = w.nextAt ? new Date(w.nextAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—";
+  $("watchInfo").textContent = w.on
+    ? `Prochain passage vers ${next} · ${w.today}/${w.maxPerDay} adhésion(s) aujourd’hui`
+    : `Veille coupée · ${w.today}/${w.maxPerDay} adhésion(s) aujourd’hui`;
+}
+setInterval(showWatch, 15000);
+showWatch();
 $("fetchBtn").onclick = fetchGroups;
 $("startBtn").onclick = async () => {
   const res = await send("start");

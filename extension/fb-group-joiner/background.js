@@ -11,7 +11,17 @@ const DEFAULT_SETTINGS = {
   minDelay: 60, // secondes
   maxDelay: 180, // secondes
   maxPerRun: 20,
+  // Veille : l'extension regarde seule s'il y a des groupes « à rejoindre »
+  // et se lance. Plafond d'adhésions par jour : au-delà, Facebook y voit du spam.
+  autoWatch: true,
+  maxPerDay: 15,
 };
+
+// La veille passe toutes les WATCH_MINUTES ; le premier passage attend un peu
+// après l'ouverture du navigateur (pas d'adhésion dès le démarrage).
+const WATCH_ALARM = "join-watch";
+const WATCH_MINUTES = 15;
+const WATCH_FIRST_MINUTES = 3;
 
 // Statut de l'extension -> JoinStatus côté API
 const API_STATUS = {
@@ -43,7 +53,7 @@ const OWN_TABS_KEY = "ownTabs";
 // ---------- Stockage ----------
 
 async function getState() {
-  const data = await chrome.storage.local.get(["settings", "groups", "running", "joinedThisRun"]);
+  const data = await chrome.storage.local.get(["settings", "groups", "running", "joinedThisRun", "auto"]);
   return {
     settings: {
       ...DEFAULT_SETTINGS,
@@ -55,7 +65,22 @@ async function getState() {
     groups: data.groups || [],
     running: !!data.running,
     joinedThisRun: data.joinedThisRun || 0,
+    // Lancé par la veille (et non par « Démarrer »).
+    auto: !!data.auto,
   };
+}
+
+// ---------- Plafond du jour ----------
+
+function today() {
+  return new Date().toLocaleDateString("en-CA");
+}
+async function joinedToday() {
+  const { joinDay } = await chrome.storage.local.get("joinDay");
+  return joinDay && joinDay.day === today() ? joinDay.count : 0;
+}
+async function countJoin() {
+  await chrome.storage.local.set({ joinDay: { day: today(), count: (await joinedToday()) + 1 } });
 }
 
 async function updateGroup(id, patch) {
@@ -92,7 +117,7 @@ function listProfiles() {
 }
 
 // Remplace la liste locale par les groupes du profil encore à rejoindre.
-async function fetchGroups() {
+async function fetchGroups({ auto = false } = {}) {
   const { running } = await getState();
   if (running) throw new Error("Arrêtez le traitement avant de recharger la liste.");
   const profileExternalId = await syncNstProfile();
@@ -100,7 +125,8 @@ async function fetchGroups() {
 
   const profile = encodeURIComponent(profileExternalId);
   const list = await api(
-    `/join/profiles/${profile}/groups?status=NOT_JOINED,FAILED,${PENDING_STATUSES.join(",")}`,
+    // La veille ne relance pas les échecs : ils repartiraient en boucle.
+    `/join/profiles/${profile}/groups?status=NOT_JOINED,${auto ? "" : "FAILED,"}${PENDING_STATUSES.join(",")}`,
   );
   const staleBefore = Date.now() - CHECK_EVERY_HOURS * 3600 * 1000;
   const groups = list
@@ -425,6 +451,12 @@ async function processNext() {
     await stop("Limite par session atteinte");
     return;
   }
+  // Le plafond du jour vaut aussi pour un lancement à la main.
+  const nextGroup = state.groups.find((g) => g.status === "pending");
+  if (nextGroup && nextGroup.mode !== "check" && (await joinedToday()) >= state.settings.maxPerDay) {
+    await stop(`Plafond du jour atteint (${state.settings.maxPerDay} adhésions) : la veille reprend demain`);
+    return;
+  }
 
   // Un onglet resté d'un traitement interrompu est fermé avant d'en ouvrir un autre.
   await closeLeftoverTabs();
@@ -441,6 +473,7 @@ async function processNext() {
   const countsAsAction =
     next.mode !== "check" && ["joined", "requested", "questions"].includes(result.status);
   const joinedThisRun = state.joinedThisRun + (countsAsAction ? 1 : 0);
+  if (countsAsAction) await countJoin();
   await chrome.storage.local.set({ joinedThisRun });
 
   // Toujours en cours ? (l'utilisateur a pu cliquer sur Stop entre-temps)
@@ -453,13 +486,13 @@ async function processNext() {
   chrome.alarms.create(ALARM_NAME, { when: nextAt });
 }
 
-async function start() {
+async function start({ auto = false } = {}) {
   const { settings } = await getState();
   // La liste a été chargée pour un profil : refuser si le navigateur n'est plus celui-là.
   if (settings.nstApiKey && (await syncNstProfile()) !== settings.profileExternalId) {
     throw new Error("Le profil Nstbrowser a changé : rechargez les groupes.");
   }
-  await chrome.storage.local.set({ running: true, joinedThisRun: 0, lastInfo: "", nextAt: null });
+  await chrome.storage.local.set({ running: true, auto, joinedThisRun: 0, lastInfo: "", nextAt: null });
   processNext();
 }
 
@@ -492,6 +525,59 @@ async function autoRun() {
   }
 }
 
+// ---------- Veille automatique ----------
+
+// Un passage de la veille : si des groupes sont « à rejoindre » pour ce
+// profil (nouveau lien, demande refusée, adhésion perdue…), elle charge la
+// liste et lance l'adhésion, au rythme et dans les plafonds habituels.
+async function watchTick() {
+  const state = await getState();
+  if (!state.settings.autoWatch || state.running) return;
+  if ((await joinedToday()) >= state.settings.maxPerDay) {
+    await chrome.storage.local.set({ lastInfo: `Veille : plafond du jour atteint (${state.settings.maxPerDay}), reprise demain.` });
+    return;
+  }
+  try {
+    // Le profil déjà détecté sert à la question rapide ; la détection
+    // (qui ouvre un onglet) n'est refaite que s'il y a du travail.
+    // Redétecté toutes les 6 h : un profil NSTBrowser cloné emporte l'ancien.
+    const { detectedAt = 0 } = await chrome.storage.local.get("detectedAt");
+    let profile = state.settings.profileExternalId;
+    if (!profile || Date.now() - detectedAt > 6 * 3600 * 1000) {
+      profile = await syncNstProfile();
+      await chrome.storage.local.set({ detectedAt: Date.now() });
+    }
+    const waiting = await api(`/join/profiles/${encodeURIComponent(profile)}/groups?status=NOT_JOINED`).catch(() => null);
+    if (Array.isArray(waiting) && !waiting.length) {
+      await chrome.storage.local.set({ lastWatchAt: Date.now(), lastInfo: "Veille : aucun groupe à rejoindre." });
+      return;
+    }
+    const { total, checks } = await fetchGroups({ auto: true });
+    await chrome.storage.local.set({ lastWatchAt: Date.now() });
+    if (total - checks > 0) {
+      await chrome.storage.local.set({ lastInfo: `Veille : ${total - checks} groupe(s) à rejoindre, lancement.` });
+      await start({ auto: true });
+    } else {
+      await chrome.storage.local.set({ lastInfo: "Veille : aucun groupe à rejoindre." });
+    }
+  } catch (err) {
+    await chrome.storage.local.set({ lastWatchAt: Date.now(), lastInfo: `Veille : ${err.message}` });
+  }
+}
+
+// (Ré)arme la veille selon le réglage. Garder l'alarme existante : la recréer
+// à chaque réveil du worker repousserait sans fin le prochain passage.
+async function armWatch({ soon = false } = {}) {
+  const { settings } = await getState();
+  if (!settings.autoWatch) return chrome.alarms.clear(WATCH_ALARM);
+  const existing = await chrome.alarms.get(WATCH_ALARM);
+  if (existing && !soon) return;
+  chrome.alarms.create(WATCH_ALARM, {
+    delayInMinutes: soon ? WATCH_FIRST_MINUTES + Math.random() * 2 : WATCH_MINUTES,
+    periodInMinutes: WATCH_MINUTES,
+  });
+}
+
 // Réveil du service worker : rien ne peut être « en cours » dans un worker qui
 // vient de naître. Ce qu'un worker arrêté en route a laissé — onglet ouvert,
 // groupe bloqué « en cours » — est réparé ici.
@@ -509,9 +595,22 @@ const recovered = recoverInterrupted().catch(() => 0);
 
 chrome.runtime.onStartup.addListener(autoRun);
 chrome.runtime.onInstalled.addListener(autoRun);
+// Ouverture du navigateur, installation : premier passage dans quelques minutes.
+chrome.runtime.onStartup.addListener(() => armWatch({ soon: true }));
+chrome.runtime.onInstalled.addListener(() => armWatch({ soon: true }));
+armWatch();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) processNext();
+  if (alarm.name === WATCH_ALARM) watchTick();
+});
+// Réglage changé dans le popup : la veille suit.
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.settings) {
+    const before = changes.settings.oldValue?.autoWatch;
+    const after = changes.settings.newValue?.autoWatch;
+    if (before !== after) armWatch({ soon: true });
+  }
 });
 
 // ---------- Messages du popup ----------
@@ -525,8 +624,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     },
     profiles: listProfiles,
     detect: syncNstProfile,
-    start,
+    start: () => start(),
     stop: () => stop(),
+    watchNow: watchTick,
+    watchInfo: async () => {
+      const { settings } = await getState();
+      const alarm = await chrome.alarms.get(WATCH_ALARM);
+      return { on: settings.autoWatch, nextAt: alarm?.scheduledTime ?? null, today: await joinedToday(), maxPerDay: settings.maxPerDay };
+    },
     reset: async () => {
       const { groups } = await getState();
       await chrome.storage.local.set({

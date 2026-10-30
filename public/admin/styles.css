@@ -2657,3 +2657,57 @@ td:last-child .row-actions { justify-content: flex-end; }
 .form-step .two { align-items: end; }
 .form-step .two > label > small { min-height: 2.6em; }
 #objective-tz-now, .obj-tz-now { letter-spacing: 0; text-transform: none; font-weight: 500; }
+
+/* ── Profils : lien Facebook, tableau de bord, pagination ─────────── */
+.fb-line { margin: 4px 0 8px; font-size: 0.8rem; }
+.fb-link { display: inline-flex; align-items: center; gap: 6px; color: #1d4ed8; font-weight: 600; text-decoration: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-link:hover { text-decoration: underline; }
+.fb-mark { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; background: #1877f2; color: #fff; font: 800 11px/1 Arial, sans-serif; }
+.fb-missing { font-size: 0.78rem; color: #b54708; }
+.pick-fb { margin-inline-start: auto; padding: 2px 7px; border-radius: 6px; background: #eef4ff; color: #1877f2; font-size: 0.72rem; font-weight: 800; text-decoration: none; white-space: nowrap; }
+.pick-fb:hover { background: #1877f2; color: #fff; }
+.pick:has(.pick-fb) { align-items: center; }
+
+.pagination { flex-wrap: wrap; }
+.pagination .page-jump { width: 4.2em; padding: 4px 6px; margin: 0 4px; border: 1px solid var(--line); border-radius: 7px; text-align: center; }
+.pagination button[disabled] { opacity: 0.45; cursor: default; }
+
+.pdash-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.pdash-kpi { padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: #fff; display: flex; flex-direction: column; gap: 2px; }
+.pdash-kpi strong { font-size: 1.6rem; line-height: 1.1; }
+.pdash-kpi span { color: var(--ink); font-size: 0.82rem; font-weight: 600; }
+.pdash-kpi small { color: var(--muted); font-size: 0.72rem; }
+.pdash-kpi.good strong { color: #067647; }
+.pdash-kpi.warn strong { color: #b54708; }
+.pdash-kpi.bad strong { color: #d92d20; }
+.pdash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+#pdash > .panel, .pdash-grid > .panel { margin-bottom: 16px; }
+.pdash-stack { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: #eef1f6; margin: 6px 0 12px; }
+.pdash-stack span { display: block; height: 100%; }
+.pdash-legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 14px; font-size: 0.82rem; }
+.pdash-legend li { display: flex; align-items: center; gap: 7px; }
+.pdash-legend li b { margin-inline-start: auto; }
+.pdash-legend li.zero { color: var(--muted); opacity: 0.6; }
+.pdash-legend i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.tone-good, .h-good { background: #12b76a; }
+.tone-info { background: #2563eb; }
+.tone-warn, .h-watch { background: #f79009; }
+.tone-bad, .h-bad { background: #d92d20; }
+.tone-muted, .h-new { background: #98a2b3; }
+.st-off { background: #cbd2dc; }
+.st-inactive { background: #98a2b3; }
+.st-checkpoint { background: #fdb022; }
+.pdash-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.pdash-table th { text-align: start; color: var(--muted); font-weight: 600; font-size: 0.74rem; text-transform: uppercase; letter-spacing: .02em; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.pdash-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.pdash-table tr:last-child td { border-bottom: 0; }
+.pdash-table .bad { color: #d92d20; }
+.pdash-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; color: #fff; font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+.pdash-chip.tone-muted { color: #fff; }
+@media (max-width: 640px) {
+  .pdash-table { display: block; overflow-x: auto; }
+  .pdash-kpi strong { font-size: 1.3rem; }
+}
+.pdash-table .pick-fb { display: inline-block; width: auto; margin-inline-start: 6px; }
+.pdash-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+#pdash .history-h { margin-top: 16px; }

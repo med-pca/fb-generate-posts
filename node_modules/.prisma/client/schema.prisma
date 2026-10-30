@@ -241,6 +241,9 @@ model Profile {
   facebookUserId           String?          @unique @map("facebook_user_id")
   facebookName             String?          @map("facebook_name")
   facebookSeenAt           DateTime?        @map("facebook_seen_at")
+  /// Le lien de son profil Facebook, saisi à la main : le nom NSTBrowser ne
+  /// suit pas un renommage, ce lien sert à le reconnaître.
+  facebookProfileUrl       String?          @map("facebook_profile_url") @db.Text
   /// Son pilotage : marche/arret, fenetre horaire, et ce que son navigateur
   /// rapporte. Absent = jamais pilote (donc a l'arret).
   runner                   ProfileRunner?

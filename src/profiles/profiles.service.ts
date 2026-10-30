@@ -12,6 +12,12 @@ import { ProfileHealthService } from './profile-health.service';
 import { HEALTH_LABELS, healthOf } from './profile-health';
 import { assertMayManage } from '../auth/moderator-guard';
 
+/** Le numéro d'un lien de profil Facebook, quand il en contient un. */
+export function facebookIdOfUrl(url: string | null | undefined) {
+  const m = /[?&]id=(\d{5,20})/.exec(url || '') || /facebook\.com\/(\d{5,20})(?:[/?#]|$)/.exec(url || '');
+  return m ? m[1] : null;
+}
+
 @Injectable()
 export class ProfilesService {
   constructor(
@@ -28,9 +34,19 @@ export class ProfilesService {
         'minPostsPerJob doit être inférieur ou égal à maxPostsPerJob',
       );
     }
-    return this.prisma.profile.create({
-      data: { ...dto, ownerId: owner?.id ?? null },
-    });
+    return this.prisma.profile
+      .create({ data: { ...dto, facebookProfileUrl: dto.facebookProfileUrl?.trim() || null, ownerId: owner?.id ?? null } })
+      .then((p) => this.adoptFacebookId(p));
+  }
+
+  /** Un lien …profile.php?id=<numéro> donne aussi l'identifiant Facebook,
+   * s'il manque encore et qu'aucun autre profil ne le porte. */
+  private async adoptFacebookId<P extends { id: string; facebookUserId: string | null; facebookProfileUrl: string | null }>(p: P): Promise<P> {
+    const id = facebookIdOfUrl(p.facebookProfileUrl);
+    if (!id || p.facebookUserId) return p;
+    const holder = await this.prisma.profile.findUnique({ where: { facebookUserId: id }, select: { id: true } });
+    if (holder) return p;
+    return (await this.prisma.profile.update({ where: { id: p.id }, data: { facebookUserId: id } })) as unknown as P;
   }
 
   /** La liste filtrée et triée, chaque profil avec sa santé (score, niveau,
@@ -47,6 +63,7 @@ export class ProfilesService {
           { externalId: { contains: search, mode: 'insensitive' } },
           { facebookUserId: { contains: search } },
           { facebookName: { contains: search, mode: 'insensitive' } },
+          { facebookProfileUrl: { contains: search, mode: 'insensitive' } },
         ],
       });
     }
@@ -283,7 +300,8 @@ export class ProfilesService {
       );
     }
     await this.reachable(id, acting);
-    return this.prisma.profile.update({ where: { id }, data: dto });
+    const data = dto.facebookProfileUrl !== undefined ? { ...dto, facebookProfileUrl: dto.facebookProfileUrl?.trim() || null } : dto;
+    return this.adoptFacebookId(await this.prisma.profile.update({ where: { id }, data }));
   }
 
   async remove(id: string, acting: CurrentUser | null) {

@@ -48,12 +48,13 @@ export class BulkService {
           profileWhere(scopeOf(acting)),
           // Les modérateurs se gèrent dans leur rubrique.
           { isModerator: false },
-          search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { externalId: { contains: search } }] } : {},
+          search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { externalId: { contains: search } }, { facebookName: { contains: search, mode: 'insensitive' } }] } : {},
         ],
       },
-      orderBy: { name: 'asc' },
+      // Le dernier ajouté en premier : c'est lui qu'on vient lier.
+      orderBy: [{ createdAt: 'desc' }, { name: 'asc' }],
       take: 1000,
-      select: { id: true, name: true, status: true, externalId: true, _count: { select: { profileGroups: true } } },
+      select: { id: true, name: true, status: true, externalId: true, createdAt: true, facebookUserId: true, facebookName: true, facebookProfileUrl: true, _count: { select: { profileGroups: true } } },
     });
   }
 
