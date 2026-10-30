@@ -95,4 +95,4 @@ Après une mise à jour : `./build.sh`, puis réinstaller `dist/fb-group-joiner.
 
 ## Attention
 
-Facebook limite les adhésions automatisées ou trop rapides : le compte peut recevoir des blocages temporaires ou des restrictions. Gardez des délais généreux (≥ 60 s) et un nombre de groupes par session raisonnable.
+Facebook limite les adhésions automatisées ou trop rapides : le compte peut recevoir des blocages temporaires ou des restrictions. Gardez des délais raisonnables (30 à 90 s par défaut ; montez-les si Facebook bloque) et un nombre de groupes par session raisonnable.

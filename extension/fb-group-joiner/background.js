@@ -8,8 +8,9 @@ const CONFIG = self.FGJ_CONFIG;
 // Seuls le profil détecté et les délais sont stockés ; le reste vient de config.js.
 const DEFAULT_SETTINGS = {
   profileExternalId: "",
-  minDelay: 60, // secondes
-  maxDelay: 180, // secondes
+  // Entre deux groupes : 30 s à 1 min 30 (Chrome n'accepte pas moins de 30 s).
+  minDelay: 30, // secondes
+  maxDelay: 90, // secondes
   maxPerRun: 20,
   // Veille : l'extension regarde seule s'il y a des groupes « à rejoindre »
   // et se lance. Plafond d'adhésions par jour : au-delà, Facebook y voit du spam.
@@ -17,10 +18,11 @@ const DEFAULT_SETTINGS = {
   maxPerDay: 15,
 };
 
-// La veille passe toutes les WATCH_MINUTES ; le premier passage attend un peu
-// après l'ouverture du navigateur (pas d'adhésion dès le démarrage).
+// La veille passe toutes les WATCH_MINUTES (une simple question à l'API tant
+// qu'il n'y a rien à rejoindre) ; le premier passage attend un peu après
+// l'ouverture du navigateur (pas d'adhésion dès le démarrage).
 const WATCH_ALARM = "join-watch";
-const WATCH_MINUTES = 15;
+const WATCH_MINUTES = 5;
 const WATCH_FIRST_MINUTES = 3;
 
 // Statut de l'extension -> JoinStatus côté API
@@ -54,6 +56,12 @@ const OWN_TABS_KEY = "ownTabs";
 
 async function getState() {
   const data = await chrome.storage.local.get(["settings", "groups", "running", "joinedThisRun", "auto"]);
+  // Les anciens délais par défaut (60–180 s), jamais changés à la main,
+  // suivent les nouveaux ; un réglage choisi exprès est gardé.
+  if (data.settings?.minDelay === 60 && data.settings?.maxDelay === 180) {
+    data.settings = { ...data.settings, minDelay: DEFAULT_SETTINGS.minDelay, maxDelay: DEFAULT_SETTINGS.maxDelay };
+    await chrome.storage.local.set({ settings: data.settings });
+  }
   return {
     settings: {
       ...DEFAULT_SETTINGS,
@@ -617,7 +625,18 @@ chrome.storage.onChanged.addListener((changes) => {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const handlers = {
-    fetch: fetchGroups,
+    // « Recharger » avec la veille active : des groupes à rejoindre partent
+    // tout de suite, au lieu d'attendre le prochain passage de la veille.
+    fetch: async () => {
+      const res = await fetchGroups();
+      const { settings } = await getState();
+      const joins = res.total - res.checks;
+      if (settings.autoWatch && joins > 0 && (await joinedToday()) < settings.maxPerDay) {
+        await start({ auto: true });
+        return { ...res, started: true };
+      }
+      return res;
+    },
     status: async () => {
       const { settings, running } = await getState();
       return { profileExternalId: settings.profileExternalId, running };

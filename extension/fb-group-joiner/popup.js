@@ -12,7 +12,7 @@ const STATUS_LABELS = {
 };
 
 const SETTING_FIELDS = ["minDelay", "maxDelay", "maxPerRun", "maxPerDay"];
-const DEFAULTS = { minDelay: 60, maxDelay: 180, maxPerRun: 20, maxPerDay: 15, autoWatch: true };
+const DEFAULTS = { minDelay: 30, maxDelay: 90, maxPerRun: 20, maxPerDay: 15, autoWatch: true };
 
 function send(type) {
   return chrome.runtime.sendMessage({ type });
@@ -55,7 +55,7 @@ async function fetchGroups() {
   await loadSettings();
   if (!res.ok) return showInfo(res.error, true);
   const checks = res.data.checks || 0;
-  showInfo(`${res.data.total - checks} groupe(s) à rejoindre, ${checks} demande(s) à vérifier.`);
+  showInfo(`${res.data.total - checks} groupe(s) à rejoindre, ${checks} demande(s) à vérifier.${res.data.started ? " Lancement (veille active)." : ""}`);
 }
 
 // ---------- Affichage ----------
