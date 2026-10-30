@@ -55,7 +55,7 @@
             <button class="nav-head" type="button" aria-expanded="true">Contenu<i>▾</i></button>
             <div class="nav-items">
               <button class="nav" data-view="articles"><svg class="ico" aria-hidden="true"><use href="#i-file"/></svg><span>Articles</span></button>
-              <button class="nav" data-view="toparticles"><svg class="ico" aria-hidden="true"><use href="#i-flame"/></svg><span>Top 10 articles</span></button>
+              <button class="nav" data-view="toparticles" id="nav-toparticles"><svg class="ico" aria-hidden="true"><use href="#i-flame"/></svg><span>Top 10 articles</span></button>
               <button class="nav" data-view="sites"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg><span>Sites</span></button>
               <button class="nav" data-view="categories"><svg class="ico" aria-hidden="true"><use href="#i-tag"/></svg><span>Catégories</span></button>
             </div>
@@ -1129,9 +1129,29 @@
              (Histats Radar), 10 par gestionnaire et par jour, pour s'inspirer. -->
         <section id="toparticles" class="view">
           <div class="toolbar">
-            <p>Les articles de nos <b>concurrents</b> les plus vus sur les <b>7 derniers jours</b> (Histats Radar), pour s’inspirer. Chaque gestionnaire a <b>ses 10 articles</b>, différents de ceux des autres, et une <b>nouvelle liste chaque jour</b>.</p>
+            <p>Les articles de nos <b>concurrents</b> les plus vus sur les <b>7 derniers jours</b> (Histats Radar), pour s’inspirer. Chaque gestionnaire a <b>ses <span id="top-n">10</span> articles</b>, différents de ceux des autres, et une <b>nouvelle liste chaque jour</b>.</p>
             <button class="secondary admin-only" type="button" id="top-regenerate" title="Refaire la distribution d’aujourd’hui (par exemple après avoir ajouté des concurrents dans Radar)">↻ Refaire la liste du jour</button>
           </div>
+          <details class="panel pp-panel admin-only top-settings" id="top-settings">
+            <summary>⚙ Réglages : nombre d’articles et gestionnaires</summary>
+            <form id="top-settings-form">
+              <label class="top-perUser">Articles par gestionnaire et par jour
+                <span>
+                  <input type="number" name="perUser" min="1" max="50" step="1" required />
+                  <button class="link" type="button" data-top-n="10">10</button>
+                  <button class="link" type="button" data-top-n="20">20</button>
+                </span>
+              </label>
+              <p class="form-help">Monter le nombre complète la liste d’aujourd’hui ; le baisser n’affiche que les premiers.</p>
+              <fieldset>
+                <legend>Gestionnaires qui voient le menu et reçoivent leur liste</legend>
+                <div class="top-managers" id="top-managers"></div>
+                <button class="link" type="button" id="top-all">Tout cocher</button>
+                <button class="link" type="button" id="top-none">Tout décocher</button>
+              </fieldset>
+              <button class="primary" type="submit">Enregistrer</button>
+            </form>
+          </details>
           <div id="top-lists"></div>
         </section>
 

@@ -1,4 +1,4 @@
-import { Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Put, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { AdminRoleGuard } from '../auth/admin-role.guard';
@@ -16,6 +16,20 @@ export class TopArticlesController {
   @ApiOperation({ summary: 'Les 10 articles concurrents du jour (Radar) : les siens, ou ceux de tous pour un admin' })
   list(@ActingUser() acting: CurrentUser | null) {
     return this.top.list(acting);
+  }
+
+  @Get('settings')
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Réglages : nombre d’articles par jour, gestionnaires qui y ont accès (admin)' })
+  settings() {
+    return this.top.settings();
+  }
+
+  @Put('settings')
+  @UseGuards(AdminRoleGuard)
+  @ApiOperation({ summary: 'Régler le nombre d’articles par jour et les gestionnaires qui y ont accès (admin)' })
+  updateSettings(@Body() body: { perUser?: number; enabledUserIds?: string[] }) {
+    return this.top.updateSettings(body ?? {});
   }
 
   @Post('regenerate')

@@ -13,6 +13,7 @@ const user = (over: Partial<User> = {}): User => ({
   status: RecordStatus.ACTIVE,
   automationKey: 'cle',
   nstApiKey: null,
+  topArticles: true,
   createdAt: new Date(),
   updatedAt: new Date(),
   ...over,

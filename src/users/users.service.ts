@@ -28,6 +28,8 @@ export function publicUser(user: User) {
     hasAutomationKey: Boolean(user.automationKey),
     hasNstApiKey: Boolean(user.nstApiKey),
     nstApiKeyHint: user.nstApiKey ? `…${user.nstApiKey.slice(-4)}` : null,
+    // Le menu « Top 10 articles » (un admin l'a toujours).
+    topArticles: user.role === 'ADMIN' || user.topArticles,
     createdAt: user.createdAt,
   };
 }

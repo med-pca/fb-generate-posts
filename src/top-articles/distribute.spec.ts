@@ -29,6 +29,13 @@ describe('distribute — Top 10 articles par gestionnaire', () => {
     expect(urls(distribute([art(1)], ['a'], past, '2026-10-30').get('a'))).toEqual([art(1).url]);
   });
 
+  it('le nombre se règle (20), et par gestionnaire pour compléter une liste', () => {
+    expect(distribute(pool, ['a'], [], '2026-10-30', new Set(), 20).get('a')).toHaveLength(20);
+    const out = distribute(pool, ['a', 'b'], [], '2026-10-30', new Set(), new Map([['a', 10], ['b', 0]]));
+    expect(out.get('a')).toHaveLength(10);
+    expect(out.get('b')).toHaveLength(0);
+  });
+
   it('ce qui est déjà pris aujourd’hui reste aux autres', () => {
     const out = distribute(pool, ['d'], [], '2026-10-30', new Set([art(1).url, art(2).url]));
     expect(urls(out.get('d'))[0]).toBe(art(3).url);

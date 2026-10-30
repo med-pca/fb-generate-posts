@@ -155,6 +155,9 @@ model User {
   /// ressources deviennent sans propriétaire, donc réservées aux ADMIN, qui
   /// peuvent les réattribuer.
   sessions      Session[]
+  /// Voit le menu « Top 10 articles » et reçoit sa liste du jour (réglé par
+  /// l'admin, gestionnaires seulement).
+  topArticles   Boolean          @default(true) @map("top_articles")
   topPicks      TopArticlePick[]
   profiles      Profile[]
   groups        Group[]
@@ -621,6 +624,8 @@ model SourceIngest {
 
 model AutomationSetting {
   id                         String   @id @default("global")
+  /// « Top 10 articles » : combien d'articles par gestionnaire et par jour.
+  topArticlesPerUser         Int      @default(10) @map("top_articles_per_user")
   autoReplenishEnabled       Boolean  @default(true) @map("auto_replenish_enabled")
   /// Coupe-circuit : a false, aucun profil ne publie, quel que soit son mode.
   /// Un seul interrupteur a couper quand quelque chose tourne mal.

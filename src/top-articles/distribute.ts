@@ -24,6 +24,8 @@ const addDays = (day: string, n: number) => {
  *     relâchée seulement si le top ne suffit plus.
  * `taken` : ce qui est déjà donné aujourd'hui (un gestionnaire ajouté en
  * cours de journée reçoit sa liste sans toucher à celles des autres).
+ * `perUser` : combien en donner à chacun — un nombre, ou par gestionnaire
+ * (ce qui lui manque quand l'admin passe de 10 à 20 en cours de journée).
  */
 export function distribute(
   pool: RadarArticle[],
@@ -31,8 +33,9 @@ export function distribute(
   past: PastPick[],
   today: string,
   taken: Set<string> = new Set(),
-  perUser = PER_USER,
+  perUser: number | Map<string, number> = PER_USER,
 ): Map<string, RadarArticle[]> {
+  const want = (userId: string) => (typeof perUser === 'number' ? perUser : perUser.get(userId) ?? 0);
   const out = new Map(userIds.map((id) => [id, [] as RadarArticle[]]));
   const used = new Set(taken);
   const seenBy = new Map<string, Set<string>>();
@@ -58,7 +61,7 @@ export function distribute(
       let progressed = false;
       for (const userId of order) {
         const list = out.get(userId)!;
-        if (list.length >= perUser) continue;
+        if (list.length >= want(userId)) continue;
         const a = pool.find((x) => allowed(userId, x, strict));
         if (!a) continue;
         list.push(a);

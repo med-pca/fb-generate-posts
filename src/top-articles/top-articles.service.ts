@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,6 +8,7 @@ import { OTHERS_COOLDOWN_DAYS, distribute, type RadarArticle } from './distribut
 const TIMEZONE = 'Europe/Paris';
 /** Combien d'articles du top Radar on considère (les meilleurs d'abord). */
 const POOL_SIZE = 500;
+export const MAX_PER_USER = 50;
 
 /** Le « Top 10 articles » : les articles concurrents les plus vus sur 7 jours
  * (Histats Radar), 10 par gestionnaire et par jour, pour s'inspirer. */
@@ -23,15 +24,21 @@ export class TopArticlesService {
     return new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
   }
 
-  /** Un gestionnaire : SA liste du jour. Un admin : celles de tous. */
+  /** Un gestionnaire : SA liste du jour (s'il y a accès). Un admin : celles
+   * des gestionnaires qui y ont accès. */
   async list(acting: CurrentUser | null, day = this.today()) {
+    const admin = !acting || acting.role === Role.ADMIN;
+    if (!admin) {
+      const me = await this.prisma.user.findUnique({ where: { id: acting.id }, select: { topArticles: true } });
+      if (!me?.topArticles) throw new ForbiddenException('« Top 10 articles » n’est pas activé pour votre compte');
+    }
     const error = await this.ensure(day).then(
       () => null,
       (e: unknown) => (e instanceof Error ? e.message : String(e)),
     );
-    const admin = !acting || acting.role === Role.ADMIN;
+    const perUser = await this.perUser();
     const picks = await this.prisma.topArticlePick.findMany({
-      where: { day, ...(admin ? {} : { userId: acting.id }) },
+      where: { day, rank: { lte: perUser }, user: { topArticles: true, role: Role.MANAGER }, ...(admin ? {} : { userId: acting.id }) },
       orderBy: [{ userId: 'asc' }, { rank: 'asc' }],
       include: { user: { select: { id: true, username: true } } },
     });
@@ -43,6 +50,7 @@ export class TopArticlesService {
     return {
       day,
       admin,
+      perUser,
       error,
       lists: [...byUser.values()].map(({ user, items }) => ({
         user,
@@ -59,23 +67,64 @@ export class TopArticlesService {
     return this.list(null, day);
   }
 
-  /** Chaque gestionnaire actif a sa liste du jour : ceux qui n'en ont pas
-   * encore la reçoivent, sans toucher aux listes déjà données. */
+  /** Les réglages (admin) : le nombre d'articles par jour, et les
+   * gestionnaires qui voient le menu et reçoivent une liste. */
+  async settings() {
+    const [perUser, managers] = await Promise.all([
+      this.perUser(),
+      this.prisma.user.findMany({
+        where: { role: Role.MANAGER },
+        orderBy: { username: 'asc' },
+        select: { id: true, username: true, status: true, topArticles: true },
+      }),
+    ]);
+    return { perUser, max: MAX_PER_USER, managers: managers.map((m) => ({ id: m.id, username: m.username, active: m.status === 'ACTIVE', enabled: m.topArticles })) };
+  }
+
+  async updateSettings(dto: { perUser?: number; enabledUserIds?: string[] }) {
+    if (dto.perUser !== undefined) {
+      const n = Number(dto.perUser);
+      if (!Number.isInteger(n) || n < 1 || n > MAX_PER_USER) throw new BadRequestException(`Le nombre d’articles va de 1 à ${MAX_PER_USER}`);
+      await this.prisma.automationSetting.upsert({ where: { id: 'global' }, create: { id: 'global', topArticlesPerUser: n }, update: { topArticlesPerUser: n } });
+    }
+    if (dto.enabledUserIds) {
+      const ids = [...new Set(dto.enabledUserIds.filter((x) => typeof x === 'string'))];
+      await this.prisma.$transaction([
+        this.prisma.user.updateMany({ where: { role: Role.MANAGER, id: { in: ids } }, data: { topArticles: true } }),
+        this.prisma.user.updateMany({ where: { role: Role.MANAGER, id: { notIn: ids } }, data: { topArticles: false } }),
+      ]);
+    }
+    return this.settings();
+  }
+
+  private async perUser() {
+    const s = await this.prisma.automationSetting.findUnique({ where: { id: 'global' }, select: { topArticlesPerUser: true } }).catch(() => null);
+    return Math.min(MAX_PER_USER, Math.max(1, s?.topArticlesPerUser ?? 10));
+  }
+
+  /** Chaque gestionnaire qui y a accès a sa liste du jour, complète : ceux
+   * qui n'en ont pas (ou pas assez, si l'admin a monté le nombre) la
+   * reçoivent, sans toucher aux articles déjà donnés. */
   private async ensure(day: string) {
+    const perUser = await this.perUser();
     const managers = await this.prisma.user.findMany({
-      where: { role: Role.MANAGER, status: 'ACTIVE' },
+      where: { role: Role.MANAGER, status: 'ACTIVE', topArticles: true },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
-    const served = new Set((await this.prisma.topArticlePick.findMany({ where: { day }, distinct: ['userId'], select: { userId: true } })).map((p) => p.userId));
-    if (managers.every((m) => served.has(m.id))) return;
+    const count = async (db: Pick<PrismaService, 'topArticlePick'>) =>
+      new Map((await db.topArticlePick.groupBy({ by: ['userId'], where: { day }, _count: { _all: true } })).map((g) => [g.userId, g._count._all]));
+    const served = await count(this.prisma);
+    if (managers.every((m) => (served.get(m.id) ?? 0) >= perUser)) return;
     const pool = await this.fetchTop();
     await this.prisma.$transaction(async (tx) => {
       // Deux pages ouvertes en même temps ne distribuent pas deux fois.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('top_article_picks'))`;
       const today = await tx.topArticlePick.findMany({ where: { day }, select: { userId: true, url: true } });
-      const done = new Set(today.map((p) => p.userId));
-      const missing = managers.map((m) => m.id).filter((id) => !done.has(id));
+      const have = new Map<string, number>();
+      for (const p of today) have.set(p.userId, (have.get(p.userId) ?? 0) + 1);
+      const need = new Map(managers.map((m) => [m.id, Math.max(0, perUser - (have.get(m.id) ?? 0))]));
+      const missing = managers.map((m) => m.id).filter((id) => (need.get(id) ?? 0) > 0);
       if (!missing.length) return;
       const since = new Date(`${day}T00:00:00Z`);
       since.setUTCDate(since.getUTCDate() - OTHERS_COOLDOWN_DAYS - 1);
@@ -83,10 +132,10 @@ export class TopArticlesService {
         where: { day: { lt: day }, OR: [{ userId: { in: missing } }, { createdAt: { gte: since } }] },
         select: { userId: true, url: true, day: true },
       });
-      const out = distribute(pool, missing, past, day, new Set(today.map((p) => p.url)));
+      const out = distribute(pool, missing, past, day, new Set(today.map((p) => p.url)), need);
       await tx.topArticlePick.createMany({
         data: [...out].flatMap(([userId, items]) =>
-          items.map((a, i) => ({ day, userId, rank: i + 1, url: a.url, title: a.title, image: a.image, domain: a.domain, views: a.views, viral: a.viral })),
+          items.map((a, i) => ({ day, userId, rank: (have.get(userId) ?? 0) + i + 1, url: a.url, title: a.title, image: a.image, domain: a.domain, views: a.views, viral: a.viral })),
         ),
         skipDuplicates: true,
       });

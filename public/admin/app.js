@@ -663,6 +663,8 @@ async function load() {
     state.categories = categories;
     if (languages) setLanguageNames(languages);
     state.me = me;
+    // Le menu « Top 10 articles » : seulement pour les gestionnaires choisis par l'admin.
+    $('#nav-toparticles').hidden = !me.topArticles;
     // Les comptes ne regardent que les administrateurs : les demander en
     // gestionnaire rendrait un 403 et ferait échouer tout le chargement.
     state.users = me.role === 'ADMIN' ? await api('/users') : [];
@@ -4378,6 +4380,7 @@ window.addEventListener('popstate', routeFromUrl);
 function view(id, { fromUrl = false } = {}) {
   // Un gestionnaire n'a pas la rubrique Comptes.
   if (id === 'users' && state.me && state.me.role !== 'ADMIN') id = 'dashboard';
+  if (id === 'toparticles' && state.me && !state.me.topArticles) id = 'dashboard';
   $$('.view').forEach((x) => x.classList.toggle('active', x.id === id));
   $$('.nav').forEach((x) =>
     x.classList.toggle('active', x.dataset.view === id),
@@ -7597,10 +7600,32 @@ async function loadTopArticles() {
     return;
   }
   renderTopArticles(d);
+  if (isAdminUser()) void loadTopSettings();
+}
+
+async function loadTopSettings() {
+  let s;
+  try {
+    s = await api('/top-articles/settings');
+  } catch (x) {
+    notice(x.message, 'error');
+    return;
+  }
+  const f = $('#top-settings-form');
+  f.elements.perUser.value = s.perUser;
+  f.elements.perUser.max = s.max;
+  $('#top-managers').innerHTML =
+    s.managers
+      .map(
+        (m) =>
+          `<label><input type="checkbox" name="enabledUserIds" value="${esc(m.id)}" ${m.enabled ? 'checked' : ''}>${esc(m.username)}${m.active ? '' : ' <small>(désactivé)</small>'}</label>`,
+      )
+      .join('') || '<span>Aucun gestionnaire.</span>';
 }
 
 function renderTopArticles(d) {
   const nf = new Intl.NumberFormat('fr-FR');
+  $('#top-n').textContent = d.perUser ?? 10;
   const card = (a) =>
     `<a class="top-card" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">` +
     `<span class="top-rank">${a.rank}</span>` +
@@ -7629,6 +7654,30 @@ $('#top-regenerate').onclick = async () => {
   try {
     renderTopArticles(await api('/top-articles/regenerate', { method: 'POST' }));
     notice('Liste du jour refaite');
+  } catch (x) {
+    notice(x.message, 'error');
+  }
+};
+
+$('#top-settings-form').addEventListener('click', (e) => {
+  const n = e.target.closest('[data-top-n]');
+  if (n) e.currentTarget.elements.perUser.value = n.dataset.topN;
+});
+$('#top-all').onclick = () => $$('#top-managers input').forEach((x) => (x.checked = true));
+$('#top-none').onclick = () => $$('#top-managers input').forEach((x) => (x.checked = false));
+$('#top-settings-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.currentTarget;
+  try {
+    await api('/top-articles/settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        perUser: Number(f.elements.perUser.value),
+        enabledUserIds: $$('#top-managers input:checked').map((x) => x.value),
+      }),
+    });
+    notice('Réglages du Top articles enregistrés');
+    await loadTopArticles();
   } catch (x) {
     notice(x.message, 'error');
   }
