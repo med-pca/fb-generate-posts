@@ -346,6 +346,23 @@ export class JobsService {
     });
 
     if (!job) return { job: null, posts: [] };
+    // Chaque publication compte pour UNE campagne : celle pour laquelle elle
+    // part. Sans cela, deux campagnes du même site avançaient ensemble.
+    if (this.campaigns) {
+      try {
+        const owners = await this.campaigns.assign({ id: job.profile.id, ownerId: job.profile.ownerId }, job.items.map((i) => i.postTargetId));
+        const byCampaign = new Map<string, string[]>();
+        for (const item of job.items) {
+          const campaignId = owners.get(item.postTargetId);
+          if (campaignId) byCampaign.set(campaignId, [...(byCampaign.get(campaignId) ?? []), item.id]);
+        }
+        for (const [campaignId, ids] of byCampaign) {
+          await this.prisma.publicationJobItem.updateMany({ where: { id: { in: ids } }, data: { campaignId } });
+        }
+      } catch {
+        // Sans campagne, le lot part quand même : il ne compte pour aucune.
+      }
+    }
     // En retard sur l'objectif : l'attente après chaque post est raccourcie.
     const gap = await this.pacedGap(job.profile.ownerId);
     return {

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
@@ -19,11 +19,13 @@ type CampaignRow = Prisma.CampaignGetPayload<{ include: typeof CAMPAIGN_INCLUDE 
 /** Les campagnes : un objectif de publications par site (et, au choix, par
  * catégorie, groupes, profils, articles), par jour, semaine ou mois.
  *
- * Une publication compte pour une campagne quand son article vient du site,
- * qu'elle part dans un de ses groupes (ou de sa catégorie), par un de ses
- * profils, et que c'est un de ses articles — chaque filtre absent ne
- * restreint rien. Une campagne en retard fait passer ses articles devant
- * dans la file (JobsService). */
+ * Une publication est DANS le périmètre d'une campagne quand son article
+ * vient du site, qu'elle part dans un de ses groupes (ou de sa catégorie),
+ * par un de ses profils, et que c'est un de ses articles — chaque filtre
+ * absent ne restreint rien. Elle ne COMPTE que pour une seule campagne :
+ * celle fixée à la réservation (`assign`), sinon deux campagnes du même
+ * site avançaient ensemble sur les mêmes publications. Une campagne en
+ * retard fait passer ses articles devant dans la file (JobsService). */
 /** Pourquoi un profil se repose : ce qui le retient, sinon les campagnes
  * fermées de son compte, sinon l'absence de campagne. */
 function restReason(blocking: string[], closed: string[]) {
@@ -33,8 +35,13 @@ function restReason(blocking: string[], closed: string[]) {
 }
 
 @Injectable()
-export class CampaignsService {
+export class CampaignsService implements OnModuleInit {
+  private readonly logger = new Logger(CampaignsService.name);
   constructor(private readonly prisma: PrismaService) {}
+
+  onModuleInit() {
+    void this.backfill().catch((e) => this.logger.warn(`Rattachement des publications aux campagnes : ${e instanceof Error ? e.message : e}`));
+  }
 
   /* ── Lire ────────────────────────────────────────────────────────────── */
 
@@ -271,7 +278,7 @@ export class CampaignsService {
         const from = c.startsAt > day ? c.startsAt : day;
         const items = await this.prisma.publicationJobItem.findMany({
           where: {
-            postTarget: this.targetWhere(c),
+            campaignId: c.id,
             OR: [{ status: TargetStatus.PUBLISHED, publishedAt: { gte: from } }, { status: { in: [TargetStatus.CLAIMED, TargetStatus.CONSUMED] }, job: { status: 'CLAIMED' } }],
           },
           select: { job: { select: { profileId: true } } },
@@ -295,6 +302,7 @@ export class CampaignsService {
         closed,
         ownerId: c.ownerId,
         ownerIsAdmin: !c.ownerId || c.owner?.role === 'ADMIN',
+        priority: c.priority,
         managed,
         // Avec un pool, seuls ses profils actifs publient pour elle.
         profileIds: pool ? pool.active.map((p) => p.id) : c.profiles.map((p) => p.profile.id),
@@ -397,6 +405,62 @@ export class CampaignsService {
     };
   }
 
+  /** La campagne pour laquelle chaque cible réservée part : une seule par
+   * publication. D'abord celles qui donnent du travail à ce profil (ouvertes,
+   * dans sa liste ou son pool), la plus en retard en tête, puis par
+   * priorité ; à défaut (mode Marche, campagne fermée), la première active
+   * dont le périmètre couvre la cible. Rien ne couvre la cible : elle ne
+   * compte pour aucune campagne. */
+  async assign(profile: { id: string; ownerId: string | null }, targetIds: string[], now = new Date()) {
+    const out = new Map<string, string>();
+    if (!targetIds.length) return out;
+    const plan = await this.dayPlan(now);
+    const rank = new Map((await this.behind(now)).map((b, i) => [b.id, i]));
+    const works = (c: DayPlan['campaigns'][number]) =>
+      !c.closed && (c.ownerIsAdmin || c.ownerId === profile.ownerId) && (!c.profileIds.length || c.profileIds.includes(profile.id));
+    const order = (a: DayPlan['campaigns'][number], b: DayPlan['campaigns'][number]) =>
+      (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity) || (b.priority ?? 0) - (a.priority ?? 0);
+    const first = plan.campaigns.filter(works).sort(order);
+    const rest = plan.campaigns.filter((c) => !works(c)).sort(order);
+    let left = [...new Set(targetIds)];
+    for (const c of [...first, ...rest]) {
+      if (!left.length) break;
+      const hit = await this.prisma.postTarget.findMany({ where: { AND: [{ id: { in: left } }, c.where] }, select: { id: true } });
+      for (const t of hit) out.set(t.id, c.id);
+      left = left.filter((id) => !out.has(id));
+    }
+    return out;
+  }
+
+  /** Une fois : les publications d'avant le rattachement (sans campagne)
+   * vont à la plus ancienne campagne qui les couvre et était lancée — elles
+   * ne comptent plus pour deux campagnes à la fois. */
+  async backfill() {
+    const done = await this.prisma.activityLog.findFirst({ where: { eventType: 'CAMPAIGN_ITEMS_BACKFILL' }, select: { id: true } });
+    if (done) return;
+    const since = new Date(Date.now() - 40 * 86_400_000);
+    let total = 0;
+    for (const c of await this.prisma.campaign.findMany({ include: CAMPAIGN_INCLUDE, orderBy: [{ startsAt: 'asc' }, { createdAt: 'asc' }] })) {
+      const profileIds = c.profiles.map((p) => p.profile.id);
+      const from = c.startsAt > since ? c.startsAt : since;
+      const r = await this.prisma.publicationJobItem.updateMany({
+        where: {
+          campaignId: null,
+          createdAt: { gte: from },
+          postTarget: this.targetWhere(c),
+          ...(profileIds.length ? { job: { profileId: { in: profileIds } } } : {}),
+        },
+        data: { campaignId: c.id },
+      });
+      total += r.count;
+    }
+    await this.prisma.activityLog.create({
+      data: { eventType: 'CAMPAIGN_ITEMS_BACKFILL', message: `${total} publication(s) rattachée(s) à leur campagne`, metadata: { total } },
+    });
+    this.behindCache = null;
+    this.dayCache = null;
+  }
+
   /** Les équipes connues : les groupes NSTBrowser d'origine des profils
    * visibles (remontés par l'agent local), avec leur effectif. */
   async teams(acting: CurrentUser | null) {
@@ -480,14 +544,15 @@ export class CampaignsService {
     return null;
   }
 
+  /** SES publications : celles réservées pour elle (`assign`), pas toutes
+   * celles de son périmètre. */
   private async publications(c: CampaignRow, from: Date, to: Date) {
-    const profileIds = c.profiles.map((p) => p.profile.id);
     const items = await this.prisma.publicationJobItem.findMany({
       where: {
+        campaignId: c.id,
         status: TargetStatus.PUBLISHED,
         publishedAt: { gte: from, lt: to },
-        postTarget: { ...this.targetWhere(c), approvalPendingSince: null },
-        ...(profileIds.length ? { job: { profileId: { in: profileIds } } } : {}),
+        postTarget: { approvalPendingSince: null },
       },
       select: { publishedAt: true, job: { select: { profileId: true } }, postTarget: { select: { groupId: true } }, post: { select: { articleId: true } } },
     });
@@ -614,6 +679,7 @@ export type DayPlan = {
     closed: string | null;
     ownerId: string | null;
     ownerIsAdmin: boolean;
+    priority?: number;
     /** Rotation ou plafond par profil : elle décide qui travaille. */
     managed: boolean;
     profileIds: string[];

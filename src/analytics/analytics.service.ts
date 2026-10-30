@@ -1,11 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { jobWhere, ownedWhere, scopeOf } from '../auth/scope';
 import { startOfLocalDay } from '../insights/insights.service';
 import { localClock } from '../runners/window';
-import { CampaignsService } from '../campaigns/campaigns.service';
 
 export type AnalyticsFilters = {
   from?: string;
@@ -31,10 +30,7 @@ const MAX_ROWS = 200_000;
  * gestionnaire ne voit que les publications de ses profils. */
 @Injectable()
 export class AnalyticsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    @Optional() private readonly campaigns?: CampaignsService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async report(f: AnalyticsFilters, acting: CurrentUser | null) {
     const tz = await this.timezone(f.tz);
@@ -213,17 +209,11 @@ export class AnalyticsService {
     if (f.campaignId) {
       const c = await this.prisma.campaign.findFirst({
         where: { id: f.campaignId, ...ownedWhere(scopeOf(acting)) },
-        include: {
-          site: { select: { id: true, name: true, categoryId: true } },
-          category: { select: { id: true, name: true } },
-          groups: { select: { group: { select: { id: true, name: true } } } },
-          profiles: { select: { profile: { select: { id: true, name: true } } } },
-          articles: { select: { article: { select: { id: true, title: true } } } },
-        },
+        select: { id: true },
       });
-      if (!c || !this.campaigns) throw new NotFoundException('Campagne introuvable');
-      and.push({ postTarget: this.campaigns.targetWhere(c) });
-      if (c.profiles.length) and.push({ job: { profileId: { in: c.profiles.map((p) => p.profile.id) } } });
+      if (!c) throw new NotFoundException('Campagne introuvable');
+      // Ses publications : celles réservées pour elle, comme sur sa carte.
+      and.push({ campaignId: c.id });
     }
     return and;
   }

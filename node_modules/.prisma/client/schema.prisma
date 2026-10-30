@@ -823,10 +823,16 @@ model PublicationJobItem {
   commentedAt       DateTime?      @map("commented_at")
   linkUpdatedAt     DateTime?      @map("link_updated_at")
   error             String?        @db.Text
+  /// La campagne pour laquelle cette publication part (fixée à la
+  /// réservation). Chaque publication compte pour UNE campagne : deux
+  /// campagnes sur le même site ne se partagent plus le même compteur.
+  campaignId        String?        @map("campaign_id")
+  campaign          Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
   @@unique([jobId, postId])
+  @@index([campaignId, status, publishedAt])
   @@map("publication_job_items")
 }
 
@@ -1082,44 +1088,45 @@ model AgentHeartbeat {
 /// (avancement, statistiques) et priorise : en retard, ses articles passent
 /// devant dans la file. Elle remplace l'objectif du jour global.
 model Campaign {
-  id                  String            @id @default(cuid())
+  id                  String               @id @default(cuid())
   name                String
-  ownerId             String?           @map("owner_id")
-  owner               User?             @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  siteId              String            @map("site_id")
-  site                ContentSource     @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  categoryId          String?           @map("category_id")
-  category            Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  ownerId             String?              @map("owner_id")
+  owner               User?                @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  siteId              String               @map("site_id")
+  site                ContentSource        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  categoryId          String?              @map("category_id")
+  category            Category?            @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   /// ACTIVE, PAUSED ou ENDED.
-  status              String            @default("ACTIVE")
+  status              String               @default("ACTIVE")
   /// `day`, `week` ou `month` : la période de l'objectif.
-  period              String            @default("day")
+  period              String               @default("day")
   target              Int
-  startsAt            DateTime          @default(now()) @map("starts_at")
-  endsAt              DateTime?         @map("ends_at")
-  timezone            String            @default("Europe/Paris")
+  startsAt            DateTime             @default(now()) @map("starts_at")
+  endsAt              DateTime?            @map("ends_at")
+  timezone            String               @default("Europe/Paris")
   /// La plage horaire de publication de chaque jour (minutes).
-  windowStart         Int               @default(480) @map("window_start")
-  windowEnd           Int               @default(1320) @map("window_end")
+  windowStart         Int                  @default(480) @map("window_start")
+  windowEnd           Int                  @default(1320) @map("window_end")
   /// Départage deux campagnes en retard.
-  priority            Int               @default(0)
-  notes               String?           @db.Text
+  priority            Int                  @default(0)
+  notes               String?              @db.Text
   /// Facultatif : au plus N publications par jour et par profil pour cette
   /// campagne.
-  maxPerProfilePerDay Int?              @map("max_per_profile_per_day")
+  maxPerProfilePerDay Int?                 @map("max_per_profile_per_day")
   /// Facultatif : le pool. N profils publient en même temps, les autres
   /// (de sa liste, ou du compte) restent en réserve ; un profil actif qui
   /// tombe (suspendu, limité, déconnecté, désactivé) est remplacé par le
   /// premier de la réserve. NULL = tous en même temps.
-  activeProfiles      Int?              @map("active_profiles")
+  activeProfiles      Int?                 @map("active_profiles")
   /// Facultatif : la rotation. Les équipes (groupes NSTBrowser), dans l'ordre ;
   /// une par jour, en boucle, à partir du jour de début de la campagne.
-  rotationTeams       String[]          @default([]) @map("rotation_teams")
+  rotationTeams       String[]             @default([]) @map("rotation_teams")
   groups              CampaignGroup[]
   profiles            CampaignProfile[]
   articles            CampaignArticle[]
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
+  items               PublicationJobItem[]
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([siteId])
