@@ -4306,6 +4306,7 @@ const ROUTES = {
   '/moderateurs': { view: 'moderators' },
   '/extensions': { view: 'extensions' },
   '/pre-approbations': { view: 'preapprovals' },
+  '/top-articles': { view: 'toparticles' },
 };
 /** L'adresse d'une rubrique (et, pour les posts, de son onglet). */
 function pathOf(id, tab) {
@@ -4399,6 +4400,7 @@ function view(id, { fromUrl = false } = {}) {
     moderators: 'Modérateurs',
     extensions: 'Extensions',
     preapprovals: 'Pré-approbations',
+    toparticles: 'Top 10 articles',
     'profile-page': 'Profil',
     'moderator-page': 'Modérateur',
   }[id];
@@ -4407,6 +4409,7 @@ function view(id, { fromUrl = false } = {}) {
   if (id === 'extensions') loadExtensions();
   if (id === 'runners' && !fromUrl) showPilotTab('profiles', { fromUrl: true });
   if (id === 'preapprovals') loadPreapprovals();
+  if (id === 'toparticles') loadTopArticles();
   // Les journaux se relisent à chaque ouverture : une synthèse périmée
   // conduirait à décider sur l'état d'hier.
   if (id === 'logs') loadLogs();
@@ -7579,5 +7582,54 @@ $('#ext-sync').onclick = async (e) => {
     notice(x.message, 'error');
   } finally {
     e.target.disabled = false;
+  }
+};
+
+/* ── Top 10 articles (Histats Radar) ───────────────────────────────── */
+async function loadTopArticles() {
+  const box = $('#top-lists');
+  box.innerHTML = '<p class="form-help">Chargement…</p>';
+  let d;
+  try {
+    d = await api('/top-articles');
+  } catch (x) {
+    box.innerHTML = `<p class="form-help">${esc(x.message)}</p>`;
+    return;
+  }
+  renderTopArticles(d);
+}
+
+function renderTopArticles(d) {
+  const nf = new Intl.NumberFormat('fr-FR');
+  const card = (a) =>
+    `<a class="top-card" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">` +
+    `<span class="top-rank">${a.rank}</span>` +
+    (a.image ? `<img src="${esc(a.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="top-noimg"></span>') +
+    `<span class="top-body"><b>${esc(a.title)}</b><small>${esc(a.domain)}</small>` +
+    `<small>${nf.format(a.views)} vues sur 7 jours${a.viral ? ' · <span class="badge error">🔥 viral</span>' : ''}</small></span></a>`;
+  const error = d.error ? `<p class="top-error">⚠ ${esc(d.error)}</p>` : '';
+  if (!d.lists.length) {
+    $('#top-lists').innerHTML = error + '<p class="form-help">Aucune liste pour aujourd’hui.</p>';
+    return;
+  }
+  $('#top-lists').innerHTML =
+    error +
+    d.lists
+      .map(
+        (l) =>
+          `<div class="panel top-list">` +
+          (d.admin ? `<h3>${esc(l.user.username)} <small>${l.items.length} article(s)</small></h3>` : '') +
+          `<div class="top-grid">${l.items.map(card).join('')}</div></div>`,
+      )
+      .join('');
+}
+
+$('#top-regenerate').onclick = async () => {
+  if (!confirm('Refaire la liste d’aujourd’hui pour tous les gestionnaires ?')) return;
+  try {
+    renderTopArticles(await api('/top-articles/regenerate', { method: 'POST' }));
+    notice('Liste du jour refaite');
+  } catch (x) {
+    notice(x.message, 'error');
   }
 };

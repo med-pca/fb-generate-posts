@@ -29,6 +29,7 @@ import { ExtensionsModule } from './extensions/extensions.module';
 import { LanguagesModule } from './languages/languages.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { TopArticlesModule } from './top-articles/top-articles.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     LanguagesModule,
     CampaignsModule,
     AnalyticsModule,
+    TopArticlesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
