@@ -24,6 +24,14 @@ type CampaignRow = Prisma.CampaignGetPayload<{ include: typeof CAMPAIGN_INCLUDE 
  * profils, et que c'est un de ses articles — chaque filtre absent ne
  * restreint rien. Une campagne en retard fait passer ses articles devant
  * dans la file (JobsService). */
+/** Pourquoi un profil se repose : ce qui le retient, sinon les campagnes
+ * fermées de son compte, sinon l'absence de campagne. */
+function restReason(blocking: string[], closed: string[]) {
+  if (blocking.length) return `repos (campagne) : ${blocking.slice(0, 2).join(' ; ')}`;
+  if (closed.length) return `repos (campagne) : ${closed.slice(0, 2).join(' ; ')}`;
+  return 'repos : aucune campagne active ne lui donne de travail (mode Auto)';
+}
+
 @Injectable()
 export class CampaignsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -311,8 +319,12 @@ export class CampaignsService {
    *   - `exclude` : les cibles qu'il ne doit pas prendre (celles d'une
    *     campagne à rotation/plafond qui ne le veut pas aujourd'hui, sauf si
    *     une autre campagne où il travaille les couvre aussi) ;
-   *   - `left` : ce qu'il peut encore publier avant le premier plafond. */
-  profileDay(profile: { id: string; ownerId: string | null; team: string | null }, plan: DayPlan) {
+   *   - `left` : ce qu'il peut encore publier avant le premier plafond.
+   *
+   * `strict` (mode Auto) : la campagne est la base. Sans campagne ouverte qui
+   * lui donne du travail, il se repose ; et il ne prend aucun article hors de
+   * ses campagnes ouvertes. Le mode Marche (ON) reste un forçage manuel. */
+  profileDay(profile: { id: string; ownerId: string | null; team: string | null }, plan: DayPlan, opts: { strict?: boolean } = {}) {
     const mine = plan.campaigns.filter((c) => c.ownerIsAdmin || c.ownerId === profile.ownerId);
     // Une campagne fermée (hors plage, objectif atteint, en avance) ferme
     // ses publications à TOUS les profils — sauf celles qu'une campagne
@@ -355,9 +367,15 @@ export class CampaignsService {
       else if (c.managed)
         blocking.push({ c, why: !inList && c.standby?.includes(profile.id) ? `en réserve pour « ${c.name} » (${c.profileIds.length} profil(s) actifs)` : !inList ? `hors des profils de « ${c.name} »` : !teamOk ? `pas son équipe aujourd'hui (« ${c.name} »)` : `plafond du jour atteint pour « ${c.name} » (${done}/${c.max})` });
     }
-    const resting = mine.some((c) => c.managed) && !working.length;
+    const strict = Boolean(opts.strict);
+    const resting = (strict || mine.some((c) => c.managed)) && !working.length;
     const workWhere = working.map((c) => c.where);
+    // Mode Auto : un article hors de ses campagnes ouvertes ne part pas.
+    const offCampaign: Prisma.PostTargetWhereInput | null = strict
+      ? { post: { articleId: { not: null } }, ...(workWhere.length ? { NOT: { OR: workWhere } } : {}) }
+      : null;
     const parts: Prisma.PostTargetWhereInput[] = [
+      ...(offCampaign ? [offCampaign] : []),
       ...blocking.map(({ c }) => (workWhere.length ? { AND: [c.where, { NOT: { OR: workWhere } }] } : c.where)),
       ...(closedClause ? [closedClause] : []),
       ...(outsideClause ? [outsideClause] : []),
@@ -367,7 +385,7 @@ export class CampaignsService {
     const caps = working.filter((c) => c.max != null).map((c) => (c.max as number) - (c.used.get(profile.id) ?? 0));
     return {
       resting,
-      reason: resting ? `repos (rotation) : ${blocking.map((b) => b.why).slice(0, 2).join(' ; ')}` : null,
+      reason: resting ? restReason(blocking.map((b) => b.why), mine.filter((c) => c.closed).map((c) => `« ${c.name} » ${c.closed}`)) : null,
       exclude,
       left: caps.length ? Math.max(0, Math.min(...caps)) : null,
       campaigns: working.map((c) => c.name),

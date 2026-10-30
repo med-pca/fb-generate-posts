@@ -538,10 +538,12 @@ export class JobsService {
     // Les campagnes à rotation ou plafond par profil : pas son équipe
     // aujourd'hui, ou plafond atteint → repos ; sinon, les cibles de ces
     // campagnes qui ne le veulent pas lui sont fermées.
+    // Mode Auto : la campagne est la base (rien hors de ses campagnes ouvertes).
+    const mode = (await this.prisma.profileRunner?.findUnique({ where: { profileId: profile.id }, select: { mode: true } }).catch(() => null))?.mode;
     const day = this.campaigns
       ? await this.campaigns
           .dayPlan()
-          .then((plan) => this.campaigns!.profileDay({ id: profile.id, ownerId: profile.ownerId, team: profile.teamNstGroupId ?? null }, plan))
+          .then((plan) => this.campaigns!.profileDay({ id: profile.id, ownerId: profile.ownerId, team: profile.teamNstGroupId ?? null }, plan, { strict: mode === 'AUTO' }))
           .catch(() => null)
       : null;
     if (day?.resting) {

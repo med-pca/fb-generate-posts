@@ -114,9 +114,10 @@ export class RunnersService {
     return (await this.campaigns?.dayPlan(now).catch(() => null)) ?? null;
   }
 
-  private restOf(plan: DayPlan | null, profile: { id: string; ownerId?: string | null; teamNstGroupId?: string | null }) {
+  private restOf(plan: DayPlan | null, profile: { id: string; ownerId?: string | null; teamNstGroupId?: string | null; runner?: { mode: RunnerMode } | null }) {
     if (!plan || !this.campaigns) return null;
-    const day = this.campaigns.profileDay({ id: profile.id, ownerId: profile.ownerId ?? null, team: profile.teamNstGroupId ?? null }, plan);
+    // Mode Auto : sans campagne ouverte pour lui, il se repose.
+    const day = this.campaigns.profileDay({ id: profile.id, ownerId: profile.ownerId ?? null, team: profile.teamNstGroupId ?? null }, plan, { strict: profile.runner?.mode === RunnerMode.AUTO });
     return day.resting ? day.reason : null;
   }
 

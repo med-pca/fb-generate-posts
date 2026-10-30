@@ -139,3 +139,34 @@ describe('Campagne : sa liste de groupes est respectée', () => {
   });
 });
 
+
+describe('profileDay — mode Auto : la campagne est la base', () => {
+  const strict = { strict: true };
+
+  it('aucune campagne : il se repose', () => {
+    const day = svc.profileDay(me, { campaigns: [] }, strict);
+    expect(day.resting).toBe(true);
+    expect(day.reason).toContain('aucune campagne active');
+  });
+
+  it('sa campagne est fermée (hors plage) : il se repose, avec la raison', () => {
+    const day = svc.profileDay(me, { campaigns: [campaign({ closed: 'hors de sa plage horaire' })] }, strict);
+    expect(day.resting).toBe(true);
+    expect(day.reason).toContain('hors de sa plage horaire');
+  });
+
+  it('campagne ouverte : il travaille, mais aucun article hors de ses campagnes', () => {
+    const c = campaign({});
+    const day = svc.profileDay(me, { campaigns: [c] }, strict);
+    expect(day.resting).toBe(false);
+    expect(day.exclude).toEqual({ OR: [{ post: { articleId: { not: null } }, NOT: { OR: [c.where] } }] });
+  });
+
+  it('campagne réservée à d’autres profils : il se repose', () => {
+    expect(svc.profileDay(me, { campaigns: [campaign({ profileIds: ['autre'] })] }, strict).resting).toBe(true);
+  });
+
+  it('sans le mode Auto (Marche forcée) : comportement inchangé', () => {
+    expect(svc.profileDay(me, { campaigns: [] })).toMatchObject({ resting: false, exclude: null });
+  });
+});
