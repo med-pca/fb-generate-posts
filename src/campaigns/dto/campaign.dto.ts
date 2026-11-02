@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ArrayMaxSize, IsArray, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
 
 export class CreateCampaignDto {
   @ApiProperty() @IsString() @MinLength(1) @MaxLength(120) name!: string;
@@ -22,6 +22,8 @@ export class CreateCampaignDto {
   @ApiPropertyOptional() @IsOptional() @ValidateIf((_d, v) => v !== null) @IsInt() @Min(1) @Max(1000) maxPerProfilePerDay?: number | null;
   /** Le pool : N profils actifs en même temps, les autres en réserve. */
   @ApiPropertyOptional() @IsOptional() @ValidateIf((_d, v) => v !== null) @IsInt() @Min(1) @Max(1000) activeProfiles?: number | null;
+  /** Étaler l'objectif sur la plage (en avance : attendre). Défaut : non. */
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() spread?: boolean;
   /** Facultatif : la rotation — les équipes (groupes NSTBrowser), une par jour, dans l'ordre. */
   @ApiPropertyOptional() @IsOptional() @IsArray() @ArrayMaxSize(60) @IsString({ each: true }) @MaxLength(200, { each: true }) rotationTeams?: string[];
 }
@@ -47,6 +49,8 @@ export class UpdateCampaignDto {
   @ApiPropertyOptional() @IsOptional() @ValidateIf((_d, v) => v !== null) @IsInt() @Min(1) @Max(1000) maxPerProfilePerDay?: number | null;
   /** Le pool : N profils actifs en même temps, les autres en réserve. */
   @ApiPropertyOptional() @IsOptional() @ValidateIf((_d, v) => v !== null) @IsInt() @Min(1) @Max(1000) activeProfiles?: number | null;
+  /** Étaler l'objectif sur la plage (en avance : attendre). Défaut : non. */
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() spread?: boolean;
   /** Facultatif : la rotation — les équipes (groupes NSTBrowser), une par jour, dans l'ordre. */
   @ApiPropertyOptional() @IsOptional() @IsArray() @ArrayMaxSize(60) @IsString({ each: true }) @MaxLength(200, { each: true }) rotationTeams?: string[];
 }

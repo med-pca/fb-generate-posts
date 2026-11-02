@@ -113,13 +113,14 @@ export function inWindow(minutes: number, start: number, end: number) {
 
 const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
-/** Une campagne ferme-t-elle ses publications en ce moment ? Elle respecte
- * sa plage horaire et étale son objectif dessus :
- *   - hors de la plage : rien ne part ;
+/** Une campagne ferme-t-elle ses publications en ce moment ?
+ *   - hors de sa plage horaire : rien ne part ;
  *   - objectif de la période atteint : rien de plus ;
- *   - en avance sur le rythme (plus que l'attendu à cette heure, avec une
- *     petite marge) : on attend que l'heure rattrape, au lieu de tout
- *     publier en début de plage.
+ *   - avec l'option « étaler » seulement : en avance sur le rythme (plus que
+ *     l'attendu à cette heure, avec une petite marge), on attend que l'heure
+ *     rattrape. Sans elle, l'objectif est un but : la campagne publie dès
+ *     qu'elle peut jusqu'à l'atteindre — une avance prise tôt couvre les
+ *     heures où les profils ralentiront (repos, limites, fin de plage).
  * Rend la raison, ou `null` quand elle est ouverte. */
 export function campaignGate(input: {
   now: Date;
@@ -129,6 +130,7 @@ export function campaignGate(input: {
   target: number;
   published: number;
   expected: number;
+  spread?: boolean;
 }) {
   const minutes = localClock(input.now, input.timezone).minutes;
   if (!inWindow(minutes, input.windowStart, input.windowEnd)) {
@@ -138,7 +140,7 @@ export function campaignGate(input: {
     return `objectif atteint (${input.published}/${input.target})`;
   }
   const slack = Math.max(1, Math.ceil(input.target * 0.05));
-  if (input.target > 0 && input.published >= input.expected + slack) {
+  if (input.spread && input.target > 0 && input.published >= input.expected + slack) {
     return `en avance sur son rythme (${input.published} publiés, ${input.expected} attendus à cette heure)`;
   }
   return null;
@@ -196,4 +198,64 @@ export function poolOf(candidates: PoolCandidate[], size: number, now: Date) {
   const active = healthy.slice(0, size).map((p) => ({ id: p.id, name: p.name }));
   const standby = healthy.slice(size).map((p) => ({ id: p.id, name: p.name }));
   return { size, active, standby, unavailable, missing: Math.max(0, size - active.length) };
+}
+
+/** Pourquoi une campagne n'avance pas assez vite : ses profils au travail et
+ * ce qu'ils peuvent publier par heure au mieux (un post toutes les « écart
+ * minimum + durée d'une publication »), comparés à ce qu'il faut ; ceux qui
+ * sont prêts mais ne travaillent pas, ceux hors service ; et le stock. Rend
+ * les chiffres et les raisons, en phrases, de la plus bloquante à la moindre. */
+export function campaignCapacity(input: {
+  candidates: PoolCandidate[];
+  now: Date;
+  minGap: number;
+  publishMinutes: number;
+  neededPerHour: number;
+  ratePerHour: number;
+  remaining: number;
+  stock: number;
+  status: string;
+}) {
+  const { candidates, now } = input;
+  const atWork = (p: PoolCandidate) =>
+    Boolean(p.runner?.running && p.runner.lastSeenAt && now.getTime() - p.runner.lastSeenAt.getTime() < 180_000) ||
+    p.runner?.browserState === 'RUNNING' ||
+    p.runner?.browserState === 'STARTING';
+  const down = new Map<string, number>();
+  let working = 0;
+  let idle = 0;
+  for (const p of candidates) {
+    const why = unavailableReason(p, now);
+    if (why) {
+      // « limité par Facebook jusqu'au … » : regroupés sans la date.
+      const key = why.replace(/ jusqu.au .*$/, '');
+      down.set(key, (down.get(key) ?? 0) + 1);
+    } else if (atWork(p)) working += 1;
+    else idle += 1;
+  }
+  const perProfile = 60 / Math.max(1, input.minGap + input.publishMinutes);
+  const perHour = Math.floor(working * perProfile);
+  const need = input.remaining > 0 ? input.neededPerHour : 0;
+  const neededProfiles = need ? Math.ceil(need / perProfile) : 0;
+  const missingProfiles = Math.max(0, neededProfiles - working);
+  const unavailable = [...down].map(([why, count]) => ({ why, count })).sort((a, b) => b.count - a.count);
+  const reasons: string[] = [];
+  if (input.remaining > 0 && ['late', 'on_track', 'missed', 'ahead'].includes(input.status)) {
+    if (missingProfiles) {
+      reasons.push(
+        `${working} profil(s) au travail : ~${perHour}/h au mieux, il faut ${need}/h — il faudrait ~${neededProfiles} profils au travail (${missingProfiles} de plus)`,
+      );
+    }
+    if (input.stock < input.remaining) {
+      reasons.push(`pas assez de posts en file : ${input.stock} pour ${input.remaining} à publier — ajoutez des articles ou des groupes`);
+    }
+    if (working && input.ratePerHour < perHour * 0.5) {
+      reasons.push(
+        `les profils au travail publient ${input.ratePerHour}/h au lieu de ~${perHour}/h : cycles de repos, plafonds par groupe ou par profil, groupes déjà servis`,
+      );
+    }
+    if (idle) reasons.push(`${idle} profil(s) en état mais pas au travail : navigateur fermé, au repos, en veille ou hors rotation`);
+    for (const u of unavailable) reasons.push(`${u.count} profil(s) hors service : ${u.why}`);
+  }
+  return { working, idle, unavailable, perProfile: Math.round(perProfile * 10) / 10, perHour, neededPerHour: need, neededProfiles, missingProfiles, reasons };
 }

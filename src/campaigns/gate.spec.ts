@@ -3,7 +3,7 @@ import { campaignGate, inWindow } from './period';
 describe('campaignGate — plage horaire et objectif étalé', () => {
   // 15 h 00 à Paris (UTC+2 en octobre).
   const at3pm = new Date('2026-10-21T13:00:00Z');
-  const base = { now: at3pm, timezone: 'Europe/Paris', windowStart: 8 * 60, windowEnd: 22 * 60, target: 100 };
+  const base = { now: at3pm, timezone: 'Europe/Paris', windowStart: 8 * 60, windowEnd: 22 * 60, target: 100, spread: true };
 
   it('dans la plage et dans le rythme : ouverte', () =>
     expect(campaignGate({ ...base, published: 50, expected: 50 })).toBeNull());
@@ -15,6 +15,10 @@ describe('campaignGate — plage horaire et objectif étalé', () => {
     expect(campaignGate({ ...base, published: 56, expected: 50 })).toContain('en avance');
     // Une petite marge (5 %) : pas de coupure au moindre post d'avance.
     expect(campaignGate({ ...base, published: 54, expected: 50 })).toBeNull();
+  });
+  it('sans « étaler » (défaut) : en avance, elle continue jusqu’à l’objectif', () => {
+    expect(campaignGate({ ...base, spread: false, published: 80, expected: 50 })).toBeNull();
+    expect(campaignGate({ ...base, spread: false, published: 100, expected: 50 })).toContain('objectif atteint');
   });
   it('en retard : ouverte', () => expect(campaignGate({ ...base, published: 10, expected: 50 })).toBeNull());
   it('une plage qui passe minuit', () => {

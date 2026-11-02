@@ -1139,6 +1139,10 @@ model Campaign {
   /// tombe (suspendu, limité, déconnecté, désactivé) est remplacé par le
   /// premier de la réserve. NULL = tous en même temps.
   activeProfiles      Int?                 @map("active_profiles")
+  /// Étaler l'objectif sur la plage horaire : en avance sur le rythme, la
+  /// campagne attend que l'heure rattrape. Coupé par défaut : l'objectif est
+  /// un but à atteindre, elle publie dès qu'elle peut jusqu'à l'atteindre.
+  spread              Boolean              @default(false)
   /// Facultatif : la rotation. Les équipes (groupes NSTBrowser), dans l'ordre ;
   /// une par jour, en boucle, à partir du jour de début de la campagne.
   rotationTeams       String[]             @default([]) @map("rotation_teams")

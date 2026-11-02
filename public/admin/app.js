@@ -3180,6 +3180,7 @@ function renderCampaigns() {
           `<div class="obj-bar"><i class="done ${tone}" style="width:${pct(p.published)}%"></i><b class="expected" style="left:${pct(p.expected)}%" title="Attendu à cette heure : ${p.expected}"></b></div>` +
           `<div class="campaign-kpis"><span>rythme <b>${p.ratePerHour}/h</b>${p.remaining ? ` · il faut <b>${p.neededPerHour}/h</b>` : ''}</span>` +
           `<span>projection <b>${p.projection}</b></span><span>en file <b>${p.stock}</b>${p.deficit ? ` · <b class="bad">manque ${p.deficit}</b>` : ''}</span></div>` +
+          campaignWhy(c) +
           `<div class="row-actions">` +
           `<button class="edit" type="button" data-campaign-open="${c.id}">📊 Détails</button>` +
           `<button class="edit" type="button" data-campaign-edit="${c.id}">Modifier</button>` +
@@ -3190,6 +3191,24 @@ function renderCampaigns() {
         );
       })
       .join('') || '<div class="empty">Aucune campagne pour l’instant.</div>';
+}
+
+/** Pourquoi une campagne n'atteindra pas (ou n'a pas atteint) son objectif :
+ * profils au travail et capacité par heure contre le besoin, profils qui ne
+ * travaillent pas, stock. Rien quand elle est dans les temps. */
+function campaignWhy(c) {
+  const k = c.capacity;
+  const p = c.progress;
+  if (!k || !k.reasons?.length) return '';
+  // Elle tiendra son objectif au rythme actuel : rien à expliquer.
+  if (p.projection >= p.target && p.state !== 'missed') return '';
+  return (
+    `<details class="campaign-why" onclick="event.stopPropagation()"><summary>⚠ Pourquoi l’objectif ne sera pas atteint · ` +
+    `${k.working} profil(s) au travail, ~${k.perHour}/h${k.neededPerHour ? ` pour ${k.neededPerHour}/h` : ''}` +
+    `${k.missingProfiles ? ` · <b>il en manque ~${k.missingProfiles}</b>` : ''}</summary>` +
+    `<ul>${k.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` +
+    `<small class="muted">Un profil publie au plus ~${k.perProfile}/h (écart minimum entre deux posts + durée d’une publication, réglés dans Pilotage → Règles).</small></details>`
+  );
 }
 
 /** Le pool d'une campagne : qui publie, qui attend, qui est tombé (et
@@ -3235,6 +3254,7 @@ async function openCampaign(id, scroll = true) {
     `<div class="panel-head"><div><small>CAMPAGNE · PAR ${PERIOD_NAME[d.period].toUpperCase()}</small><h2>${esc(d.name)}</h2><p>${campaignScope(d)}</p></div>` +
     `<div class="row-actions"><span class="obj-status ${tone}"><b>${label}</b></span><button class="close" type="button" data-campaign-close>×</button></div></div>` +
     `<p class="form-help">${d.progress.published} publication(s) sur ${d.progress.target} · du ${new Date(d.progress.from).toLocaleDateString('fr-FR')} au ${new Date(new Date(d.progress.to).getTime() - 1).toLocaleDateString('fr-FR')} (${esc(d.timezone)}, ${minutesToTime(d.windowStart)}–${minutesToTime(d.windowEnd)})</p>` +
+    campaignWhy(d).replace('<details class="campaign-why"', '<details open class="campaign-why"') +
     campaignPool(d.pool) +
     `<div class="bars campaign-series">${d.series.map((s) => `<div class="bar-col" title="${esc(s.label)} : ${s.published}"><i style="height:${(s.published / max) * 100}%"></i><span>${esc(s.label)}</span></div>`).join('')}</div>` +
     `<div class="campaign-tables">${table('Par article', d.byArticle)}${table('Par profil', d.byProfile)}${table('Par groupe', d.byGroup)}</div>`;
@@ -3329,6 +3349,7 @@ async function openCampaignForm(c = null) {
   f.elements.priority.value = c?.priority ?? 0;
   f.elements.maxPerProfilePerDay.value = c?.maxPerProfilePerDay ?? '';
   f.elements.activeProfiles.value = c?.activeProfiles ?? '';
+  f.elements.spread.checked = Boolean(c?.spread);
   camp.rotation = [...(c?.rotationTeams || [])];
   $('#camp-rotation-box').open = camp.rotation.length > 0;
   await loadTeams();
@@ -3354,6 +3375,7 @@ $('#campaign-form').onsubmit = async (e) => {
     priority: Number(f.priority.value || 0),
     maxPerProfilePerDay: f.maxPerProfilePerDay.value ? Number(f.maxPerProfilePerDay.value) : null,
     activeProfiles: f.activeProfiles.value ? Number(f.activeProfiles.value) : null,
+    spread: f.spread.checked,
     rotationTeams: [...camp.rotation],
     groupIds: $$('[data-camp-groups]:checked').map((x) => x.value),
     profileIds: $$('[data-camp-profiles]:checked').map((x) => x.value),

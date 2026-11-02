@@ -4,7 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { articleWhere, groupWhere, ownedWhere, profileWhere, scopeOf, siteWhere } from '../auth/scope';
 import { localClock } from '../runners/window';
-import { campaignGate, campaignPace, periodBounds, poolOf, rotationTeamOf, type Period } from './period';
+import { campaignGate, campaignPace, campaignCapacity, periodBounds, poolOf, rotationTeamOf, type Period } from './period';
+import { PUBLISH_MINUTES } from '../insights/objective';
 import type { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
 
 const CAMPAIGN_INCLUDE = {
@@ -54,9 +55,13 @@ export class CampaignsService implements OnModuleInit {
     return Promise.all(
       rows.map(async (c) => {
         const pool = c.activeProfiles && c.status === 'ACTIVE' ? await this.pool(c, now) : null;
+        const progress = await this.progress(c, now);
         return {
           ...this.shape(c),
-          progress: await this.progress(c, now),
+          progress,
+          // Pourquoi elle n'avance pas assez vite : profils au travail,
+          // capacité, ce qui manque.
+          capacity: c.status === 'ACTIVE' ? await this.capacity(c, progress, now) : null,
           // Le résumé du pool, pour la carte : actifs, réserve, tombés, manque.
           pool: pool && { size: pool.size, active: pool.active.length, standby: pool.standby.length, unavailable: pool.unavailable.length, missing: pool.missing },
         };
@@ -94,6 +99,7 @@ export class CampaignsService implements OnModuleInit {
     return {
       ...this.shape(c),
       progress,
+      capacity: c.status === 'ACTIVE' ? await this.capacity(c, progress, now) : null,
       pool,
       series,
       byArticle: count((i) => i.articleId, (k) => names.articles.get(k) ?? k).slice(0, 50),
@@ -123,6 +129,7 @@ export class CampaignsService implements OnModuleInit {
         notes: dto.notes ?? null,
         maxPerProfilePerDay: dto.maxPerProfilePerDay ?? null,
         activeProfiles: dto.activeProfiles ?? null,
+        spread: dto.spread ?? false,
         rotationTeams: cleanTeams(dto.rotationTeams),
         groups: { create: scope.groupIds.map((groupId) => ({ groupId })) },
         profiles: { create: scope.profileIds.map((profileId) => ({ profileId })) },
@@ -177,6 +184,7 @@ export class CampaignsService implements OnModuleInit {
           notes: dto.notes,
           maxPerProfilePerDay: dto.maxPerProfilePerDay,
           activeProfiles: dto.activeProfiles,
+          spread: dto.spread,
           rotationTeams: dto.rotationTeams ? cleanTeams(dto.rotationTeams) : undefined,
         },
         include: CAMPAIGN_INCLUDE,
@@ -295,6 +303,7 @@ export class CampaignsService implements OnModuleInit {
         target: c.target,
         published: p.published,
         expected: p.expected,
+        spread: c.spread,
       });
       campaigns.push({
         id: c.id,
@@ -498,10 +507,32 @@ export class CampaignsService implements OnModuleInit {
     };
   }
 
+  /** Ce que ses profils peuvent publier par heure, comparé à ce qu'il faut :
+   * de quoi dire pourquoi une campagne n'atteint pas son objectif. */
+  private async capacity(c: CampaignRow, progress: { neededPerHour: number; ratePerHour: number; remaining: number; stock: number; status: string }, now: Date) {
+    const settings = await this.prisma.automationSetting
+      .findUnique({ where: { id: 'global' }, select: { minPostGapMinutes: true } })
+      .catch(() => null);
+    const candidates = await this.candidates(c);
+    const listed = c.activeProfiles ? poolOf(candidates, c.activeProfiles, now) : null;
+    return campaignCapacity({
+      candidates: listed ? candidates.filter((p) => listed.active.some((a) => a.id === p.id) || listed.unavailable.some((u) => u.id === p.id)) : candidates,
+      now,
+      minGap: settings?.minPostGapMinutes ?? 5,
+      publishMinutes: PUBLISH_MINUTES,
+      ...progress,
+    });
+  }
+
   /** Les profils parmi lesquels se forme le pool : ceux de sa liste, sinon
    * ceux de son compte (la maison pour une campagne d'ADMIN). Jamais un
    * modérateur. */
   private async pool(c: CampaignRow & { owner?: { role: string } | null }, now: Date) {
+    const candidates = await this.candidates(c);
+    return poolOf(candidates, c.activeProfiles ?? candidates.length, now);
+  }
+
+  private async candidates(c: CampaignRow & { owner?: { role: string } | null }) {
     const listed = c.profiles.map((p) => p.profile.id);
     const owner =
       c.ownerId && c.owner === undefined
@@ -528,7 +559,7 @@ export class CampaignsService implements OnModuleInit {
       },
       orderBy: { createdAt: 'asc' },
     });
-    return poolOf(candidates, c.activeProfiles ?? candidates.length, now);
+    return candidates;
   }
 
   /** Les publications de SES articles qui tombent hors de son périmètre :
@@ -651,6 +682,7 @@ export class CampaignsService implements OnModuleInit {
       notes: c.notes,
       maxPerProfilePerDay: c.maxPerProfilePerDay,
       activeProfiles: c.activeProfiles,
+      spread: c.spread,
       rotationTeams: c.rotationTeams,
       // L'équipe de service aujourd'hui (rotation), et le jour du cycle.
       rotationToday: rotationTeamOf(c.rotationTeams, c.startsAt, new Date(), c.timezone),
