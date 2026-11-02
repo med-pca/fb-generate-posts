@@ -4334,6 +4334,7 @@ const ROUTES = {
   '/extensions': { view: 'extensions' },
   '/pre-approbations': { view: 'preapprovals' },
   '/top-articles': { view: 'toparticles' },
+  '/performance': { view: 'perf' },
 };
 /** L'adresse d'une rubrique (et, pour les posts, de son onglet). */
 function pathOf(id, tab) {
@@ -4404,7 +4405,7 @@ window.addEventListener('popstate', routeFromUrl);
 
 function view(id, { fromUrl = false } = {}) {
   // Un gestionnaire n'a pas la rubrique Comptes.
-  if (id === 'users' && state.me && state.me.role !== 'ADMIN') id = 'dashboard';
+  if ((id === 'users' || id === 'perf') && state.me && state.me.role !== 'ADMIN') id = 'dashboard';
   if (id === 'toparticles' && state.me && !state.me.topArticles) id = 'dashboard';
   $$('.view').forEach((x) => x.classList.toggle('active', x.id === id));
   $$('.nav').forEach((x) =>
@@ -4429,6 +4430,7 @@ function view(id, { fromUrl = false } = {}) {
     extensions: 'Extensions',
     preapprovals: 'Pré-approbations',
     toparticles: 'Top 10 articles',
+    perf: 'Performance',
     'profile-page': 'Profil',
     'moderator-page': 'Modérateur',
   }[id];
@@ -4438,6 +4440,7 @@ function view(id, { fromUrl = false } = {}) {
   if (id === 'runners' && !fromUrl) showPilotTab('profiles', { fromUrl: true });
   if (id === 'preapprovals') loadPreapprovals();
   if (id === 'toparticles') loadTopArticles();
+  if (id === 'perf') loadPerf();
   // Les journaux se relisent à chaque ouverture : une synthèse périmée
   // conduirait à décider sur l'état d'hier.
   if (id === 'logs') loadLogs();
@@ -7870,5 +7873,108 @@ $('#recreate-many-form').onsubmit = async (e) => {
     go.disabled = false;
   } finally {
     go.textContent = 'Recréer';
+  }
+};
+
+/* ── 📈 Performance de l'API (admin) ───────────────────────────────── */
+const perfState = { hours: 24, data: null };
+const PERF_ADVICE = { cache: '🧊 cache', 'n+1': '🔁 N+1', db: '🐢 base', slow: '🐢 lent', poll: '⏱ trop fréquent', errors: '⚠ erreurs' };
+async function loadPerf() {
+  $('#perf-body').innerHTML = '<p class="form-help">Chargement…</p>';
+  try {
+    perfState.data = await api(`/admin/perf?hours=${perfState.hours}`);
+  } catch (x) {
+    $('#perf-body').innerHTML = `<p class="form-help">${esc(x.message)}</p>`;
+    return;
+  }
+  renderPerf();
+}
+function renderPerf() {
+  const d = perfState.data;
+  if (!d) return;
+  const s = d.summary;
+  const nf = (n) => new Intl.NumberFormat('fr-FR').format(n);
+  $('#perf-enabled').checked = d.enabled;
+  $$('[data-perf-hours]').forEach((b) => b.classList.toggle('active', Number(b.dataset.perfHours) === perfState.hours));
+  const kpi = (label, value, sub, tone = '') => `<article class="${tone}"><span>${label}</span><strong>${value}</strong><small>${sub}</small></article>`;
+  $('#perf-kpis').innerHTML =
+    kpi('Appels', nf(s.calls), `${nf(Math.round(s.perHour))} par heure`) +
+    kpi('Temps moyen', `${nf(s.avgMs)} ms`, `95 % sous ${nf(s.p95)} ms`, s.p95 >= 1000 ? 'bad' : s.p95 >= 500 ? 'warn' : 'good') +
+    kpi('Requêtes SQL', s.sqlAvg, 'en moyenne par appel', s.sqlAvg >= 20 ? 'bad' : '') +
+    kpi('Erreurs', nf(s.errors), 'HTTP ≥ 500', s.errors ? 'bad' : 'good') +
+    kpi('Temps serveur', `${nf(Math.round(s.costSeconds / 60))} min`, `sur ${nf(d.minutesMeasured)} min mesurées`) +
+    kpi('Instances', d.instances, d.instances > 1 ? 'Coolify fait tourner plusieurs copies de l’API' : 'une seule copie de l’API');
+  if (!s.calls) {
+    $('#perf-body').innerHTML = `<p class="empty">${d.enabled ? 'Pas encore de mesure sur cette période : revenez dans quelques minutes (écrites chaque minute).' : 'La mesure est coupée.'}</p>`;
+    return;
+  }
+  const advice = (r) => r.advice.map((a) => `<span class="chip perf-${a.kind === 'n+1' ? 'nplus' : a.kind}" title="${esc(a.text)}">${PERF_ADVICE[a.kind]}</span>`).join(' ');
+  const ms = (n, warn = 500, bad = 1000) => `<span class="${n >= bad ? 'bad' : n >= warn ? 'warn' : ''}">${nf(n)}</span>`;
+  const routeCell = (r) => `<code>${esc(r.method)} ${esc(r.route.replace(/^\/api/, ''))}</code>`;
+  const decisions = (list, title, help) =>
+    list.length
+      ? `<div class="panel perf-panel"><h3>${title}</h3><p class="form-help">${help}</p><ul class="perf-decisions">${list
+          .map((r) => `<li>${routeCell(r)} <small>${nf(r.count)} appels · ${nf(Math.round(r.perHour))}/h · moy. ${nf(r.avgMs)} ms · 95 % ${nf(r.p95)} ms</small><ul>${r.advice.map((a) => `<li>${PERF_ADVICE[a.kind]} — ${esc(a.text)}</li>`).join('')}</ul></li>`)
+          .join('')}</ul></div>`
+      : '';
+  const table = (title, help, rows, cols) =>
+    `<div class="panel perf-panel"><h3>${title}</h3>${help ? `<p class="form-help">${help}</p>` : ''}<div class="table-wrap"><table class="perf-table"><thead><tr>${cols.map((c) => `<th>${c[0]}</th>`).join('')}</tr></thead><tbody>${
+      rows.map((r) => `<tr>${cols.map((c) => `<td>${c[1](r)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Rien.</td></tr>`
+    }</tbody></table></div></div>`;
+  $('#perf-body').innerHTML =
+    decisions(d.cache, '🧊 Candidats au cache', 'Lues souvent, et la réponse est le plus souvent <b>identique à la précédente</b> : un cache court (10 à 30 s) éviterait ces calculs sans montrer de donnée périmée.') +
+    decisions(d.problems, '🔧 À corriger', 'Requêtes en boucle (N+1), lenteurs en base ou ailleurs, rafraîchissements trop fréquents, erreurs.') +
+    table('Routes, de la plus coûteuse à la moindre', 'Coût = temps total pris au serveur (durée × nombre d’appels) : une route moyenne appelée très souvent pèse plus qu’une route lente appelée rarement.', d.routes, [
+      ['Route', routeCell],
+      ['Appels', (r) => nf(r.count)],
+      ['/h', (r) => nf(Math.round(r.perHour))],
+      ['Moy. ms', (r) => ms(r.avgMs)],
+      ['95 % ms', (r) => ms(r.p95)],
+      ['Max ms', (r) => ms(r.maxMs, 2000, 5000)],
+      ['Coût', (r) => `${nf(r.costSeconds)} s`],
+      ['SQL/appel', (r) => `<span class="${r.sqlAvg >= 20 ? 'bad' : ''}">${r.sqlAvg}</span>`],
+      ['% en base', (r) => `${r.sqlShare} %`],
+      ['Ko', (r) => r.avgKb],
+      ['Identiques', (r) => (r.method === 'GET' ? `${r.repeatRatio} %` : '—')],
+      ['Décision', advice],
+    ]) +
+    table('Qui appelle', 'Les pages de chaque compte, les extensions et l’agent : qui charge le plus le serveur.', d.callers, [
+      ['Appelant', (r) => esc(r.caller)],
+      ['Appels', (r) => nf(r.count)],
+      ['/h', (r) => nf(Math.round(r.perHour))],
+      ['Moy. ms', (r) => ms(r.avgMs)],
+      ['Coût', (r) => `${nf(r.costSeconds)} s`],
+    ]) +
+    table('Qui appelle quoi (les plus fréquents)', 'Une page qui revient toutes les 10 s, ou une extension qui interroge le serveur en boucle, se voit ici.', d.who, [
+      ['Appelant', (r) => esc(r.caller)],
+      ['Route', routeCell],
+      ['Appels', (r) => nf(r.count)],
+      ['/h', (r) => nf(Math.round(r.perHour))],
+      ['Moy. ms', (r) => ms(r.avgMs)],
+      ['Identiques', (r) => (r.method === 'GET' ? `${r.repeatRatio} %` : '—')],
+    ]) +
+    table('Appels lents (2 s et plus)', 'Les 50 derniers, un par un : la route, qui, et combien de temps passé en base.', d.slow, [
+      ['Quand', (r) => esc(when(r.at))],
+      ['Appel', (r) => `<code title="${esc(r.url)}">${esc(r.method)} ${esc(r.url.replace(/^\/api/, '').slice(0, 80))}</code>`],
+      ['Appelant', (r) => esc(r.caller)],
+      ['ms', (r) => ms(r.ms, 2000, 5000)],
+      ['SQL', (r) => `${r.sqlCount} (${nf(r.sqlMs)} ms)`],
+      ['HTTP', (r) => `<span class="${r.status >= 500 ? 'bad' : ''}">${r.status}</span>`],
+    ]);
+}
+$('#perf-range').addEventListener('click', (e) => {
+  const h = Number(e.target.closest('[data-perf-hours]')?.dataset.perfHours);
+  if (!h) return;
+  perfState.hours = h;
+  loadPerf();
+});
+$('#perf-refresh').onclick = () => loadPerf();
+$('#perf-enabled').onchange = async (e) => {
+  try {
+    await api('/admin/perf/settings', { method: 'PUT', body: JSON.stringify({ enabled: e.target.checked }) });
+    notice(e.target.checked ? 'Mesure reprise (prise en compte dans la minute).' : 'Mesure coupée (prise en compte dans la minute).');
+  } catch (x) {
+    notice(x.message, 'error');
+    e.target.checked = !e.target.checked;
   }
 };

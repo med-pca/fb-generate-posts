@@ -83,6 +83,7 @@
             <div class="nav-items">
               <button class="nav" data-view="analytics"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg><span>Analyse</span></button>
               <button class="nav" data-view="logs"><svg class="ico" aria-hidden="true"><use href="#i-list"/></svg><span>Journaux</span></button>
+              <button class="nav admin-only" data-view="perf"><svg class="ico" aria-hidden="true"><use href="#i-chart"/></svg><span>Performance</span></button>
             </div>
           </div>
 
@@ -1138,6 +1139,23 @@
             </table>
           </div>
           <p class="form-help" id="pa-count"></p>
+        </section>
+
+        <!-- 📈 Performance : chaque appel de l'API mesuré, pour trouver ce qui
+             ralentit la plateforme et ce qu'un cache éviterait. Admin. -->
+        <section id="perf" class="view">
+          <div class="toolbar">
+            <p>Chaque appel de l’API est mesuré : durée, requêtes à la base, taille, et si la réponse était <b>identique à la précédente</b> (ce qu’un cache éviterait). De quoi savoir <b>ce qui ralentit</b> et <b>quoi mettre en cache</b>.</p>
+            <div class="toolbar-group">
+              <div class="subtabs" id="perf-range" role="tablist">
+                <button class="subtab" type="button" data-perf-hours="1">1 h</button><button class="subtab active" type="button" data-perf-hours="24">24 h</button><button class="subtab" type="button" data-perf-hours="168">7 jours</button>
+              </div>
+              <button class="secondary" type="button" id="perf-refresh">Rafraîchir</button>
+              <label class="inline-check"><input type="checkbox" id="perf-enabled" /> Mesure active</label>
+            </div>
+          </div>
+          <div class="metrics" id="perf-kpis"></div>
+          <div id="perf-body"></div>
         </section>
 
         <!-- Top 10 articles : les articles concurrents les plus vus sur 7 jours

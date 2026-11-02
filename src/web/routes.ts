@@ -30,6 +30,7 @@ export const APP_ROUTES: Record<string, AppRoute> = {
   '/extensions': { view: 'extensions', title: 'Extensions' },
   '/pre-approbations': { view: 'preapprovals', title: 'Pré-approbations' },
   '/top-articles': { view: 'toparticles', title: 'Top 10 articles' },
+  '/performance': { view: 'perf', title: 'Performance' },
 };
 
 /** Les pages qui portent un identifiant : la fiche d'un profil. */

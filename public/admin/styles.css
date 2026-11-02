@@ -2770,3 +2770,18 @@ td:last-child .row-actions { justify-content: flex-end; }
 .campaign-why summary { cursor: pointer; font-weight: 600; }
 .campaign-why ul { margin: 6px 0 4px 18px; padding: 0; display: grid; gap: 3px; }
 .campaign-why small { display: block; }
+
+/* 📈 Performance */
+.perf-panel { padding: 14px 16px; margin-bottom: 16px; }
+.perf-panel h3 { margin: 0 0 4px; font-size: 1rem; }
+.perf-table { width: 100%; font-size: .82rem; }
+.perf-table td, .perf-table th { padding: 6px 8px; white-space: nowrap; }
+.perf-table code { font-size: .78rem; }
+.perf-table .bad, .perf-decisions .bad { color: #b42318; font-weight: 600; }
+.perf-table .warn { color: #b54708; font-weight: 600; }
+.perf-decisions { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 8px; font-size: .85rem; }
+.perf-decisions small { color: var(--muted, #667085); margin-left: 6px; }
+.perf-decisions ul { margin: 4px 0 0; padding-left: 16px; }
+.chip.perf-cache { background: #e8f0ff; color: #315cb4; }
+.chip.perf-nplus, .chip.perf-db, .chip.perf-errors { background: #fde8e7; color: #b42318; }
+.chip.perf-slow, .chip.perf-poll { background: #fff6e5; color: #b54708; }
