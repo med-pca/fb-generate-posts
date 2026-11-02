@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Modérateur · PostFlow",
   "short_name": "Modérateur",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "description": "Modérateur de nos groupes : accepte et pré-approuve nos profils, valide nos posts en attente et sort du « Spam potentiel » les posts de nos profils. En option (plateforme) : vérifier les posts publiés, retirer nos comptes suspendus — avec de vrais gestes, à rythme humain.",
   "permissions": [
     "storage",

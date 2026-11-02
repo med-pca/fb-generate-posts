@@ -51,3 +51,6 @@ summary { cursor: pointer; font-weight: 600; font-size: 12px; }
 .logs li.error b { color: var(--err); }
 .logs a { color: var(--accent); }
 .logs .empty { color: var(--muted); }
+/* Une mission désactivée sur la plateforme : grisée. */
+.mission.off { opacity: .55; border-top-color: var(--edge); }
+.status.off { color: var(--muted); font-style: italic; }

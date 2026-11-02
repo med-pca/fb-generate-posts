@@ -7102,6 +7102,7 @@ async function renderModeratorPage(id) {
   f.elements.dailyLimit.value = s.dailyLimit ?? 60;
   f.elements.members.checked = s.members;
   f.elements.spam.checked = s.spam !== false;
+  f.elements.pending.checked = s.pending !== false;
   f.elements.postsCheck.checked = Boolean(s.postsCheck);
   f.elements.removals.checked = Boolean(s.removals);
   [...f.elements].forEach((el) => (el.disabled = !admin));
@@ -7121,7 +7122,7 @@ async function renderModeratorPage(id) {
   $('#md-recent-members').innerHTML = recentList(d.recent.filter((r) => r.eventType.startsWith('MEMBER_')));
   $('#md-actions').innerHTML = admin
     ? `<button class="primary" type="button" data-mod-act="run" ${s.paused || !s.postsCheck ? `disabled title="${s.paused ? 'Suspendu' : 'Option « Vérifier les posts publiés » désactivée (réglages)'}"` : ''}>▶ Vérifier les posts</button>` +
-      `<button class="primary violet" type="button" data-mod-act="run-members" ${s.paused || (!s.members && s.spam === false) ? 'disabled title="Suspendu, ou tâches profils et spam désactivés"' : ''}>▶ Lancer les tâches profils et le spam</button>` +
+      `<button class="primary violet" type="button" data-mod-act="run-members" ${s.paused || (!s.members && s.spam === false && s.pending === false && !s.removals) ? 'disabled title="Suspendu, ou missions de groupe toutes désactivées"' : 'title="Pré-approbation, spam, posts en attente (et retraits si activés)"'}>▶ Lancer les missions de groupe</button>` +
       `<button class="edit" type="button" data-mod-act="pause">${s.paused ? 'Reprendre' : 'Suspendre'}</button>` +
       `<button class="edit" type="button" data-mod-act="recheck" ${d.due.needsAction ? '' : 'disabled'} title="Les publications « à traiter » repartent en vérification">↻ Revérifier « à traiter » (${d.due.needsAction})</button>` +
       `<button class="edit" type="button" data-mod-act="retry-members" ${d.due.memberProblems ? '' : 'disabled'}>↻ Relancer les adhésions en échec (${d.due.memberProblems})</button>` +
@@ -7185,6 +7186,7 @@ $('#md-settings').onsubmit = async (e) => {
         dailyLimit: Number(f.elements.dailyLimit.value),
         members: f.elements.members.checked,
         spam: f.elements.spam.checked,
+        pending: f.elements.pending.checked,
         postsCheck: f.elements.postsCheck.checked,
         removals: f.elements.removals.checked,
       }),

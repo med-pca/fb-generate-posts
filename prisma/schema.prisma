@@ -236,6 +236,8 @@ model Profile {
   /// Sortir du « Spam potentiel » de ses groupes les posts de nos profils
   /// (bouton « Publier »). Activé par défaut.
   moderatorSpam            Boolean          @default(true) @map("moderator_spam")
+  /// Valider nos posts « en attente de validation ». Activé par défaut.
+  moderatorPending         Boolean          @default(true) @map("moderator_pending")
   /// Un rythme humain : il ne travaille qu'entre ces heures (minutes depuis
   /// minuit, dans son fuseau), et pas plus de N actions par heure / par jour.
   /// Facebook a désactivé un compte modérateur qui agissait 24 h/24.

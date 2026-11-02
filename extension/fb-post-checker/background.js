@@ -1,13 +1,19 @@
-/* Modérateur · PostFlow — deux missions SÉPARÉES, chacune avec son état,
- * ses compteurs du jour et son historique :
+/* Modérateur · PostFlow — cinq missions SÉPARÉES, chacune avec son option
+ * sur la plateforme, son interrupteur ici, son état, ses compteurs du jour et
+ * son historique :
  *
- *   - « posts »   : rouvrir les posts publiés, vérifier le lien, supprimer
- *                   ceux qui n'en ont pas ; la plateforme republie ;
- *   - « members » : nos profils dans les groupes — contrôles demandés par
- *                   l'admin, adhésions à accepter, pré-approbations.
+ *   - « preapprove » : accepter l'adhésion de nos profils, les pré-approuver
+ *                      (et les contrôles demandés par l'admin) ;
+ *   - « spam »       : publier les posts de nos profils rangés dans le
+ *                      « Spam potentiel » du groupe ;
+ *   - « pending »    : valider nos posts en attente ;
+ *   - « posts »      : rouvrir les posts publiés, supprimer ceux sans lien
+ *                      (coupée par défaut sur la plateforme) ;
+ *   - « removals »   : retirer de nos groupes nos profils suspendus (coupée
+ *                      par défaut).
  *
- * Chacune se lance seule (bouton, demande de l'admin) ou automatiquement
- * selon son interrupteur. Jamais deux en même temps : elles se suivent.
+ * Chacune se lance seule (bouton, demande de l'admin) ou automatiquement.
+ * Jamais deux en même temps : elles se suivent.
  */
 importScripts('config.js');
 
@@ -177,10 +183,27 @@ async function humanInput(tabId, msg) {
 
 /** La mission en cours : ses journaux et son état vont dans sa rubrique. */
 let currentCat = 'posts';
+
+/** Les missions, l'option de la plateforme qui les autorise (et sa valeur
+ * quand une plateforme d'avant ne la donne pas). */
+const MISSIONS = {
+  preapprove: { server: 'members', fallback: true },
+  spam: { server: 'spam', fallback: true },
+  pending: { server: 'pending', fallback: true },
+  posts: { server: 'postsCheck', fallback: true },
+  removals: { server: 'removals', fallback: true },
+};
+/** Ce que la plateforme autorise pour cette mission. */
+const allowed = (cfg, kind) => cfg.allow?.[kind] !== false;
+/** Son interrupteur « auto » dans la fenêtre (actif par défaut). */
+const autoOn = (cfg, kind) => cfg[`auto_${kind}`] !== false;
 const today = () => new Date().toISOString().slice(0, 10);
 
 async function settings() {
-  const stored = await chrome.storage.local.get(['apiBase', 'apiKey', 'profileExternalId', 'enabled', 'members', 'posts', 'server']);
+  const stored = await chrome.storage.local.get([
+    'apiBase', 'apiKey', 'profileExternalId', 'enabled', 'members', 'posts', 'server',
+    ...Object.keys(MISSIONS).map((k) => `auto_${k}`),
+  ]);
   const cfg = {
     ...self.FPC_CONFIG,
     ...Object.fromEntries(Object.entries(stored).filter(([, v]) => v !== undefined && v !== '')),
@@ -193,16 +216,17 @@ async function settings() {
     for (const k of ['windowStart', 'windowEnd', 'timezone', 'hourlyLimit', 'dailyLimit']) {
       if (server[k] !== undefined && server[k] !== null) cfg[k] = server[k];
     }
-    if (server.members === false) cfg.members = false;
-    // Options de la plateforme : vérifier les posts (supprime ceux sans lien)
-    // et retirer nos profils suspendus sont COUPÉES par défaut ; le spam est
-    // actif sauf si l'admin le coupe. Une plateforme d'avant (sans ces
-    // champs) garde l'ancien comportement.
-    if ('postsCheck' in server) cfg.postsCheck = server.postsCheck === true;
-    if ('removals' in server) cfg.removals = server.removals === true;
-    cfg.spam = server.spam !== false;
+    // L'option de chaque mission sur la plateforme. Vérifier les posts et
+    // retirer nos profils suspendus y sont COUPÉS par défaut.
+    cfg.allow = Object.fromEntries(
+      Object.entries(MISSIONS).map(([kind, m]) => [kind, m.server in server ? server[m.server] === true : m.fallback]),
+    );
     cfg.paused = Boolean(server.paused);
   }
+  // Les anciens interrupteurs de la fenêtre (deux missions) valent pour les
+  // nouvelles tant qu'on n'y a pas touché.
+  if (cfg.auto_posts === undefined && stored.posts === false) cfg.auto_posts = false;
+  if (stored.members === false) for (const k of ['preapprove', 'spam', 'pending', 'removals']) if (cfg[`auto_${k}`] === undefined) cfg[`auto_${k}`] = false;
   return cfg;
 }
 
@@ -507,7 +531,6 @@ async function postApprovalRound(cfg, tabId) {
  * ouvre <groupe>/spam et clique « Publier » sous les posts dont l'auteur est
  * exactement un de nos profils (identifiant Facebook). Rien d'autre. */
 async function spamRound(cfg, tabId) {
-  if (cfg.spam === false) return 0;
   let claim;
   try {
     claim = await api(cfg, '/verify/spam/claim', { profileExternalId: cfg.profileExternalId, limit: await batchFor(cfg) });
@@ -671,87 +694,95 @@ async function postsRound(cfg, tabId, reason) {
   return done;
 }
 
-/** Les missions se suivent, jamais ensemble : une seule file. */
+/** Les missions se suivent, jamais ensemble : une seule file. Un passage
+ * peut enchaîner plusieurs missions (dans un ordre tiré au hasard). */
 let round = Promise.resolve();
 const queued = new Set();
 let running = null;
 
-function runRound(kind, reason) {
-  if (queued.has(kind)) return round;
-  queued.add(kind);
+function runRound(kinds, reason) {
+  const list = [].concat(kinds).filter((k) => MISSIONS[k]);
+  const key = list.join('+');
+  if (!list.length || queued.has(key)) return round;
+  queued.add(key);
   round = round.then(() => {
-    queued.delete(kind);
-    running = kind;
-    return doRound(kind, reason).catch(async (err) => {
-      await log('error', `Erreur inattendue : ${err.message}`, { cat: kind });
+    queued.delete(key);
+    running = key;
+    return doRound(list, reason).catch(async (err) => {
+      await log('error', `Erreur inattendue : ${err.message}`, { cat: list[0] });
     });
   }).finally(() => (running = null));
   return round;
 }
 
-async function doRound(kind, reason) {
-  currentCat = kind;
+/** Ce que fait chaque mission, et comment dire son résultat. */
+const MISSION_RUN = {
+  preapprove: async (cfg, tabId, reason) => (await auditRound(cfg, tabId, reason)) + (await memberRound(cfg, tabId, reason)),
+  spam: (cfg, tabId) => spamRound(cfg, tabId),
+  pending: (cfg, tabId) => postApprovalRound(cfg, tabId),
+  posts: (cfg, tabId, reason) => postsRound(cfg, tabId, reason),
+  removals: (cfg, tabId) => removalRound(cfg, tabId),
+};
+const MISSION_DONE = {
+  preapprove: (n) => `${n} adhésion(s) / pré-approbation(s) / contrôle(s)`,
+  spam: (n) => `${n} groupe(s) passé(s) au spam`,
+  pending: (n) => `${n} post(s) en attente traité(s)`,
+  posts: (n) => `${n} post(s) vérifié(s)`,
+  removals: (n) => `${n} retrait(s) traité(s)`,
+};
+
+async function doRound(kinds, reason) {
+  currentCat = kinds[0];
   const cfg = await settings();
+  const now = () => new Date().toISOString();
   if (!cfg.apiKey || !cfg.profileExternalId) {
-    await setStatus('system', { state: 'config', message: 'Saisissez la clé d’API et l’identifiant du profil', at: new Date().toISOString() });
+    await setStatus('system', { state: 'config', message: 'Saisissez la clé d’API et l’identifiant du profil', at: now() });
     return;
   }
   if (cfg.paused) {
-    await setStatus('system', { state: 'config', message: 'Suspendu par l’administrateur (rubrique Modérateurs)', at: new Date().toISOString() });
+    await setStatus('system', { state: 'config', message: 'Suspendu par l’administrateur (rubrique Modérateurs)', at: now() });
     return;
   }
+  // Ce que la plateforme autorise, et (en automatique) ce que l'interrupteur laisse.
+  const todo = [];
+  for (const kind of kinds) {
+    if (!allowed(cfg, kind)) {
+      await setStatus(kind, { state: 'off', message: 'Désactivée sur la plateforme (rubrique Modérateurs)', at: now() });
+    } else if (reason === 'auto' && !autoOn(cfg, kind)) {
+      // Interrupteur coupé ici : rien.
+    } else todo.push(kind);
+  }
+  if (!todo.length) return;
   if (reason === 'auto' && !atWork(cfg)) {
-    await setStatus({ state: 'idle', message: `Hors des heures de travail (${hhmm(cfg.windowStart)}–${hhmm(cfg.windowEnd)}, ${cfg.timezone})`, at: new Date().toISOString() });
+    for (const kind of todo) await setStatus(kind, { state: 'idle', message: `Hors des heures de travail (${hhmm(cfg.windowStart)}–${hhmm(cfg.windowEnd)}, ${cfg.timezone})`, at: now() });
     return;
   }
   if ((await budget(cfg)).left <= 0) {
-    await setStatus({ state: 'idle', message: `Pause : ${(await budget(cfg)).reason}`, at: new Date().toISOString() });
+    const why = (await budget(cfg)).reason;
+    for (const kind of todo) await setStatus(kind, { state: 'idle', message: `Pause : ${why}`, at: now() });
     return;
   }
-  if (kind === 'members' && cfg.members === false && cfg.spam === false && reason === 'auto') return;
-  if (kind === 'posts' && cfg.posts === false && reason === 'auto') return;
-  // La vérification des posts (qui supprime) : seulement si la plateforme l'active.
-  if (kind === 'posts' && cfg.postsCheck === false) {
-    await setStatus({ state: 'idle', message: 'Vérification des posts désactivée sur la plateforme (rubrique Modérateurs)', at: new Date().toISOString() });
-    return;
-  }
-  await setStatus({ state: 'busy', message: `En cours (${reason})…`, at: new Date().toISOString() });
+  for (const kind of todo) await setStatus(kind, { state: 'busy', message: `En attente de son tour (${reason})…`, at: now() });
   const tab = await chrome.tabs.create({ url: 'about:blank', active: true });
-  let done = 0;
   try {
     // Une fois sur deux, on commence par lire sans rien faire.
     if (Math.random() < 0.5) await browseNeutral(tab.id, cfg).catch(() => null);
-    if (kind === 'posts') {
-      done = await postsRound(cfg, tab.id, reason);
-    } else {
-      // Les contrôles demandés par l'admin passent avant le reste ; les autres
-      // missions viennent dans un ordre différent à chaque passage.
-      done += await auditRound(cfg, tab.id, reason);
-      const missions = [
-        cfg.members !== false && (() => memberRound(cfg, tab.id, reason)),
-        // Optionnel, coupé par défaut sur la plateforme.
-        cfg.removals === true && (() => removalRound(cfg, tab.id)),
-        () => postApprovalRound(cfg, tab.id),
-        cfg.spam !== false && (() => spamRound(cfg, tab.id)),
-      ].filter(Boolean).sort(() => Math.random() - 0.5);
-      for (const mission of missions) {
-        done += await mission();
-        if (Math.random() < 0.25) await browseNeutral(tab.id, cfg).catch(() => null);
+    for (const kind of todo.sort(() => Math.random() - 0.5)) {
+      currentCat = kind;
+      await setStatus(kind, { state: 'busy', message: `En cours (${reason})…`, at: now() });
+      let done = 0;
+      try {
+        done = await MISSION_RUN[kind](cfg, tab.id, reason);
+      } catch (err) {
+        await log('error', `Erreur inattendue : ${err.message}`, { cat: kind });
       }
+      await setStatus(kind, { state: 'idle', message: done ? MISSION_DONE[kind](done) : 'Rien à faire pour l’instant', at: now() });
+      if (Math.random() < 0.25) await browseNeutral(tab.id, cfg).catch(() => null);
     }
   } finally {
     await releaseInput(tab.id);
     chrome.tabs.remove(tab.id).catch(() => {});
   }
-  await setStatus({
-    state: 'idle',
-    message: done
-      ? kind === 'posts'
-        ? `${done} post(s) vérifié(s)`
-        : `${done} tâche(s) faite(s) (adhésions, pré-approbations, posts en attente, spam)`
-      : 'Rien à faire pour l’instant',
-    at: new Date().toISOString(),
-  });
 }
 
 /** Le prochain passage : jamais à intervalle fixe. Entre 70 % et 150 % du
@@ -800,12 +831,14 @@ async function poll() {
   if (server.runRequestedAt && server.runRequestedAt !== lastRunRequest) {
     await chrome.storage.local.set({ lastRunRequest: server.runRequestedAt });
     await log('ok', 'Vérification des posts demandée par l’administrateur', { cat: 'posts' });
-    runRound('posts', 'demande de l’admin');
+    runRound(['posts'], 'demande de l’admin');
   }
   if (server.membersRunRequestedAt && server.membersRunRequestedAt !== lastMembersRunRequest) {
     await chrome.storage.local.set({ lastMembersRunRequest: server.membersRunRequestedAt });
-    await log('ok', 'Tâches « nos profils » demandées par l’administrateur', { cat: 'members' });
-    runRound('members', 'demande de l’admin');
+    // « Lancer les tâches profils » : toutes les missions de groupe autorisées.
+    const kinds = ['preapprove', 'spam', 'pending', 'removals'].filter((k) => allowed(cfg, k));
+    for (const k of kinds) await log('ok', 'Passage demandé par l’administrateur', { cat: k });
+    runRound(kinds, 'demande de l’admin');
   }
 }
 
@@ -815,13 +848,12 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     // Le suivant est tiré tout de suite : même si ce passage échoue, le
     // modérateur reviendra — à une heure imprévisible.
     await nextRound(cfg);
-    // Une chose à la fois, comme quelqu'un : une seule mission par passage,
-    // tirée au hasard quand les deux sont actives.
-    const kinds = [
-      cfg.posts !== false && cfg.postsCheck !== false && 'posts',
-      (cfg.members !== false || cfg.spam !== false) && 'members',
-    ].filter(Boolean);
-    if (kinds.length) runRound(kinds[Math.random() < 0.6 ? 0 : kinds.length - 1], 'auto');
+    // Les missions de groupe passent ensemble (ordre au hasard) ; la
+    // vérification des posts, quand elle est active, a ses propres passages.
+    const group = ['preapprove', 'spam', 'pending', 'removals'].filter((k) => allowed(cfg, k) && autoOn(cfg, k));
+    const posts = allowed(cfg, 'posts') && autoOn(cfg, 'posts');
+    if (posts && (!group.length || Math.random() < 0.4)) runRound(['posts'], 'auto');
+    else if (group.length) runRound(group, 'auto');
   }
   if (alarm.name === CONTROL) poll();
 });
@@ -834,7 +866,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   }
   if (msg?.type === 'schedule') schedule().then(() => reply({ ok: true }));
   else if (msg?.type === 'run-now') {
-    runRound(msg.kind === 'members' ? 'members' : 'posts', 'manuel');
+    runRound([MISSIONS[msg.kind] ? msg.kind : 'posts'], 'manuel');
     reply({ ok: true });
   } else return false;
   return true;

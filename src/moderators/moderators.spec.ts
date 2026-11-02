@@ -100,8 +100,8 @@ describe('ModeratorsService', () => {
     expect(r.kind).toBe('members');
     expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('MODERATOR_MEMBERS_RUN_REQUESTED');
     // Adhésions ET spam coupés : rien à lancer.
-    const off = setup({ moderatorMembers: false, moderatorSpam: false });
-    await expect(off.service.run('mod1', ADMIN, 'members', NOW)).rejects.toThrow('désactivés');
+    const off = setup({ moderatorMembers: false, moderatorSpam: false, moderatorPending: false, moderatorRemovals: false });
+    await expect(off.service.run('mod1', ADMIN, 'members', NOW)).rejects.toThrow('toutes désactivées');
   });
 
   it('la vérification des posts (qui supprime) est refusée tant qu’elle n’est pas activée', async () => {

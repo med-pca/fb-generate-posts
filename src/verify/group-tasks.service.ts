@@ -129,7 +129,7 @@ export class GroupTasksService {
 
   async claimApprovals(profileExternalId: string, limit: number, acting: CurrentUser | null, now = new Date()) {
     const moderator = await this.verify.moderator(profileExternalId, acting);
-    if (moderator.moderatorPaused) return { tasks: [] };
+    if (moderator.moderatorPaused || moderator.moderatorPending === false) return { tasks: [] };
     const scope = scopeOf(acting);
     const due = await this.prisma.postTarget.findMany({
       where: {

@@ -1,5 +1,22 @@
 # « Modérateur · PostFlow » (ex-FB Post Checker)
 
+## Cinq missions séparées (1.14.0)
+
+Chacune a son **option sur la plateforme** (Modérateurs → réglages), son
+interrupteur « auto » dans la fenêtre de l'extension, son état, ses compteurs
+du jour, son bouton « maintenant » et son historique :
+
+| Mission | Option plateforme | Par défaut |
+|---|---|---|
+| 🛂 Adhésion et pré-approbation | `members` | active |
+| 🧹 Spam potentiel | `spam` | active |
+| ⏳ Posts en attente | `pending` | active |
+| 📰 Vérification des posts (supprime ceux sans lien) | `postsCheck` | **coupée** |
+| 🚫 Retrait des profils suspendus | `removals` | **coupée** |
+
+Les missions de groupe (les quatre autres) passent ensemble, dans un ordre
+tiré au hasard ; la vérification des posts a ses propres passages.
+
 ## Ce qu'il fait (1.13.0)
 
 Par défaut, dans les groupes dont il est administrateur, **uniquement pour nos

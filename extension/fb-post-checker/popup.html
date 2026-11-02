@@ -13,35 +13,8 @@
     <button id="toggle" class="primary">Activer le mode automatique</button>
   </div>
 
-  <section class="mission" id="m-posts">
-    <header>
-      <h2>📰 Vérifier les posts</h2>
-      <label class="switch"><input type="checkbox" id="auto-posts"><span>auto</span></label>
-    </header>
-    <p class="what">Rouvre les posts publiés par nos profils : en ligne avec le lien de l’article ? Sans lien, il les supprime et la plateforme les republie. <b>Désactivé par défaut</b> : à activer dans la plateforme (rubrique Modérateurs).</p>
-    <div class="status" id="status-posts">—</div>
-    <div class="counts" id="counts-posts"></div>
-    <button class="secondary run" data-run="posts">Vérifier les posts maintenant</button>
-    <details>
-      <summary>Historique des posts</summary>
-      <ul class="logs" id="logs-posts"></ul>
-    </details>
-  </section>
-
-  <section class="mission" id="m-members">
-    <header>
-      <h2>👤 Nos profils dans les groupes</h2>
-      <label class="switch"><input type="checkbox" id="auto-members"><span>auto</span></label>
-    </header>
-    <p class="what">Accepte l’adhésion de <b>nos</b> profils, les pré-approuve, valide nos posts en attente et <b>sort du « Spam potentiel »</b> les posts de nos profils (bouton « Publier »). Uniquement les profils de la plateforme, reconnus par leur identifiant Facebook.</p>
-    <div class="status" id="status-members">—</div>
-    <div class="counts" id="counts-members"></div>
-    <button class="secondary run" data-run="members">Lancer les tâches profils maintenant</button>
-    <details>
-      <summary>Historique des profils</summary>
-      <ul class="logs" id="logs-members"></ul>
-    </details>
-  </section>
+  <!-- Une section par mission, construite par popup.js (MISSIONS). -->
+  <div id="missions"></div>
 
   <details id="setup">
     <summary>Réglages</summary>

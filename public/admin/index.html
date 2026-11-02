@@ -1077,12 +1077,13 @@
                   <label>Au plus, par heure <input name="hourlyLimit" type="number" min="1" max="60" required /></label>
                   <label>Au plus, par jour <input name="dailyLimit" type="number" min="1" max="400" required /></label>
                 </div>
-                <label class="inline-check"><input name="members" type="checkbox" /> Accepter l’adhésion de nos profils et les pré-approuver</label>
-                <label class="inline-check"><input name="spam" type="checkbox" /> Sortir du « Spam potentiel » les posts de nos profils (bouton « Publier »)</label>
                 <fieldset class="md-options">
-                  <legend>Options (désactivées par défaut)</legend>
-                  <label class="inline-check"><input name="postsCheck" type="checkbox" /> Vérifier les posts publiés — <b>supprime</b> un post resté sans lien pour le faire republier</label>
-                  <label class="inline-check"><input name="removals" type="checkbox" /> Retirer de nos groupes nos profils suspendus par Facebook</label>
+                  <legend>Ses missions — chacune séparée</legend>
+                  <label class="md-mission"><input name="members" type="checkbox" /><span><b>🛂 Adhésion et pré-approbation</b><small>Accepte la demande d’adhésion de nos profils, puis les pré-approuve.</small></span></label>
+                  <label class="md-mission"><input name="spam" type="checkbox" /><span><b>🧹 Spam potentiel</b><small>Publie les posts de nos profils rangés dans le « Spam potentiel » du groupe (jamais ceux des autres).</small></span></label>
+                  <label class="md-mission"><input name="pending" type="checkbox" /><span><b>⏳ Posts en attente</b><small>Valide nos posts restés « en attente de validation ».</small></span></label>
+                  <label class="md-mission"><input name="postsCheck" type="checkbox" /><span><b>📰 Vérification des posts</b> <em>coupée par défaut</em><small>Rouvre les posts publiés ; <b>supprime</b> un post resté sans lien pour le faire republier.</small></span></label>
+                  <label class="md-mission"><input name="removals" type="checkbox" /><span><b>🚫 Retrait des profils suspendus</b> <em>coupé par défaut</em><small>Retire de nos groupes nos profils suspendus par Facebook.</small></span></label>
                 </fieldset>
                 <small id="md-settings-help">Son extension relit ces réglages chaque minute.</small>
                 <div class="actions"><button class="primary" type="submit">Enregistrer</button></div>

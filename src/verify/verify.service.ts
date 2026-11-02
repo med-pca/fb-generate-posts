@@ -84,6 +84,7 @@ export class VerifyService {
         moderatorPostsCheck: true,
         moderatorRemovals: true,
         moderatorSpam: true,
+        moderatorPending: true,
       },
     });
     if (!profile) throw new NotFoundException('Profil vérificateur introuvable');

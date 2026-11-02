@@ -23,6 +23,8 @@ export class ModeratorSettingsDto {
   @ApiPropertyOptional() @IsOptional() @IsBoolean() removals?: boolean;
   /** Sortir du spam les posts de nos profils. */
   @ApiPropertyOptional() @IsOptional() @IsBoolean() spam?: boolean;
+  /** Valider nos posts en attente. */
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() pending?: boolean;
   /** Heures de travail, en minutes depuis minuit, dans `timezone`. */
   @ApiPropertyOptional({ minimum: 0, maximum: 1439 }) @IsOptional() @IsInt() @Min(0) @Max(1439) windowStart?: number;
   @ApiPropertyOptional({ minimum: 0, maximum: 1439 }) @IsOptional() @IsInt() @Min(0) @Max(1439) windowEnd?: number;
