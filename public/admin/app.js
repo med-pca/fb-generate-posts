@@ -48,6 +48,8 @@ const API = '/api',
     // La file de publication : ses filtres et combien on en montre.
     queue: { tab: 'queue', section: 'upcoming', search: '', siteId: '', categoryId: '', groupId: '', limit: 10, publishedLimit: 20, data: null },
     selection: new Set(),
+    // Les articles cochés (page Articles), pour les copier vers un autre site.
+    articleSel: new Set(),
   };
 // La session vit dans un cookie HttpOnly que ce script ne voit pas : aucun
 // jeton à garder ici. Une ancienne version en avait rangé un : on l'efface.
@@ -3951,11 +3953,12 @@ function renderCategories() {
 
 function renderArticles() {
   renderArticleFilters();
+  renderArticleBar();
   $('#article-cards').innerHTML =
     state.articles
       .map(
         (a) =>
-          `<article class="article-card ${a.status === 'INACTIVE' ? 'inactive' : ''}">${a.coverImageUrl ? `<img src="${esc(a.coverImageUrl)}" alt="" loading="lazy">` : '<div class="article-placeholder">Aucune image</div>'}<div class="article-body"><div class="post-meta"><span>${esc(a.source.name)}</span><span>${a.archivedAt ? `<span class="pill archived" title="Un de ses posts a été publié le ${esc(when(a.archivedAt))} : on n'en tire plus de nouveau post">ARCHIVÉ</span>` : a.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.excerpt || a.metaDescription || '')}</p><div class="article-facts"><span>${esc(a.course || 'Article')}</span>${a.totalMinutes ? `<span>${a.totalMinutes} min</span>` : ''}<span>${a._count.posts} posts</span></div><div class="card-actions"><a class="edit" href="${esc(a.articleUrl)}" target="_blank">Voir ↗</a><button class="edit" data-toggle-article="${a.id}">${a.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-article="${a.id}">Modifier</button><button class="danger" data-delete-article="${a.id}">Supprimer</button><button class="danger" data-delete-article-posts="${a.id}" ${a._count.posts ? '' : 'disabled'}>Supprimer les posts</button>${a._count.posts ? `<button class="secondary compact" data-recreate="${a.id}" title="Le faire repartir dans ses groupes, même archivé">🔁 Recréer les posts</button>` : ''}<button class="primary compact" data-generate="${a.id}" ${a.status === 'INACTIVE' || a.archivedAt ? 'disabled' : ''} ${a.archivedAt ? 'title="Article archivé : ses posts ont commencé à être publiés"' : ''}>Créer les posts</button></div></div></article>`,
+          `<article class="article-card ${a.status === 'INACTIVE' ? 'inactive' : ''} ${state.articleSel.has(a.id) ? 'selected' : ''}"><label class="article-check" title="Sélectionner pour copier vers un autre site"><input type="checkbox" data-select-article="${a.id}" ${state.articleSel.has(a.id) ? 'checked' : ''} aria-label="Sélectionner ${esc(a.title)}"></label>${a.coverImageUrl ? `<img src="${esc(a.coverImageUrl)}" alt="" loading="lazy">` : '<div class="article-placeholder">Aucune image</div>'}<div class="article-body"><div class="post-meta"><span>${esc(a.source.name)}</span><span>${a.archivedAt ? `<span class="pill archived" title="Un de ses posts a été publié le ${esc(when(a.archivedAt))} : on n'en tire plus de nouveau post">ARCHIVÉ</span>` : a.status === 'ACTIVE' ? 'ACTIF' : 'INACTIF'}</span></div><h3>${esc(a.title)}</h3><p>${esc(a.excerpt || a.metaDescription || '')}</p><div class="article-facts"><span>${esc(a.course || 'Article')}</span>${a.totalMinutes ? `<span>${a.totalMinutes} min</span>` : ''}<span>${a._count.posts} posts</span></div><div class="card-actions"><a class="edit" href="${esc(a.articleUrl)}" target="_blank">Voir ↗</a><button class="edit" data-toggle-article="${a.id}">${a.status === 'ACTIVE' ? 'Désactiver' : 'Activer'}</button><button class="edit" data-edit-article="${a.id}">Modifier</button><button class="danger" data-delete-article="${a.id}">Supprimer</button><button class="danger" data-delete-article-posts="${a.id}" ${a._count.posts ? '' : 'disabled'}>Supprimer les posts</button>${a._count.posts ? `<button class="secondary compact" data-recreate="${a.id}" title="Le faire repartir dans ses groupes, même archivé">🔁 Recréer les posts</button>` : ''}<button class="primary compact" data-generate="${a.id}" ${a.status === 'INACTIVE' || a.archivedAt ? 'disabled' : ''} ${a.archivedAt ? 'title="Article archivé : ses posts ont commencé à être publiés"' : ''}>Créer les posts</button></div></div></article>`,
       )
       .join('') ||
     (Object.entries(ARTICLE_FILTER_DEFAULTS).some(([k, v]) => state.articleFilters[k] !== v) ? '<div class="empty">Aucun article pour ces filtres.</div>' : '<div class="empty">Importez votre premier article JSON.</div>');
@@ -5142,6 +5145,27 @@ const LINK_LABELS = {
   missing: 'Manquant',
   none: 'Sans lien',
 };
+/** Les raisons d'un lien manquant, pour les totaux de l'audit. */
+const MISSING_WHY_LABELS = {
+  approval: '⏳ En attente / 🚫 refusé ou spam',
+  removed: '🗑 Introuvable (supprimé ou spam)',
+  rescue: '🛟 Sauvetage en cours',
+  rescue_failed: '🛟 Sauvetage échoué',
+  no_url: '❓ Adresse du post inconnue',
+  comment_error: '💬 Commentaire refusé',
+  unknown: '⚠ Commentaire non posé',
+};
+/** La cellule « Lien » : l'état, et pour un lien manquant, POURQUOI et quoi
+ * faire (dépliable). */
+function linkCell(p) {
+  const pill = `<span class="pill link-${p.link}">${LINK_LABELS[p.link]}</span>`;
+  if (p.link !== 'missing' || !p.why) return pill;
+  return (
+    pill +
+    `<details class="link-why why-${esc(p.why.code)}"><summary>${esc(p.why.title)}</summary>` +
+    `<p>${esc(p.why.detail)}</p><p class="link-why-todo">👉 ${esc(p.why.todo)}</p></details>`
+  );
+}
 
 /* ── File de publication : un état à la fois ────────────────────────── */
 const Q_SECTIONS = {
@@ -5283,7 +5307,7 @@ function publishedRowHtml(p) {
             ? `<a href="${esc(p.facebookUrl)}" target="_blank" rel="noreferrer" title="${esc(p.facebookUrl)}">Voir sur Facebook ↗</a>`
             : '<span class="fb-missing" title="L’extension n’a pas retrouvé l’adresse du post : le modérateur la cherchera dans le groupe, ou collez-la">⚠ adresse inconnue</span>') +
           `</td><td>${queuePost(p.post)}${roundChip(p.repeatRound)}</td><td>${queueGroup(p.group)}</td><td>${queueProfile(p.profile)}</td>` +
-          `<td><span class="pill link-${p.link}">${LINK_LABELS[p.link]}</span></td>` +
+          `<td class="link-cell">${linkCell(p)}</td>` +
           `<td>${verifyCell(p.verify)}</td>` +
           `<td>${rowMenu([
             menuItem(`data-history="${p.targetId}"`, '🕘 Historique'),
@@ -5306,6 +5330,11 @@ function pubQuery(page = state.pub.page) {
   if (f.from) q.set('from', new Date(f.from).toISOString());
   if (f.to) q.set('to', new Date(f.to).toISOString());
   for (const k of ['profileId', 'verify', 'link', 'url', 'kind']) if (f[k]) q.set(k, f[k]);
+  // « missing:approval » : lien manquant, pour cette raison seulement.
+  if (f.link?.startsWith('missing:')) {
+    q.set('link', 'missing');
+    q.set('why', f.link.slice('missing:'.length));
+  }
   if (state.queue.siteId) q.set('siteId', state.queue.siteId);
   if (state.queue.categoryId) q.set('categoryId', state.queue.categoryId);
   if (state.queue.groupId) q.set('groupId', state.queue.groupId);
@@ -5351,7 +5380,11 @@ function renderPublished() {
     ? { title: `Par jour <small>(${esc(d.timeZone)})</small>`, bars: days.map((x) => ({ label: x.day.slice(5).split('-').reverse().join('/'), n: x.count })) }
     : { title: `Par heure <small>(${esc(d.timeZone)})</small>`, bars: (s.byHour || []).map((n, h) => ({ label: `${h}h`, n })) };
   const max = Math.max(1, ...timeline.bars.map((b) => b.n));
+  const why = Object.entries(s.missingWhy || {})
+    .map(([id, count]) => ({ id, name: MISSING_WHY_LABELS[id] || id, count }))
+    .sort((a, b) => b.count - a.count);
   $('#pub-breakdown').innerHTML =
+    (why.length ? top('Liens manquants : pourquoi', why, 'why') : '') +
     top('Par profil', s.byProfile || [], 'profile') +
     top('Par groupe', s.byGroup || [], 'group') +
     `<div class="pub-top pub-time"><h4>${timeline.title}</h4><div class="pub-cols">${timeline.bars
@@ -5419,7 +5452,10 @@ $('#pub-reset').onclick = () => {
 $('#pub-breakdown').addEventListener('click', (e) => {
   const bar = e.target.closest('.pub-bar');
   if (!bar) return;
-  if (bar.dataset.pubProfile) {
+  if (bar.dataset.pubWhy) {
+    state.pub.filters.link = `missing:${bar.dataset.pubWhy}`;
+    fillPubForm();
+  } else if (bar.dataset.pubProfile) {
     state.pub.filters.profileId = bar.dataset.pubProfile;
     fillPubForm();
   } else if (bar.dataset.pubGroup) {
@@ -7065,6 +7101,9 @@ async function renderModeratorPage(id) {
   f.elements.hourlyLimit.value = s.hourlyLimit ?? 12;
   f.elements.dailyLimit.value = s.dailyLimit ?? 60;
   f.elements.members.checked = s.members;
+  f.elements.spam.checked = s.spam !== false;
+  f.elements.postsCheck.checked = Boolean(s.postsCheck);
+  f.elements.removals.checked = Boolean(s.removals);
   [...f.elements].forEach((el) => (el.disabled = !admin));
   $('#md-chart').innerHTML = moderatorChart(d.days);
   const recentList = (rows) =>
@@ -7081,8 +7120,8 @@ async function renderModeratorPage(id) {
   $('#md-recent').innerHTML = recentList(d.recent.filter((r) => !r.eventType.startsWith('MEMBER_')));
   $('#md-recent-members').innerHTML = recentList(d.recent.filter((r) => r.eventType.startsWith('MEMBER_')));
   $('#md-actions').innerHTML = admin
-    ? `<button class="primary" type="button" data-mod-act="run" ${s.paused ? 'disabled title="Suspendu"' : ''}>▶ Vérifier les posts</button>` +
-      `<button class="primary violet" type="button" data-mod-act="run-members" ${s.paused || !s.members ? 'disabled title="Suspendu, ou tâches profils désactivées"' : ''}>▶ Lancer les tâches profils</button>` +
+    ? `<button class="primary" type="button" data-mod-act="run" ${s.paused || !s.postsCheck ? `disabled title="${s.paused ? 'Suspendu' : 'Option « Vérifier les posts publiés » désactivée (réglages)'}"` : ''}>▶ Vérifier les posts</button>` +
+      `<button class="primary violet" type="button" data-mod-act="run-members" ${s.paused || (!s.members && s.spam === false) ? 'disabled title="Suspendu, ou tâches profils et spam désactivés"' : ''}>▶ Lancer les tâches profils et le spam</button>` +
       `<button class="edit" type="button" data-mod-act="pause">${s.paused ? 'Reprendre' : 'Suspendre'}</button>` +
       `<button class="edit" type="button" data-mod-act="recheck" ${d.due.needsAction ? '' : 'disabled'} title="Les publications « à traiter » repartent en vérification">↻ Revérifier « à traiter » (${d.due.needsAction})</button>` +
       `<button class="edit" type="button" data-mod-act="retry-members" ${d.due.memberProblems ? '' : 'disabled'}>↻ Relancer les adhésions en échec (${d.due.memberProblems})</button>` +
@@ -7145,6 +7184,9 @@ $('#md-settings').onsubmit = async (e) => {
         hourlyLimit: Number(f.elements.hourlyLimit.value),
         dailyLimit: Number(f.elements.dailyLimit.value),
         members: f.elements.members.checked,
+        spam: f.elements.spam.checked,
+        postsCheck: f.elements.postsCheck.checked,
+        removals: f.elements.removals.checked,
       }),
     });
     notice('Réglages enregistrés : son extension les applique dans la minute.');
@@ -7680,5 +7722,129 @@ $('#top-settings-form').onsubmit = async (e) => {
     await loadTopArticles();
   } catch (x) {
     notice(x.message, 'error');
+  }
+};
+
+/* ── Copier des articles vers un autre site ────────────────────────── */
+function renderArticleBar() {
+  const n = state.articleSel.size;
+  $('#article-bar').hidden = !n;
+  $('#article-selected').textContent = `${n} article(s) sélectionné(s)`;
+}
+$('#article-cards').addEventListener('change', (e) => {
+  const id = e.target.dataset?.selectArticle;
+  if (!id) return;
+  if (e.target.checked) state.articleSel.add(id);
+  else state.articleSel.delete(id);
+  e.target.closest('.article-card')?.classList.toggle('selected', e.target.checked);
+  renderArticleBar();
+});
+$('#article-select-page').onclick = () => {
+  for (const a of state.articles) state.articleSel.add(a.id);
+  renderArticles();
+};
+$('#article-select-none').onclick = () => {
+  state.articleSel.clear();
+  renderArticles();
+};
+$('#article-copy-open').onclick = () => {
+  const f = $('#copy-form');
+  f.reset();
+  const sources = new Set(state.articles.filter((a) => state.articleSel.has(a.id)).map((a) => a.source?.id));
+  const sites = (state.sites || []).filter((s) => s.status === 'ACTIVE' && !s.pause);
+  $('#copy-target').innerHTML =
+    '<option value="">Choisir le site…</option>' +
+    sites.map((s) => `<option value="${s.id}" ${sources.size === 1 && sources.has(s.id) ? 'disabled' : ''}>${esc(s.name)}${s.category ? ` — ${esc(s.category)}` : ''}</option>`).join('');
+  $('#copy-count').textContent = `${state.articleSel.size} article(s) à copier.`;
+  $('#copy-progress').hidden = true;
+  $('#copy-go').disabled = false;
+  clearInterval(copyTimer);
+  $('#copy-modal').showModal();
+};
+let copyTimer = null;
+$('#copy-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.currentTarget;
+  const go = $('#copy-go');
+  go.disabled = true;
+  try {
+    const r = await api('/article-copies', {
+      method: 'POST',
+      body: JSON.stringify({ articleIds: [...state.articleSel], targetSiteId: f.elements.targetSiteId.value, posts: f.elements.posts.value }),
+    });
+    const skipped = r.skipped.length
+      ? `<details><summary>${r.skipped.length} article(s) sauté(s)</summary><ul>${r.skipped.map((s) => `<li>${esc(s.title)} : ${esc(s.reason)}</li>`).join('')}</ul></details>`
+      : '';
+    const box = $('#copy-progress');
+    box.hidden = false;
+    box.innerHTML = `<p><b>${r.planned} copie(s) lancée(s) vers ${esc(r.target.name)}</b></p>${skipped}<div id="copy-live"></div>`;
+    if (!r.planned) {
+      go.disabled = false;
+      return;
+    }
+    state.articleSel.clear();
+    renderArticleBar();
+    const follow = async () => {
+      let d;
+      try {
+        d = await api(`/article-copies?ids=${r.copyIds.join(',')}`);
+      } catch {
+        return;
+      }
+      const label = { pending: '⏳ en cours', done: '✓ copié', failed: '✕ erreur', skipped: '— sauté' };
+      $('#copy-live').innerHTML =
+        `<p>${d.done}/${d.total} copié(s) · ${d.posts} post(s) ${r.postsMode === 'new' ? 'créé(s)' : 'réaffecté(s)'}${d.failed ? ` · <b class="bad">${d.failed} en erreur</b>` : ''}</p>` +
+        `<ul class="copy-rows">${d.rows
+          .map((x) => `<li class="copy-${x.status}"><span>${label[x.status] || x.status}</span> ${x.permalink ? `<a href="${esc(x.permalink)}" target="_blank" rel="noopener">${esc(x.title)} ↗</a>` : esc(x.title)}${x.error ? `<small>${esc(x.error)}</small>` : ''}</li>`)
+          .join('')}</ul>`;
+      if (!d.pending) {
+        clearInterval(copyTimer);
+        go.disabled = false;
+        notice(`Copie terminée : ${d.done} article(s), ${d.posts} post(s)${d.failed ? `, ${d.failed} en erreur` : ''}`, d.failed ? 'error' : 'success');
+        load();
+      }
+    };
+    clearInterval(copyTimer);
+    copyTimer = setInterval(follow, 3000);
+    void follow();
+  } catch (x) {
+    notice(x.message, 'error');
+    go.disabled = false;
+  }
+};
+
+/* ── Recréer les posts de plusieurs articles ───────────────────────── */
+$('#article-recreate-open').onclick = () => {
+  $('#recreate-many-count').innerHTML = `<b>${state.articleSel.size} article(s)</b> sélectionné(s).`;
+  $('#recreate-many-result').hidden = true;
+  $('#recreate-many-go').disabled = false;
+  $('#recreate-many-modal').showModal();
+};
+$('#recreate-many-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const go = $('#recreate-many-go');
+  go.disabled = true;
+  go.textContent = 'Recréation…';
+  try {
+    const r = await api('/articles/recreate-posts', { method: 'POST', body: JSON.stringify({ articleIds: [...state.articleSel] }) });
+    const box = $('#recreate-many-result');
+    box.hidden = false;
+    box.innerHTML =
+      `<p><b>${r.articles} article(s) recréé(s)</b> : ${r.requeued} groupe(s) remis en file, ${r.created} ajouté(s)${r.alreadyQueued ? `, ${r.alreadyQueued} déjà en file` : ''}${r.failed ? ` · <b class="bad">${r.failed} sauté(s)</b>` : ''}.</p>` +
+      `<ul class="copy-rows">${r.results
+        .map((x) =>
+          x.ok
+            ? `<li class="copy-done"><span>✓</span> ${esc(x.title)} <small class="muted">${x.requeued} remis en file · ${x.created} ajouté(s)${x.alreadyQueued ? ` · ${x.alreadyQueued} déjà en file` : ''}</small></li>`
+            : `<li class="copy-failed"><span>✕</span> ${esc(x.title)}<small>${esc(x.error)}</small></li>`,
+        )
+        .join('')}</ul>`;
+    notice(`Posts recréés pour ${r.articles} article(s)${r.failed ? ` (${r.failed} sauté(s))` : ''}.`, r.failed && !r.articles ? 'error' : 'success');
+    state.articleSel.clear();
+    await load();
+  } catch (x) {
+    notice(x.message, 'error');
+    go.disabled = false;
+  } finally {
+    go.textContent = 'Recréer';
   }
 };

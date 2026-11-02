@@ -1,5 +1,25 @@
 # « Modérateur · PostFlow » (ex-FB Post Checker)
 
+## Ce qu'il fait (1.13.0)
+
+Par défaut, dans les groupes dont il est administrateur, **uniquement pour nos
+profils** (reconnus par leur identifiant Facebook) :
+
+1. accepter leur demande d'adhésion, puis les **pré-approuver** ;
+2. valider nos posts « en attente » ;
+3. **sortir du « Spam potentiel »** les posts de nos profils : il ouvre
+   `<groupe>/spam` et clique **« Publier »** sous un post dont l'**auteur**
+   (premier lien de l'en-tête) est exactement un de nos profils. Jamais
+   « Refuser », jamais le post d'un autre membre (même s'il cite un des
+   nôtres). Facebook range parfois dans le spam des posts déjà publiés : la
+   plateforme lui fait revoir, toutes les 6 h, chaque groupe où nos profils
+   ont publié depuis 14 jours (pas administrateur : revu après 7 jours).
+
+**Options, désactivées par défaut** (plateforme → Modérateurs → réglages) :
+la vérification des posts publiés ci-dessous (elle **supprime** un post resté
+sans lien), et le retrait de nos profils suspendus. Coupées, la plateforme ne
+lui en donne aucune tâche, même à une ancienne version de l'extension.
+
 Extension du **profil vérificateur**. Elle rouvre les posts publiés par les
 automates et dit à la plateforme ce qu'elle voit :
 

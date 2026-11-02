@@ -305,7 +305,11 @@ export class ArticlesService {
           select: { groupId: true, status: true, publishedAt: true, repeatRound: true },
         })
       : [];
-    const byGroup = new Map(targets.map((t) => [t.groupId, t]));
+    // Par groupe (un article WordPress a un post par groupe) : en file ou en
+    // cours d'abord, sinon la dernière cible.
+    const byGroup = new Map<string, (typeof targets)[number]>();
+    const busy = (x?: { status: string }) => Boolean(x && ['AVAILABLE', 'CLAIMED', 'CONSUMED'].includes(x.status));
+    for (const t of targets) if (!busy(byGroup.get(t.groupId))) byGroup.set(t.groupId, t);
     return {
       article: { id: article.id, title: article.title, archivedAt: article.archivedAt, status: article.status, category: article.source.category?.name ?? null },
       hasPost: posts.length > 0,
@@ -321,7 +325,9 @@ export class ArticlesService {
    *   - déjà publié, en échec ou annulé dans un groupe : remis dans la file
    *     (l'adresse de la publication précédente reste dans l'historique) ;
    *   - jamais parti dans un groupe de sa catégorie : ajouté ;
-   *   - déjà en file ou en cours : laissé tel quel (pas de doublon). */
+   *   - déjà en file ou en cours : laissé tel quel (pas de doublon).
+   * Un article WordPress a UN post par groupe : chaque groupe est cherché
+   * dans tous ses posts, pas seulement le premier. */
   async recreatePosts(id: string, dto: { groupIds?: string[] }, acting: CurrentUser | null) {
     const preview = await this.recreatePreview(id, acting);
     if (!preview.hasPost) {
@@ -332,15 +338,25 @@ export class ArticlesService {
     if (!wanted.length) throw new BadRequestException('Choisissez au moins un groupe actif de sa catégorie');
     const now = new Date();
     const posts = await this.prisma.post.findMany({ where: { articleId: id }, orderBy: { createdAt: 'asc' }, select: { id: true, title: true } });
-    // Le post de l'article : le premier (un article donne un post ouvert).
+    // Un groupe jamais parti s'ajoute au premier post de l'article.
     const post = posts[0];
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.article.update({ where: { id }, data: { status: 'ACTIVE' } });
-      await tx.post.update({ where: { id: post.id }, data: { status: 'AVAILABLE' } });
-      const existing = await tx.postTarget.findMany({ where: { postId: post.id, groupId: { in: wanted } }, select: { id: true, groupId: true, status: true, facebookUrl: true } });
-      const have = new Map(existing.map((t) => [t.groupId, t]));
-      const again = existing.filter((t) => ['PUBLISHED', 'FAILED', 'CANCELLED'].includes(t.status));
-      const queued = existing.filter((t) => ['AVAILABLE', 'CLAIMED', 'CONSUMED'].includes(t.status)).length;
+      // Ce que l'article a déjà dans ces groupes, tous posts confondus : par
+      // groupe, une cible en file ou en cours d'abord, sinon la plus récente.
+      const existing = await tx.postTarget.findMany({
+        where: { post: { articleId: id }, groupId: { in: wanted } },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, postId: true, groupId: true, status: true, facebookUrl: true },
+      });
+      const busy = (x?: { status: string }) => Boolean(x && ['AVAILABLE', 'CLAIMED', 'CONSUMED'].includes(x.status));
+      const have = new Map<string, (typeof existing)[number]>();
+      for (const t of existing) if (!busy(have.get(t.groupId))) have.set(t.groupId, t);
+      const reopened = [...new Set([post.id, ...[...have.values()].map((t) => t.postId)])];
+      await tx.post.updateMany({ where: { id: { in: reopened } }, data: { status: 'AVAILABLE' } });
+      const kept = [...have.values()];
+      const again = kept.filter((t) => ['PUBLISHED', 'FAILED', 'CANCELLED'].includes(t.status));
+      const queued = kept.filter((t) => ['AVAILABLE', 'CLAIMED', 'CONSUMED'].includes(t.status)).length;
       if (again.length) {
         await tx.$executeRaw(Prisma.sql`
           UPDATE post_targets SET
@@ -372,6 +388,34 @@ export class ArticlesService {
       return { requeued: again.length, created: missing.length, alreadyQueued: queued };
     });
     return { ...result, groups: wanted.length };
+  }
+
+  /** 🔁 Recréer les posts de plusieurs articles d'un coup : chacun repart
+   * dans tous les groupes actifs de sa catégorie (déjà en file : laissé tel
+   * quel). Un article sans post ou en erreur n'arrête pas les autres. */
+  async recreateMany(articleIds: string[], acting: CurrentUser | null) {
+    const ids = [...new Set(articleIds)];
+    if (!ids.length) throw new BadRequestException('Choisissez au moins un article');
+    if (ids.length > 200) throw new BadRequestException('200 articles au plus à la fois');
+    const results: Array<{ id: string; title: string; ok: boolean; requeued: number; created: number; alreadyQueued: number; error?: string }> = [];
+    for (const id of ids) {
+      const title = (await this.prisma.article.findUnique({ where: { id }, select: { title: true } }))?.title ?? id;
+      try {
+        const r = await this.recreatePosts(id, {}, acting);
+        results.push({ id, title, ok: true, requeued: r.requeued, created: r.created, alreadyQueued: r.alreadyQueued });
+      } catch (error) {
+        results.push({ id, title, ok: false, requeued: 0, created: 0, alreadyQueued: 0, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    const sum = (k: 'requeued' | 'created' | 'alreadyQueued') => results.reduce((n, r) => n + r[k], 0);
+    return {
+      articles: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      requeued: sum('requeued'),
+      created: sum('created'),
+      alreadyQueued: sum('alreadyQueued'),
+      results,
+    };
   }
 
   /** Les légendes d'un article sont un JSON libre : ne garder que celles qui

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { postWhere, profileWhere, scopeOf, type Scope } from '../auth/scope';
 import { PublishedQueryDto } from './dto/queue.dto';
+import { missingWhy, missingWhyWhere } from './link-why';
 
 /** Au-delà, les totaux seraient trop lourds à calculer d'un coup : la période
  * est à resserrer (c'est dit dans la réponse). */
@@ -17,8 +18,12 @@ type Row = {
   verifyStatus: VerifyStatus | null;
   facebookUrl: string | null;
   groupId: string;
+  approvalPendingSince: Date | null;
+  verifyDetail: string | null;
+  rescueStatus: string | null;
+  rescueDetail: string | null;
   post: { url: string | null };
-  jobItems: Array<{ job: { profileId: string } }>;
+  jobItems: Array<{ error: string | null; job: { profileId: string } }>;
 };
 
 /** L'état du lien de l'article, comme la file l'affiche. */
@@ -75,7 +80,10 @@ export class PublishedService {
     if (q.verify === 'unverified') and.push({ verifyStatus: null });
     if (q.link === 'placed') and.push({ linkUpdatedAt: { not: null } });
     if (q.link === 'waiting') and.push({ linkUpdatedAt: null, commentedAt: { not: null }, post: { url: { not: null } } });
-    if (q.link === 'missing') and.push({ linkUpdatedAt: null, commentedAt: null, post: { url: { not: null } } });
+    if (q.link === 'missing') {
+      and.push({ linkUpdatedAt: null, commentedAt: null, post: { url: { not: null } } });
+      if (q.why) and.push(missingWhyWhere(q.why));
+    }
     if (q.link === 'none') and.push({ linkUpdatedAt: null, post: { url: null } });
     if (q.kind === 'article') and.push({ post: { articleId: { not: null } } });
     if (q.kind === 'visual') and.push({ post: { visualId: { not: null } } });
@@ -112,13 +120,16 @@ export class PublishedService {
           republishCount: true,
           repeatRound: true,
           facebookUrl: true,
+          approvalPendingSince: true,
+          rescueStatus: true,
+          rescueDetail: true,
           post: { select: { id: true, title: true, imageUrl: true, url: true, priority: true, visualId: true, articleId: true } },
           group: { select: { id: true, name: true, url: true, category: { select: { id: true, name: true } } } },
           jobItems: {
             where: { status: TargetStatus.PUBLISHED },
             orderBy: { publishedAt: 'desc' },
             take: 1,
-            select: { externalPostUrl: true, job: { select: { profile: { select: { id: true, name: true, ownerId: true } } } } },
+            select: { externalPostUrl: true, error: true, job: { select: { profile: { select: { id: true, name: true, ownerId: true } } } } },
           },
         },
       }),
@@ -134,8 +145,12 @@ export class PublishedService {
           verifyStatus: true,
           facebookUrl: true,
           groupId: true,
+          approvalPendingSince: true,
+          verifyDetail: true,
+          rescueStatus: true,
+          rescueDetail: true,
           post: { select: { url: true } },
-          jobItems: { where: { status: TargetStatus.PUBLISHED }, orderBy: { publishedAt: 'desc' }, take: 1, select: { job: { select: { profileId: true } } } },
+          jobItems: { where: { status: TargetStatus.PUBLISHED }, orderBy: { publishedAt: 'desc' }, take: 1, select: { error: true, job: { select: { profileId: true } } } },
         },
       }) as Promise<Row[]>,
     ]);
@@ -154,6 +169,9 @@ export class PublishedService {
     const byHour = tally((r) => (r.publishedAt ? String(hourIn(r.publishedAt, timeZone)) : null));
     const verify = tally((r) => (r.verifyStatus ? r.verifyStatus.toLowerCase() : 'unverified'));
     const link = tally((r) => linkState(r));
+    // Les liens manquants, raison par raison.
+    const now = new Date();
+    const why = tally((r) => (linkState(r) === 'missing' ? missingWhy(r, now).code : null));
 
     const [profiles, groups] = await Promise.all([
       // Un gestionnaire ne voit que les noms de SES profils.
@@ -174,6 +192,7 @@ export class PublishedService {
         withUrl: all.filter((r) => r.facebookUrl).length,
         verify: Object.fromEntries(verify),
         link: Object.fromEntries(link),
+        missingWhy: Object.fromEntries(why),
         byProfile: named(byProfileId, profiles),
         byGroup: named(byGroupId, groups),
         byDay: [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, count]) => ({ day, count })),
@@ -187,6 +206,7 @@ export class PublishedService {
         profile: shown(r.jobItems[0]?.job.profile ?? null),
         facebookUrl: r.facebookUrl ?? r.jobItems[0]?.externalPostUrl ?? null,
         link: linkState(r),
+        why: linkState(r) === 'missing' ? missingWhy(r, now) : null,
         verify: { status: r.verifyStatus, at: r.verifiedAt, detail: r.verifyDetail, republishCount: r.republishCount },
         repeatRound: r.repeatRound,
       })),
@@ -210,18 +230,23 @@ export class PublishedService {
         linkUpdatedAt: true,
         verifyStatus: true,
         facebookUrl: true,
+        approvalPendingSince: true,
+        verifyDetail: true,
+        rescueStatus: true,
+        rescueDetail: true,
         post: { select: { title: true, url: true } },
         group: { select: { name: true, category: { select: { name: true } } } },
-        jobItems: { where: { status: TargetStatus.PUBLISHED }, orderBy: { publishedAt: 'desc' }, take: 1, select: { job: { select: { profile: { select: { name: true, ownerId: true } } } } } },
+        jobItems: { where: { status: TargetStatus.PUBLISHED }, orderBy: { publishedAt: 'desc' }, take: 1, select: { error: true, job: { select: { profile: { select: { name: true, ownerId: true } } } } } },
       },
     });
+    const now = new Date();
     const cell = (v: unknown) => {
       const s = v === null || v === undefined ? '' : String(v);
       // Pas de formule interprétée par le tableur.
       const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
       return /[";\n,]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
     };
-    const head = ['publie_le', 'profil', 'groupe', 'categorie', 'post', 'lien_article', 'etat_lien', 'verification', 'adresse_facebook'];
+    const head = ['publie_le', 'profil', 'groupe', 'categorie', 'post', 'lien_article', 'etat_lien', 'pourquoi_manquant', 'verification', 'adresse_facebook'];
     const lines = rows.map((r) =>
       [
         r.publishedAt?.toISOString() ?? '',
@@ -231,6 +256,7 @@ export class PublishedService {
         r.post.title,
         r.post.url ?? '',
         linkState(r),
+        linkState(r) === 'missing' ? missingWhy(r, now).title.replace(/^\S+\s/, '') : '',
         r.verifyStatus ?? 'non vérifié',
         r.facebookUrl ?? '',
       ].map(cell).join(';'),

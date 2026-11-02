@@ -2735,3 +2735,30 @@ td:last-child .row-actions { justify-content: flex-end; }
 .top-managers label { display: flex; gap: 8px; align-items: center; }
 .top-settings button.primary { justify-self: start; }
 .nav[hidden] { display: none !important; }
+
+/* Lien manquant : pourquoi, et quoi faire */
+.link-cell { min-width: 170px; max-width: 280px; }
+.link-why { margin-top: 6px; font-size: .8rem; }
+.link-why summary { cursor: pointer; font-weight: 600; color: #b42318; list-style-position: inside; }
+.link-why.why-approval summary, .link-why.why-rescue summary { color: #b54708; }
+.link-why p { margin: 6px 0 0; color: var(--muted, #667085); line-height: 1.35; white-space: normal; }
+.link-why .link-why-todo { color: #1d2939; font-weight: 500; }
+
+/* Copier des articles vers un autre site */
+.article-card { position: relative; }
+.article-card.selected { outline: 2px solid #4f7cf0; outline-offset: -2px; }
+.article-check { position: absolute; top: 8px; left: 8px; z-index: 2; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: #ffffffe6; box-shadow: 0 1px 4px #0b142b26; cursor: pointer; }
+.article-check input { margin: 0; width: 16px; height: 16px; }
+.copy-modes { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.copy-modes label { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; }
+.copy-modes small { display: block; color: var(--muted, #667085); font-weight: 400; }
+.copy-progress { padding: 10px 12px; border-radius: 10px; background: #f6f8fc; max-height: 260px; overflow: auto; }
+.copy-rows { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; font-size: .85rem; }
+.copy-rows small { display: block; color: #b42318; }
+.copy-rows span { display: inline-block; min-width: 90px; }
+.copy-failed span { color: #b42318; }
+.copy-done span { color: #17803d; }
+.copy-rows small.muted { color: var(--muted, #667085); }
+.copy-progress .bad { color: #b42318; }
+.md-options { border: 1px dashed var(--line); border-radius: 10px; padding: 8px 12px; display: grid; gap: 6px; }
+.md-options legend { font-size: .8rem; color: var(--muted, #667085); padding: 0 4px; }

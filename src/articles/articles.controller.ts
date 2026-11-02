@@ -13,7 +13,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
-import { RecreatePostsDto } from './dto/recreate-posts.dto';
+import { RecreateManyDto, RecreatePostsDto } from './dto/recreate-posts.dto';
 import { QueryArticlesDto } from './dto/query-articles.dto';
 import { ArticlesService } from './articles.service';
 import { GenerateArticlePostsDto } from './dto/generate-article-posts.dto';
@@ -43,6 +43,12 @@ export class ArticlesController {
   })
   import(@Body() dto: ImportArticleDto, @ActingUser() acting: CurrentUser) {
     return this.articles.import(dto, acting);
+  }
+
+  @Post('recreate-posts')
+  @ApiOperation({ summary: '🔁 Recréer les posts de plusieurs articles : chacun repart dans tous les groupes actifs de sa catégorie' })
+  recreateMany(@Body() dto: RecreateManyDto, @ActingUser() acting: CurrentUser) {
+    return this.articles.recreateMany(dto.articleIds, acting);
   }
 
   @Get(':id/recreate')

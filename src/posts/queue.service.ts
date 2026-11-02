@@ -13,6 +13,7 @@ import { RescueService } from '../jobs/rescue.service';
 import { claimablePostWhere, mayPublishPost } from '../jobs/jobs.service';
 import { publishableArticleWhere, type ClaimPost } from '../jobs/claimable';
 import { PriorityDto, QueueQueryDto } from './dto/queue.dto';
+import { missingWhy } from './link-why';
 import { TRACE_KINDS, canonicalGroupPostUrl, groupKeyOf, normalizeFacebookUrl, trace } from '../trace/trace';
 
 const POST_FIELDS = {
@@ -227,6 +228,9 @@ export class QueueService {
             republishCount: true,
             repeatRound: true,
             facebookUrl: true,
+            approvalPendingSince: true,
+            rescueStatus: true,
+            rescueDetail: true,
             post: { select: { ...POST_FIELDS, url: true } },
             group: { select: GROUP_FIELDS },
             jobItems: {
@@ -235,6 +239,7 @@ export class QueueService {
               take: 1,
               select: {
                 externalPostUrl: true,
+                error: true,
                 publishedAt: true,
                 job: { select: { profile: { select: PROFILE_FIELDS } } },
               },
@@ -335,6 +340,11 @@ export class QueueService {
               : row.post.url
                 ? 'missing'
                 : 'none',
+          // « Manquant » : pourquoi (en attente, refusé/spam, sauvetage…).
+          why:
+            !row.linkUpdatedAt && !row.commentedAt && row.post.url
+              ? missingWhy({ ...row, facebookUrl: row.facebookUrl ?? item?.externalPostUrl ?? null })
+              : null,
         };
       }),
     };

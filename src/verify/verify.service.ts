@@ -81,6 +81,9 @@ export class VerifyService {
         moderatorPaused: true,
         moderatorBatch: true,
         moderatorMembers: true,
+        moderatorPostsCheck: true,
+        moderatorRemovals: true,
+        moderatorSpam: true,
       },
     });
     if (!profile) throw new NotFoundException('Profil vérificateur introuvable');
@@ -122,6 +125,10 @@ export class VerifyService {
     // Suspendu par l'administrateur : rien à faire.
     if (moderator.moderatorPaused) {
       return { tasks: [], paused: true, verifyAfterMinutes: this.verifyAfterMinutes() };
+    }
+    // Mission désactivée (par défaut) : rien à vérifier, rien à supprimer.
+    if (moderator.moderatorPostsCheck === false) {
+      return { tasks: [], disabled: true, verifyAfterMinutes: this.verifyAfterMinutes() };
     }
     // Les posts sans lien sont d'abord confiés à un sauveteur.
     await this.rescue?.sweep(now).catch(() => undefined);

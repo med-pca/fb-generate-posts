@@ -11,6 +11,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import { MISSING_WHY } from '../link-why';
 
 /** Ce que la file montre : filtrée par catégorie ou par groupe. */
 export class QueueQueryDto {
@@ -134,6 +135,13 @@ export class PublishedQueryDto {
   @IsOptional()
   @IsIn(PUBLISHED_LINK)
   link?: (typeof PUBLISHED_LINK)[number];
+
+  /** Avec `link=missing` : une seule raison (en attente de validation,
+   * refusé/spam, sauvetage…). */
+  @ApiPropertyOptional({ enum: MISSING_WHY })
+  @IsOptional()
+  @IsIn(MISSING_WHY)
+  why?: (typeof MISSING_WHY)[number];
 
   /** Le type de contenu : posts d'articles, visuels (images seules), ou
    * posts faits à la main. */

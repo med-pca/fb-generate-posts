@@ -1,6 +1,7 @@
-import { GROUP_TASK_OUTCOMES, type GroupTaskOutcome } from '../group-tasks.service';
+import { GROUP_TASK_OUTCOMES, SPAM_OUTCOMES, type GroupTaskOutcome, type SpamOutcome } from '../group-tasks.service';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ArrayMinSize, ArrayMaxSize } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ArrayMinSize, ArrayMaxSize, ValidateNested } from 'class-validator';
 import { VERIFY_OUTCOMES } from '../verify.service';
 import { MEMBER_KINDS, MEMBER_OUTCOMES } from '../members.service';
 import { AUDIT_OUTCOMES } from '../audit.service';
@@ -190,4 +191,25 @@ export class PostApprovalResultDto {
   @ApiProperty() @IsString() @MinLength(1) @MaxLength(200) profileExternalId!: string;
   @ApiProperty({ enum: GROUP_TASK_OUTCOMES }) @IsIn(GROUP_TASK_OUTCOMES as unknown as string[]) outcome!: GroupTaskOutcome;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) detail?: string;
+}
+
+/** Un post sorti du spam : son auteur (identifiant Facebook exact). */
+export class SpamReleasedDto {
+  @ApiProperty() @IsString() @MaxLength(30) facebookUserId!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) postUrl?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) text?: string;
+}
+
+/** Un passage sur le « Spam potentiel » d'un groupe : rapport du modérateur. */
+export class SpamResultDto {
+  @ApiProperty() @IsString() @MinLength(1) @MaxLength(200) profileExternalId!: string;
+  @ApiProperty({ enum: SPAM_OUTCOMES }) @IsIn(SPAM_OUTCOMES as unknown as string[]) outcome!: SpamOutcome;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) detail?: string;
+  @ApiPropertyOptional({ type: [SpamReleasedDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => SpamReleasedDto)
+  released?: SpamReleasedDto[];
 }

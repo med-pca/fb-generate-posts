@@ -329,7 +329,13 @@ export class WordpressService {
           // Un renvoi identique ne touche rien, mais il doit quand même
           // refermer la reprise : sans cela elle resterait en attente.
           if (ingest) await this.closeIngest(tx, ingest.id, existing.id);
-          if (copy && copy.status !== 'done') await this.moveCopiedPosts(tx, copy, existing);
+          if (copy && copy.status !== 'done') {
+            // Copie manuelle d'un article déjà présent sur le site cible : il
+            // a déjà ses posts, rien à créer en double.
+            if (copy.postsMode === 'new') {
+              await tx.articleCopy.update({ where: { id: copy.id }, data: { status: 'done', newArticleId: existing.id, movedPosts: 0, error: null } });
+            } else await this.moveCopiedPosts(tx, copy, existing);
+          }
           return this.synchronize(tx, existing, fields);
         }
         const article = await tx.article.create({
@@ -342,9 +348,9 @@ export class WordpressService {
             ...fields,
           },
         });
-        if (copy) {
-          // Une copie : pas de nouveaux posts dans toute la catégorie, mais
-          // les posts en attente de l'article d'origine, déplacés ici.
+        if (copy && copy.postsMode !== 'new') {
+          // Une copie (relais) : pas de nouveaux posts dans toute la catégorie,
+          // mais les posts en attente de l'article d'origine, déplacés ici.
           const moved = copy.status === 'done' ? 0 : await this.moveCopiedPosts(tx, copy, article);
           return {
             articleId: article.id,
@@ -389,6 +395,10 @@ export class WordpressService {
           );
         }
         if (ingest) await this.closeIngest(tx, ingest.id, article.id);
+        // Copie manuelle : de nouveaux posts, comme pour un article du site.
+        if (copy && copy.status !== 'done') {
+          await tx.articleCopy.update({ where: { id: copy.id }, data: { status: 'done', newArticleId: article.id, movedPosts: groupIds.length, error: null } });
+        }
         return {
           articleId: article.id,
           duplicate: false,

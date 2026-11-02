@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { ContentSource } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
-import { scopeOf, siteManageWhere } from '../auth/scope';
+import { articleWhere, scopeOf, siteManageWhere } from '../auth/scope';
 import { WordpressService } from '../wordpress/wordpress.service';
 import { WordpressWriterService } from '../ingest/wordpress-writer.service';
 import type { WordpressArticleDto } from '../wordpress/wordpress.dto';
@@ -209,6 +209,149 @@ export class SiteRelayService {
         .slice(0, 20)
         .map((r) => ({ title: r.sourceArticle.title, status: r.status, error: r.error })),
     };
+  }
+
+  /* ── La copie manuelle ─────────────────────────────────────────────────── */
+
+  /** 📋 Copier des articles choisis vers un autre site (un nouveau site, par
+   * exemple), sans mettre l'original en pause : même slug, même contenu,
+   * même image. Les posts :
+   *   - `new`  : de nouveaux posts pour le site cible, un par groupe de sa
+   *              catégorie ; l'original garde les siens ;
+   *   - `move` : les posts en attente de l'original passent sur la copie
+   *              (réaffectation, comme le relais). */
+  async copyArticles(dto: { articleIds: string[]; targetSiteId: string; posts?: 'new' | 'move' }, acting: CurrentUser | null) {
+    const target = await this.manageable(dto.targetSiteId, acting);
+    if (target.status !== 'ACTIVE' || target.pausedAt) throw new BadRequestException(`${target.name} n’est pas actif : choisissez un site qui publie`);
+    const postsMode = dto.posts === 'move' ? 'move' : 'new';
+    const ids = [...new Set(dto.articleIds ?? [])];
+    if (!ids.length) throw new BadRequestException('Choisissez au moins un article');
+    if (ids.length > 500) throw new BadRequestException('500 articles au plus par copie');
+    const articles = await this.prisma.article.findMany({
+      where: { id: { in: ids }, ...articleWhere(scopeOf(acting)) },
+      select: {
+        id: true,
+        title: true,
+        externalId: true,
+        source: { select: { id: true, name: true, originUrl: true, depositKey: true, status: true, pausedAt: true, relayId: true } },
+        copies: { where: { targetSiteId: target.id }, select: { id: true, status: true, newArticleId: true } },
+      },
+    });
+    const targetPlugin = await this.pluginStatus(target);
+    if (!versionAtLeast(targetPlugin.version, RELAY_PLUGIN_VERSION)) {
+      throw new BadRequestException(`Le plugin de ${target.name} est en version ${targetPlugin.version || 'inconnue'} : installez la ${RELAY_PLUGIN_VERSION} (page Sites)`);
+    }
+    // Le plugin de chaque site d'origine doit savoir exporter (une fois par site).
+    const sourceOk = new Map<string, string | null>();
+    const skipped: Array<{ title: string; reason: string }> = [];
+    const planned: string[] = [];
+    for (const missing of ids.filter((id) => !articles.some((a) => a.id === id))) skipped.push({ title: missing, reason: 'article introuvable' });
+    for (const a of articles) {
+      if (!a.externalId.startsWith('wordpress:')) {
+        skipped.push({ title: a.title, reason: 'pas un article WordPress : rien à copier' });
+        continue;
+      }
+      if (a.source.id === target.id) {
+        skipped.push({ title: a.title, reason: 'déjà sur ce site' });
+        continue;
+      }
+      const before = a.copies[0];
+      if (before?.status === 'done' && before.newArticleId) {
+        skipped.push({ title: a.title, reason: `déjà copié vers ${target.name}` });
+        continue;
+      }
+      // En cours ici, ou par le relais de son site en pause. Une copie restée
+      // « pending » après un redémarrage, elle, est relancée.
+      const relaying = a.source.pausedAt && a.source.relayId === target.id;
+      if (before && (this.manualRunning.has(before.id) || (before.status === 'pending' && relaying))) {
+        skipped.push({ title: a.title, reason: 'copie déjà en cours' });
+        continue;
+      }
+      if (!sourceOk.has(a.source.id)) {
+        const status = await this.pluginStatus(a.source).catch((e: unknown) => ({ version: undefined, error: message(e) }) as PluginStatus & { error?: string });
+        sourceOk.set(
+          a.source.id,
+          versionAtLeast(status.version, RELAY_PLUGIN_VERSION) ? null : `plugin de ${a.source.name} en version ${status.version || 'inconnue'} : installez la ${RELAY_PLUGIN_VERSION}`,
+        );
+      }
+      const bad = sourceOk.get(a.source.id);
+      if (bad) {
+        skipped.push({ title: a.title, reason: bad });
+        continue;
+      }
+      const copy = await this.prisma.articleCopy.upsert({
+        where: { sourceArticleId_targetSiteId: { sourceArticleId: a.id, targetSiteId: target.id } },
+        create: { sourceArticleId: a.id, targetSiteId: target.id, status: 'pending', postsMode },
+        update: { status: 'pending', postsMode, error: null, newArticleId: null, movedPosts: 0 },
+      });
+      planned.push(copy.id);
+    }
+    if (planned.length) {
+      await this.prisma.activityLog.create({
+        data: {
+          eventType: 'ARTICLES_COPIED',
+          message: `📋 ${planned.length} article(s) copié(s) vers ${target.name} (${postsMode === 'new' ? 'nouveaux posts' : 'posts en attente déplacés'})`,
+          metadata: { targetSiteId: target.id, copyIds: planned, postsMode, by: by(acting) },
+        },
+      });
+      this.startManual(planned);
+    }
+    return { target: { id: target.id, name: target.name }, postsMode, planned: planned.length, copyIds: planned, skipped };
+  }
+
+  /** Où en sont des copies manuelles (pour suivre la progression). */
+  async copies(ids: string[], acting: CurrentUser | null) {
+    const rows = await this.prisma.articleCopy.findMany({
+      where: { id: { in: ids.slice(0, 500) }, sourceArticle: articleWhere(scopeOf(acting)) },
+      select: {
+        id: true,
+        status: true,
+        error: true,
+        permalink: true,
+        movedPosts: true,
+        postsMode: true,
+        sourceArticle: { select: { title: true } },
+        targetSite: { select: { name: true } },
+      },
+    });
+    const count = (s: string) => rows.filter((r) => r.status === s).length;
+    return {
+      total: rows.length,
+      pending: count('pending'),
+      done: count('done'),
+      failed: count('failed'),
+      posts: rows.reduce((n, r) => n + r.movedPosts, 0),
+      rows: rows.map((r) => ({ id: r.id, title: r.sourceArticle.title, target: r.targetSite.name, status: r.status, error: r.error, permalink: r.permalink, posts: r.movedPosts, postsMode: r.postsMode })),
+    };
+  }
+
+  /** Les copies manuelles en cours (une seule fois chacune). */
+  private readonly manualRunning = new Set<string>();
+  private startManual(copyIds: string[]) {
+    const todo = copyIds.filter((id) => !this.manualRunning.has(id));
+    todo.forEach((id) => this.manualRunning.add(id));
+    void (async () => {
+      for (const id of todo) {
+        try {
+          const copy = await this.prisma.articleCopy.findUnique({
+            where: { id },
+            include: {
+              sourceArticle: { select: { id: true, title: true, externalId: true, source: { select: { id: true, name: true, originUrl: true, depositKey: true, status: true, pausedAt: true, relayId: true } } } },
+              targetSite: { select: { id: true, name: true, originUrl: true, depositKey: true, status: true, pausedAt: true, relayId: true } },
+            },
+          });
+          if (!copy || copy.status !== 'pending') continue;
+          try {
+            await this.copyOne(copy, copy.sourceArticle.source, copy.targetSite);
+          } catch (error) {
+            await this.prisma.articleCopy.update({ where: { id }, data: { status: 'failed', error: message(error).slice(0, 1000) } });
+            this.logger.warn(`Copie de « ${copy.sourceArticle.title} » vers ${copy.targetSite.name} : ${message(error)}`);
+          }
+        } finally {
+          this.manualRunning.delete(id);
+        }
+      }
+    })().catch((error) => this.logger.error(`Copie manuelle : ${message(error)}`));
   }
 
   /* ── La copie ────────────────────────────────────────────────────────── */

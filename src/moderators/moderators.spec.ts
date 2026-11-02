@@ -31,6 +31,9 @@ function setup(profile: Record<string, unknown> = {}) {
     moderatorBatch: 5,
     moderatorEveryMinutes: 10,
     moderatorMembers: true,
+    moderatorPostsCheck: true,
+    moderatorRemovals: false,
+    moderatorSpam: true,
     moderatorSeenAt: new Date('2026-10-03T11:59:00Z'),
     moderatorAgent: null,
     ...profile,
@@ -96,7 +99,13 @@ describe('ModeratorsService', () => {
     expect(prisma.profile.update.mock.calls[0][0].data).toEqual({ moderatorMembersRunAt: NOW });
     expect(r.kind).toBe('members');
     expect(prisma.activityLog.create.mock.calls[0][0].data.eventType).toBe('MODERATOR_MEMBERS_RUN_REQUESTED');
-    const off = setup({ moderatorMembers: false });
-    await expect(off.service.run('mod1', ADMIN, 'members', NOW)).rejects.toThrow('désactivées');
+    // Adhésions ET spam coupés : rien à lancer.
+    const off = setup({ moderatorMembers: false, moderatorSpam: false });
+    await expect(off.service.run('mod1', ADMIN, 'members', NOW)).rejects.toThrow('désactivés');
+  });
+
+  it('la vérification des posts (qui supprime) est refusée tant qu’elle n’est pas activée', async () => {
+    const off = setup({ moderatorPostsCheck: false });
+    await expect(off.service.run('mod1', ADMIN, 'posts', NOW)).rejects.toThrow('vérification des posts est désactivée');
   });
 });

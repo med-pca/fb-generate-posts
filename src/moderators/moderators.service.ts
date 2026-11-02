@@ -46,6 +46,9 @@ export class ModeratorsService {
     moderatorBatch: number;
     moderatorEveryMinutes: number;
     moderatorMembers: boolean;
+    moderatorPostsCheck: boolean;
+    moderatorRemovals: boolean;
+    moderatorSpam: boolean;
     moderatorSeenAt: Date | null;
     moderatorAgent: string | null;
     moderatorWindowStart: number;
@@ -63,6 +66,10 @@ export class ModeratorsService {
       batchSize: p.moderatorBatch,
       everyMinutes: p.moderatorEveryMinutes,
       members: p.moderatorMembers,
+      // Missions optionnelles (désactivées par défaut) et le spam.
+      postsCheck: p.moderatorPostsCheck,
+      removals: p.moderatorRemovals,
+      spam: p.moderatorSpam,
       // Le rythme humain : heures de travail (minutes depuis minuit, dans
       // son fuseau) et plafonds d'actions.
       windowStart: p.moderatorWindowStart,
@@ -241,6 +248,9 @@ export class ModeratorsService {
       batchSize?: number;
       everyMinutes?: number;
       members?: boolean;
+      postsCheck?: boolean;
+      removals?: boolean;
+      spam?: boolean;
       windowStart?: number;
       windowEnd?: number;
       timezone?: string;
@@ -255,6 +265,9 @@ export class ModeratorsService {
     if (patch.batchSize !== undefined) data.moderatorBatch = patch.batchSize;
     if (patch.everyMinutes !== undefined) data.moderatorEveryMinutes = patch.everyMinutes;
     if (patch.members !== undefined) data.moderatorMembers = patch.members;
+    if (patch.postsCheck !== undefined) data.moderatorPostsCheck = patch.postsCheck;
+    if (patch.removals !== undefined) data.moderatorRemovals = patch.removals;
+    if (patch.spam !== undefined) data.moderatorSpam = patch.spam;
     if (patch.windowStart !== undefined) data.moderatorWindowStart = patch.windowStart;
     if (patch.windowEnd !== undefined) data.moderatorWindowEnd = patch.windowEnd;
     if (patch.hourlyLimit !== undefined) data.moderatorHourlyLimit = patch.hourlyLimit;
@@ -278,8 +291,11 @@ export class ModeratorsService {
   async run(id: string, acting: CurrentUser, kind: 'posts' | 'members' = 'posts', now = new Date()) {
     const m = await this.reachable(id, acting);
     if (m.moderatorPaused) throw new BadRequestException('Ce modérateur est suspendu : reprenez-le d’abord');
-    if (kind === 'members' && !m.moderatorMembers) {
-      throw new BadRequestException('Les tâches « nos profils » sont désactivées dans ses réglages');
+    if (kind === 'members' && !m.moderatorMembers && !m.moderatorSpam) {
+      throw new BadRequestException('Les tâches « nos profils » et le spam sont désactivés dans ses réglages');
+    }
+    if (kind === 'posts' && !m.moderatorPostsCheck) {
+      throw new BadRequestException('La vérification des posts est désactivée dans ses réglages : activez-la d’abord');
     }
     await this.prisma.profile.update({
       where: { id },

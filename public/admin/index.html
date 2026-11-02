@@ -444,6 +444,14 @@
               <button class="link" id="af-reset" type="button" hidden>Effacer les filtres</button>
             </div>
             <p class="runner-count" id="af-count"></p>
+            <div class="bulk-bar" id="article-bar" hidden>
+              <span id="article-selected">0 sélectionné</span>
+              <button class="link" type="button" id="article-select-page">Tout cocher (cette page)</button>
+              <button class="link" type="button" id="article-select-none">Tout décocher</button>
+              <span class="pa-spacer"></span>
+              <button class="secondary" type="button" id="article-recreate-open" title="Chaque article coché repart dans tous les groupes actifs de sa catégorie">🔁 Recréer les posts</button>
+              <button class="primary" type="button" id="article-copy-open" title="Créer ces articles sur un autre site (même contenu, même slug), avec leurs posts">📋 Copier vers un autre site…</button>
+            </div>
             <div id="article-cards" class="cards articles"></div>
             <div class="pagination" id="articles-pagination"></div>
           </div>
@@ -566,7 +574,7 @@
                   ><select name="verify"
                     ><option value="">Toute vérification</option><option value="ok">✓ Vérifié</option><option value="unverified">Pas encore vérifié</option><option value="republished">↻ Republié</option><option value="needs_action">⚠ À traiter</option></select
                   ><select name="link"
-                    ><option value="">Tout lien d’article</option><option value="placed">Lien posé</option><option value="waiting">Lien en attente</option><option value="missing">Lien manquant</option><option value="none">Post sans lien</option></select
+                    ><option value="">Tout lien d’article</option><option value="placed">Lien posé</option><option value="waiting">Lien en attente</option><option value="missing">Lien manquant (toutes raisons)</option><optgroup label="Lien manquant : pourquoi"><option value="missing:approval">⏳ En attente de validation / 🚫 refusé ou spam</option><option value="missing:removed">🗑 Introuvable (supprimé ou spam)</option><option value="missing:rescue">🛟 Sauvetage en cours</option><option value="missing:rescue_failed">🛟 Sauvetage échoué</option><option value="missing:no_url">❓ Adresse du post inconnue</option><option value="missing:comment_error">💬 Commentaire refusé</option><option value="missing:unknown">⚠ Commentaire non posé</option></optgroup><option value="none">Post sans lien</option></select
                   ><select name="url"
                     ><option value="">Adresse Facebook : toutes</option><option value="with">Adresse connue</option><option value="without">⚠ Adresse inconnue</option></select
                   ><button class="link" type="button" id="pub-reset">Effacer</button
@@ -1070,6 +1078,12 @@
                   <label>Au plus, par jour <input name="dailyLimit" type="number" min="1" max="400" required /></label>
                 </div>
                 <label class="inline-check"><input name="members" type="checkbox" /> Accepter l’adhésion de nos profils et les pré-approuver</label>
+                <label class="inline-check"><input name="spam" type="checkbox" /> Sortir du « Spam potentiel » les posts de nos profils (bouton « Publier »)</label>
+                <fieldset class="md-options">
+                  <legend>Options (désactivées par défaut)</legend>
+                  <label class="inline-check"><input name="postsCheck" type="checkbox" /> Vérifier les posts publiés — <b>supprime</b> un post resté sans lien pour le faire republier</label>
+                  <label class="inline-check"><input name="removals" type="checkbox" /> Retirer de nos groupes nos profils suspendus par Facebook</label>
+                </fieldset>
                 <small id="md-settings-help">Son extension relit ces réglages chaque minute.</small>
                 <div class="actions"><button class="primary" type="submit">Enregistrer</button></div>
               </form>
@@ -2137,6 +2151,58 @@
         </div>
       </form>
     </dialog>
+    <dialog id="recreate-many-modal">
+      <form id="recreate-many-form" method="dialog">
+        <div class="modal-head">
+          <div>
+            <small>ARTICLES SÉLECTIONNÉS</small>
+            <h2>🔁 Recréer les posts</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <p id="recreate-many-count"></p>
+        <ul class="form-help">
+          <li>Chaque article repart dans <b>tous les groupes actifs de sa catégorie</b>, même archivé.</li>
+          <li>Déjà publié, en échec ou annulé dans un groupe : <b>remis en file</b> (l’ancienne publication reste dans l’historique).</li>
+          <li>Jamais parti dans un groupe : <b>ajouté</b>. Déjà en file ou en cours : <b>laissé tel quel</b> (pas de doublon).</li>
+          <li>Un article sans aucun post est sauté : utilisez « Créer les posts ».</li>
+        </ul>
+        <p class="form-help">Pour choisir les groupes un par un, utilisez « 🔁 Recréer les posts » sur la carte de l’article.</p>
+        <div id="recreate-many-result" class="copy-progress" hidden></div>
+        <div class="modal-actions">
+          <button class="secondary" type="button" data-close>Fermer</button>
+          <button class="primary" type="submit" id="recreate-many-go">Recréer</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="copy-modal">
+      <form id="copy-form" method="dialog">
+        <div class="modal-head">
+          <div>
+            <small>ARTICLES → AUTRE SITE</small>
+            <h2>📋 Copier vers un autre site</h2>
+          </div>
+          <button class="close" type="button" data-close>×</button>
+        </div>
+        <p class="form-help" id="copy-count"></p>
+        <label>Site qui reçoit les articles
+          <select name="targetSiteId" id="copy-target" required></select>
+        </label>
+        <fieldset class="copy-modes">
+          <legend>Les posts</legend>
+          <label><input type="radio" name="posts" value="new" checked /> <span><b>Créer de nouveaux posts pour ce site</b><small>Un post par groupe de la catégorie du site, comme un article reçu de lui. L’article d’origine garde ses posts.</small></span></label>
+          <label><input type="radio" name="posts" value="move" /> <span><b>Réaffecter les posts en attente</b><small>Les posts pas encore publiés de l’article d’origine passent sur la copie (nouveau lien). Ceux déjà publiés ne bougent pas.</small></span></label>
+        </fieldset>
+        <p class="form-help">L’article est recréé sur le site choisi par son plugin WordPress (1.6.0 ou plus, sur les deux sites) : même titre, même contenu, même image, <b>même slug</b>. Un article déjà copié vers ce site est sauté.</p>
+        <div id="copy-progress" class="copy-progress" hidden></div>
+        <div class="modal-actions">
+          <button class="secondary" type="button" data-close>Fermer</button>
+          <button class="primary" type="submit" id="copy-go">Copier</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="article-modal">
       <form id="article-form">
         <div class="modal-head">

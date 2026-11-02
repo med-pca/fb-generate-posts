@@ -1,6 +1,6 @@
-import { Body, Controller, Get, HttpCode, Module, Param, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { Body, Controller, Get, HttpCode, Module, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
@@ -22,6 +22,51 @@ export class PauseSiteDto {
   @IsString()
   @MaxLength(64)
   relaySiteId?: string;
+}
+
+export class CopyArticlesDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsString({ each: true })
+  articleIds!: string[];
+
+  /** Le site qui reçoit les copies. */
+  @ApiProperty()
+  @IsString()
+  @MaxLength(64)
+  targetSiteId!: string;
+
+  /** `new` (défaut) : de nouveaux posts pour le site cible ; `move` : les
+   * posts en attente de l'original passent sur la copie. */
+  @ApiPropertyOptional({ enum: ['new', 'move'] })
+  @IsOptional()
+  @IsIn(['new', 'move'])
+  posts?: 'new' | 'move';
+}
+
+@ApiTags('articles')
+@ApiBearerAuth()
+@UseGuards(AdminAuthGuard)
+@Controller('article-copies')
+export class ArticleCopiesController {
+  constructor(private readonly relay: SiteRelayService) {}
+
+  @Post()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: '📋 Copier des articles vers un autre site (même slug), avec de nouveaux posts ou en y déplaçant les posts en attente',
+  })
+  copy(@Body() dto: CopyArticlesDto, @ActingUser() acting: CurrentUser) {
+    return this.relay.copyArticles(dto, acting);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Où en sont des copies : ?ids=a,b,c' })
+  status(@Query('ids') ids: string | undefined, @ActingUser() acting: CurrentUser) {
+    return this.relay.copies(String(ids ?? '').split(',').map((x) => x.trim()).filter(Boolean), acting);
+  }
 }
 
 @ApiTags('sites')
@@ -74,7 +119,7 @@ export class SiteRelayController {
 /** ⏸ Un site limité, mis en pause, relayé par un autre. */
 @Module({
   imports: [WordpressModule, IngestModule],
-  controllers: [SiteRelayController],
+  controllers: [SiteRelayController, ArticleCopiesController],
   providers: [SiteRelayService],
 })
 export class SiteRelayModule {}

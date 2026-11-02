@@ -24,6 +24,9 @@ const COUNTS = {
   members: [
     ['approved', '✓ adhésions acceptées', 'good'],
     ['preapproved', '✓ pré-approuvés', 'good'],
+    ['spam_released', '✓ sortis du spam', 'good'],
+    ['approved_post', '✓ posts validés', 'good'],
+    ['spam_checked', 'spam vu, rien à nous', ''],
     ['audit_already', 'contrôle : déjà fait', 'good'],
     ['audit_not_done', 'contrôle : pas fait', 'warn'],
     ['audit_fixed', 'contrôle : corrigé', 'good'],

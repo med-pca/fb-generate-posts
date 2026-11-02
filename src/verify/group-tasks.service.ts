@@ -3,6 +3,7 @@ import { JoinStatus, Prisma, TargetStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
 import { groupWhere, postWhere, profileWhere, scopeOf } from '../auth/scope';
+import { canonicalGroupPostUrl } from '../trace/trace';
 import { VerifyService } from './verify.service';
 
 /** Deux missions de plus pour le modérateur (administrateur de nos groupes),
@@ -18,6 +19,23 @@ export const GROUP_TASK_OUTCOMES = ['done', 'already', 'not_found', 'no_permissi
 export type GroupTaskOutcome = (typeof GROUP_TASK_OUTCOMES)[number];
 
 const CLAIM_MINUTES = 30;
+
+/** Le « Spam potentiel » : Facebook y range parfois, après coup, des posts
+ * déjà publiés et visibles. Le modérateur repasse sur chaque groupe où nos
+ * profils ont publié récemment. */
+export const SPAM_OUTCOMES = ['done', 'nothing', 'no_permission', 'unreachable'] as const;
+export type SpamOutcome = (typeof SPAM_OUTCOMES)[number];
+/** Un groupe n'est revu qu'après ce délai. */
+const SPAM_EVERY_HOURS = 6;
+/** Seuls comptent les groupes où nos profils ont publié depuis N jours. */
+const SPAM_RECENT_DAYS = 14;
+const SPAM_RETRY_MINUTES: Record<SpamOutcome, number> = {
+  done: SPAM_EVERY_HOURS * 60,
+  nothing: SPAM_EVERY_HOURS * 60,
+  // Pas administrateur de ce groupe : inutile d'y revenir avant une semaine.
+  no_permission: 7 * 24 * 60,
+  unreachable: 60,
+};
 const MAX_REMOVAL_ATTEMPTS = 6;
 const MAX_APPROVAL_ATTEMPTS = 4;
 const RETRY_MINUTES: Record<Exclude<GroupTaskOutcome, 'done' | 'already'>, number> = {
@@ -37,7 +55,8 @@ export class GroupTasksService {
 
   async claimRemovals(profileExternalId: string, limit: number, acting: CurrentUser | null, now = new Date()) {
     const moderator = await this.verify.moderator(profileExternalId, acting);
-    if (moderator.moderatorPaused) return { tasks: [] };
+    // Mission désactivée par défaut : activée dans ses réglages seulement.
+    if (moderator.moderatorPaused || moderator.moderatorRemovals === false) return { tasks: [] };
     const scope = scopeOf(acting);
     const due = await this.prisma.profileGroup.findMany({
       where: {
@@ -180,6 +199,149 @@ export class GroupTasksService {
       data: { postId: target.postId, postTargetId: target.id, groupId: target.groupId, level: 'WARN', eventType: 'POST_APPROVAL_BY_MODERATOR_FAILED', message: `Validation par ${moderator.name} dans « ${target.group.name} » : ${input.outcome}${detail ? ` — ${detail}` : ''}`, metadata: { outcome: input.outcome, detail } },
     });
     return { taskId, result: 'retry_later' };
+  }
+
+  /* ── Sortir du spam les posts de nos profils ───────────────────────── */
+
+  /** Les groupes dont le modérateur va lire la file « Spam potentiel » : ceux
+   * où nos profils ont publié depuis 14 jours, pas revus depuis 6 h. Avec,
+   * pour chacun, NOS profils membres (identifiant Facebook) : seuls leurs
+   * posts seront publiés. */
+  async claimSpam(profileExternalId: string, limit: number, acting: CurrentUser | null, now = new Date()) {
+    const moderator = await this.verify.moderator(profileExternalId, acting);
+    if (moderator.moderatorPaused || moderator.moderatorSpam === false) return { tasks: [] };
+    const scope = scopeOf(acting);
+    const recent = new Date(now.getTime() - SPAM_RECENT_DAYS * 86_400_000);
+    const due = new Date(now.getTime() - SPAM_EVERY_HOURS * 3_600_000);
+    const groups = await this.prisma.group.findMany({
+      where: {
+        status: 'ACTIVE',
+        ...groupWhere(scope),
+        targets: { some: { status: TargetStatus.PUBLISHED, publishedAt: { gte: recent } } },
+        AND: [
+          { OR: [{ spamClaimedUntil: null }, { spamClaimedUntil: { lt: now } }] },
+          { OR: [{ spamCheckedAt: null }, { spamCheckedAt: { lt: due } }] },
+        ],
+      },
+      orderBy: [{ spamCheckedAt: { sort: 'asc', nulls: 'first' } }],
+      take: Math.max(1, Math.min(3, limit || 2)),
+      select: {
+        id: true,
+        name: true,
+        url: true,
+        profiles: {
+          where: {
+            status: 'ACTIVE',
+            joinStatus: JoinStatus.JOINED,
+            profile: { isModerator: false, id: { not: moderator.id }, facebookUserId: { not: null }, ...profileWhere(scope) },
+          },
+          select: { profile: { select: { name: true, facebookName: true, facebookUserId: true } } },
+        },
+      },
+    });
+    const tasks = groups.filter((g) => g.profiles.length);
+    if (tasks.length) {
+      await this.prisma.group.updateMany({
+        where: { id: { in: tasks.map((g) => g.id) } },
+        data: { spamClaimedUntil: new Date(now.getTime() + CLAIM_MINUTES * 60_000) },
+      });
+    }
+    return {
+      tasks: tasks.map((g) => ({
+        taskId: g.id,
+        kind: 'release_spam' as const,
+        group: { name: g.name, url: g.url },
+        members: g.profiles.map(({ profile: p }) => ({ facebookUserId: p.facebookUserId as string, name: p.facebookName || p.name })),
+        // Un passage ne publie pas plus que ça : rythme humain.
+        max: 8,
+      })),
+    };
+  }
+
+  /** Le rapport d'un passage sur le spam d'un groupe. Chaque post publié doit
+   * être d'un de NOS profils membres de ce groupe (identifiant exact) ; le
+   * reste est refusé. Le post retrouvé repart en vérification et ne compte
+   * plus comme « en attente ». */
+  async reportSpam(
+    groupId: string,
+    input: { profileExternalId: string; outcome: SpamOutcome; detail?: string; released?: Array<{ facebookUserId: string; postUrl?: string; text?: string }> },
+    acting: CurrentUser | null,
+    now = new Date(),
+  ) {
+    const moderator = await this.verify.moderator(input.profileExternalId, acting);
+    const scope = scopeOf(acting);
+    const group = await this.prisma.group.findFirst({
+      where: { id: groupId, ...groupWhere(scope) },
+      select: {
+        id: true,
+        name: true,
+        profiles: { where: { status: 'ACTIVE', profile: { facebookUserId: { not: null }, ...profileWhere(scope) } }, select: { profile: { select: { id: true, name: true, facebookUserId: true } } } },
+      },
+    });
+    if (!group) throw new NotFoundException('Groupe introuvable');
+    const ours = new Map(group.profiles.map(({ profile }) => [profile.facebookUserId as string, profile]));
+    const detail = String(input.detail || '').slice(0, 500);
+    const released = (input.released ?? []).slice(0, 20);
+    const strangers = released.filter((r) => !ours.has(r.facebookUserId));
+    const accepted = released.filter((r) => ours.has(r.facebookUserId));
+    let matched = 0;
+    for (const r of accepted) {
+      const profile = ours.get(r.facebookUserId)!;
+      const url = canonicalGroupPostUrl(r.postUrl);
+      // La publication : par son adresse si elle est connue, sinon la plus
+      // récente de ce profil dans ce groupe.
+      const target =
+        (url ? await this.prisma.postTarget.findFirst({ where: { groupId: group.id, status: TargetStatus.PUBLISHED, facebookUrl: url }, select: { id: true, postId: true } }) : null) ??
+        (await this.prisma.postTarget.findFirst({
+          where: { groupId: group.id, status: TargetStatus.PUBLISHED, jobItems: { some: { status: TargetStatus.PUBLISHED, job: { profileId: profile.id } } } },
+          orderBy: { publishedAt: 'desc' },
+          select: { id: true, postId: true },
+        }));
+      if (target) {
+        matched += 1;
+        await this.prisma.postTarget.update({
+          where: { id: target.id },
+          // Visible de nouveau : plus « en attente », et revérifié.
+          data: { approvalPendingSince: null, approvalCheckedAt: null, verifyStatus: null, verifyClaimedUntil: null, verifyAttempts: 0, ...(url ? { facebookUrl: url } : {}) },
+        });
+      }
+      await this.prisma.activityLog.create({
+        data: {
+          ...(target ? { postId: target.postId, postTargetId: target.id } : {}),
+          profileId: profile.id,
+          groupId: group.id,
+          eventType: 'SPAM_POST_RELEASED',
+          message: `Post de « ${profile.name} » sorti du spam dans « ${group.name} » par ${moderator.name}${target ? '' : ' (publication non retrouvée dans la plateforme)'}`,
+          metadata: { moderatorId: moderator.id, postUrl: r.postUrl ?? null, text: String(r.text || '').slice(0, 200) },
+        },
+      });
+    }
+    if (strangers.length) {
+      await this.prisma.activityLog.create({
+        data: {
+          groupId: group.id,
+          level: 'ERROR',
+          eventType: 'SPAM_MEMBER_MISMATCH',
+          message: `${moderator.name} a publié ${strangers.length} post(s) du spam de « ${group.name} » qui ne sont pas de nos profils : signalé`,
+          metadata: { moderatorId: moderator.id, facebookUserIds: strangers.map((s) => s.facebookUserId) },
+        },
+      });
+    }
+    const minutes = SPAM_RETRY_MINUTES[input.outcome] ?? 60;
+    const checked = input.outcome === 'done' || input.outcome === 'nothing';
+    await this.prisma.group.update({
+      where: { id: group.id },
+      data: {
+        ...(checked ? { spamCheckedAt: now, spamClaimedUntil: null } : { spamClaimedUntil: new Date(now.getTime() + minutes * 60_000) }),
+        spamDetail: `${input.outcome}${detail ? ` : ${detail}` : ''}`.slice(0, 500),
+      },
+    });
+    if (!checked) {
+      await this.prisma.activityLog.create({
+        data: { groupId: group.id, level: 'WARN', eventType: 'SPAM_CHECK_FAILED', message: `Spam de « ${group.name} » non lu par ${moderator.name} : ${input.outcome}${detail ? ` — ${detail}` : ''}`, metadata: { moderatorId: moderator.id, outcome: input.outcome } },
+      });
+    }
+    return { groupId: group.id, released: accepted.length, matched, refused: strangers.length };
   }
 
   /** Nos profils suspendus par Facebook (ou en vérification), et où en est

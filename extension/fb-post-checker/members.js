@@ -570,7 +570,101 @@
     return find() ? { outcome: 'unreachable', detail: 'clic sur « Approuver » sans effet visible' } : { outcome: 'done', detail: 'post validé' };
   }
 
+  /* ── Sortir du « Spam potentiel » les posts de NOS profils ─────────────
+   * Page <groupe>/spam : chaque post porte « Publier » / « Refuser ». Son
+   * auteur est le PREMIER lien de personne du bloc (l'en-tête) ; on ne clique
+   * « Publier » que si cet identifiant est exactement celui d'un de nos
+   * profils. « Refuser » n'est jamais touché. */
+  const PUBLISH = words(['publish', 'publier', 'publicar', 'veröffentlichen', 'pubblica', 'yayınla', 'opublikuj', 'publiceren', 'نشر', 'انشر']);
+  const isPublish = (b) => isLabel(b, PUBLISH) && b.getAttribute('aria-disabled') !== 'true';
+
+  /** Le bloc d'un bouton « Publier » : le plus grand ancêtre qui n'a que CE
+   * bouton « Publier ». */
+  function spamBlockOf(btn) {
+    let el = btn;
+    let block = null;
+    for (let i = 0; i < 25 && el && el !== document.body; i += 1) {
+      el = el.parentElement;
+      if (!el) break;
+      if (buttons(el).filter(isPublish).length > 1) break;
+      block = el;
+    }
+    return block;
+  }
+  const authorIdOf = (block) => {
+    for (const a of block.querySelectorAll('a[href]')) {
+      const id = idOfHref(a.getAttribute('href'));
+      if (id) return id;
+    }
+    return '';
+  };
+  const postUrlOf = (block) => {
+    for (const a of block.querySelectorAll('a[href]')) {
+      const href = a.getAttribute('href') || '';
+      if (/\/groups\/[^/]+\/(posts|permalink)\/\d+/.test(href)) return new URL(href, location.origin).href.split('?')[0];
+    }
+    return '';
+  };
+
+  async function releaseSpam(task) {
+    if (unavailable()) return { outcome: 'no_permission', detail: 'file « Spam potentiel » inaccessible (pas administrateur ?)' };
+    if (!/\/spam\/?$/.test(location.pathname)) return { outcome: 'unreachable', detail: 'la page « Spam potentiel » n’est pas ouverte' };
+    const ours = new Map((task.members || []).map((m) => [String(m.facebookUserId), m]));
+    const max = Math.max(1, Number(task.max) || 8);
+    const handled = new WeakSet();
+    const released = [];
+    let seen = 0;
+    let strangers = 0;
+    const nextOurs = () => {
+      for (const btn of buttons(document).filter(isPublish)) {
+        if (handled.has(btn)) continue;
+        handled.add(btn);
+        seen += 1;
+        const block = spamBlockOf(btn);
+        const author = block ? authorIdOf(block) : '';
+        if (author && ours.has(author)) return { btn, block, author };
+        strangers += 1;
+      }
+      return null;
+    };
+    for (let round = 0; round < 10 && released.length < max; round += 1) {
+      let hit = nextOurs();
+      while (hit && released.length < max) {
+        // Le texte du post, sans les libellés des boutons (pour le journal).
+        const copy = hit.block.cloneNode(true);
+        copy.querySelectorAll('[role="button"], button').forEach((b) => b.remove());
+        const text = String(copy.innerText || copy.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+        const postUrl = postUrlOf(hit.block);
+        await self.FPH.click(hit.btn);
+        await sleep(1500);
+        // Une confirmation éventuelle : son bouton « Publier » (jamais « Refuser »).
+        for (const d of [...document.querySelectorAll('[role="dialog"]')].reverse()) {
+          const ok = buttons(d).find(isPublish) || buttons(d).find((b) => isLabel(b, CONFIRM) && b.getAttribute('aria-disabled') !== 'true');
+          if (ok) {
+            await self.FPH.click(ok);
+            await sleep(1500);
+            break;
+          }
+        }
+        await sleep(1500);
+        const gone = !hit.btn.isConnected || !hit.block.isConnected || !buttons(hit.block).some(isPublish);
+        if (gone) released.push({ facebookUserId: hit.author, name: ours.get(hit.author)?.name, postUrl, text });
+        hit = released.length < max ? nextOurs() : null;
+      }
+      if (released.length >= max) break;
+      window.scrollBy(0, window.innerHeight * 1.2);
+      await sleep(1800);
+    }
+    if (!seen) return { outcome: 'nothing', released, detail: 'file « Spam potentiel » vide' };
+    return {
+      outcome: released.length ? 'done' : 'nothing',
+      released,
+      detail: `${released.length} post(s) de nos profils publié(s) sur ${seen} vu(s) en spam${strangers ? ` (${strangers} d’autres membres, pas touchés)` : ''}`,
+    };
+  }
+
   self.FPM = {
+    releaseSpam,
     removeFromPeople,
     approvePendingPost,
     preapproveFromPeople,

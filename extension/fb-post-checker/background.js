@@ -194,6 +194,13 @@ async function settings() {
       if (server[k] !== undefined && server[k] !== null) cfg[k] = server[k];
     }
     if (server.members === false) cfg.members = false;
+    // Options de la plateforme : vérifier les posts (supprime ceux sans lien)
+    // et retirer nos profils suspendus sont COUPÉES par défaut ; le spam est
+    // actif sauf si l'admin le coupe. Une plateforme d'avant (sans ces
+    // champs) garde l'ancien comportement.
+    if ('postsCheck' in server) cfg.postsCheck = server.postsCheck === true;
+    if ('removals' in server) cfg.removals = server.removals === true;
+    cfg.spam = server.spam !== false;
     cfg.paused = Boolean(server.paused);
   }
   return cfg;
@@ -495,6 +502,57 @@ async function postApprovalRound(cfg, tabId) {
   return done;
 }
 
+/* ── Le « Spam potentiel » : publier les posts de NOS profils ───────────
+ * Facebook range parfois dans le spam des posts déjà publiés. Le modérateur
+ * ouvre <groupe>/spam et clique « Publier » sous les posts dont l'auteur est
+ * exactement un de nos profils (identifiant Facebook). Rien d'autre. */
+async function spamRound(cfg, tabId) {
+  if (cfg.spam === false) return 0;
+  let claim;
+  try {
+    claim = await api(cfg, '/verify/spam/claim', { profileExternalId: cfg.profileExternalId, limit: await batchFor(cfg) });
+  } catch (err) {
+    if (!/404/.test(String(err.message))) await log('error', `Spam : réservation refusée : ${err.message}`);
+    return 0;
+  }
+  let done = 0;
+  for (const task of claim.tasks || []) {
+    if (!(await mayAct(cfg))) break;
+    const base = groupBase(task.group.url);
+    await setStatus({ state: 'busy', message: `Spam potentiel · ${task.group.name}`, at: new Date().toISOString() });
+    let verdict;
+    try {
+      if (!base) throw new Error('adresse du groupe inconnue');
+      await open(tabId, `${base}/spam`);
+      await readLikeHuman(tabId, cfg);
+      await beforeAction();
+      verdict = (await inPage(tabId, (t) => self.FPM.releaseSpam(t), [task])) || { outcome: 'unreachable', detail: 'page illisible' };
+    } catch (err) {
+      verdict = { outcome: 'unreachable', detail: `erreur : ${err.message}` };
+    }
+    const released = verdict.released || [];
+    try {
+      await api(cfg, `/verify/spam/${task.taskId}/result`, {
+        profileExternalId: cfg.profileExternalId,
+        outcome: verdict.outcome,
+        detail: verdict.detail,
+        released: released.map(({ facebookUserId, postUrl, text }) => ({ facebookUserId, ...(postUrl ? { postUrl } : {}), ...(text ? { text } : {}) })),
+      });
+      await log(
+        verdict.outcome === 'done' || verdict.outcome === 'nothing' ? 'ok' : 'warn',
+        `Spam · ${task.group.name} · ${verdict.detail || verdict.outcome}`,
+        { count: released.length ? Array(released.length).fill('spam_released') : verdict.outcome === 'nothing' ? 'spam_checked' : 'failed' },
+      );
+    } catch (err) {
+      await log('error', `Spam : rapport refusé (${task.group.name}) : ${err.message}`, { count: 'failed' });
+    }
+    done += 1;
+    await spend();
+    await humanPause(cfg);
+  }
+  return done;
+}
+
 /** Un moment sans action : ouvrir le fil d'actualité ou ses groupes, lire,
  * défiler. Une personne ne se connecte pas seulement pour agir. */
 async function browseNeutral(tabId, cfg) {
@@ -650,8 +708,13 @@ async function doRound(kind, reason) {
     await setStatus({ state: 'idle', message: `Pause : ${(await budget(cfg)).reason}`, at: new Date().toISOString() });
     return;
   }
-  if (kind === 'members' && cfg.members === false && reason === 'auto') return;
+  if (kind === 'members' && cfg.members === false && cfg.spam === false && reason === 'auto') return;
   if (kind === 'posts' && cfg.posts === false && reason === 'auto') return;
+  // La vérification des posts (qui supprime) : seulement si la plateforme l'active.
+  if (kind === 'posts' && cfg.postsCheck === false) {
+    await setStatus({ state: 'idle', message: 'Vérification des posts désactivée sur la plateforme (rubrique Modérateurs)', at: new Date().toISOString() });
+    return;
+  }
   await setStatus({ state: 'busy', message: `En cours (${reason})…`, at: new Date().toISOString() });
   const tab = await chrome.tabs.create({ url: 'about:blank', active: true });
   let done = 0;
@@ -665,10 +728,12 @@ async function doRound(kind, reason) {
       // missions viennent dans un ordre différent à chaque passage.
       done += await auditRound(cfg, tab.id, reason);
       const missions = [
-        () => memberRound(cfg, tab.id, reason),
-        () => removalRound(cfg, tab.id),
+        cfg.members !== false && (() => memberRound(cfg, tab.id, reason)),
+        // Optionnel, coupé par défaut sur la plateforme.
+        cfg.removals === true && (() => removalRound(cfg, tab.id)),
         () => postApprovalRound(cfg, tab.id),
-      ].sort(() => Math.random() - 0.5);
+        cfg.spam !== false && (() => spamRound(cfg, tab.id)),
+      ].filter(Boolean).sort(() => Math.random() - 0.5);
       for (const mission of missions) {
         done += await mission();
         if (Math.random() < 0.25) await browseNeutral(tab.id, cfg).catch(() => null);
@@ -683,7 +748,7 @@ async function doRound(kind, reason) {
     message: done
       ? kind === 'posts'
         ? `${done} post(s) vérifié(s)`
-        : `${done} tâche(s) faite(s) (contrôles, adhésions, pré-approbations)`
+        : `${done} tâche(s) faite(s) (adhésions, pré-approbations, posts en attente, spam)`
       : 'Rien à faire pour l’instant',
     at: new Date().toISOString(),
   });
@@ -752,7 +817,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await nextRound(cfg);
     // Une chose à la fois, comme quelqu'un : une seule mission par passage,
     // tirée au hasard quand les deux sont actives.
-    const kinds = [cfg.posts !== false && 'posts', cfg.members !== false && 'members'].filter(Boolean);
+    const kinds = [
+      cfg.posts !== false && cfg.postsCheck !== false && 'posts',
+      (cfg.members !== false || cfg.spam !== false) && 'members',
+    ].filter(Boolean);
     if (kinds.length) runRound(kinds[Math.random() < 0.6 ? 0 : kinds.length - 1], 'auto');
   }
   if (alarm.name === CONTROL) poll();

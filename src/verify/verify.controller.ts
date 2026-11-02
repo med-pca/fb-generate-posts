@@ -13,7 +13,7 @@ import { AutomationAuthGuard } from '../auth/automation-auth.guard';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
-import { AuditResultDto, MemberResultDto, ModeratorDto, PostApprovalResultDto, RemovalResultDto, ResolveDto, VerifyClaimDto, VerifyResultDto } from './dto/verify.dto';
+import { SpamResultDto, AuditResultDto, MemberResultDto, ModeratorDto, PostApprovalResultDto, RemovalResultDto, ResolveDto, VerifyClaimDto, VerifyResultDto } from './dto/verify.dto';
 import { GroupTasksService } from './group-tasks.service';
 import { AuditService } from './audit.service';
 import { VerifyService } from './verify.service';
@@ -58,6 +58,20 @@ export class VerifyController {
   @ApiOperation({ summary: 'Rapporter la validation d’un de nos posts en attente' })
   postApprovalResult(@Param('taskId') taskId: string, @Body() dto: PostApprovalResultDto, @ActingUser() acting: CurrentUser | null) {
     return this.groupTasks.reportApproval(taskId, dto, acting);
+  }
+
+  @Post('spam/claim')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Réserver les groupes dont lire le « Spam potentiel » (avec nos profils membres)' })
+  claimSpam(@Body() dto: VerifyClaimDto, @ActingUser() acting: CurrentUser | null) {
+    return this.groupTasks.claimSpam(dto.profileExternalId, dto.limit ?? 2, acting);
+  }
+
+  @Post('spam/:groupId/result')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Rapporter un passage sur le spam d’un groupe : posts de nos profils publiés' })
+  spamResult(@Param('groupId') groupId: string, @Body() dto: SpamResultDto, @ActingUser() acting: CurrentUser | null) {
+    return this.groupTasks.reportSpam(groupId, dto, acting);
   }
 
   @Post('members/audit/claim')

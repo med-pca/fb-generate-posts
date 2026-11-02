@@ -228,6 +228,14 @@ model Profile {
   moderatorBatch           Int              @default(3) @map("moderator_batch")
   moderatorEveryMinutes    Int              @default(25) @map("moderator_every_minutes")
   moderatorMembers         Boolean          @default(true) @map("moderator_members")
+  /// Missions optionnelles, désactivées par défaut : rouvrir les posts
+  /// publiés (et supprimer ceux restés sans lien pour les republier), et
+  /// retirer de nos groupes nos profils suspendus par Facebook.
+  moderatorPostsCheck      Boolean          @default(false) @map("moderator_posts_check")
+  moderatorRemovals        Boolean          @default(false) @map("moderator_removals")
+  /// Sortir du « Spam potentiel » de ses groupes les posts de nos profils
+  /// (bouton « Publier »). Activé par défaut.
+  moderatorSpam            Boolean          @default(true) @map("moderator_spam")
   /// Un rythme humain : il ne travaille qu'entre ces heures (minutes depuis
   /// minuit, dans son fuseau), et pas plus de N actions par heure / par jour.
   /// Facebook a désactivé un compte modérateur qui agissait 24 h/24.
@@ -266,37 +274,42 @@ model Profile {
 }
 
 model Group {
-  id              String           @id @default(cuid())
-  name            String
-  externalId      String?          @unique @map("external_id")
-  url             String
-  ownerId         String?          @map("owner_id")
-  owner           User?            @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  id               String           @id @default(cuid())
+  name             String
+  externalId       String?          @unique @map("external_id")
+  url              String
+  /// Le passage du modérateur sur la file « Spam potentiel » du groupe : le
+  /// dernier, la réservation (ou le prochain essai permis), ce qu'il a vu.
+  spamCheckedAt    DateTime?        @map("spam_checked_at")
+  spamClaimedUntil DateTime?        @map("spam_claimed_until")
+  spamDetail       String?          @map("spam_detail") @db.Text
+  ownerId          String?          @map("owner_id")
+  owner            User?            @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   /// Le thème du groupe. Un article reçu d'un site de la même catégorie
   /// devient un post qui vise tous ces groupes à la fois.
-  categoryId      String?          @map("category_id")
-  category        Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  status          RecordStatus     @default(ACTIVE)
+  categoryId       String?          @map("category_id")
+  category         Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  status           RecordStatus     @default(ACTIVE)
   /// Les groupes servis en premier : plus haut = un profil y va avant les
   /// autres. 0 = normal. Réglé dans Pilotage → Règles & priorités.
-  priority        Int              @default(0)
+  priority         Int              @default(0)
   /// Au plus N publications par jour dans ce groupe (jour du fuseau de
   /// l'objectif). NULL = pas de plafond.
-  dailyCap        Int?             @map("daily_cap")
+  dailyCap         Int?             @map("daily_cap")
   /// Heures où l'on publie dans ce groupe (minutes depuis minuit, fuseau de
   /// l'objectif ; une plage peut passer minuit). NULL = à toute heure.
-  hoursStart      Int?             @map("hours_start")
-  hoursEnd        Int?             @map("hours_end")
+  hoursStart       Int?             @map("hours_start")
+  hoursEnd         Int?             @map("hours_end")
   /// La langue des membres (code ISO : en, fr, ar, es…). Les posts
   /// « engagement » ne vont qu'aux groupes de la langue choisie.
-  language        String?
-  profiles        ProfileGroup[]
-  targets         PostTarget[]
-  publicationJobs PublicationJob[]
-  logs            ActivityLog[]
-  access          GroupAccess[]
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
+  language         String?
+  profiles         ProfileGroup[]
+  targets          PostTarget[]
+  publicationJobs  PublicationJob[]
+  logs             ActivityLog[]
+  access           GroupAccess[]
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
 
   campaignGroups CampaignGroup[]
 
@@ -1201,6 +1214,11 @@ model ArticleCopy {
   newArticleId    String?       @map("new_article_id")
   newArticle      Article?      @relation("CopyTo", fields: [newArticleId], references: [id], onDelete: SetNull)
   movedPosts      Int           @default(0) @map("moved_posts")
+  /// Les posts de la copie : `move` = les posts en attente de l'original y
+  /// passent (relais d'un site en pause) ; `new` = de nouveaux posts, un par
+  /// groupe de la catégorie du site cible (copie manuelle, l'original garde
+  /// les siens).
+  postsMode       String        @default("move") @map("posts_mode")
   error           String?       @db.Text
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")

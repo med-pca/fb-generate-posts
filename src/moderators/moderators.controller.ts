@@ -17,6 +17,12 @@ export class ModeratorSettingsDto {
   @ApiPropertyOptional({ minimum: 1, maximum: 20 }) @IsOptional() @IsInt() @Min(1) @Max(20) batchSize?: number;
   @ApiPropertyOptional({ minimum: 2, maximum: 240 }) @IsOptional() @IsInt() @Min(2) @Max(240) everyMinutes?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() members?: boolean;
+  /** Vérifier les posts publiés (et supprimer ceux sans lien). */
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() postsCheck?: boolean;
+  /** Retirer de nos groupes nos profils suspendus. */
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() removals?: boolean;
+  /** Sortir du spam les posts de nos profils. */
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() spam?: boolean;
   /** Heures de travail, en minutes depuis minuit, dans `timezone`. */
   @ApiPropertyOptional({ minimum: 0, maximum: 1439 }) @IsOptional() @IsInt() @Min(0) @Max(1439) windowStart?: number;
   @ApiPropertyOptional({ minimum: 0, maximum: 1439 }) @IsOptional() @IsInt() @Min(0) @Max(1439) windowEnd?: number;
