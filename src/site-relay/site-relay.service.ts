@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { ContentSource } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CurrentUser } from '../auth/current-user';
-import { articleWhere, scopeOf, siteManageWhere } from '../auth/scope';
+import { articleWhere, scopeOf, siteManageWhere, siteWhere } from '../auth/scope';
 import { WordpressService } from '../wordpress/wordpress.service';
 import { WordpressWriterService } from '../ingest/wordpress-writer.service';
 import type { WordpressArticleDto } from '../wordpress/wordpress.dto';
@@ -221,7 +221,8 @@ export class SiteRelayService {
    *   - `move` : les posts en attente de l'original passent sur la copie
    *              (réaffectation, comme le relais). */
   async copyArticles(dto: { articleIds: string[]; targetSiteId: string; posts?: 'new' | 'move' }, acting: CurrentUser | null) {
-    const target = await this.manageable(dto.targetSiteId, acting);
+    // Copier vers un site, c'est s'en servir : le sien ou un site partagé.
+    const target = await this.usable(dto.targetSiteId, acting);
     if (target.status !== 'ACTIVE' || target.pausedAt) throw new BadRequestException(`${target.name} n’est pas actif : choisissez un site qui publie`);
     const postsMode = dto.posts === 'move' ? 'move' : 'new';
     const ids = [...new Set(dto.articleIds ?? [])];
@@ -233,10 +234,14 @@ export class SiteRelayService {
         id: true,
         title: true,
         externalId: true,
-        source: { select: { id: true, name: true, originUrl: true, depositKey: true, status: true, pausedAt: true, relayId: true } },
+        source: { select: { id: true, name: true, originUrl: true, depositKey: true, status: true, pausedAt: true, relayId: true, ownerId: true } },
         copies: { where: { targetSiteId: target.id }, select: { id: true, status: true, newArticleId: true } },
       },
     });
+    // Réaffecter déplace les posts de l'original : c'est les modifier, ce qui
+    // revient au propriétaire de son site (un partage ne le permet pas).
+    const scope = scopeOf(acting);
+    const mayMove = (a: (typeof articles)[number]) => !scope || a.source.ownerId === scope.ownerId;
     const targetPlugin = await this.pluginStatus(target);
     if (!versionAtLeast(targetPlugin.version, RELAY_PLUGIN_VERSION)) {
       throw new BadRequestException(`Le plugin de ${target.name} est en version ${targetPlugin.version || 'inconnue'} : installez la ${RELAY_PLUGIN_VERSION} (page Sites)`);
@@ -253,6 +258,10 @@ export class SiteRelayService {
       }
       if (a.source.id === target.id) {
         skipped.push({ title: a.title, reason: 'déjà sur ce site' });
+        continue;
+      }
+      if (postsMode === 'move' && !mayMove(a)) {
+        skipped.push({ title: a.title, reason: `réaffecter ses posts est réservé au propriétaire de ${a.source.name} : choisissez « Créer de nouveaux posts »` });
         continue;
       }
       const before = a.copies[0];
@@ -549,6 +558,16 @@ export class SiteRelayService {
   private async manageable(id: string, acting: CurrentUser | null): Promise<Site> {
     const site = await this.prisma.contentSource.findFirst({
       where: { id, ...siteManageWhere(scopeOf(acting)) },
+      select: { id: true, name: true, originUrl: true, depositKey: true, status: true, pausedAt: true, relayId: true },
+    });
+    if (!site) throw new NotFoundException('Site introuvable');
+    return site;
+  }
+
+  /** Un site dont le compte peut se servir : le sien, ou partagé avec lui. */
+  private async usable(id: string, acting: CurrentUser | null): Promise<Site> {
+    const site = await this.prisma.contentSource.findFirst({
+      where: { id, ...siteWhere(scopeOf(acting)) },
       select: { id: true, name: true, originUrl: true, depositKey: true, status: true, pausedAt: true, relayId: true },
     });
     if (!site) throw new NotFoundException('Site introuvable');

@@ -32,6 +32,23 @@ describe('copyArticles — copier des articles choisis vers un autre site', () =
     expect(start).toHaveBeenCalledWith(['copy-a1']);
   });
 
+  it('gestionnaire : un site PARTAGÉ avec lui est accepté comme cible', async () => {
+    const { svc, prisma } = setup([{ id: 'a1', title: 'Gâteau', externalId: 'wordpress:1', source: site('old', { ownerId: 'u1' }), copies: [] }]);
+    const manager = { id: 'u1', username: 'ayoub', role: 'MANAGER', status: 'ACTIVE' } as any;
+    const r = await svc.copyArticles({ articleIds: ['a1'], targetSiteId: 'new' }, manager);
+    expect(r.planned).toBe(1);
+    // La cible se cherche parmi ses sites ET ceux partagés avec lui.
+    expect(prisma.contentSource.findFirst.mock.calls[0][0].where).toMatchObject({ id: 'new', OR: [{ ownerId: 'u1' }, { access: { some: { userId: 'u1' } } }] });
+  });
+
+  it('gestionnaire : réaffecter les posts d’un site qui n’est pas à lui est refusé (nouveaux posts possibles)', async () => {
+    const { svc } = setup([{ id: 'a1', title: 'Gâteau', externalId: 'wordpress:1', source: site('old', { ownerId: 'boss' }), copies: [] }]);
+    const manager = { id: 'u1', username: 'ayoub', role: 'MANAGER', status: 'ACTIVE' } as any;
+    const r = await svc.copyArticles({ articleIds: ['a1'], targetSiteId: 'new', posts: 'move' }, manager);
+    expect(r.planned).toBe(0);
+    expect(r.skipped[0].reason).toContain('réservé au propriétaire');
+  });
+
   it('réaffecter : les posts en attente passent sur la copie', async () => {
     const { svc, prisma } = setup([{ id: 'a1', title: 'Gâteau', externalId: 'wordpress:1', source: site('old'), copies: [{ id: 'c1', status: 'failed', newArticleId: null }] }]);
     await svc.copyArticles({ articleIds: ['a1'], targetSiteId: 'new', posts: 'move' }, null);
