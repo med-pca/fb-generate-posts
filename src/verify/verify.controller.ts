@@ -18,6 +18,7 @@ import { GroupTasksService } from './group-tasks.service';
 import { AuditService } from './audit.service';
 import { VerifyService } from './verify.service';
 import { MembersService } from './members.service';
+import { ShortCacheService } from '../perf/short-cache.service';
 
 /** Côté terrain : l'extension « FB Post Checker » du profil vérificateur. */
 @ApiTags('verify')
@@ -150,6 +151,7 @@ export class AdminVerifyController {
     private readonly verify: VerifyService,
     private readonly members: MembersService,
     private readonly groupTasks: GroupTasksService,
+    private readonly cache: ShortCacheService,
   ) {}
 
   @Get('suspended')
@@ -160,13 +162,15 @@ export class AdminVerifyController {
 
   @Get()
   @ApiOperation({ summary: 'Bilan de la vérification et publications à traiter' })
-  async overview(@ActingUser() acting: CurrentUser) {
-    const [stats, review, members] = await Promise.all([
-      this.verify.stats(acting),
-      this.verify.review(acting),
-      this.members.overview(acting),
-    ]);
-    return { ...stats, review, members };
+  overview(@ActingUser() acting: CurrentUser) {
+    return this.cache.get(acting, 'admin/verify', 15_000, async () => {
+      const [stats, review, members] = await Promise.all([
+        this.verify.stats(acting),
+        this.verify.review(acting),
+        this.members.overview(acting),
+      ]);
+      return { ...stats, review, members };
+    });
   }
 
   @Patch('profiles/:profileId')

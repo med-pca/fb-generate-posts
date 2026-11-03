@@ -191,8 +191,13 @@ export class InsightsService {
 
     // Le stock qui l'attend : les publications à faire dans les groupes
     // qu'il a rejoints, et qu'il a le droit de prendre.
-    const stocks = await Promise.all(
-      profiles.map(async (profile) => {
+    // Cinq profils à la fois : 200 comptages lancés d'un coup prenaient toutes
+    // les connexions à la base, et les autres appels (battements, file)
+    // attendaient derrière.
+    const stocks = await inBatches(
+      profiles,
+      5,
+      async (profile) => {
         const count = await this.prisma.postTarget.count({
           where: {
             ...this.upcomingWhere(acting),
@@ -214,7 +219,7 @@ export class InsightsService {
           },
         });
         return [profile.id, count] as const;
-      }),
+      },
     );
     const stockBy = new Map(stocks);
     const byProfile = new Map(rows.map((row) => [row.profile_id, row]));
@@ -629,4 +634,11 @@ export class InsightsService {
           : 0,
     };
   }
+}
+
+/** `fn` sur chaque élément, `size` à la fois, dans l'ordre. */
+async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += size) out.push(...(await Promise.all(items.slice(i, i + size).map(fn))));
+  return out;
 }

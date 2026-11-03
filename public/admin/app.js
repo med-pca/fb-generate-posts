@@ -735,7 +735,32 @@ function renderCounters() {
     title: 'publiés aujourd’hui' + (c.dailyTarget ? ' / objectif' : ''),
   });
 }
-setInterval(() => loadCounters(), 60000);
+/* ── Rafraîchir seulement ce qu'on regarde ─────────────────────────── */
+/** Un rafraîchissement régulier qui se tait quand l'onglet est caché : un
+ * onglet oublié ouvert toute la journée chargeait l'API comme un utilisateur
+ * actif. Au retour sur l'onglet (caché plus de 10 s), tout se relit d'un coup. */
+const visibleTimers = new Map();
+let hiddenAt = 0;
+function every(ms, fn) {
+  const id = setInterval(() => {
+    if (!document.hidden) fn();
+  }, ms);
+  visibleTimers.set(id, fn);
+  return id;
+}
+function stopEvery(id) {
+  clearInterval(id);
+  visibleTimers.delete(id);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    hiddenAt = Date.now();
+    return;
+  }
+  if (Date.now() - hiddenAt < 10000) return;
+  for (const fn of visibleTimers.values()) fn();
+});
+every(60000, () => loadCounters());
 
 /* ── Groupes : les profils liés, en résumé ─────────────────────────── */
 /** Dix-huit pastilles par groupe rendaient la page illisible : un résumé
@@ -4450,26 +4475,26 @@ function view(id, { fromUrl = false } = {}) {
     void loadAnalytics();
   }
   // La file bouge toute seule : elle se relit tant qu'elle est à l'écran.
-  clearInterval(view.queueTimer);
+  stopEvery(view.queueTimer);
   if (id === 'posts' && state.queue.tab === 'queue') {
     loadQueue();
-    view.queueTimer = setInterval(loadQueue, 15000);
+    view.queueTimer = every(15000, loadQueue);
   }
   // Le pilotage se rafraîchit tant qu'il est à l'écran : cette page sert à
   // regarder des navigateurs travailler, un état figé n'y apprend rien.
-  clearInterval(view.runnersTimer);
-  clearInterval(view.objectiveTimer);
+  stopEvery(view.runnersTimer);
+  stopEvery(view.objectiveTimer);
   if (id === 'runners') {
     loadRunners();
-    view.runnersTimer = setInterval(loadRunners, 10000);
+    view.runnersTimer = every(10000, loadRunners);
     // L'objectif se relit toutes les 30 s : c'est le « temps réel » de la
     // journée, sans charger l'API à chaque battement.
     loadObjective();
     void loadCampaigns();
-    view.objectiveTimer = setInterval(() => {
+    view.objectiveTimer = every(30000, () => {
       loadObjective();
       void loadCampaigns();
-    }, 30000);
+    });
   }
   if (id === 'settings' && state.me?.role === 'ADMIN') loadResetCounts();
   if (!fromUrl) syncUrl(id);

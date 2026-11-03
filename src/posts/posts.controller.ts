@@ -36,6 +36,7 @@ import {
   PriorityDto,
   QueueQueryDto,
 } from './dto/queue.dto';
+import { ShortCacheService } from '../perf/short-cache.service';
 import { QueueService } from './queue.service';
 import { PublishedService } from './published.service';
 import { PrioritiesService } from './priorities.service';
@@ -51,6 +52,7 @@ export class PostsController {
     private readonly queueService: QueueService,
     private readonly publishedService: PublishedService,
     private readonly priorities: PrioritiesService,
+    private readonly cache: ShortCacheService,
   ) {}
 
   @Get('priorities')
@@ -81,7 +83,7 @@ export class PostsController {
   @Get('published')
   @ApiOperation({ summary: 'Audit des publications faites : période (date-heure), profil, groupe, vérification, lien… avec les totaux' })
   published(@Query() query: PublishedQueryDto, @ActingUser() acting: CurrentUser) {
-    return this.publishedService.audit(query, acting);
+    return this.cache.get(acting, `posts/published?${JSON.stringify(query)}`, 10_000, () => this.publishedService.audit(query, acting));
   }
 
   @Get('published.csv')
@@ -104,7 +106,7 @@ export class PostsController {
       'groupe, par quel profil). Filtrable par catégorie ou groupe.',
   })
   queue(@Query() query: QueueQueryDto, @ActingUser() acting: CurrentUser) {
-    return this.queueService.queue(query, acting);
+    return this.cache.get(acting, `posts/queue?${JSON.stringify(query)}`, 10_000, () => this.queueService.queue(query, acting));
   }
 
   @Post('targets/:targetId/retry')

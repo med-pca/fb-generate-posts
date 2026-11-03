@@ -472,7 +472,15 @@ export class RunnersService {
       // ancienne extension) n'envoie rien, et la veille s'efface.
       sleepUntil: sleepUntilOf(dto.sleepUntil),
     };
-    if (dto.facebookUserId) await this.noteFacebookIdentity(profile.id, dto.facebookUserId, dto.facebookName);
+    // Le même compte Facebook qu'au dernier battement : rien à relire ni à
+    // réécrire, sauf « vu à » une fois toutes les 10 minutes. Chaque
+    // battement (≈ 2 000 par heure) coûtait sinon trois requêtes de plus.
+    const sameFacebook =
+      dto.facebookUserId === profile.facebookUserId &&
+      (!dto.facebookName?.trim() || dto.facebookName.trim().slice(0, 200) === profile.facebookName) &&
+      profile.facebookSeenAt &&
+      Date.now() - profile.facebookSeenAt.getTime() < 10 * 60_000;
+    if (dto.facebookUserId && !sameFacebook) await this.noteFacebookIdentity(profile.id, dto.facebookUserId, dto.facebookName);
     const runner = await this.prisma.profileRunner.upsert({
       where: { profileId: profile.id },
       // Premier contact d'un profil qu'on n'a jamais piloté : il reste à
@@ -1065,7 +1073,7 @@ export class RunnersService {
         externalId: profileExternalId,
         ...profileWhere(scopeOf(acting)),
       },
-      select: { id: true, status: true, runner: true, facebookSuspension: true },
+      select: { id: true, status: true, runner: true, facebookSuspension: true, facebookUserId: true, facebookName: true, facebookSeenAt: true },
     });
     if (!profile) {
       // La clé est valide, mais c'est celle d'un autre compte : le

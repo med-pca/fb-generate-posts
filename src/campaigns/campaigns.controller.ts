@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
+import { ShortCacheService } from '../perf/short-cache.service';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
 
@@ -11,18 +12,21 @@ import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
 @UseGuards(AdminAuthGuard)
 @Controller('campaigns')
 export class CampaignsController {
-  constructor(private readonly campaigns: CampaignsService) {}
+  constructor(
+    private readonly campaigns: CampaignsService,
+    private readonly cache: ShortCacheService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Les campagnes du compte, avec leur avancement' })
   list(@ActingUser() acting: CurrentUser) {
-    return this.campaigns.list(acting);
+    return this.cache.get(acting, 'campaigns', 20_000, () => this.campaigns.list(acting));
   }
 
   @Get('teams')
   @ApiOperation({ summary: 'Les équipes (groupes NSTBrowser des profils) pour la rotation' })
   teams(@ActingUser() acting: CurrentUser) {
-    return this.campaigns.teams(acting);
+    return this.cache.get(acting, 'campaigns/teams', 60_000, () => this.campaigns.teams(acting));
   }
 
   @Get(':id')

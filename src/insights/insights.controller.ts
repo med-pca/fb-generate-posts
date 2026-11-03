@@ -12,6 +12,7 @@ import { AdminAuthGuard } from '../auth/admin-auth.guard';
 import { AdminRoleGuard } from '../auth/admin-role.guard';
 import { ActingUser } from '../auth/current-user';
 import type { CurrentUser } from '../auth/current-user';
+import { ShortCacheService } from '../perf/short-cache.service';
 import { InsightsService } from './insights.service';
 import { RESET_CONFIRMATION, ResetService } from './reset.service';
 
@@ -52,12 +53,15 @@ class ResetDto {
 @UseGuards(AdminAuthGuard)
 @Controller('insights')
 export class InsightsController {
-  constructor(private readonly insights: InsightsService) {}
+  constructor(
+    private readonly insights: InsightsService,
+    private readonly cache: ShortCacheService,
+  ) {}
 
   @Get('counters')
   @ApiOperation({ summary: 'Les compteurs du menu' })
   counters(@ActingUser() acting: CurrentUser) {
-    return this.insights.counters(acting);
+    return this.cache.get(acting, 'insights/counters', 15_000, () => this.insights.counters(acting));
   }
 
   @Get('profiles')
@@ -68,7 +72,7 @@ export class InsightsController {
       'rejoints ou en attente ; stock qui l’attend.',
   })
   profiles(@ActingUser() acting: CurrentUser) {
-    return this.insights.profileStats(acting);
+    return this.cache.get(acting, 'insights/profiles', 30_000, () => this.insights.profileStats(acting));
   }
 
   @Get('objective')
@@ -79,7 +83,7 @@ export class InsightsController {
       'les articles à importer, la répartition par catégorie, groupe et profil.',
   })
   objective(@ActingUser() acting: CurrentUser) {
-    return this.insights.objective(acting);
+    return this.cache.get(acting, 'insights/objective', 20_000, () => this.insights.objective(acting));
   }
 }
 

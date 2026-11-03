@@ -8,6 +8,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { registerWeb } from './web/web';
 import { PerfService } from './perf/perf.service';
+import { ShortCacheService } from './perf/short-cache.service';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -19,6 +20,8 @@ async function bootstrap() {
   // 📈 Rubrique Performance : chaque appel est mesuré (avant tout le reste,
   // pour compter aussi les requêtes SQL de l'authentification).
   app.get(PerfService).register(app.getHttpAdapter().getInstance());
+  // 🧊 Le cache court se vide à chaque modification faite depuis une page.
+  app.get(ShortCacheService).register(app.getHttpAdapter().getInstance());
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   // Plus de dossier public servi tel quel : la page de connexion est seule

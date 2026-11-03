@@ -67,7 +67,11 @@ export function readRoute(m: MetricSum, minutes: number) {
     advice.push({ kind: 'cache', text: `${Math.round(repeatRatio * 100)} % des réponses identiques à la précédente : un cache de ${ttl} s éviterait ~${Math.round(m.repeats)} calcul(s)` });
   }
   if (sqlAvg >= 20) advice.push({ kind: 'n+1', text: `${Math.round(sqlAvg)} requêtes SQL par appel : des requêtes en boucle (N+1) à regrouper` });
-  if (p95 >= 1000 && m.totalMs && m.sqlMs / m.totalMs >= 0.6) advice.push({ kind: 'db', text: `${Math.round((m.sqlMs / m.totalMs) * 100)} % du temps passé en base : requête lente, un index peut-être` });
+  const dbShare = m.totalMs ? m.sqlMs / m.totalMs : 0;
+  // Au-delà de 100 % : des requêtes lancées en même temps, dont les durées
+  // s'additionnent (attente d'une connexion libre comprise).
+  if (p95 >= 1000 && dbShare > 1.2) advice.push({ kind: 'db', text: `${Math.round(dbShare * 100)} % : requêtes lancées en parallèle, qui occupent les connexions à la base ; à regrouper ou limiter` });
+  else if (p95 >= 1000 && dbShare >= 0.6) advice.push({ kind: 'db', text: `${Math.round(dbShare * 100)} % du temps passé en base : requête lente, un index peut-être` });
   else if (p95 >= 1000) advice.push({ kind: 'slow', text: 'lent hors de la base : calcul lourd ou appel à un service extérieur' });
   if (perHour >= 600 && avgMs >= 100) advice.push({ kind: 'poll', text: `${Math.round(perHour)} appels par heure : un rafraîchissement automatique à espacer ?` });
   if (m.count && m.errors / m.count >= 0.1) advice.push({ kind: 'errors', text: `${Math.round((m.errors / m.count) * 100)} % d’erreurs (HTTP ≥ 500)` });
