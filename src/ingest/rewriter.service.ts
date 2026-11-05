@@ -52,6 +52,16 @@ export type RewriteInput = {
 // Un article lu sur plusieurs pages est long : on en garde assez pour que le
 // modèle voie tout le contenu (étapes, ingrédients, conseils de fin).
 const MAX_SOURCE_CHARS = 40_000;
+/** Au-delà, la source est réécrite en plusieurs parties : une réponse du
+ * modèle ne dépasse pas ~7 000 tokens, et une histoire de 6 000 mots
+ * réécrite d'un bloc revenait tronquée, donc refusée. */
+const SINGLE_PASS_CHARS = 12_000;
+/** La taille d'une partie : ~1 500 mots de notes, ~2 000 réécrits. */
+const PART_CHARS = 9_000;
+/** Toute la source lue, pages comprises (le lecteur s'arrête à 60 000). */
+const MAX_LONG_SOURCE_CHARS = 60_000;
+/** La fin de ce qui est déjà écrit, rappelée à la partie suivante. */
+const CONTINUITY_CHARS = 2_000;
 const MAX_CAPTION_CHARS = 1_200;
 const MAX_HASHTAGS = 10;
 /** Le corps est du texte structuré, rien d'autre : ni lien, ni image, ni
@@ -215,7 +225,7 @@ const SCHEMA = {
 
 // En anglais : une consigne en français tirait le modèle vers le français,
 // même pour un article source en anglais.
-const INSTRUCTIONS = [
+const FAITHFUL_RULES = [
   'You rewrite an article: same content, new words.',
   'Follow the notes step by step: same information, same order, same level of detail.',
   'Rephrase every sentence; copy none of them as is.',
@@ -225,16 +235,13 @@ const INSTRUCTIONS = [
   'No attribute, no link, no image, no level-1 heading.',
   'The caption goes with an image on Facebook: 2 to 4 sentences, no URL, no hashtag.',
   'Write in the language named at the top of the message, and only in it.',
-  'Answer with a single JSON object, nothing around it, of the form:',
-  '{"title": string, "slug": string, "excerpt": string, "metaDescription": string,',
-  '"contentHtml": string, "caption": string, "hashtags": string[]}.',
-].join(' ');
+];
 
 /** Un article réellement distinct, pour le référencement : même
  * information que la source, mais un autre angle, une autre structure et de la
  * valeur ajoutée. Une simple paraphrase est reconnue comme du contenu
  * dupliqué (« needs more substantive changes than paraphrasing alone »). */
-const SEO_INSTRUCTIONS = [
+const SEO_RULES = [
   'You write an ORIGINAL article from the notes of a source article. The goal is genuinely distinct SEO content, not a paraphrase.',
   'Keep every fact, quantity, step, name and plot point of the notes, and never contradict them. Never invent precise facts (figures, dates, quotes, studies, brand names) that are not in the notes.',
   'Change the substance, not just the words:',
@@ -246,10 +253,98 @@ const SEO_INSTRUCTIONS = [
   'The body is simple HTML: <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>. No attribute, no link, no image, no level-1 heading.',
   'The caption goes with an image on Facebook: 2 to 4 sentences, no URL, no hashtag.',
   'Write in the language named at the top of the message, and only in it.',
+];
+const FULL_FORM = [
   'Answer with a single JSON object, nothing around it, of the form:',
   '{"title": string, "slug": string, "excerpt": string, "metaDescription": string,',
   '"contentHtml": string, "caption": string, "hashtags": string[]}.',
-].join(' ');
+];
+const INSTRUCTIONS = [...FAITHFUL_RULES, ...FULL_FORM].join(' ');
+const SEO_INSTRUCTIONS = [...SEO_RULES, ...FULL_FORM].join(' ');
+
+/** Les consignes d'une partie d'une source longue, réécrite en `total`
+ * parties successives. La première porte aussi titre, légende, mots-clés ;
+ * les suivantes ne rendent que la suite du corps. */
+function partInstructions(style: 'seo' | 'faithful', part: number, total: number) {
+  const rules = style === 'faithful' ? FAITHFUL_RULES : SEO_RULES;
+  const common = [
+    `This long source is rewritten in ${total} successive parts so that nothing of it is lost. You write part ${part} of ${total}; the notes given are those of this part only.`,
+    'Rewrite ALL the notes of this part, in full: every event, scene, dialogue and detail. Do not summarise and do not skip anything.',
+  ];
+  const middle = part < total
+    ? 'Do not conclude: the article goes on in the next part. No closing section, no FAQ, no moral, no "to be continued".'
+    : 'This is the last part: tell the ending, then the closing the style calls for (a short reflective ending; a short FAQ only for advice or news).';
+  if (part === 1) {
+    return [
+      ...rules,
+      ...common,
+      'The title, slug, excerpt, metaDescription, caption and hashtags are for the WHOLE article; the caption is a hook that never reveals how it ends. contentHtml holds only the rewriting of this part.',
+      middle,
+      ...FULL_FORM,
+    ].join(' ');
+  }
+  return [
+    ...rules.filter((rule) => !/opening hook|new title|caption goes with/i.test(rule)),
+    ...common,
+    'Carry on exactly where the text already written stops: same narrator, names, tense and voice. Do not repeat or recap anything already written, no new title, no new introduction.',
+    middle,
+    'Answer with a single JSON object, nothing around it, of the form: {"contentHtml": string}.',
+  ].join(' ');
+}
+
+const PART_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    contentHtml: {
+      type: 'string',
+      description: 'La suite du corps en HTML, balises <h2> <h3> <p> <ul> <ol> <li> <strong> <em> uniquement, sans attribut',
+    },
+  },
+  required: ['contentHtml'],
+} as const;
+
+/** Les notes coupées en parties d'environ `size` caractères, toujours entre
+ * deux paragraphes (entre deux phrases pour un paragraphe trop long). */
+export function splitNotes(text: string, size = PART_CHARS) {
+  const pieces: string[] = [];
+  for (const paragraph of text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)) {
+    if (paragraph.length <= size) {
+      pieces.push(paragraph);
+      continue;
+    }
+    let current = '';
+    for (const sentence of paragraph.match(/[^.!?…]+[.!?…]+["'”’)]*\s*|[^.!?…]+$/g) ?? [paragraph]) {
+      if (current && current.length + sentence.length > size) {
+        pieces.push(current.trim());
+        current = '';
+      }
+      current += sentence;
+    }
+    if (current.trim()) pieces.push(current.trim());
+  }
+  // Des parties de taille égale plutôt qu'une dernière partie minuscule.
+  const total = pieces.reduce((sum, p) => sum + p.length + 2, 0);
+  const count = Math.max(1, Math.ceil(total / size));
+  const target = total / count;
+  const parts: string[] = [];
+  let current: string[] = [];
+  let length = 0;
+  for (const piece of pieces) {
+    if (current.length && length + piece.length / 2 > target && parts.length < count - 1) {
+      parts.push(current.join('\n\n'));
+      current = [];
+      length = 0;
+    }
+    current.push(piece);
+    length += piece.length + 2;
+  }
+  if (current.length) parts.push(current.join('\n\n'));
+  return parts;
+}
+
+const plainText = (html: string) =>
+  html.replace(/<\/(p|h2|h3|li)>/gi, '\n').replace(/<[^>]*>/g, '').replace(/\n{2,}/g, '\n').trim();
 
 const NEWS_SCHEMA = {
   type: 'object',
@@ -326,6 +421,7 @@ export class RewriterService {
   constructor(private readonly llm: LlmService) {}
 
   async rewrite(input: RewriteInput): Promise<GeneratedArticle> {
+    if (input.source.text.length > SINGLE_PASS_CHARS) return this.rewriteLong(input);
     const { value, provider } = await this.llm.completeJson<GeneratedArticle>({
       instructions: input.style === 'faithful' ? INSTRUCTIONS : SEO_INSTRUCTIONS,
       input: this.prompt(input),
@@ -440,6 +536,71 @@ export class RewriterService {
     if (!caption) throw new ServiceUnavailableException('La description est revenue vide');
     this.logger.log(`Description « engagement » écrite par ${provider}`);
     return { title: String(value.title || '').trim().slice(0, 120) || caption.slice(0, 60), caption, hashtags: normalizeHashtags(value.hashtags || []).slice(0, 4), provider };
+  }
+
+  /** Une source longue (histoire en plusieurs pages) : réécrite partie par
+   * partie, chacune à la suite de la précédente, pour garder toute sa
+   * longueur. Le découpage en pages se fait ensuite au dépôt WordPress. */
+  private async rewriteLong(input: RewriteInput): Promise<GeneratedArticle> {
+    const style = input.style === 'faithful' ? 'faithful' : 'seo';
+    const text = input.source.text.slice(0, MAX_LONG_SOURCE_CHARS);
+    const parts = splitNotes(text);
+    const target = languageName(writingLanguage(input.language, input.source.language, text));
+    const header = `Writing language: ${target}. EVERY field of the JSON is in ${target}, without exception, whatever the language of these instructions or of the Facebook post.`;
+    let first: GeneratedArticle | null = null;
+    const bodies: string[] = [];
+    const providers: string[] = [];
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = index + 1;
+      const written = bodies.join('\n');
+      const input_ = [
+        header,
+        `Source title: ${input.source.title}`,
+        part === 1 && input.fbCaption?.trim() ? `Tone of the original Facebook post, not to be copied: ${input.fbCaption.trim()}` : '',
+        part > 1 ? `End of the text already written (continue right after it, never repeat it):\n…${plainText(written).slice(-CONTINUITY_CHARS)}` : '',
+        `Notes of part ${part} of ${parts.length}:`,
+        parts[index],
+      ].filter(Boolean).join('\n\n');
+      let html: string;
+      try {
+        if (part === 1) {
+          const { value, provider } = await this.llm.completeJson<GeneratedArticle>({
+            instructions: partInstructions(style, part, parts.length),
+            input: input_,
+            schemaName: 'rewritten_article',
+            schema: SCHEMA,
+            maxTokens: 7000,
+          });
+          first = value;
+          html = value.contentHtml || '';
+          providers.push(provider);
+        } else {
+          const { value, provider } = await this.llm.completeJson<{ contentHtml: string }>({
+            instructions: partInstructions(style, part, parts.length),
+            input: input_,
+            schemaName: 'rewritten_part',
+            schema: PART_SCHEMA,
+            maxTokens: 7000,
+          });
+          html = value.contentHtml || '';
+          providers.push(provider);
+        }
+      } catch (error) {
+        throw new ServiceUnavailableException(
+          `Réécriture de la partie ${part}/${parts.length} impossible : ${(error as Error).message}`,
+        );
+      }
+      if (!sanitizeArticleHtml(html).trim()) {
+        throw new ServiceUnavailableException(`La partie ${part}/${parts.length} de la réécriture est revenue vide`);
+      }
+      bodies.push(html);
+    }
+    const generated = normalizeGenerated({ ...(first as GeneratedArticle), contentHtml: bodies.join('\n') }, input.source.title);
+    if (!generated.contentHtml || !generated.caption) {
+      throw new ServiceUnavailableException('La réécriture est revenue sans corps d’article ou sans légende');
+    }
+    this.logger.log(`Article long réécrit en ${parts.length} parties (${[...new Set(providers)].join(', ')})`);
+    return generated;
   }
 
   private prompt({ source, fbCaption, language }: RewriteInput) {

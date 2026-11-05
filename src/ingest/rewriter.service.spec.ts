@@ -6,7 +6,7 @@ import {
   normalizeHashtags,
   normalizeSlug,
   RewriterService,
-  sanitizeArticleHtml, guessLanguage, writingLanguage } from './rewriter.service';
+  sanitizeArticleHtml, guessLanguage, writingLanguage, splitNotes } from './rewriter.service';
 
 describe('normalizeSlug', () => {
   it('réduit un titre latin à des mots séparés par un tiret', () => {
@@ -320,5 +320,65 @@ describe('writingLanguage', () => {
 
   it('reconnaît l’arabe à son écriture', () => {
     expect(guessLanguage('وصفة الكعكة السهلة')).toBe('ar');
+  });
+});
+
+describe('source longue : réécrite en plusieurs parties', () => {
+  const paragraph = (i: number) => `Paragraph ${i}. ` + 'The story goes on and on with more details. '.repeat(20).trim();
+  const longText = Array.from({ length: 60 }, (_, i) => paragraph(i)).join('\n\n');
+
+  it('coupe entre deux paragraphes, en parties égales, sans rien perdre', () => {
+    const parts = splitNotes(longText, 9000);
+    expect(parts.length).toBeGreaterThan(3);
+    expect(parts.join('\n\n')).toBe(longText);
+    const sizes = parts.map((p) => p.length);
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThan(2000);
+  });
+
+  it('coupe un paragraphe géant entre deux phrases', () => {
+    const giant = 'One sentence here. '.repeat(1500).trim();
+    const parts = splitNotes(giant, 9000);
+    expect(parts.length).toBeGreaterThan(2);
+    for (const p of parts) expect(p.endsWith('.')).toBe(true);
+  });
+
+  it('enchaîne les parties : métadonnées de la première, corps mis bout à bout', async () => {
+    let call = 0;
+    const completeJson = jest.fn((request: { schemaName: string; input: string }) =>
+      Promise.resolve((call += 1) &&
+        request.schemaName === 'rewritten_article'
+          ? { value: { title: 'T', slug: 't', excerpt: 'e', metaDescription: 'm', contentHtml: '<p>Partie 1</p>', caption: 'Légende', hashtags: ['a', 'b', 'c'] }, provider: 'openai' }
+          : { value: { contentHtml: `<p>Partie ${call}</p>` }, provider: 'openai' },
+      ),
+    );
+    const generated = await new RewriterService({ completeJson } as unknown as LlmService).rewrite({
+      source: { url: 'https://x.test/a', title: 'Histoire', text: longText, excerpt: null, leadImageUrl: null, siteName: null, language: 'en' },
+      language: 'auto',
+    });
+    const calls = completeJson.mock.calls.length;
+    expect(calls).toBeGreaterThan(3);
+    expect(generated.title).toBe('T');
+    expect(generated.caption).toBe('Légende');
+    for (let i = 1; i <= calls; i += 1) expect(generated.contentHtml).toContain(`Partie ${i}`);
+    // La suite reçoit la fin de ce qui est déjà écrit.
+    const [second] = completeJson.mock.calls[1] as unknown as [{ input: string; instructions: string }];
+    expect(second.input).toContain('Partie 1');
+    expect(second.instructions).toContain(`part 2 of ${calls}`);
+  });
+
+  it('une partie en échec fait échouer la réécriture, en disant laquelle', async () => {
+    let n = 0;
+    const completeJson = jest.fn(() => {
+      n += 1;
+      return n === 2
+        ? Promise.reject(new Error('réponse tronquée'))
+        : Promise.resolve({ value: { title: 'T', slug: 't', excerpt: 'e', metaDescription: 'm', contentHtml: '<p>x</p>', caption: 'L', hashtags: [] }, provider: 'openai' });
+    });
+    await expect(
+      new RewriterService({ completeJson } as unknown as LlmService).rewrite({
+        source: { url: 'https://x.test/a', title: 'H', text: longText, excerpt: null, leadImageUrl: null, siteName: null, language: 'en' },
+        language: 'auto',
+      }),
+    ).rejects.toThrow(/partie 2\//);
   });
 });
