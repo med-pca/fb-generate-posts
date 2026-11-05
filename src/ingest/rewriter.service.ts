@@ -56,8 +56,10 @@ const MAX_SOURCE_CHARS = 40_000;
  * modèle ne dépasse pas ~7 000 tokens, et une histoire de 6 000 mots
  * réécrite d'un bloc revenait tronquée, donc refusée. */
 const SINGLE_PASS_CHARS = 12_000;
-/** La taille d'une partie : ~1 500 mots de notes, ~2 000 réécrits. */
-const PART_CHARS = 9_000;
+/** La taille d'une partie : ~900 mots de notes, ~1 200 réécrits. DeepSeek
+ * réfléchit ~2 500 tokens avant d'écrire, dans un budget de 8 000 : une
+ * partie de 9 000 caractères revenait tronquée. */
+const PART_CHARS = 5_000;
 /** Toute la source lue, pages comprises (le lecteur s'arrête à 60 000). */
 const MAX_LONG_SOURCE_CHARS = 60_000;
 /** La fin de ce qui est déjà écrit, rappelée à la partie suivante. */
