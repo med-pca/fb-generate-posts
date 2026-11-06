@@ -302,9 +302,36 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     const raw = Number(this.config.get<string>('ECHO_PULL_INTERVAL_MINUTES') ?? 2);
     const minutes = Number.isFinite(raw) && raw >= 0 ? raw : 2;
+    // Une reprise coupée par un redémarrage (redéploiement) en pleine
+    // réécriture restait bloquée sans message : on la relance au démarrage.
+    if (process.env.NODE_ENV !== 'test') {
+      setTimeout(() => void this.resumeInterrupted().catch(() => undefined), 20_000).unref?.();
+    }
     if (!minutes || !this.site) return;
     this.pullTimer = setInterval(() => void this.pullStaleEchoes().catch(() => undefined), minutes * 60_000);
     this.pullTimer.unref?.();
+  }
+
+  /** Les reprises arrêtées au milieu d'une lecture ou d'une réécriture par
+   * un redémarrage du serveur. Seulement ces étapes-là : elles ne déposent
+   * rien sur WordPress, les refaire ne peut pas créer de doublon. */
+  async resumeInterrupted() {
+    const stuck = await this.prisma.sourceIngest.findMany({
+      where: {
+        status: { in: [IngestStatus.SCRAPED, IngestStatus.REWRITING] },
+        attempts: { lt: MAX_ATTEMPTS },
+        updatedAt: { gt: new Date(Date.now() - 24 * 3600_000) },
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+      take: 50,
+    });
+    for (const { id } of stuck) {
+      if (this.running.has(id)) continue;
+      await this.log(id, 'INGEST_RESUMED', 'Reprise relancée après un redémarrage du serveur').catch(() => undefined);
+      await this.advance(id).catch(() => undefined);
+    }
+    return stuck.length;
   }
 
   onModuleDestroy() {
@@ -646,6 +673,17 @@ export class IngestService implements OnModuleInit, OnModuleDestroy {
       fbCaption: ingest.fbCaption,
       language: ingest.language,
       style: await this.rewriteStyle(),
+      // Une histoire longue prend plusieurs minutes : chaque partie finie
+      // est notée, sinon la reprise semble arrêtée après « Page source lue ».
+      onProgress: (done, total) =>
+        this.log(
+          ingest.id,
+          'INGEST_REWRITE_PROGRESS',
+          done === 0
+            ? `Réécriture d’un article long en ${total} parties (≈ 1 min par partie)…`
+            : `Réécriture : partie ${done}/${total} faite`,
+          { done, total },
+        ).catch(() => undefined),
     });
     return this.prisma.sourceIngest.update({
       where: { id: ingest.id },

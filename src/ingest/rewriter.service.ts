@@ -45,6 +45,9 @@ export type RewriteInput = {
   /** `seo` (défaut) : un article réellement distinct, même information ;
    * `faithful` : une paraphrase fidèle, phrase par phrase. */
   style?: 'seo' | 'faithful';
+  /** Source longue réécrite en parties : appelé au départ (`done` = 0) puis
+   * après chaque partie, pour que la reprise montre où elle en est. */
+  onProgress?: (done: number, total: number) => Promise<unknown> | void;
 };
 
 /** Au-delà, la source coûte cher à traiter sans rien apporter : un article
@@ -552,6 +555,7 @@ export class RewriterService {
     let first: GeneratedArticle | null = null;
     const bodies: string[] = [];
     const providers: string[] = [];
+    await input.onProgress?.(0, parts.length);
     for (let index = 0; index < parts.length; index += 1) {
       const part = index + 1;
       const written = bodies.join('\n');
@@ -596,6 +600,7 @@ export class RewriterService {
         throw new ServiceUnavailableException(`La partie ${part}/${parts.length} de la réécriture est revenue vide`);
       }
       bodies.push(html);
+      await input.onProgress?.(part, parts.length);
     }
     const generated = normalizeGenerated({ ...(first as GeneratedArticle), contentHtml: bodies.join('\n') }, input.source.title);
     if (!generated.contentHtml || !generated.caption) {
