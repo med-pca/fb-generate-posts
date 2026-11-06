@@ -40,7 +40,7 @@ describe('LlmService.providers', () => {
       tokenParam: 'max_tokens',
       // ~2 500 tokens de raisonnement avant la première phrase : au budget
       // ordinaire, la réponse est tronquée.
-      maxTokens: 8000,
+      maxTokens: 16000,
       // Mesuré : 75 s pour un article complet.
       timeoutMs: 180_000,
     });

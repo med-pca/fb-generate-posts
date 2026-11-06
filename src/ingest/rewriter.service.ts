@@ -267,7 +267,7 @@ const SEO_INSTRUCTIONS = [...SEO_RULES, ...FULL_FORM].join(' ');
 /** Les consignes d'une partie d'une source longue, réécrite en `total`
  * parties successives. La première porte aussi titre, légende, mots-clés ;
  * les suivantes ne rendent que la suite du corps. */
-function partInstructions(style: 'seo' | 'faithful', part: number, total: number) {
+export function partInstructions(style: 'seo' | 'faithful', part: number, total: number) {
   const rules = style === 'faithful' ? FAITHFUL_RULES : SEO_RULES;
   const common = [
     `This long source is rewritten in ${total} successive parts so that nothing of it is lost. You write part ${part} of ${total}; the notes given are those of this part only.`,

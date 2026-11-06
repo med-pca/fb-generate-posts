@@ -86,8 +86,11 @@ const DEFAULTS = {
     // unavailable »), le mode JSON libre passe.
     jsonSchema: false,
     tokenParam: 'max_tokens',
-    // Mesuré : ~2 500 tokens de raisonnement avant la première phrase.
-    maxTokens: 8000,
+    // Mesuré : 2 500 à 3 200 tokens de raisonnement avant la première
+    // phrase, et autant de plus d'un appel à l'autre. Avec 8 000, une partie
+    // d'histoire longue revenait parfois tronquée ; 16 000 est accepté
+    // (vérifié, 32 000 aussi). On ne paie que les tokens produits.
+    maxTokens: 16000,
     // Mesuré : 75 s pour un article complet, trop près du délai commun.
     timeoutMs: 180_000,
     vision: false,
