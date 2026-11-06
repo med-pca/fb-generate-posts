@@ -4,6 +4,11 @@ export type AppRoute = {
     title: string;
 };
 export declare const APP_ROUTES: Record<string, AppRoute>;
+export declare const DYNAMIC_ROUTES: Array<{
+    pattern: RegExp;
+    fastify: string;
+    view: string;
+}>;
 export declare function appPath(raw: string): string;
 export declare const isAppRoute: (raw: string) => boolean;
 export declare function safeNext(raw: unknown): string;

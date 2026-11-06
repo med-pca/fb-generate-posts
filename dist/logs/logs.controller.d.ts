@@ -6,20 +6,20 @@ import { LogsService } from './logs.service';
 export declare class LogsController {
     private readonly logs;
     constructor(logs: LogsService);
-    create(dto: CreateLogDto): import("@prisma/client").Prisma.Prisma__ActivityLogClient<{
+    create(dto: CreateLogDto, acting: CurrentUser | null): Promise<{
         id: string;
         createdAt: Date;
         profileId: string | null;
         facebookUrl: string | null;
         groupId: string | null;
         postId: string | null;
-        message: string;
         eventType: string;
         level: import("@prisma/client").$Enums.LogLevel;
+        message: string;
         metadata: import("@prisma/client/runtime/library").JsonValue | null;
         postTargetId: string | null;
         jobId: string | null;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+    }>;
     findAll(acting: CurrentUser | null, profileId?: string): import("@prisma/client").Prisma.PrismaPromise<{
         id: string;
         createdAt: Date;
@@ -27,9 +27,9 @@ export declare class LogsController {
         facebookUrl: string | null;
         groupId: string | null;
         postId: string | null;
-        message: string;
         eventType: string;
         level: import("@prisma/client").$Enums.LogLevel;
+        message: string;
         metadata: import("@prisma/client/runtime/library").JsonValue | null;
         postTargetId: string | null;
         jobId: string | null;
@@ -65,9 +65,9 @@ export declare class LogsAdminController {
             facebookUrl: string | null;
             groupId: string | null;
             postId: string | null;
-            message: string;
             eventType: string;
             level: import("@prisma/client").$Enums.LogLevel;
+            message: string;
             metadata: import("@prisma/client/runtime/library").JsonValue | null;
             postTargetId: string | null;
             jobId: string | null;
@@ -138,9 +138,9 @@ export declare class LogsAdminController {
             facebookUrl: string | null;
             groupId: string | null;
             postId: string | null;
-            message: string;
             eventType: string;
             level: import("@prisma/client").$Enums.LogLevel;
+            message: string;
             metadata: import("@prisma/client/runtime/library").JsonValue | null;
             postTargetId: string | null;
             jobId: string | null;

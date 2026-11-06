@@ -14,10 +14,12 @@ exports.normalizeSiteUrl = normalizeSiteUrl;
 exports.publicSite = publicSite;
 exports.pluginBlocker = pluginBlocker;
 exports.siteBlocker = siteBlocker;
+const languages_registry_1 = require("../languages/languages.registry");
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const categories_service_1 = require("../categories/categories.service");
+const site_key_1 = require("./site-key");
 const scope_1 = require("../auth/scope");
 function normalizeSiteUrl(value) {
     const url = new URL(value);
@@ -48,6 +50,15 @@ function publicSite(site) {
             lastDeliveryAt: site.lastDeliveryAt,
         },
         articles: site._count?.articles ?? 0,
+        pause: site.pausedAt
+            ? {
+                since: site.pausedAt,
+                reason: site.pauseReason,
+                relay: site.relay ?? null,
+                redirectSince: site.redirectSince,
+                redirectError: site.redirectError,
+            }
+            : null,
         createdAt: site.createdAt,
     };
 }
@@ -75,6 +86,7 @@ const SITE_INCLUDE = {
     _count: { select: { articles: true } },
     owner: { select: { username: true } },
     category: { select: { id: true, name: true } },
+    relay: { select: { id: true, name: true } },
 };
 let SitesService = class SitesService {
     prisma;
@@ -93,7 +105,7 @@ let SitesService = class SitesService {
     }
     async targets(acting) {
         const sites = await this.prisma.contentSource.findMany({
-            where: { status: client_1.RecordStatus.ACTIVE, ...(0, scope_1.siteWhere)((0, scope_1.scopeOf)(acting)) },
+            where: { status: client_1.RecordStatus.ACTIVE, pausedAt: null, ...(0, scope_1.siteWhere)((0, scope_1.scopeOf)(acting)) },
             select: {
                 id: true,
                 name: true,
@@ -104,7 +116,27 @@ let SitesService = class SitesService {
             },
             orderBy: { name: 'asc' },
         });
+        const byLanguage = await this.prisma.group.groupBy({
+            by: ['categoryId', 'language'],
+            where: { status: client_1.RecordStatus.ACTIVE, language: { not: null } },
+            _count: { _all: true },
+        });
+        const engagementRows = await this.prisma.group.groupBy({
+            by: ['language', 'categoryId'],
+            where: { status: client_1.RecordStatus.ACTIVE, language: { not: null }, profiles: { some: { status: client_1.RecordStatus.ACTIVE } }, ...(0, scope_1.groupWhere)((0, scope_1.scopeOf)(acting)) },
+            _count: { _all: true },
+        });
+        const categoryNames = new Map((await this.prisma.category.findMany({ where: { id: { in: engagementRows.map((r) => r.categoryId).filter((x) => Boolean(x)) } }, select: { id: true, name: true } })).map((c) => [c.id, c.name]));
+        const languages = new Map();
+        for (const r of engagementRows) {
+            const code = r.language;
+            const entry = languages.get(code) ?? { code, name: (0, languages_registry_1.languageName)(code), groups: 0, categories: [] };
+            entry.groups += r._count._all;
+            entry.categories.push({ id: r.categoryId ?? 'none', name: r.categoryId ? categoryNames.get(r.categoryId) ?? '—' : 'Sans catégorie', groups: r._count._all });
+            languages.set(code, entry);
+        }
         return {
+            engagement: { languages: [...languages.values()].sort((a, b) => a.name.localeCompare(b.name)) },
             sites: sites.map((site) => {
                 const blocker = siteBlocker(site);
                 return {
@@ -115,6 +147,9 @@ let SitesService = class SitesService {
                     plugin: site.pluginState,
                     ready: !blocker,
                     reason: blocker,
+                    languages: byLanguage
+                        .filter((row) => row.categoryId === site.categoryId && row.language)
+                        .map((row) => ({ code: row.language, name: (0, languages_registry_1.languageName)(row.language), groups: row._count._all })),
                 };
             }),
         };
@@ -140,7 +175,7 @@ let SitesService = class SitesService {
             data: {
                 name: dto.name.trim(),
                 originUrl,
-                depositKey: dto.depositKey?.trim() || null,
+                depositKey: dto.depositKey?.trim() || (0, site_key_1.generateSiteKey)(),
                 categoryId: (await this.categories.resolve(dto.categoryId)) ?? null,
                 ownerId: owner?.id ?? null,
                 status: dto.status ?? client_1.RecordStatus.ACTIVE,
@@ -188,6 +223,29 @@ let SitesService = class SitesService {
         if (!site)
             throw new common_1.NotFoundException('Site introuvable');
         return site;
+    }
+    async pluginKey(id, acting) {
+        const site = await this.owned(id, acting);
+        return { siteId: site.id, originUrl: site.originUrl, key: site.depositKey ?? null, endpoint: this.endpoint() };
+    }
+    async regeneratePluginKey(id, acting) {
+        const site = await this.owned(id, acting);
+        const key = (0, site_key_1.generateSiteKey)();
+        await this.prisma.$transaction([
+            this.prisma.contentSource.update({ where: { id: site.id }, data: { depositKey: key } }),
+            this.prisma.activityLog.create({
+                data: {
+                    eventType: 'SITE_KEY_REGENERATED',
+                    message: `Nouvelle clé de plugin pour « ${site.name} » : l’ancienne ne fonctionne plus`,
+                    metadata: { siteId: site.id, by: acting?.username ?? 'clé globale', hadOwnKey: Boolean(site.depositKey) },
+                },
+            }),
+        ]);
+        return { siteId: site.id, originUrl: site.originUrl, key, endpoint: this.endpoint() };
+    }
+    endpoint() {
+        const base = (process.env.PUBLIC_URL || 'https://post.pulserecipe.com').replace(/\/+$/, '');
+        return `${base}/api/wordpress/articles`;
     }
     async owned(id, acting) {
         const site = await this.prisma.contentSource.findFirst({

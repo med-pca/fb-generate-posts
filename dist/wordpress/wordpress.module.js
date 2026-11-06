@@ -19,6 +19,7 @@ const articles_module_1 = require("../articles/articles.module");
 const wordpress_dto_1 = require("./wordpress.dto");
 const wordpress_guard_1 = require("./wordpress.guard");
 const wordpress_service_1 = require("./wordpress.service");
+const wordpress_pull_service_1 = require("./wordpress-pull.service");
 let WordpressController = class WordpressController {
     wordpress;
     constructor(wordpress) {
@@ -50,7 +51,8 @@ exports.WordpressModule = WordpressModule = __decorate([
     (0, common_1.Module)({
         imports: [articles_module_1.ArticlesModule],
         controllers: [WordpressController],
-        providers: [wordpress_service_1.WordpressService, wordpress_guard_1.WordpressGuard],
+        providers: [wordpress_service_1.WordpressService, wordpress_guard_1.WordpressGuard, wordpress_pull_service_1.WordpressPullService],
+        exports: [wordpress_service_1.WordpressService, wordpress_pull_service_1.WordpressPullService],
     })
 ], WordpressModule);
 //# sourceMappingURL=wordpress.module.js.map

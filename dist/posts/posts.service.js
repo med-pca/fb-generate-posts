@@ -61,9 +61,16 @@ let PostsService = class PostsService {
         await this.reachable(id, acting);
         return this.prisma.post.update({ where: { id }, data: dto });
     }
+    async bulkRepeat({ ids, repeatTimes, repeatEveryHours }, acting) {
+        const { count } = await this.prisma.post.updateMany({
+            where: { id: { in: ids }, ...(0, scope_1.postManageWhere)((0, scope_1.scopeOf)(acting)) },
+            data: { repeatTimes: repeatTimes ?? null, repeatEveryHours: repeatEveryHours ?? null },
+        });
+        return { updated: count };
+    }
     async reachable(id, acting) {
         const post = await this.prisma.post.findFirst({
-            where: { id, ...(0, scope_1.postWhere)((0, scope_1.scopeOf)(acting)) },
+            where: { id, ...(0, scope_1.postManageWhere)((0, scope_1.scopeOf)(acting)) },
             select: { id: true },
         });
         if (!post)
@@ -85,9 +92,9 @@ let PostsService = class PostsService {
     async bulkRemove(dto, acting = null) {
         const { dryRun, force, ...filters } = dto;
         if (!this.hasCriteria(filters)) {
-            throw new common_1.BadRequestException('Précisez au moins ids, profileId, groupId, articleId, status ou sourceType');
+            throw new common_1.BadRequestException('Précisez au moins ids, profileId, groupId, articleId, siteId, status ou sourceType');
         }
-        const where = this.buildWhere(filters, acting);
+        const where = this.buildWhere(filters, acting, true);
         return this.prisma.$transaction(async (tx) => {
             const matched = await tx.post.count({ where });
             const claimed = await tx.post.findMany({
@@ -122,11 +129,12 @@ let PostsService = class PostsService {
             filters.profileId ||
             filters.groupId ||
             filters.articleId ||
+            filters.siteId ||
             filters.status ||
             filters.sourceType);
     }
-    buildWhere(filters, acting) {
-        const scope = (0, scope_1.postWhere)((0, scope_1.scopeOf)(acting));
+    buildWhere(filters, acting, manage = false) {
+        const scope = (manage ? scope_1.postManageWhere : scope_1.postWhere)((0, scope_1.scopeOf)(acting));
         const and = Object.keys(scope).length
             ? [scope]
             : [];
@@ -137,6 +145,8 @@ let PostsService = class PostsService {
             where.profileId = filters.profileId;
         if (filters.articleId)
             where.articleId = filters.articleId;
+        if (filters.siteId)
+            where.article = { sourceId: filters.siteId };
         if (filters.status)
             where.status = filters.status;
         if (filters.sourceType)

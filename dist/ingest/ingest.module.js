@@ -10,26 +10,34 @@ exports.IngestModule = void 0;
 const common_1 = require("@nestjs/common");
 const llm_module_1 = require("../llm/llm.module");
 const sites_module_1 = require("../sites/sites.module");
+const wordpress_module_1 = require("../wordpress/wordpress.module");
 const ingest_controller_1 = require("./ingest.controller");
 const ingest_service_1 = require("./ingest.service");
 const rewriter_service_1 = require("./rewriter.service");
 const scrape_controller_1 = require("./scrape.controller");
 const source_reader_service_1 = require("./source-reader.service");
 const wordpress_writer_service_1 = require("./wordpress-writer.service");
+const news_service_1 = require("./news.service");
+const image_translator_service_1 = require("./image-translator.service");
+const visuals_service_1 = require("../visuals/visuals.service");
+const visuals_controller_1 = require("../visuals/visuals.controller");
 let IngestModule = class IngestModule {
 };
 exports.IngestModule = IngestModule;
 exports.IngestModule = IngestModule = __decorate([
     (0, common_1.Module)({
-        imports: [llm_module_1.LlmModule, sites_module_1.SitesModule],
-        controllers: [ingest_controller_1.IngestController, scrape_controller_1.ScrapeController],
+        imports: [llm_module_1.LlmModule, sites_module_1.SitesModule, wordpress_module_1.WordpressModule],
+        controllers: [ingest_controller_1.IngestController, scrape_controller_1.ScrapeController, visuals_controller_1.VisualsController],
         providers: [
             ingest_service_1.IngestService,
             source_reader_service_1.SourceReaderService,
             rewriter_service_1.RewriterService,
             wordpress_writer_service_1.WordpressWriterService,
+            news_service_1.NewsService,
+            image_translator_service_1.ImageTranslatorService,
+            visuals_service_1.VisualsService,
         ],
-        exports: [ingest_service_1.IngestService, source_reader_service_1.SourceReaderService, rewriter_service_1.RewriterService],
+        exports: [ingest_service_1.IngestService, source_reader_service_1.SourceReaderService, rewriter_service_1.RewriterService, image_translator_service_1.ImageTranslatorService, wordpress_writer_service_1.WordpressWriterService],
     })
 ], IngestModule);
 //# sourceMappingURL=ingest.module.js.map

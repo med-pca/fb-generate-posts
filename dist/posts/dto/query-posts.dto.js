@@ -18,11 +18,12 @@ class QueryPostsDto extends pagination_dto_1.PaginationDto {
     profileId;
     groupId;
     articleId;
+    siteId;
     status;
     sourceType;
     search;
     static _OPENAPI_METADATA_FACTORY() {
-        return { profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, articleId: { required: false, type: () => String }, status: { required: false, enum: ["DRAFT", "AVAILABLE", "ARCHIVED"] }, sourceType: { required: false, enum: ["MANUAL", "OPENAI", "JSON", "FACEBOOK"] }, search: { required: false, type: () => String } };
+        return { profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, articleId: { required: false, type: () => String }, siteId: { required: false, type: () => String }, status: { required: false, enum: ["AVAILABLE", "DRAFT", "ARCHIVED"] }, sourceType: { required: false, enum: ["MANUAL", "OPENAI", "JSON", "FACEBOOK"] }, search: { required: false, type: () => String } };
     }
 }
 exports.QueryPostsDto = QueryPostsDto;
@@ -41,6 +42,11 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], QueryPostsDto.prototype, "articleId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], QueryPostsDto.prototype, "siteId", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsEnum)(client_1.PostStatus),

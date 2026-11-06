@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.logWhere = exports.jobWhere = exports.articleWhere = exports.postWhere = exports.siteManageWhere = exports.groupManageWhere = exports.siteWhere = exports.groupWhere = exports.ingestWhere = exports.profileWhere = exports.seesEverything = void 0;
+exports.logWhere = exports.jobWhere = exports.articleManageWhere = exports.articleWhere = exports.postManageWhere = exports.postWhere = exports.siteManageWhere = exports.groupManageWhere = exports.siteWhere = exports.groupWhere = exports.ingestWhere = exports.profileWhere = exports.seesEverything = void 0;
 exports.scopeOf = scopeOf;
 exports.ownedWhere = ownedWhere;
 exports.withScope = withScope;
@@ -46,12 +46,24 @@ const postWhere = (scope) => scope
         OR: [
             { ownerId: scope.ownerId },
             { profile: { ownerId: scope.ownerId } },
+            { article: { source: (0, exports.siteWhere)(scope) } },
         ],
     }
     : {};
 exports.postWhere = postWhere;
-const articleWhere = (scope) => scope ? { source: { ownerId: scope.ownerId } } : {};
+const postManageWhere = (scope) => scope
+    ? {
+        OR: [
+            { ownerId: scope.ownerId },
+            { profile: { ownerId: scope.ownerId } },
+        ],
+    }
+    : {};
+exports.postManageWhere = postManageWhere;
+const articleWhere = (scope) => scope ? { source: (0, exports.siteWhere)(scope) } : {};
 exports.articleWhere = articleWhere;
+const articleManageWhere = (scope) => scope ? { source: (0, exports.siteManageWhere)(scope) } : {};
+exports.articleManageWhere = articleManageWhere;
 const jobWhere = (scope) => scope ? { profile: { ownerId: scope.ownerId } } : {};
 exports.jobWhere = jobWhere;
 const logWhere = (scope) => scope

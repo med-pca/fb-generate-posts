@@ -29,6 +29,7 @@ const DEFAULTS = {
         tokenParam: 'max_tokens',
         maxTokens: 0,
         timeoutMs: 0,
+        vision: false,
     },
     openai: {
         baseURL: undefined,
@@ -37,6 +38,7 @@ const DEFAULTS = {
         tokenParam: 'max_completion_tokens',
         maxTokens: 0,
         timeoutMs: 0,
+        vision: true,
     },
     deepseek: {
         baseURL: 'https://api.deepseek.com/v1',
@@ -45,6 +47,7 @@ const DEFAULTS = {
         tokenParam: 'max_tokens',
         maxTokens: 8000,
         timeoutMs: 180_000,
+        vision: false,
     },
     gemini: {
         baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
@@ -53,6 +56,7 @@ const DEFAULTS = {
         tokenParam: 'max_tokens',
         maxTokens: 0,
         timeoutMs: 0,
+        vision: true,
     },
 };
 const DEFAULT_ORDER = 'openai,deepseek,gemini,kimi';
@@ -69,7 +73,15 @@ const chatCompletionsTransport = async (provider, request) => {
         [provider.tokenParam]: provider.maxTokens || request.maxTokens,
         messages: [
             { role: 'system', content: request.instructions },
-            { role: 'user', content: request.input },
+            {
+                role: 'user',
+                content: request.image
+                    ? [
+                        { type: 'text', text: request.input },
+                        { type: 'image_url', image_url: { url: `data:${request.image.mimeType};base64,${request.image.data}` } },
+                    ]
+                    : request.input,
+            },
         ],
         response_format: provider.jsonSchema
             ? {
@@ -136,12 +148,23 @@ let LlmService = LlmService_1 = class LlmService {
                 maxTokens: Number.isFinite(budget) && budget > 0
                     ? budget
                     : DEFAULTS[name].maxTokens,
+                vision: this.config.get(`${prefix}_VISION`) === 'true' ||
+                    (this.config.get(`${prefix}_VISION`) !== 'false' && DEFAULTS[name].vision),
             };
         })
             .filter((provider) => provider !== null);
     }
     async completeJson(request) {
-        const providers = this.providers();
+        const all = this.providers();
+        const usable = request.image ? all.filter((p) => p.vision) : all;
+        const prefer = request.prefer ?? [];
+        const providers = [...usable].sort((a, b) => {
+            const ia = prefer.indexOf(a.name), ib = prefer.indexOf(b.name);
+            return (ia === -1 ? prefer.length : ia) - (ib === -1 ? prefer.length : ib);
+        });
+        if (request.image && all.length && !providers.length) {
+            throw new common_1.ServiceUnavailableException('Aucun fournisseur capable de lire une image : renseigner OPENAI_API_KEY ou GEMINI_API_KEY');
+        }
         if (!providers.length) {
             throw new common_1.ServiceUnavailableException('Aucun fournisseur configuré : renseigner KIMI_API_KEY, OPENAI_API_KEY ou GEMINI_API_KEY');
         }

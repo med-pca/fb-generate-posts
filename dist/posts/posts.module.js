@@ -11,13 +11,19 @@ const common_1 = require("@nestjs/common");
 const posts_controller_1 = require("./posts.controller");
 const posts_service_1 = require("./posts.service");
 const queue_service_1 = require("./queue.service");
+const repeat_service_1 = require("./repeat.service");
+const published_service_1 = require("./published.service");
+const priorities_service_1 = require("./priorities.service");
+const rescue_module_1 = require("../jobs/rescue.module");
 let PostsModule = class PostsModule {
 };
 exports.PostsModule = PostsModule;
 exports.PostsModule = PostsModule = __decorate([
     (0, common_1.Module)({
+        imports: [rescue_module_1.RescueModule],
         controllers: [posts_controller_1.PostsController],
-        providers: [posts_service_1.PostsService, queue_service_1.QueueService],
+        providers: [posts_service_1.PostsService, queue_service_1.QueueService, repeat_service_1.RepeatService, published_service_1.PublishedService, priorities_service_1.PrioritiesService],
+        exports: [repeat_service_1.RepeatService],
     })
 ], PostsModule);
 //# sourceMappingURL=posts.module.js.map

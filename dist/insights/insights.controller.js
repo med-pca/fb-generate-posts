@@ -20,6 +20,7 @@ const class_validator_1 = require("class-validator");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
 const admin_role_guard_1 = require("../auth/admin-role.guard");
 const current_user_1 = require("../auth/current-user");
+const short_cache_service_1 = require("../perf/short-cache.service");
 const insights_service_1 = require("./insights.service");
 const reset_service_1 = require("./reset.service");
 class ResetDto {
@@ -68,17 +69,19 @@ __decorate([
 ], ResetDto.prototype, "force", void 0);
 let InsightsController = class InsightsController {
     insights;
-    constructor(insights) {
+    cache;
+    constructor(insights, cache) {
         this.insights = insights;
+        this.cache = cache;
     }
     counters(acting) {
-        return this.insights.counters(acting);
+        return this.cache.get(acting, 'insights/counters', 15_000, () => this.insights.counters(acting));
     }
     profiles(acting) {
-        return this.insights.profileStats(acting);
+        return this.cache.get(acting, 'insights/profiles', 30_000, () => this.insights.profileStats(acting));
     }
     objective(acting) {
-        return this.insights.objective(acting);
+        return this.cache.get(acting, 'insights/objective', 20_000, () => this.insights.objective(acting));
     }
 };
 exports.InsightsController = InsightsController;
@@ -122,7 +125,8 @@ exports.InsightsController = InsightsController = __decorate([
     (0, swagger_1.ApiBearerAuth)(),
     (0, common_1.UseGuards)(admin_auth_guard_1.AdminAuthGuard),
     (0, common_1.Controller)('insights'),
-    __metadata("design:paramtypes", [insights_service_1.InsightsService])
+    __metadata("design:paramtypes", [insights_service_1.InsightsService,
+        short_cache_service_1.ShortCacheService])
 ], InsightsController);
 let ResetController = class ResetController {
     resets;

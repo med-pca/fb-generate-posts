@@ -25,6 +25,8 @@ export declare class ProfileHealthService {
             status: import("@prisma/client").$Enums.RecordStatus;
             externalId: string | null;
             facebookUserId: string | null;
+            facebookName: string | null;
+            facebookProfileUrl: string | null;
             isModerator: boolean;
             runner: {
                 lastSeenAt: Date | null;
@@ -84,6 +86,28 @@ export declare class ProfileHealthService {
             [k: string]: number;
         };
         preApproved: number;
+        memberships: {
+            linkId: string;
+            auditPending: boolean;
+            memberRequested: boolean;
+            preApprovalState: string | null;
+            preApprovalCheckedAt: Date | null;
+            preApprovalDetail: string | null;
+            groupId: string;
+            name: string;
+            url: string;
+            groupStatus: import("@prisma/client").$Enums.RecordStatus;
+            category: {
+                id: string;
+                name: string;
+            } | null;
+            linkStatus: import("@prisma/client").$Enums.RecordStatus;
+            joinStatus: import("@prisma/client").$Enums.JoinStatus;
+            joinCheckedAt: Date | null;
+            preApproved: boolean;
+            memberActionError: string | null;
+            waiting: number;
+        }[];
         transfer: {
             forcedTargets: number;
             ownedPosts: number;

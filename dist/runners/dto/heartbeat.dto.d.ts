@@ -8,4 +8,5 @@ export declare class HeartbeatDto {
     agent?: string;
     facebookUserId?: string;
     facebookName?: string;
+    sleepUntil?: string;
 }

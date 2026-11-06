@@ -24,7 +24,7 @@ class CreateLogDto {
     message;
     metadata;
     static _OPENAPI_METADATA_FACTORY() {
-        return { profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, postId: { required: false, type: () => String }, jobId: { required: false, type: () => String }, facebookUrl: { required: false, type: () => String, maxLength: 2000 }, eventType: { required: true, type: () => String }, level: { required: true, default: client_1.LogLevel.INFO, enum: ["INFO", "WARN", "ERROR", "DEBUG"] }, message: { required: true, type: () => String }, metadata: { required: false, type: "object", additionalProperties: true } };
+        return { profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, postId: { required: false, type: () => String }, jobId: { required: false, type: () => String }, facebookUrl: { required: false, type: () => String, maxLength: 2000 }, eventType: { required: true, type: () => String }, level: { required: true, default: client_1.LogLevel.INFO, enum: ["DEBUG", "INFO", "WARN", "ERROR"] }, message: { required: true, type: () => String }, metadata: { required: false, type: "object", additionalProperties: true } };
     }
 }
 exports.CreateLogDto = CreateLogDto;

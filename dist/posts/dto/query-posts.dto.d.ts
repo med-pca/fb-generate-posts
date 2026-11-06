@@ -4,6 +4,7 @@ export declare class QueryPostsDto extends PaginationDto {
     profileId?: string;
     groupId?: string;
     articleId?: string;
+    siteId?: string;
     status?: PostStatus;
     sourceType?: SourceType;
     search?: string;

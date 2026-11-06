@@ -29,12 +29,14 @@ export declare class ScrapeController {
         status: import("@prisma/client").$Enums.IngestStatus;
     }>;
     failed(id: string, dto: FailScrapeDto, acting: CurrentUser | null): Promise<{
+        language: string;
         id: string;
         createdAt: Date;
         status: import("@prisma/client").$Enums.IngestStatus;
         updatedAt: Date;
         groupIds: string[];
         ownerId: string | null;
+        mode: string;
         articleId: string | null;
         claimedAt: Date | null;
         claimExpiresAt: Date | null;
@@ -42,13 +44,14 @@ export declare class ScrapeController {
         facebookUrl: string;
         siteUrl: string;
         generated: import("@prisma/client/runtime/library").JsonValue | null;
+        wpPostId: string | null;
         sourceUrl: string;
-        language: string;
+        targetLanguage: string | null;
+        translateImage: boolean;
         fbCaption: string | null;
         fbImageUrl: string | null;
         sourceTitle: string | null;
         sourceText: string | null;
-        wpPostId: string | null;
         wpPermalink: string | null;
         profileIds: string[];
         attempts: number;

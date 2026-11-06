@@ -1,9 +1,11 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import type { CurrentUser } from '../auth/current-user';
 export declare function startOfLocalDay(now: Date, timeZone: string): Date;
 export declare class InsightsService {
     private readonly prisma;
-    constructor(prisma: PrismaService);
+    private readonly campaigns?;
+    constructor(prisma: PrismaService, campaigns?: CampaignsService | undefined);
     private settings;
     private upcomingWhere;
     counters(acting: CurrentUser | null, now?: Date): Promise<{
@@ -37,6 +39,24 @@ export declare class InsightsService {
             blocked: number;
             deficit: number;
         };
+        plan: {
+            postsPerArticle: number;
+            articlesPerDay: number;
+            done: number;
+            inProgress: number;
+            ready: number;
+            missing: number;
+            everyMinutes: number;
+            expectedNow: number;
+        };
+        pacing: {
+            enabled: boolean;
+            minGap: number;
+            profiles: number;
+            gapMinutes: number | null;
+            maxPerHour: number;
+        };
+        awaitingApproval: number;
         articles: {
             today: number;
             needed: number;
@@ -88,4 +108,5 @@ export declare class InsightsService {
             text: string;
         }[];
     }>;
+    private articlePlan;
 }

@@ -7,6 +7,7 @@ export declare class AdminJobsController {
         jobId: string;
         released: number;
         inProgress: number;
+        interrupted: number;
         alreadyClosed: boolean;
     }>;
 }

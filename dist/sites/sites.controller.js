@@ -48,6 +48,12 @@ let SitesController = class SitesController {
     update(id, dto, acting) {
         return this.sites.update(id, dto, acting);
     }
+    pluginKey(id, acting) {
+        return this.sites.pluginKey(id, acting);
+    }
+    regeneratePluginKey(id, acting) {
+        return this.sites.regeneratePluginKey(id, acting);
+    }
     remove(id, acting) {
         return this.sites.remove(id, acting);
     }
@@ -108,6 +114,32 @@ __decorate([
     __metadata("design:paramtypes", [String, site_dto_1.UpdateSiteDto, Object]),
     __metadata("design:returntype", void 0)
 ], SitesController.prototype, "update", null);
+__decorate([
+    (0, common_1.Get)(':id/key'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'La clé du plugin WordPress de ce site',
+        description: 'Propriétaire du site ou ADMIN. `key: null` : le site utilise encore la clé globale (à migrer).',
+    }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], SitesController.prototype, "pluginKey", null);
+__decorate([
+    (0, common_1.Post)(':id/key'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Générer une nouvelle clé de plugin pour ce site',
+        description: 'L’ancienne clé (et la clé globale) cesse aussitôt de fonctionner pour ce site.',
+    }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], SitesController.prototype, "regeneratePluginKey", null);
 __decorate([
     (0, common_1.Delete)(':id'),
     (0, swagger_1.ApiOperation)({

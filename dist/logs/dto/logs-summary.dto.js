@@ -19,7 +19,7 @@ class LogsSummaryDto {
     profileId;
     domain;
     static _OPENAPI_METADATA_FACTORY() {
-        return { hours: { required: true, type: () => Object, default: 24, minimum: 1, maximum: 720 }, profileId: { required: false, type: () => String }, domain: { required: false, enum: ["groups", "security", "publication", "capture", "sync", "other"], enum: domains_1.LOG_DOMAIN_KEYS } };
+        return { hours: { required: true, type: () => Object, default: 24, minimum: 1, maximum: 720 }, profileId: { required: false, type: () => String }, domain: { required: false, enum: ["other", "groups", "security", "publication", "capture", "sync"], enum: domains_1.LOG_DOMAIN_KEYS } };
     }
 }
 exports.LogsSummaryDto = LogsSummaryDto;

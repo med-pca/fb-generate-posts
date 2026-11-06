@@ -12,7 +12,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CreatePostDto = void 0;
 const openapi = require("@nestjs/swagger");
 const class_validator_1 = require("class-validator");
-class CreatePostDto {
+const repeat_dto_1 = require("./repeat.dto");
+class CreatePostDto extends repeat_dto_1.RepeatRuleDto {
     title;
     description;
     url;

@@ -1,11 +1,14 @@
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import { type ClaimProfile } from './claimable';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaimJobDto } from './dto/claim-job.dto';
 import { ClaimBatchDto } from './dto/claim-batch.dto';
 import { CommentJobItemDto } from './dto/comment-job-item.dto';
 import { LinkUpdatedJobItemDto } from './dto/link-updated-job-item.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
+import { ApprovalReportDto } from './dto/approval-report.dto';
 import type { CurrentUser } from '../auth/current-user';
 type ClaimedPost = {
     id: string;
@@ -13,6 +16,7 @@ type ClaimedPost = {
     description: string;
     image: string | null;
     delay: number;
+    noComment: boolean;
     comment: {
         text: string;
         willReceiveLink: boolean;
@@ -42,7 +46,7 @@ type EmptyClaim = {
     reason?: EmptyReason;
     diagnosis?: Record<string, unknown>;
 };
-export type EmptyReason = 'no_group' | 'not_joined' | 'no_post' | 'not_allowed' | 'taken';
+export type EmptyReason = 'no_group' | 'not_joined' | 'no_post' | 'not_allowed' | 'taken' | 'paused' | 'suspended' | 'quota' | 'rest' | 'group_limits';
 type BatchSkip = {
     status: 'busy' | 'empty' | 'error';
     profileExternalId: string;
@@ -52,22 +56,26 @@ type BatchSkip = {
 type BatchClaim = {
     status: 'claimed';
 } & ClaimedJob;
-export declare function claimablePostWhere(profile: {
-    id: string;
-    ownerId: string | null;
-}): Prisma.PostWhereInput;
+export { claimablePostWhere, isHouseProfile, mayPublishPost, type ClaimProfile } from './claimable';
 export declare function notForcedElsewhere(profileId: string): Prisma.PostTargetWhereInput;
+export declare const RATE_LIMITED: RegExp;
+export declare function isRateLimited(text: string | null | undefined): boolean;
 export declare class JobsService {
     private readonly prisma;
     private readonly config;
-    constructor(prisma: PrismaService, config: ConfigService);
+    private readonly campaigns?;
+    constructor(prisma: PrismaService, config: ConfigService, campaigns?: CampaignsService | undefined);
     listAutomationProfiles(acting?: CurrentUser | null): Prisma.PrismaPromise<{
         id: string;
         name: string;
         externalId: string | null;
     }[]>;
     private reachableJob;
-    claim(dto: ClaimJobDto, acting?: CurrentUser | null): Promise<ClaimedJob | EmptyClaim>;
+    claim(dto: ClaimJobDto, acting?: CurrentUser | null, limits?: {
+        maxCount?: number;
+        postId?: string;
+        excludeTargetIds?: string[];
+    }): Promise<ClaimedJob | EmptyClaim>;
     claimBatch({ profileExternalIds, limit }: ClaimBatchDto, acting?: CurrentUser | null): Promise<{
         requested: number;
         claimed: number;
@@ -83,20 +91,22 @@ export declare class JobsService {
     }>;
     releaseExpiredClaims(tx?: Prisma.TransactionClient): Promise<number>;
     claimByProfileExternalId(profileExternalId: string, groupExternalId?: string, acting?: CurrentUser | null): Promise<ClaimedJob | EmptyClaim>;
-    explainNothingToClaim(profile: {
-        id: string;
-        ownerId: string | null;
-    }, groupExternalId?: string): Promise<{
+    explainNothingToClaim(profile: ClaimProfile, groupExternalId?: string): Promise<{
         reason: EmptyReason;
         message: string;
         diagnosis: Record<string, unknown>;
     }>;
+    private paced;
+    private pacedGap;
+    private pilotMode;
+    private currentArticles;
     private byTopPriority;
     private isFinished;
     release(jobId: string, acting?: CurrentUser | null, reason?: string): Promise<{
         jobId: string;
         released: number;
         inProgress: number;
+        interrupted: number;
         alreadyClosed: boolean;
     }>;
     markConsumed(jobId: string, postId: string, acting?: CurrentUser | null): Promise<{
@@ -113,6 +123,7 @@ export declare class JobsService {
         postTargetId: string;
         jobId: string;
         externalPostUrl: string | null;
+        campaignId: string | null;
     }>;
     markPublished(jobId: string, postId: string, dto: PublishJobItemDto, acting?: CurrentUser | null): Promise<{
         error: string | null;
@@ -128,9 +139,46 @@ export declare class JobsService {
         postTargetId: string;
         jobId: string;
         externalPostUrl: string | null;
+        campaignId: string | null;
+    }>;
+    cycleState(profileId: string, now?: Date): Promise<{
+        used: number;
+        left: number;
+        restUntil: Date | null;
+        max: number | null;
+        hours: number;
+    } | null>;
+    private noteCycle;
+    private notePendingApproval;
+    approvalsDue(profileExternalId: string, acting: CurrentUser | null, limit?: number, now?: Date): Promise<{
+        targetId: string;
+        jobId: string;
+        postId: string;
+        content: string;
+        willReceiveLink: boolean;
+        noComment: boolean;
+        group: {
+            name: string;
+            externalId: string | null;
+            url: string;
+        };
+        pendingSince: Date | null;
+        checks: number;
+    }[]>;
+    private expireApprovals;
+    reportApproval(targetId: string, dto: ApprovalReportDto, acting: CurrentUser | null, now?: Date): Promise<{
+        result: string;
+        jobId?: undefined;
+        postId?: undefined;
+        externalPostUrl?: undefined;
+    } | {
+        result: string;
+        jobId: string;
+        postId: string;
+        externalPostUrl: string | null;
     }>;
     private archiveArticleOf;
-    markFailed(jobId: string, postId: string, error: string, acting?: CurrentUser | null): Promise<{
+    markFailed(jobId: string, postId: string, error: string, acting?: CurrentUser | null, requeue?: boolean, blocked?: boolean): Promise<{
         error: string | null;
         id: string;
         createdAt: Date;
@@ -144,7 +192,40 @@ export declare class JobsService {
         postTargetId: string;
         jobId: string;
         externalPostUrl: string | null;
+        campaignId: string | null;
     }>;
+    pauseForRateLimit(jobId: string, reason: string, now?: Date): Promise<{
+        until: Date;
+        released: number;
+        unforced: number;
+        opened: number;
+    } | null>;
+    suspendProfile(profileExternalId: string, input: {
+        kind: 'disabled' | 'checkpoint' | 'logged_out';
+        detail?: string;
+        url?: string;
+    }, acting: CurrentUser | null): Promise<{
+        kind: string;
+        released: number;
+        opened: number;
+    }>;
+    private loggedOut;
+    reconnected(profileExternalId: string, acting: CurrentUser | null): Promise<{
+        reconnected: boolean;
+        state: string;
+    }>;
+    pilotRules(profileId: string, groupIds: string[], now?: Date): Promise<{
+        quota: number | null;
+        quotaLeft: number | null;
+        groups: Map<string, {
+            open: boolean;
+            left: number | null;
+            why: string;
+        }>;
+        timeZone: string;
+    }>;
+    private pausedUntil;
+    private requeueUnpublished;
     complete(jobId: string, acting?: CurrentUser | null): Promise<{
         awaitingLink: number;
         missingComments: number;
@@ -173,6 +254,7 @@ export declare class JobsService {
         postTargetId: string;
         jobId: string;
         externalPostUrl: string | null;
+        campaignId: string | null;
     }>;
     linkUpdates(jobId: string, acting?: CurrentUser | null): Promise<{
         jobId: string;
@@ -231,6 +313,7 @@ export declare class JobsService {
         postTargetId: string;
         jobId: string;
         externalPostUrl: string | null;
+        campaignId: string | null;
     }>;
     private awaitsLink;
     private outcomeFor;
@@ -241,4 +324,3 @@ export declare class JobsService {
     private logLostClaim;
     private randomInt;
 }
-export {};

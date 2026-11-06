@@ -13,11 +13,14 @@ const jobs_service_1 = require("./jobs.service");
 const media_controller_1 = require("./media.controller");
 const admin_jobs_controller_1 = require("./admin-jobs.controller");
 const media_service_1 = require("./media.service");
+const campaigns_module_1 = require("../campaigns/campaigns.module");
+const rescue_module_1 = require("./rescue.module");
 let JobsModule = class JobsModule {
 };
 exports.JobsModule = JobsModule;
 exports.JobsModule = JobsModule = __decorate([
     (0, common_1.Module)({
+        imports: [campaigns_module_1.CampaignsModule, rescue_module_1.RescueModule],
         controllers: [jobs_controller_1.JobsController, media_controller_1.MediaController, admin_jobs_controller_1.AdminJobsController],
         providers: [jobs_service_1.JobsService, media_service_1.MediaService],
         exports: [jobs_service_1.JobsService],

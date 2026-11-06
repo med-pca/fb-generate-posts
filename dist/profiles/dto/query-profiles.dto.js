@@ -13,6 +13,7 @@ exports.DeactivateProfileDto = exports.QueryProfilesDto = void 0;
 const openapi = require("@nestjs/swagger");
 const swagger_1 = require("@nestjs/swagger");
 const class_validator_1 = require("class-validator");
+const class_transformer_1 = require("class-transformer");
 const pagination_dto_1 = require("../../common/dto/pagination.dto");
 class QueryProfilesDto extends pagination_dto_1.PaginationDto {
     search;
@@ -20,9 +21,10 @@ class QueryProfilesDto extends pagination_dto_1.PaginationDto {
     health;
     activity;
     categoryId;
+    withModerators;
     sort;
     static _OPENAPI_METADATA_FACTORY() {
-        return { search: { required: false, type: () => String, maxLength: 200 }, status: { required: false, enum: ["ACTIVE", "INACTIVE"], enum: ['ACTIVE', 'INACTIVE'] }, health: { required: false, enum: ["good", "watch", "bad", "new", "deactivate"], enum: ['good', 'watch', 'bad', 'new', 'deactivate'] }, activity: { required: false, enum: ["running", "off"], enum: ['running', 'off'] }, categoryId: { required: false, type: () => String }, sort: { required: false, enum: ["name", "published", "recent", "score", "failures"], enum: ['recent', 'name', 'score', 'failures', 'published'] } };
+        return { search: { required: false, type: () => String, maxLength: 200 }, status: { required: false, enum: ["ACTIVE", "INACTIVE", "SUSPENDED"], enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'] }, health: { required: false, enum: ["new", "good", "watch", "bad", "deactivate"], enum: ['good', 'watch', 'bad', 'new', 'deactivate'] }, activity: { required: false, enum: ["running", "off"], enum: ['running', 'off'] }, categoryId: { required: false, type: () => String }, withModerators: { required: false, type: () => Boolean }, sort: { required: false, enum: ["name", "published", "recent", "score", "failures"], enum: ['recent', 'name', 'score', 'failures', 'published'] } };
     }
 }
 exports.QueryProfilesDto = QueryProfilesDto;
@@ -34,9 +36,9 @@ __decorate([
     __metadata("design:type", String)
 ], QueryProfilesDto.prototype, "search", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ enum: ['ACTIVE', 'INACTIVE'] }),
+    (0, swagger_1.ApiPropertyOptional)({ enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'] }),
     (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsIn)(['ACTIVE', 'INACTIVE']),
+    (0, class_validator_1.IsIn)(['ACTIVE', 'INACTIVE', 'SUSPENDED']),
     __metadata("design:type", String)
 ], QueryProfilesDto.prototype, "status", void 0);
 __decorate([
@@ -57,6 +59,13 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], QueryProfilesDto.prototype, "categoryId", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Transform)(({ value }) => value === true || value === 'true' || value === '1'),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], QueryProfilesDto.prototype, "withModerators", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({ enum: ['recent', 'name', 'score', 'failures', 'published'] }),
     (0, class_validator_1.IsOptional)(),

@@ -4,6 +4,7 @@ export declare class BulkDeletePostsDto {
     profileId?: string;
     groupId?: string;
     articleId?: string;
+    siteId?: string;
     status?: PostStatus;
     sourceType?: SourceType;
     dryRun: boolean;

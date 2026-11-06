@@ -40,9 +40,9 @@ __decorate([
 ], CreateSiteDto.prototype, "originUrl", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({
-        description: 'Clé du plugin de ce site. Laissée vide, la clé globale ' +
-            'WORDPRESS_API_KEY sert. Vide à la modification : la clé en place est ' +
-            'conservée.',
+        description: 'Clé du plugin de ce site. Laissée vide à la création, une clé propre ' +
+            'est générée (GET /sites/:id/key). Vide à la modification : la clé en ' +
+            'place est conservée.',
     }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),

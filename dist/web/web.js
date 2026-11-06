@@ -4,6 +4,7 @@ exports.registerWeb = registerWeb;
 const promises_1 = require("node:fs/promises");
 const node_path_1 = require("node:path");
 const session_service_1 = require("../auth/session.service");
+const prisma_service_1 = require("../prisma/prisma.service");
 const cookies_1 = require("../auth/cookies");
 const routes_1 = require("./routes");
 const PUBLIC = (0, node_path_1.join)(process.cwd(), 'public');
@@ -14,6 +15,7 @@ const APP_FILES = {
 const LOGIN_FILES = {
     '/login.js': { file: 'login/login.js', type: 'text/javascript; charset=utf-8' },
     '/login.css': { file: 'login/login.css', type: 'text/css; charset=utf-8' },
+    '/i18n.js': { file: 'admin/i18n.js', type: 'text/javascript; charset=utf-8' },
 };
 function registerWeb(app) {
     const fastify = app.getHttpAdapter().getInstance();
@@ -40,6 +42,21 @@ function registerWeb(app) {
             return reply.redirect(`/login?next=${encodeURIComponent('/api/docs')}`, 302);
         }
     });
+    fastify.get('/media/g/:file', async (request, reply) => {
+        const prisma = app.get(prisma_service_1.PrismaService, { strict: false });
+        const file = String(request.params.file || '');
+        const token = file.replace(/\.(png|jpe?g|webp)$/i, '');
+        if (!/^[A-Za-z0-9_-]{16,64}$/.test(token))
+            return reply.code(404).send();
+        const image = await prisma.generatedImage.findUnique({ where: { token }, select: { mimeType: true, data: true } });
+        if (!image)
+            return reply.code(404).send();
+        return reply
+            .header('content-type', image.mimeType)
+            .header('cache-control', 'public, max-age=31536000, immutable')
+            .header('access-control-allow-origin', '*')
+            .send(Buffer.from(image.data));
+    });
     fastify.get('/login', async (request, reply) => {
         const next = (0, routes_1.safeNext)(request.query?.next);
         if (await loggedIn(request))
@@ -56,8 +73,12 @@ function registerWeb(app) {
             return send(reply, asset.file, asset.type, 'private, no-cache');
         });
     }
-    for (const path of Object.keys(routes_1.APP_ROUTES)) {
+    for (const path of [...Object.keys(routes_1.APP_ROUTES), ...routes_1.DYNAMIC_ROUTES.map((r) => r.fastify)]) {
         fastify.get(path, async (request, reply) => {
+            const dynamic = routes_1.DYNAMIC_ROUTES.find((r) => r.fastify === path);
+            if (dynamic && !dynamic.pattern.test(request.url.split('?')[0].replace(/\/+$/, ''))) {
+                return reply.code(404).header('content-type', 'text/plain; charset=utf-8').send('Page introuvable');
+            }
             if (!(await loggedIn(request))) {
                 const back = (0, routes_1.appPath)(request.url) === '/' ? '' : `?next=${encodeURIComponent(request.url)}`;
                 return reply.redirect(`/login${back}`, 302);

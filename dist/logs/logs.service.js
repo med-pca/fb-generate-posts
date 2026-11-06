@@ -8,6 +8,10 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var LogsService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LogsService = void 0;
 const common_1 = require("@nestjs/common");
@@ -16,6 +20,7 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const trace_1 = require("../trace/trace");
 const paginated_1 = require("../common/paginated");
 const scope_1 = require("../auth/scope");
+const rescue_service_1 = require("../jobs/rescue.service");
 const domains_1 = require("./domains");
 const INCIDENT_EVENT_TYPES = ['CLAIM_LOST', 'COMMENT_MISSING'];
 const INCIDENT_SAMPLE = 20;
@@ -29,19 +34,34 @@ const csvCell = (value) => {
     const text = value === null || value === undefined ? '' : String(value);
     return /[",;\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
-let LogsService = class LogsService {
+let LogsService = LogsService_1 = class LogsService {
     prisma;
-    constructor(prisma) {
+    rescue;
+    logger = new common_1.Logger(LogsService_1.name);
+    constructor(prisma, rescue) {
         this.prisma = prisma;
+        this.rescue = rescue;
     }
-    create(dto) {
-        return this.prisma.activityLog.create({
+    async create(dto, acting = null) {
+        const log = await this.prisma.activityLog.create({
             data: {
                 ...dto,
                 facebookUrl: dto.facebookUrl ? ((0, trace_1.normalizeFacebookUrl)(dto.facebookUrl) ?? dto.facebookUrl) : undefined,
                 metadata: dto.metadata,
             },
         });
+        if (dto.eventType === 'WORKER_LINK_FAILED' && dto.jobId && dto.postId && this.rescue) {
+            const job = await this.prisma.publicationJob.findFirst({
+                where: { id: dto.jobId, ...(0, scope_1.jobWhere)((0, scope_1.scopeOf)(acting)) },
+                select: { id: true },
+            });
+            if (job) {
+                await this.rescue
+                    .authorGaveUp(job.id, dto.postId)
+                    .catch((error) => this.logger.warn(`Sauvetage non demandé : ${error instanceof Error ? error.message : error}`));
+            }
+        }
+        return log;
     }
     findAll(profileId, acting) {
         return this.prisma.activityLog.findMany({
@@ -327,8 +347,10 @@ let LogsService = class LogsService {
     }
 };
 exports.LogsService = LogsService;
-exports.LogsService = LogsService = __decorate([
+exports.LogsService = LogsService = LogsService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __param(1, (0, common_1.Optional)()),
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        rescue_service_1.RescueService])
 ], LogsService);
 //# sourceMappingURL=logs.service.js.map

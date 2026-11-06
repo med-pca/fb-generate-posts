@@ -1,9 +1,19 @@
 import type { CurrentUser } from '../auth/current-user';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { GroupsService } from './groups.service';
+import { QueryGroupsDto } from './dto/query-groups.dto';
+import { GroupLanguagesService } from './group-languages.service';
+export declare class GroupLanguagesDto {
+    groupIds?: string[];
+    categoryId?: string;
+    onlyMissing?: boolean;
+    language: string | null;
+}
+export declare class SuggestLanguagesDto {
+    categoryId?: string;
+}
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { SetJoinStatusDto } from './dto/update-join-status.dto';
-import { PaginationDto } from '../common/dto/pagination.dto';
 export declare class GroupsController {
     private readonly groups;
     constructor(groups: GroupsService);
@@ -24,28 +34,56 @@ export declare class GroupsController {
             memberActionAt: Date | null;
             memberClaimedUntil: Date | null;
             memberAttempts: number;
+            removalRequestedAt: Date | null;
+            removalClaimedUntil: Date | null;
+            removalAttempts: number;
+            removalError: string | null;
+            removedAt: Date | null;
+            memberRequestedAt: Date | null;
+            auditRequestedAt: Date | null;
+            auditMode: string | null;
+            auditClaimedUntil: Date | null;
+            preApprovalState: string | null;
+            preApprovalCheckedAt: Date | null;
+            preApprovalDetail: string | null;
         }[];
     } & {
+        language: string | null;
         id: string;
         createdAt: Date;
         name: string;
         status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
+        categoryId: string | null;
+        priority: number;
         ownerId: string | null;
         externalId: string | null;
-        categoryId: string | null;
         url: string;
+        spamCheckedAt: Date | null;
+        spamClaimedUntil: Date | null;
+        spamDetail: string | null;
+        dailyCap: number | null;
+        hoursStart: number | null;
+        hoursEnd: number | null;
     }>;
     findAll(profileId: string, acting: CurrentUser): Promise<{
+        language: string | null;
         id: string;
         createdAt: Date;
         name: string;
         status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
+        categoryId: string | null;
+        priority: number;
         ownerId: string | null;
         externalId: string | null;
-        categoryId: string | null;
         url: string;
+        spamCheckedAt: Date | null;
+        spamClaimedUntil: Date | null;
+        spamDetail: string | null;
+        dailyCap: number | null;
+        hoursStart: number | null;
+        hoursEnd: number | null;
     }[]>;
     link(profileId: string, groupId: string, acting: CurrentUser): Promise<{
         profile: {
@@ -59,23 +97,57 @@ export declare class GroupsController {
             defaultImageUrl: string | null;
             minPostsPerJob: number;
             maxPostsPerJob: number;
+            facebookSuspension: string | null;
+            suspendedAt: Date | null;
+            suspensionDetail: string | null;
+            modeBeforeSuspension: string | null;
+            nstGroupId: string | null;
+            nstGroupName: string | null;
+            teamNstGroupId: string | null;
+            teamNstGroupName: string | null;
             minimumAvailable: number | null;
             minimumAvailablePerGroup: number | null;
             isModerator: boolean;
+            moderatorPaused: boolean;
+            moderatorRunAt: Date | null;
+            moderatorMembersRunAt: Date | null;
+            moderatorBatch: number;
+            moderatorEveryMinutes: number;
+            moderatorMembers: boolean;
+            moderatorPostsCheck: boolean;
+            moderatorRemovals: boolean;
+            moderatorSpam: boolean;
+            moderatorPending: boolean;
+            moderatorWindowStart: number;
+            moderatorWindowEnd: number;
+            moderatorTimezone: string;
+            moderatorHourlyLimit: number;
+            moderatorDailyLimit: number;
+            moderatorSeenAt: Date | null;
+            moderatorAgent: string | null;
             facebookUserId: string | null;
             facebookName: string | null;
             facebookSeenAt: Date | null;
+            facebookProfileUrl: string | null;
         };
         group: {
+            language: string | null;
             id: string;
             createdAt: Date;
             name: string;
             status: import("@prisma/client").$Enums.RecordStatus;
             updatedAt: Date;
+            categoryId: string | null;
+            priority: number;
             ownerId: string | null;
             externalId: string | null;
-            categoryId: string | null;
             url: string;
+            spamCheckedAt: Date | null;
+            spamClaimedUntil: Date | null;
+            spamDetail: string | null;
+            dailyCap: number | null;
+            hoursStart: number | null;
+            hoursEnd: number | null;
         };
     } & {
         id: string;
@@ -93,6 +165,18 @@ export declare class GroupsController {
         memberActionAt: Date | null;
         memberClaimedUntil: Date | null;
         memberAttempts: number;
+        removalRequestedAt: Date | null;
+        removalClaimedUntil: Date | null;
+        removalAttempts: number;
+        removalError: string | null;
+        removedAt: Date | null;
+        memberRequestedAt: Date | null;
+        auditRequestedAt: Date | null;
+        auditMode: string | null;
+        auditClaimedUntil: Date | null;
+        preApprovalState: string | null;
+        preApprovalCheckedAt: Date | null;
+        preApprovalDetail: string | null;
     }>;
     unlink(profileId: string, groupId: string, acting: CurrentUser): Promise<{
         id: string;
@@ -110,23 +194,44 @@ export declare class GroupsController {
         memberActionAt: Date | null;
         memberClaimedUntil: Date | null;
         memberAttempts: number;
+        removalRequestedAt: Date | null;
+        removalClaimedUntil: Date | null;
+        removalAttempts: number;
+        removalError: string | null;
+        removedAt: Date | null;
+        memberRequestedAt: Date | null;
+        auditRequestedAt: Date | null;
+        auditMode: string | null;
+        auditClaimedUntil: Date | null;
+        preApprovalState: string | null;
+        preApprovalCheckedAt: Date | null;
+        preApprovalDetail: string | null;
     }>;
     update(groupId: string, dto: UpdateGroupDto, acting: CurrentUser): Promise<{
+        language: string | null;
         id: string;
         createdAt: Date;
         name: string;
         status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
+        categoryId: string | null;
+        priority: number;
         ownerId: string | null;
         externalId: string | null;
-        categoryId: string | null;
         url: string;
+        spamCheckedAt: Date | null;
+        spamClaimedUntil: Date | null;
+        spamDetail: string | null;
+        dailyCap: number | null;
+        hoursStart: number | null;
+        hoursEnd: number | null;
     }>;
 }
 export declare class GroupsCatalogController {
     private readonly groups;
-    constructor(groups: GroupsService);
-    findAll(pagination: PaginationDto, acting: CurrentUser): Promise<{
+    private readonly languages;
+    constructor(groups: GroupsService, languages: GroupLanguagesService);
+    findAll(query: QueryGroupsDto, acting: CurrentUser): Promise<{
         data: {
             availablePosts: number;
             category: {
@@ -145,12 +250,38 @@ export declare class GroupsCatalogController {
                     defaultImageUrl: string | null;
                     minPostsPerJob: number;
                     maxPostsPerJob: number;
+                    facebookSuspension: string | null;
+                    suspendedAt: Date | null;
+                    suspensionDetail: string | null;
+                    modeBeforeSuspension: string | null;
+                    nstGroupId: string | null;
+                    nstGroupName: string | null;
+                    teamNstGroupId: string | null;
+                    teamNstGroupName: string | null;
                     minimumAvailable: number | null;
                     minimumAvailablePerGroup: number | null;
                     isModerator: boolean;
+                    moderatorPaused: boolean;
+                    moderatorRunAt: Date | null;
+                    moderatorMembersRunAt: Date | null;
+                    moderatorBatch: number;
+                    moderatorEveryMinutes: number;
+                    moderatorMembers: boolean;
+                    moderatorPostsCheck: boolean;
+                    moderatorRemovals: boolean;
+                    moderatorSpam: boolean;
+                    moderatorPending: boolean;
+                    moderatorWindowStart: number;
+                    moderatorWindowEnd: number;
+                    moderatorTimezone: string;
+                    moderatorHourlyLimit: number;
+                    moderatorDailyLimit: number;
+                    moderatorSeenAt: Date | null;
+                    moderatorAgent: string | null;
                     facebookUserId: string | null;
                     facebookName: string | null;
                     facebookSeenAt: Date | null;
+                    facebookProfileUrl: string | null;
                 };
             } & {
                 id: string;
@@ -168,19 +299,39 @@ export declare class GroupsCatalogController {
                 memberActionAt: Date | null;
                 memberClaimedUntil: Date | null;
                 memberAttempts: number;
+                removalRequestedAt: Date | null;
+                removalClaimedUntil: Date | null;
+                removalAttempts: number;
+                removalError: string | null;
+                removedAt: Date | null;
+                memberRequestedAt: Date | null;
+                auditRequestedAt: Date | null;
+                auditMode: string | null;
+                auditClaimedUntil: Date | null;
+                preApprovalState: string | null;
+                preApprovalCheckedAt: Date | null;
+                preApprovalDetail: string | null;
             })[];
             _count: {
                 targets: number;
             };
+            language: string | null;
             id: string;
             createdAt: Date;
             name: string;
             status: import("@prisma/client").$Enums.RecordStatus;
             updatedAt: Date;
+            categoryId: string | null;
+            priority: number;
             ownerId: string | null;
             externalId: string | null;
-            categoryId: string | null;
             url: string;
+            spamCheckedAt: Date | null;
+            spamClaimedUntil: Date | null;
+            spamDetail: string | null;
+            dailyCap: number | null;
+            hoursStart: number | null;
+            hoursEnd: number | null;
         }[];
         meta: {
             page: number;
@@ -189,16 +340,47 @@ export declare class GroupsCatalogController {
             pages: number;
         };
     }>;
+    languageSummary(acting: CurrentUser): Promise<{
+        languages: {
+            [x: string]: string;
+        };
+        counts: {
+            code: string | null;
+            groups: number;
+        }[];
+    }>;
+    setLanguages(dto: GroupLanguagesDto, acting: CurrentUser): Promise<{
+        updated: number;
+    }>;
+    suggestLanguages(dto: SuggestLanguagesDto, acting: CurrentUser): Promise<{
+        suggestions: {
+            id: string;
+            name: string;
+            language: string | null;
+            by: string;
+        }[];
+        languages: {
+            [x: string]: string;
+        };
+    }>;
     remove(id: string, acting: CurrentUser): Promise<{
+        language: string | null;
         id: string;
         createdAt: Date;
         name: string;
         status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
+        categoryId: string | null;
+        priority: number;
         ownerId: string | null;
         externalId: string | null;
-        categoryId: string | null;
         url: string;
+        spamCheckedAt: Date | null;
+        spamClaimedUntil: Date | null;
+        spamDetail: string | null;
+        dailyCap: number | null;
+        hoursStart: number | null;
+        hoursEnd: number | null;
     }>;
     setJoinStatus(id: string, profileId: string, dto: SetJoinStatusDto, acting: CurrentUser): Promise<{
         profileId: string;
@@ -213,14 +395,22 @@ export declare class GroupsCatalogController {
         kept: number;
     }>;
     update(id: string, dto: UpdateGroupDto, acting: CurrentUser): Promise<{
+        language: string | null;
         id: string;
         createdAt: Date;
         name: string;
         status: import("@prisma/client").$Enums.RecordStatus;
         updatedAt: Date;
+        categoryId: string | null;
+        priority: number;
         ownerId: string | null;
         externalId: string | null;
-        categoryId: string | null;
         url: string;
+        spamCheckedAt: Date | null;
+        spamClaimedUntil: Date | null;
+        spamDetail: string | null;
+        dailyCap: number | null;
+        hoursStart: number | null;
+        hoursEnd: number | null;
     }>;
 }

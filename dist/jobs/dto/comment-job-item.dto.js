@@ -16,8 +16,9 @@ const class_validator_1 = require("class-validator");
 class CommentJobItemDto {
     commentExternalId;
     commentedAt;
+    replace;
     static _OPENAPI_METADATA_FACTORY() {
-        return { commentExternalId: { required: true, type: () => String, maxLength: 512 }, commentedAt: { required: false, type: () => String } };
+        return { commentExternalId: { required: true, type: () => String, maxLength: 512 }, commentedAt: { required: false, type: () => String }, replace: { required: false, type: () => Boolean } };
     }
 }
 exports.CommentJobItemDto = CommentJobItemDto;
@@ -33,4 +34,9 @@ __decorate([
     (0, class_validator_1.IsDateString)(),
     __metadata("design:type", String)
 ], CommentJobItemDto.prototype, "commentedAt", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], CommentJobItemDto.prototype, "replace", void 0);
 //# sourceMappingURL=comment-job-item.dto.js.map

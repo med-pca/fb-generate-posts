@@ -15,6 +15,7 @@ const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const scope_1 = require("../auth/scope");
 const jobs_service_1 = require("../jobs/jobs.service");
+const moderator_guard_1 = require("../auth/moderator-guard");
 const profile_health_1 = require("./profile-health");
 const DAY = 86_400_000;
 const EMPTY = {
@@ -127,6 +128,8 @@ let ProfileHealthService = class ProfileHealthService {
                 ownerId: true,
                 externalId: true,
                 facebookUserId: true,
+                facebookName: true,
+                facebookProfileUrl: true,
                 isModerator: true,
                 runner: { select: { mode: true, running: true, lastSeenAt: true, browserState: true, message: true } },
             },
@@ -214,6 +217,51 @@ let ProfileHealthService = class ProfileHealthService {
             return { day: key, published: n(row?.published), failed: n(row?.failed) };
         });
         const preApproved = await this.prisma.profileGroup.count({ where: { profileId: id, preApprovedAt: { not: null } } });
+        const links = await this.prisma.profileGroup.findMany({
+            where: { profileId: id },
+            orderBy: { group: { name: 'asc' } },
+            select: {
+                id: true,
+                status: true,
+                joinStatus: true,
+                joinCheckedAt: true,
+                preApprovedAt: true,
+                memberActionError: true,
+                auditRequestedAt: true,
+                memberRequestedAt: true,
+                preApprovalState: true,
+                preApprovalCheckedAt: true,
+                preApprovalDetail: true,
+                group: { select: { id: true, name: true, url: true, status: true, category: { select: { id: true, name: true } } } },
+            },
+        });
+        const stocks = links.length
+            ? await this.prisma.postTarget.groupBy({
+                by: ['groupId'],
+                where: { groupId: { in: links.map((l) => l.group.id) }, status: client_1.TargetStatus.AVAILABLE, post: { status: 'AVAILABLE' } },
+                _count: { _all: true },
+            })
+            : [];
+        const stockBy = new Map(stocks.map((s) => [s.groupId, s._count._all]));
+        const memberships = links.map((l) => ({
+            linkId: l.id,
+            auditPending: Boolean(l.auditRequestedAt),
+            memberRequested: Boolean(l.memberRequestedAt),
+            preApprovalState: l.preApprovalState,
+            preApprovalCheckedAt: l.preApprovalCheckedAt,
+            preApprovalDetail: l.preApprovalDetail,
+            groupId: l.group.id,
+            name: l.group.name,
+            url: l.group.url,
+            groupStatus: l.group.status,
+            category: l.group.category,
+            linkStatus: l.status,
+            joinStatus: l.joinStatus,
+            joinCheckedAt: l.joinCheckedAt,
+            preApproved: Boolean(l.preApprovedAt),
+            memberActionError: l.memberActionError,
+            waiting: stockBy.get(l.group.id) ?? 0,
+        }));
         return {
             profile: {
                 id: profile.id,
@@ -221,6 +269,8 @@ let ProfileHealthService = class ProfileHealthService {
                 status: profile.status,
                 externalId: profile.externalId,
                 facebookUserId: profile.facebookUserId,
+                facebookName: profile.facebookName,
+                facebookProfileUrl: profile.facebookProfileUrl,
                 isModerator: profile.isModerator,
                 runner: profile.runner,
             },
@@ -248,6 +298,7 @@ let ProfileHealthService = class ProfileHealthService {
             })),
             joins: Object.fromEntries(joins.map((j) => [j.joinStatus, j._count._all])),
             preApproved,
+            memberships,
             transfer: plan,
         };
     }
@@ -274,7 +325,7 @@ let ProfileHealthService = class ProfileHealthService {
             ...joined.map((j) => j.groupId),
         ]);
         const others = await this.prisma.profile.findMany({
-            where: { id: { not: id }, status: 'ACTIVE', ...(0, scope_1.profileWhere)(scope) },
+            where: { id: { not: id }, status: 'ACTIVE', isModerator: false, ...(0, scope_1.profileWhere)(scope) },
             select: {
                 id: true,
                 name: true,
@@ -319,12 +370,13 @@ let ProfileHealthService = class ProfileHealthService {
     }
     async deactivate(id, transferTo, acting, now = new Date()) {
         const profile = await this.reachable(id, acting);
+        (0, moderator_guard_1.assertMayManage)(profile, acting);
         let heir = null;
         if (transferTo) {
             if (transferTo === id)
                 throw new common_1.BadRequestException('Choisissez un AUTRE profil pour reprendre ses posts');
             heir = await this.prisma.profile.findFirst({
-                where: { id: transferTo, status: 'ACTIVE', ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
+                where: { id: transferTo, status: 'ACTIVE', isModerator: false, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
                 select: { id: true, name: true },
             });
             if (!heir)

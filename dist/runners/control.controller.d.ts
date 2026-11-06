@@ -8,14 +8,24 @@ export declare class ControlController {
     private readonly runners;
     constructor(runners: RunnersService);
     control(profileExternalId: string, acting: CurrentUser | null): Promise<import("./runners.service").Decision>;
-    heartbeat(profileExternalId: string, dto: HeartbeatDto, acting: CurrentUser | null, apiKey?: string): Promise<import("./runners.service").Decision>;
+    heartbeat(profileExternalId: string, dto: HeartbeatDto, acting: CurrentUser | null, apiKey?: string): Promise<{
+        facebookSuspension: string | null;
+        sleepUntil: string | null;
+        run: boolean;
+        reason: string;
+        mode: import("@prisma/client").RunnerMode;
+        pollAfterSeconds: number;
+        settings: import("@prisma/client/runtime/library").JsonValue | null;
+        serverTime: string;
+        window: string;
+    }>;
     autoPair(dto: AutoPairDto, acting: CurrentUser | null, apiKey?: string): Promise<{
         profileExternalId: string;
         profileName: string;
         profileActive: boolean;
         created: boolean;
     }>;
-    launcher(acting: CurrentUser | null): Promise<{
+    launcher(acting: CurrentUser | null, agent?: string, version?: string, os?: string, running?: string): Promise<{
         nstApiKey: string | null;
         pollAfterSeconds: number;
         serverTime: string;
@@ -24,7 +34,15 @@ export declare class ControlController {
             name: string;
             shouldRun: boolean;
             reason: string;
+            resting: boolean;
+            moveTo: {
+                groupId: string | null;
+                groupName: string;
+                why: string;
+            } | null;
+            sleepUntil: Date | null;
             mayClose: boolean;
+            forceClose: boolean;
             workerRunning: boolean;
             workerSeenAt: Date | null;
             browserState: import("@prisma/client").$Enums.BrowserState;
@@ -32,9 +50,19 @@ export declare class ControlController {
         }[];
     }>;
     syncProfiles(dto: SyncProfilesDto, acting: CurrentUser | null): Promise<{
+        created: never[];
+        existing: number;
+        received: number;
+        renamed?: undefined;
+    } | {
         created: {
             externalId: string;
             name: string;
+        }[];
+        renamed: {
+            externalId: string;
+            from: string;
+            to: string;
         }[];
         existing: number;
         received: number;

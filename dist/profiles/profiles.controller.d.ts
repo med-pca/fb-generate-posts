@@ -1,14 +1,105 @@
+export declare class AssignProfilesDto {
+    profileIds: string[];
+    ownerId: string | null;
+    shareGroups?: boolean;
+}
 import type { CurrentUser } from '../auth/current-user';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { ProfilesService } from './profiles.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { DeactivateProfileDto, QueryProfilesDto } from './dto/query-profiles.dto';
 import { ProfileHealthService } from './profile-health.service';
+import { ProfileOverviewService } from './profile-overview.service';
+declare class ClearSuspensionDto {
+    resume?: boolean;
+}
 export declare class ProfilesController {
     private readonly profiles;
     private readonly health;
-    constructor(profiles: ProfilesService, health: ProfileHealthService);
-    create(dto: CreateProfileDto, acting: CurrentUser): import("@prisma/client").Prisma.Prisma__ProfileClient<{
+    private readonly overviewOf;
+    constructor(profiles: ProfilesService, health: ProfileHealthService, overviewOf: ProfileOverviewService);
+    overview(days: string | undefined, acting: CurrentUser): Promise<{
+        days: number;
+        timeZone: string;
+        today: string;
+        totals: {
+            profiles: number;
+            active: number;
+            usable: number;
+            published: number;
+            failed: number;
+            successRate: number | null;
+            last24h: number;
+            perUsableProfile: number;
+            withFacebookLink: number;
+        };
+        states: Record<import("./profile-overview.service").ProfileState, number>;
+        health: Record<import("./profile-health").HealthLabel, number>;
+        groups: {
+            joined: number;
+            requested: number;
+            pending: number;
+            questions: number;
+            failed: number;
+        };
+        series: {
+            published: number;
+            failed: number;
+            day: string;
+        }[];
+        top: {
+            id: string;
+            name: string;
+            facebookName: string | null;
+            facebookUserId: string | null;
+            facebookProfileUrl: string | null;
+            state: import("./profile-overview.service").ProfileState;
+            published: number;
+            failed: number;
+            successRate: number | null;
+            lastPublishedAt: Date | null;
+            score: number | null;
+            label: import("./profile-health").HealthLabel;
+        }[];
+        worst: {
+            id: string;
+            name: string;
+            facebookName: string | null;
+            facebookUserId: string | null;
+            facebookProfileUrl: string | null;
+            state: import("./profile-overview.service").ProfileState;
+            published: number;
+            failed: number;
+            successRate: number | null;
+            lastPublishedAt: Date | null;
+            score: number | null;
+            label: import("./profile-health").HealthLabel;
+        }[];
+        attention: {
+            why: string;
+            id: string;
+            name: string;
+            facebookName: string | null;
+            facebookUserId: string | null;
+            facebookProfileUrl: string | null;
+            state: import("./profile-overview.service").ProfileState;
+            published: number;
+            failed: number;
+            successRate: number | null;
+            lastPublishedAt: Date | null;
+            score: number | null;
+            label: import("./profile-health").HealthLabel;
+        }[];
+        byOwner: {
+            owner: string;
+            profiles: number;
+            working: number;
+            outOfService: number;
+            published: number;
+            failed: number;
+        }[];
+    }>;
+    create(dto: CreateProfileDto, acting: CurrentUser): Promise<{
         id: string;
         createdAt: Date;
         name: string;
@@ -19,13 +110,56 @@ export declare class ProfilesController {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        facebookSuspension: string | null;
+        suspendedAt: Date | null;
+        suspensionDetail: string | null;
+        modeBeforeSuspension: string | null;
+        nstGroupId: string | null;
+        nstGroupName: string | null;
+        teamNstGroupId: string | null;
+        teamNstGroupName: string | null;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
         isModerator: boolean;
+        moderatorPaused: boolean;
+        moderatorRunAt: Date | null;
+        moderatorMembersRunAt: Date | null;
+        moderatorBatch: number;
+        moderatorEveryMinutes: number;
+        moderatorMembers: boolean;
+        moderatorPostsCheck: boolean;
+        moderatorRemovals: boolean;
+        moderatorSpam: boolean;
+        moderatorPending: boolean;
+        moderatorWindowStart: number;
+        moderatorWindowEnd: number;
+        moderatorTimezone: string;
+        moderatorHourlyLimit: number;
+        moderatorDailyLimit: number;
+        moderatorSeenAt: Date | null;
+        moderatorAgent: string | null;
         facebookUserId: string | null;
         facebookName: string | null;
         facebookSeenAt: Date | null;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+        facebookProfileUrl: string | null;
+    }>;
+    removeFromGroups(id: string, acting: CurrentUser): Promise<{
+        requested: number;
+    }>;
+    clearSuspension(id: string, dto: ClearSuspensionDto, acting: CurrentUser): Promise<{
+        cleared: boolean;
+        cancelledRemovals: number;
+        mode: string | null;
+    }>;
+    assign(dto: AssignProfilesDto, acting: CurrentUser): Promise<{
+        updated: number;
+        owner: {
+            id: string;
+            username: string;
+        } | null;
+        groupsShared: number;
+        repair: string[];
+    }>;
     findAll(query: QueryProfilesDto, acting: CurrentUser): Promise<{
         data: {
             health: {
@@ -38,6 +172,10 @@ export declare class ProfilesController {
                 failed: number;
                 failStreak: number;
             };
+            owner: {
+                id: string;
+                username: string;
+            } | null;
             _count: {
                 posts: number;
                 profileGroups: number;
@@ -52,12 +190,38 @@ export declare class ProfilesController {
             defaultImageUrl: string | null;
             minPostsPerJob: number;
             maxPostsPerJob: number;
+            facebookSuspension: string | null;
+            suspendedAt: Date | null;
+            suspensionDetail: string | null;
+            modeBeforeSuspension: string | null;
+            nstGroupId: string | null;
+            nstGroupName: string | null;
+            teamNstGroupId: string | null;
+            teamNstGroupName: string | null;
             minimumAvailable: number | null;
             minimumAvailablePerGroup: number | null;
             isModerator: boolean;
+            moderatorPaused: boolean;
+            moderatorRunAt: Date | null;
+            moderatorMembersRunAt: Date | null;
+            moderatorBatch: number;
+            moderatorEveryMinutes: number;
+            moderatorMembers: boolean;
+            moderatorPostsCheck: boolean;
+            moderatorRemovals: boolean;
+            moderatorSpam: boolean;
+            moderatorPending: boolean;
+            moderatorWindowStart: number;
+            moderatorWindowEnd: number;
+            moderatorTimezone: string;
+            moderatorHourlyLimit: number;
+            moderatorDailyLimit: number;
+            moderatorSeenAt: Date | null;
+            moderatorAgent: string | null;
             facebookUserId: string | null;
             facebookName: string | null;
             facebookSeenAt: Date | null;
+            facebookProfileUrl: string | null;
         }[];
         meta: {
             page: number;
@@ -73,6 +237,8 @@ export declare class ProfilesController {
             status: import("@prisma/client").$Enums.RecordStatus;
             externalId: string | null;
             facebookUserId: string | null;
+            facebookName: string | null;
+            facebookProfileUrl: string | null;
             isModerator: boolean;
             runner: {
                 lastSeenAt: Date | null;
@@ -132,6 +298,28 @@ export declare class ProfilesController {
             [k: string]: number;
         };
         preApproved: number;
+        memberships: {
+            linkId: string;
+            auditPending: boolean;
+            memberRequested: boolean;
+            preApprovalState: string | null;
+            preApprovalCheckedAt: Date | null;
+            preApprovalDetail: string | null;
+            groupId: string;
+            name: string;
+            url: string;
+            groupStatus: import("@prisma/client").$Enums.RecordStatus;
+            category: {
+                id: string;
+                name: string;
+            } | null;
+            linkStatus: import("@prisma/client").$Enums.RecordStatus;
+            joinStatus: import("@prisma/client").$Enums.JoinStatus;
+            joinCheckedAt: Date | null;
+            preApproved: boolean;
+            memberActionError: string | null;
+            waiting: number;
+        }[];
         transfer: {
             forcedTargets: number;
             ownedPosts: number;
@@ -174,15 +362,23 @@ export declare class ProfilesController {
     findOne(id: string, acting: CurrentUser): Promise<{
         profileGroups: ({
             group: {
+                language: string | null;
                 id: string;
                 createdAt: Date;
                 name: string;
                 status: import("@prisma/client").$Enums.RecordStatus;
                 updatedAt: Date;
+                categoryId: string | null;
+                priority: number;
                 ownerId: string | null;
                 externalId: string | null;
-                categoryId: string | null;
                 url: string;
+                spamCheckedAt: Date | null;
+                spamClaimedUntil: Date | null;
+                spamDetail: string | null;
+                dailyCap: number | null;
+                hoursStart: number | null;
+                hoursEnd: number | null;
             };
         } & {
             id: string;
@@ -200,6 +396,18 @@ export declare class ProfilesController {
             memberActionAt: Date | null;
             memberClaimedUntil: Date | null;
             memberAttempts: number;
+            removalRequestedAt: Date | null;
+            removalClaimedUntil: Date | null;
+            removalAttempts: number;
+            removalError: string | null;
+            removedAt: Date | null;
+            memberRequestedAt: Date | null;
+            auditRequestedAt: Date | null;
+            auditMode: string | null;
+            auditClaimedUntil: Date | null;
+            preApprovalState: string | null;
+            preApprovalCheckedAt: Date | null;
+            preApprovalDetail: string | null;
         })[];
         _count: {
             posts: number;
@@ -216,12 +424,38 @@ export declare class ProfilesController {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        facebookSuspension: string | null;
+        suspendedAt: Date | null;
+        suspensionDetail: string | null;
+        modeBeforeSuspension: string | null;
+        nstGroupId: string | null;
+        nstGroupName: string | null;
+        teamNstGroupId: string | null;
+        teamNstGroupName: string | null;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
         isModerator: boolean;
+        moderatorPaused: boolean;
+        moderatorRunAt: Date | null;
+        moderatorMembersRunAt: Date | null;
+        moderatorBatch: number;
+        moderatorEveryMinutes: number;
+        moderatorMembers: boolean;
+        moderatorPostsCheck: boolean;
+        moderatorRemovals: boolean;
+        moderatorSpam: boolean;
+        moderatorPending: boolean;
+        moderatorWindowStart: number;
+        moderatorWindowEnd: number;
+        moderatorTimezone: string;
+        moderatorHourlyLimit: number;
+        moderatorDailyLimit: number;
+        moderatorSeenAt: Date | null;
+        moderatorAgent: string | null;
         facebookUserId: string | null;
         facebookName: string | null;
         facebookSeenAt: Date | null;
+        facebookProfileUrl: string | null;
     }>;
     update(id: string, dto: UpdateProfileDto, acting: CurrentUser): Promise<{
         id: string;
@@ -234,12 +468,38 @@ export declare class ProfilesController {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        facebookSuspension: string | null;
+        suspendedAt: Date | null;
+        suspensionDetail: string | null;
+        modeBeforeSuspension: string | null;
+        nstGroupId: string | null;
+        nstGroupName: string | null;
+        teamNstGroupId: string | null;
+        teamNstGroupName: string | null;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
         isModerator: boolean;
+        moderatorPaused: boolean;
+        moderatorRunAt: Date | null;
+        moderatorMembersRunAt: Date | null;
+        moderatorBatch: number;
+        moderatorEveryMinutes: number;
+        moderatorMembers: boolean;
+        moderatorPostsCheck: boolean;
+        moderatorRemovals: boolean;
+        moderatorSpam: boolean;
+        moderatorPending: boolean;
+        moderatorWindowStart: number;
+        moderatorWindowEnd: number;
+        moderatorTimezone: string;
+        moderatorHourlyLimit: number;
+        moderatorDailyLimit: number;
+        moderatorSeenAt: Date | null;
+        moderatorAgent: string | null;
         facebookUserId: string | null;
         facebookName: string | null;
         facebookSeenAt: Date | null;
+        facebookProfileUrl: string | null;
     }>;
     remove(id: string, acting: CurrentUser): Promise<{
         id: string;
@@ -252,11 +512,38 @@ export declare class ProfilesController {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        facebookSuspension: string | null;
+        suspendedAt: Date | null;
+        suspensionDetail: string | null;
+        modeBeforeSuspension: string | null;
+        nstGroupId: string | null;
+        nstGroupName: string | null;
+        teamNstGroupId: string | null;
+        teamNstGroupName: string | null;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
         isModerator: boolean;
+        moderatorPaused: boolean;
+        moderatorRunAt: Date | null;
+        moderatorMembersRunAt: Date | null;
+        moderatorBatch: number;
+        moderatorEveryMinutes: number;
+        moderatorMembers: boolean;
+        moderatorPostsCheck: boolean;
+        moderatorRemovals: boolean;
+        moderatorSpam: boolean;
+        moderatorPending: boolean;
+        moderatorWindowStart: number;
+        moderatorWindowEnd: number;
+        moderatorTimezone: string;
+        moderatorHourlyLimit: number;
+        moderatorDailyLimit: number;
+        moderatorSeenAt: Date | null;
+        moderatorAgent: string | null;
         facebookUserId: string | null;
         facebookName: string | null;
         facebookSeenAt: Date | null;
+        facebookProfileUrl: string | null;
     }>;
 }
+export {};

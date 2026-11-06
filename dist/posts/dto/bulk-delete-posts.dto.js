@@ -20,12 +20,13 @@ class BulkDeletePostsDto {
     profileId;
     groupId;
     articleId;
+    siteId;
     status;
     sourceType;
     dryRun = false;
     force = false;
     static _OPENAPI_METADATA_FACTORY() {
-        return { ids: { required: false, type: () => [String], minItems: 1, maxItems: 500 }, profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, articleId: { required: false, type: () => String }, status: { required: false, enum: ["DRAFT", "AVAILABLE", "ARCHIVED"] }, sourceType: { required: false, enum: ["MANUAL", "OPENAI", "JSON", "FACEBOOK"] }, dryRun: { required: true, type: () => Object, default: false }, force: { required: true, type: () => Object, default: false } };
+        return { ids: { required: false, type: () => [String], minItems: 1, maxItems: 500 }, profileId: { required: false, type: () => String }, groupId: { required: false, type: () => String }, articleId: { required: false, type: () => String }, siteId: { required: false, type: () => String }, status: { required: false, enum: ["AVAILABLE", "DRAFT", "ARCHIVED"] }, sourceType: { required: false, enum: ["MANUAL", "OPENAI", "JSON", "FACEBOOK"] }, dryRun: { required: true, type: () => Object, default: false }, force: { required: true, type: () => Object, default: false } };
     }
 }
 exports.BulkDeletePostsDto = BulkDeletePostsDto;
@@ -52,6 +53,11 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], BulkDeletePostsDto.prototype, "articleId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], BulkDeletePostsDto.prototype, "siteId", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsEnum)(client_1.PostStatus),

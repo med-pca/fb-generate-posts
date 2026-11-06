@@ -5,5 +5,8 @@ export declare class UpdateRunnerDto {
     windowEnd?: number | null;
     days?: string;
     timezone?: string;
+    dailyQuota?: number | null;
+    cycleMaxPosts?: number | null;
+    cyclePauseHours?: number | null;
     settings?: Record<string, unknown> | null;
 }

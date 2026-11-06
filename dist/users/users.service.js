@@ -22,8 +22,10 @@ function publicUser(user) {
         username: user.username,
         role: user.role,
         status: user.status,
+        hasAutomationKey: Boolean(user.automationKey),
         hasNstApiKey: Boolean(user.nstApiKey),
         nstApiKeyHint: user.nstApiKey ? `…${user.nstApiKey.slice(-4)}` : null,
+        topArticles: user.role === 'ADMIN' || user.topArticles,
         createdAt: user.createdAt,
     };
 }

@@ -11,13 +11,16 @@ const common_1 = require("@nestjs/common");
 const groups_controller_1 = require("./groups.controller");
 const groups_service_1 = require("./groups.service");
 const group_join_controller_1 = require("./group-join.controller");
+const group_languages_service_1 = require("./group-languages.service");
+const llm_module_1 = require("../llm/llm.module");
 let GroupsModule = class GroupsModule {
 };
 exports.GroupsModule = GroupsModule;
 exports.GroupsModule = GroupsModule = __decorate([
     (0, common_1.Module)({
+        imports: [llm_module_1.LlmModule],
         controllers: [groups_controller_1.GroupsController, groups_controller_1.GroupsCatalogController, group_join_controller_1.GroupJoinController],
-        providers: [groups_service_1.GroupsService],
+        providers: [groups_service_1.GroupsService, group_languages_service_1.GroupLanguagesService],
     })
 ], GroupsModule);
 //# sourceMappingURL=groups.module.js.map

@@ -24,6 +24,7 @@ class CaptureIngestDto extends create_ingest_dto_1.CreateIngestDto {
 exports.CaptureIngestDto = CaptureIngestDto;
 __decorate([
     (0, swagger_1.ApiProperty)({ description: 'Texte de la publication, tel quel' }),
+    (0, class_validator_1.ValidateIf)((dto) => dto.mode !== 'news' && dto.mode !== 'engagement'),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsNotEmpty)(),
     (0, class_validator_1.MaxLength)(20000),
@@ -31,7 +32,7 @@ __decorate([
 ], CaptureIngestDto.prototype, "caption", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({ description: 'Image de la publication' }),
-    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.ValidateIf)((dto) => dto.mode === 'news' || dto.mode === 'engagement' || dto.imageUrl !== undefined),
     (0, class_validator_1.IsUrl)({ protocols: ['https'], require_protocol: true }),
     (0, class_validator_1.MaxLength)(2000),
     __metadata("design:type", String)

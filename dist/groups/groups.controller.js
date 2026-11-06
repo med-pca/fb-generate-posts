@@ -12,7 +12,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.GroupsCatalogController = exports.GroupsController = void 0;
+exports.GroupsCatalogController = exports.GroupsController = exports.SuggestLanguagesDto = exports.GroupLanguagesDto = void 0;
 const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
@@ -20,9 +20,50 @@ const admin_auth_guard_1 = require("../auth/admin-auth.guard");
 const current_user_1 = require("../auth/current-user");
 const create_group_dto_1 = require("./dto/create-group.dto");
 const groups_service_1 = require("./groups.service");
+const query_groups_dto_1 = require("./dto/query-groups.dto");
+const group_languages_service_1 = require("./group-languages.service");
+const class_validator_1 = require("class-validator");
+const languages_registry_1 = require("../languages/languages.registry");
+class GroupLanguagesDto {
+    groupIds;
+    categoryId;
+    onlyMissing;
+    language;
+}
+exports.GroupLanguagesDto = GroupLanguagesDto;
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ArrayMaxSize)(1000),
+    (0, class_validator_1.IsString)({ each: true }),
+    __metadata("design:type", Array)
+], GroupLanguagesDto.prototype, "groupIds", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], GroupLanguagesDto.prototype, "categoryId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], GroupLanguagesDto.prototype, "onlyMissing", void 0);
+__decorate([
+    (0, class_validator_1.ValidateIf)((_d, v) => v !== null),
+    (0, languages_registry_1.IsKnownLanguage)(),
+    __metadata("design:type", Object)
+], GroupLanguagesDto.prototype, "language", void 0);
+class SuggestLanguagesDto {
+    categoryId;
+}
+exports.SuggestLanguagesDto = SuggestLanguagesDto;
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], SuggestLanguagesDto.prototype, "categoryId", void 0);
 const update_group_dto_1 = require("./dto/update-group.dto");
 const update_join_status_dto_1 = require("./dto/update-join-status.dto");
-const pagination_dto_1 = require("../common/dto/pagination.dto");
 let GroupsController = class GroupsController {
     groups;
     constructor(groups) {
@@ -103,11 +144,22 @@ exports.GroupsController = GroupsController = __decorate([
 ], GroupsController);
 let GroupsCatalogController = class GroupsCatalogController {
     groups;
-    constructor(groups) {
+    languages;
+    constructor(groups, languages) {
         this.groups = groups;
+        this.languages = languages;
     }
-    findAll(pagination, acting) {
-        return this.groups.findCatalog(pagination, acting);
+    findAll(query, acting) {
+        return this.groups.findCatalog(query, acting);
+    }
+    languageSummary(acting) {
+        return this.languages.summary(acting);
+    }
+    setLanguages(dto, acting) {
+        return this.languages.setMany(dto, acting);
+    }
+    suggestLanguages(dto, acting) {
+        return this.languages.suggest(acting, dto.categoryId);
     }
     remove(id, acting) {
         return this.groups.remove(id, acting);
@@ -129,9 +181,38 @@ __decorate([
     __param(0, (0, common_1.Query)()),
     __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [pagination_dto_1.PaginationDto, Object]),
+    __metadata("design:paramtypes", [query_groups_dto_1.QueryGroupsDto, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsCatalogController.prototype, "findAll", null);
+__decorate([
+    (0, common_1.Get)('languages'),
+    (0, swagger_1.ApiOperation)({ summary: 'Langues des groupes : combien par langue, et sans langue' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], GroupsCatalogController.prototype, "languageSummary", null);
+__decorate([
+    (0, common_1.Post)('languages'),
+    (0, swagger_1.ApiOperation)({ summary: 'Appliquer une langue à des groupes choisis, ou à une catégorie (seulement ceux sans langue au choix)' }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [GroupLanguagesDto, Object]),
+    __metadata("design:returntype", void 0)
+], GroupsCatalogController.prototype, "setLanguages", null);
+__decorate([
+    (0, common_1.Post)('languages/suggest'),
+    (0, swagger_1.ApiOperation)({ summary: 'Proposer la langue des groupes sans langue, d’après leur nom (rien n’est enregistré)' }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [SuggestLanguagesDto, Object]),
+    __metadata("design:returntype", void 0)
+], GroupsCatalogController.prototype, "suggestLanguages", null);
 __decorate([
     (0, common_1.Delete)(':id'),
     openapi.ApiResponse({ status: 200 }),
@@ -191,6 +272,7 @@ exports.GroupsCatalogController = GroupsCatalogController = __decorate([
     (0, swagger_1.ApiBearerAuth)(),
     (0, common_1.UseGuards)(admin_auth_guard_1.AdminAuthGuard),
     (0, common_1.Controller)('groups'),
-    __metadata("design:paramtypes", [groups_service_1.GroupsService])
+    __metadata("design:paramtypes", [groups_service_1.GroupsService,
+        group_languages_service_1.GroupLanguagesService])
 ], GroupsCatalogController);
 //# sourceMappingURL=groups.controller.js.map

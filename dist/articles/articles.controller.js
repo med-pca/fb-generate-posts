@@ -18,24 +18,34 @@ const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
 const current_user_1 = require("../auth/current-user");
+const recreate_posts_dto_1 = require("./dto/recreate-posts.dto");
+const query_articles_dto_1 = require("./dto/query-articles.dto");
 const articles_service_1 = require("./articles.service");
 const generate_article_posts_dto_1 = require("./dto/generate-article-posts.dto");
 const import_article_dto_1 = require("./dto/import-article.dto");
 const update_article_dto_1 = require("./dto/update-article.dto");
-const pagination_dto_1 = require("../common/dto/pagination.dto");
 let ArticlesController = class ArticlesController {
     articles;
     constructor(articles) {
         this.articles = articles;
     }
-    findAll(pagination, acting) {
-        return this.articles.findAll(pagination, acting);
+    findAll(query, acting) {
+        return this.articles.findAll(query, acting);
     }
     findOne(id, acting) {
         return this.articles.findOne(id, acting);
     }
     import(dto, acting) {
         return this.articles.import(dto, acting);
+    }
+    recreateMany(dto, acting) {
+        return this.articles.recreateMany(dto.articleIds, acting);
+    }
+    recreatePreview(id, acting) {
+        return this.articles.recreatePreview(id, acting);
+    }
+    recreatePosts(id, dto, acting) {
+        return this.articles.recreatePosts(id, dto, acting);
     }
     generatePosts(id, dto, acting) {
         return this.articles.generatePosts(id, dto, acting);
@@ -54,7 +64,7 @@ __decorate([
     __param(0, (0, common_1.Query)()),
     __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [pagination_dto_1.PaginationDto, Object]),
+    __metadata("design:paramtypes", [query_articles_dto_1.QueryArticlesDto, Object]),
     __metadata("design:returntype", void 0)
 ], ArticlesController.prototype, "findAll", null);
 __decorate([
@@ -78,6 +88,37 @@ __decorate([
     __metadata("design:paramtypes", [import_article_dto_1.ImportArticleDto, Object]),
     __metadata("design:returntype", void 0)
 ], ArticlesController.prototype, "import", null);
+__decorate([
+    (0, common_1.Post)('recreate-posts'),
+    (0, swagger_1.ApiOperation)({ summary: '🔁 Recréer les posts de plusieurs articles : chacun repart dans tous les groupes actifs de sa catégorie' }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [recreate_posts_dto_1.RecreateManyDto, Object]),
+    __metadata("design:returntype", void 0)
+], ArticlesController.prototype, "recreateMany", null);
+__decorate([
+    (0, common_1.Get)(':id/recreate'),
+    (0, swagger_1.ApiOperation)({ summary: 'Où en est l’article dans chaque groupe de sa catégorie (avant de recréer)' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], ArticlesController.prototype, "recreatePreview", null);
+__decorate([
+    (0, common_1.Post)(':id/recreate-posts'),
+    (0, swagger_1.ApiOperation)({ summary: 'Recréer les posts d’un article (même archivé) : il repart dans les groupes choisis' }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, recreate_posts_dto_1.RecreatePostsDto, Object]),
+    __metadata("design:returntype", void 0)
+], ArticlesController.prototype, "recreatePosts", null);
 __decorate([
     (0, common_1.Post)(':id/generate-posts'),
     (0, swagger_1.ApiOperation)({ summary: 'Créer un post par légende sociale de l’article' }),

@@ -35,6 +35,81 @@ export declare class MembersService {
         result: string;
     }>;
     private log;
+    private kindWhere;
+    markManual(profileGroupIds: string[], state: 'preapproved' | 'clear', acting: CurrentUser | null, now?: Date): Promise<{
+        updated: number;
+        state: "preapproved" | "clear";
+    }>;
+    request(kind: MemberKind, scope: {
+        profileGroupIds?: string[];
+        profileId?: string;
+    }, acting: CurrentUser | null, now?: Date): Promise<{
+        kind: "approve" | "preapprove";
+        requested: number;
+        blocked: {
+            noFacebookId: number;
+            profiles: string[];
+        };
+        moderators: number;
+        moderatorsTotal: number;
+    }>;
+    preapprovals(query: {
+        profileId?: string;
+        state?: string;
+        search?: string;
+    }, acting: CurrentUser | null): Promise<{
+        state: string;
+        total: number;
+        counts: {
+            [k: string]: number;
+        };
+        profiles: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            facebookKnown: boolean;
+            todo: number;
+        }[];
+        rows: {
+            linkId: string;
+            linkedAt: Date;
+            profile: {
+                id: string;
+                name: string;
+                createdAt: Date;
+                facebookKnown: boolean;
+            };
+            group: {
+                category: {
+                    id: string;
+                    name: string;
+                } | null;
+                id: string;
+                name: string;
+                url: string;
+            };
+            state: string;
+            preApprovedAt: Date | null;
+            requestedAt: Date | null;
+            error: string | null;
+            errorAt: Date | null;
+            attempts: number;
+            auditPending: boolean;
+            audit: {
+                state: string;
+                at: Date | null;
+                detail: string | null;
+            } | null;
+        }[];
+    }>;
+    summary(acting: CurrentUser | null): Promise<{
+        approve: number;
+        approveBlocked: number;
+        preapprove: number;
+        preapproveBlocked: number;
+        requested: number;
+        preApproved: number;
+    }>;
     overview(acting: CurrentUser | null, now?: Date): Promise<{
         due: number;
         preApproved: number;

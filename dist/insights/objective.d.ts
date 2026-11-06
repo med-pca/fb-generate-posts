@@ -22,3 +22,11 @@ export declare function pace(input: {
     published: number;
     lastHour: number;
 }): Pace;
+export declare const PUBLISH_MINUTES = 3;
+export declare function adaptiveGap(input: {
+    neededPerHour: number;
+    ratePerHour: number;
+    profiles: number;
+    minGap: number;
+    status: PaceStatus;
+}): number | null;

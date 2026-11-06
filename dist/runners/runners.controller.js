@@ -34,6 +34,9 @@ let RunnersController = class RunnersController {
     updateAll(dto, acting) {
         return this.runners.updateAll(dto, acting);
     }
+    resume(profileId, acting) {
+        return this.runners.resume(profileId, acting);
+    }
     pairCode(profileId, acting) {
         return this.runners.createPairCode(profileId, acting);
     }
@@ -84,6 +87,16 @@ __decorate([
     __metadata("design:paramtypes", [update_runner_dto_1.UpdateRunnerDto, Object]),
     __metadata("design:returntype", void 0)
 ], RunnersController.prototype, "updateAll", null);
+__decorate([
+    (0, common_1.Post)(':profileId/resume'),
+    (0, swagger_1.ApiOperation)({ summary: 'Lever la pause d’un profil limité par Facebook' }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Param)('profileId')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], RunnersController.prototype, "resume", null);
 __decorate([
     (0, common_1.Post)(':profileId/pair-code'),
     (0, swagger_1.ApiOperation)({

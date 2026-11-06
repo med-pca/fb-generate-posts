@@ -24,11 +24,17 @@ const comment_job_item_dto_1 = require("./dto/comment-job-item.dto");
 const fail_job_item_dto_1 = require("./dto/fail-job-item.dto");
 const link_updated_job_item_dto_1 = require("./dto/link-updated-job-item.dto");
 const publish_job_item_dto_1 = require("./dto/publish-job-item.dto");
+const approval_report_dto_1 = require("./dto/approval-report.dto");
+const suspension_dto_1 = require("./dto/suspension.dto");
 const jobs_service_1 = require("./jobs.service");
+const rescue_service_1 = require("./rescue.service");
+const rescue_report_dto_1 = require("./dto/rescue-report.dto");
 let JobsController = class JobsController {
     jobs;
-    constructor(jobs) {
+    rescue;
+    constructor(jobs, rescue) {
         this.jobs = jobs;
+        this.rescue = rescue;
     }
     listProfiles(acting) {
         return this.jobs.listAutomationProfiles(acting);
@@ -46,6 +52,26 @@ let JobsController = class JobsController {
     claimByProfileExternalId(profileExternalId, acting, groupExternalId) {
         return this.jobs.claimByProfileExternalId(profileExternalId, groupExternalId, acting);
     }
+    suspended(profileExternalId, dto, acting) {
+        return this.jobs.suspendProfile(profileExternalId, dto, acting);
+    }
+    reconnected(profileExternalId, acting) {
+        return this.jobs.reconnected(profileExternalId, acting);
+    }
+    rescuesDue(profileExternalId, acting, limit) {
+        const n = Number(limit);
+        return this.rescue.due(profileExternalId, acting, Number.isInteger(n) && n > 0 ? Math.min(n, 5) : 2);
+    }
+    rescueReport(targetId, dto, acting) {
+        return this.rescue.report(targetId, dto.profileExternalId, dto, acting);
+    }
+    approvalsDue(profileExternalId, acting, limit) {
+        const n = Number(limit);
+        return this.jobs.approvalsDue(profileExternalId, acting, Number.isInteger(n) && n > 0 ? Math.min(n, 10) : 2);
+    }
+    reportApproval(targetId, dto, acting) {
+        return this.jobs.reportApproval(targetId, dto, acting);
+    }
     consumed(jobId, postId, acting) {
         return this.jobs.markConsumed(jobId, postId, acting);
     }
@@ -53,7 +79,7 @@ let JobsController = class JobsController {
         return this.jobs.markPublished(jobId, postId, dto, acting);
     }
     failed(jobId, postId, dto, acting) {
-        return this.jobs.markFailed(jobId, postId, dto.error, acting);
+        return this.jobs.markFailed(jobId, postId, dto.error, acting, Boolean(dto.requeue), Boolean(dto.blocked));
     }
     commented(jobId, postId, dto, acting) {
         return this.jobs.markCommented(jobId, postId, dto, acting);
@@ -143,6 +169,73 @@ __decorate([
     __metadata("design:paramtypes", [String, Object, String]),
     __metadata("design:returntype", void 0)
 ], JobsController.prototype, "claimByProfileExternalId", null);
+__decorate([
+    (0, common_1.Post)('profiles/:profileExternalId/suspended'),
+    (0, swagger_1.ApiOperation)({ summary: 'L’extension a vu le compte suspendu par Facebook (ou une vérification demandée) : arrêt et réaffectation' }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Param)('profileExternalId')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, suspension_dto_1.SuspensionReportDto, Object]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "suspended", null);
+__decorate([
+    (0, common_1.Post)('profiles/:profileExternalId/reconnected'),
+    (0, swagger_1.ApiOperation)({ summary: 'L’extension voit de nouveau une session Facebook ouverte : un profil déconnecté reprend' }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Param)('profileExternalId')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "reconnected", null);
+__decorate([
+    openapi.ApiQuery({ name: "limit", required: false }),
+    (0, common_1.Get)('rescues/profile/:profileExternalId'),
+    (0, swagger_1.ApiOperation)({ summary: '🛟 Posts d’autres profils publiés sans leur lien, dans les groupes de ce profil : à lui de poser le lien (réservés pour lui)' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('profileExternalId')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __param(2, (0, common_1.Query)('limit')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, String]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "rescuesDue", null);
+__decorate([
+    (0, common_1.Post)('rescues/:targetId'),
+    (0, swagger_1.ApiOperation)({ summary: '🛟 Résultat d’un sauvetage : lien posé, déjà présent, ou impossible (au suivant)' }),
+    openapi.ApiResponse({ status: 201 }),
+    __param(0, (0, common_1.Param)('targetId')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, rescue_report_dto_1.RescueReportDto, Object]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "rescueReport", null);
+__decorate([
+    openapi.ApiQuery({ name: "limit", required: false }),
+    (0, common_1.Get)('approvals/profile/:profileExternalId'),
+    (0, swagger_1.ApiOperation)({ summary: 'Posts de ce profil en attente de validation, à revérifier maintenant (après son lot)' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('profileExternalId')),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __param(2, (0, common_1.Query)('limit')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, String]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "approvalsDue", null);
+__decorate([
+    (0, common_1.Post)('approvals/:targetId'),
+    (0, swagger_1.ApiOperation)({ summary: 'Résultat d’une revérification : validé (visible) ou encore en attente' }),
+    openapi.ApiResponse({ status: 201, type: Object }),
+    __param(0, (0, common_1.Param)('targetId')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, approval_report_dto_1.ApprovalReportDto, Object]),
+    __metadata("design:returntype", void 0)
+], JobsController.prototype, "reportApproval", null);
 __decorate([
     (0, common_1.Post)(':jobId/posts/:postId/consumed'),
     openapi.ApiResponse({ status: 201 }),
@@ -250,6 +343,7 @@ exports.JobsController = JobsController = __decorate([
     (0, swagger_1.ApiHeader)({ name: 'X-API-Key', required: true }),
     (0, common_1.UseGuards)(automation_auth_guard_1.AutomationAuthGuard),
     (0, common_1.Controller)('jobs'),
-    __metadata("design:paramtypes", [jobs_service_1.JobsService])
+    __metadata("design:paramtypes", [jobs_service_1.JobsService,
+        rescue_service_1.RescueService])
 ], JobsController);
 //# sourceMappingURL=jobs.controller.js.map

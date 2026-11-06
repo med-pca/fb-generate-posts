@@ -8,6 +8,7 @@ export type LlmProvider = {
     timeoutMs: number;
     tokenParam: 'max_tokens' | 'max_completion_tokens';
     maxTokens: number;
+    vision: boolean;
 };
 export type JsonRequest = {
     instructions: string;
@@ -15,6 +16,11 @@ export type JsonRequest = {
     schemaName: string;
     schema: Record<string, unknown>;
     maxTokens: number;
+    image?: {
+        data: string;
+        mimeType: string;
+    };
+    prefer?: string[];
 };
 export type LlmTransport = (provider: LlmProvider, request: JsonRequest) => Promise<string>;
 export declare const LLM_TRANSPORT: unique symbol;

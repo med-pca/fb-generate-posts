@@ -13,14 +13,16 @@ exports.CreateGroupDto = void 0;
 const openapi = require("@nestjs/swagger");
 const client_1 = require("@prisma/client");
 const class_validator_1 = require("class-validator");
+const languages_registry_1 = require("../../languages/languages.registry");
 class CreateGroupDto {
     status;
     name;
     externalId;
     url;
     categoryId;
+    language;
     static _OPENAPI_METADATA_FACTORY() {
-        return { status: { required: false, enum: ["ACTIVE", "INACTIVE"] }, name: { required: true, type: () => String }, externalId: { required: false, type: () => String }, url: { required: true, type: () => String, format: "uri" }, categoryId: { required: true, type: () => String } };
+        return { status: { required: false, enum: ["ACTIVE", "INACTIVE"] }, name: { required: true, type: () => String }, externalId: { required: false, type: () => String }, url: { required: true, type: () => String, format: "uri" }, categoryId: { required: true, type: () => String }, language: { required: false, type: () => String, nullable: true } };
     }
 }
 exports.CreateGroupDto = CreateGroupDto;
@@ -47,4 +49,10 @@ __decorate([
     (0, class_validator_1.IsNotEmpty)({ message: 'Choisissez la catégorie du groupe' }),
     __metadata("design:type", String)
 ], CreateGroupDto.prototype, "categoryId", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.ValidateIf)((_dto, value) => value !== null),
+    (0, languages_registry_1.IsKnownLanguage)(),
+    __metadata("design:type", Object)
+], CreateGroupDto.prototype, "language", void 0);
 //# sourceMappingURL=create-group.dto.js.map

@@ -1,21 +1,40 @@
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { RescueService } from '../jobs/rescue.service';
 import type { CurrentUser } from '../auth/current-user';
 export declare const VERIFY_OUTCOMES: readonly ["ok", "missing_post", "missing_link", "pending", "unreachable"];
 export type VerifyOutcome = (typeof VERIFY_OUTCOMES)[number];
 export declare class VerifyService {
     private readonly prisma;
     private readonly config;
-    constructor(prisma: PrismaService, config: ConfigService);
+    private readonly rescue?;
+    constructor(prisma: PrismaService, config: ConfigService, rescue?: RescueService | undefined);
     private verifyAfterMinutes;
     moderator(profileExternalId: string, acting: CurrentUser | null): Promise<{
         id: string;
         name: string;
         status: import("@prisma/client").$Enums.RecordStatus;
         isModerator: boolean;
+        moderatorPaused: boolean;
+        moderatorBatch: number;
+        moderatorMembers: boolean;
+        moderatorPostsCheck: boolean;
+        moderatorRemovals: boolean;
+        moderatorSpam: boolean;
+        moderatorPending: boolean;
     }>;
     private dueWhere;
     claim(profileExternalId: string, limit: number, acting: CurrentUser | null, now?: Date): Promise<{
+        tasks: never[];
+        paused: boolean;
+        verifyAfterMinutes: number;
+        disabled?: undefined;
+    } | {
+        tasks: never[];
+        disabled: boolean;
+        verifyAfterMinutes: number;
+        paused?: undefined;
+    } | {
         verifyAfterMinutes: number;
         tasks: {
             targetId: string;
@@ -24,6 +43,7 @@ export declare class VerifyService {
             postTitle: string;
             linkUrl: string | null;
             author: string;
+            authorFacebookId: string | null;
             group: {
                 name: string;
                 url: string;
@@ -31,6 +51,8 @@ export declare class VerifyService {
             publishedAt: Date | null;
             republishCount: number;
         }[];
+        paused?: undefined;
+        disabled?: undefined;
     }>;
     report(targetId: string, input: {
         profileExternalId: string;
@@ -46,6 +68,7 @@ export declare class VerifyService {
     private retryLater;
     private needsAction;
     private republish;
+    private previousPublisher;
     review(acting: CurrentUser | null): Promise<{
         targetId: string;
         detail: string | null;
@@ -55,8 +78,8 @@ export declare class VerifyService {
             id: string;
             description: string;
             title: string;
-            imageUrl: string | null;
             priority: number;
+            imageUrl: string | null;
         };
         group: {
             category: {

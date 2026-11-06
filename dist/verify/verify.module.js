@@ -7,17 +7,22 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.VerifyModule = void 0;
+const group_tasks_service_1 = require("./group-tasks.service");
 const common_1 = require("@nestjs/common");
+const rescue_module_1 = require("../jobs/rescue.module");
 const verify_controller_1 = require("./verify.controller");
 const verify_service_1 = require("./verify.service");
 const members_service_1 = require("./members.service");
+const audit_service_1 = require("./audit.service");
 let VerifyModule = class VerifyModule {
 };
 exports.VerifyModule = VerifyModule;
 exports.VerifyModule = VerifyModule = __decorate([
     (0, common_1.Module)({
+        imports: [rescue_module_1.RescueModule],
         controllers: [verify_controller_1.VerifyController, verify_controller_1.AdminVerifyController],
-        providers: [verify_service_1.VerifyService, members_service_1.MembersService],
+        providers: [verify_service_1.VerifyService, members_service_1.MembersService, audit_service_1.AuditService, group_tasks_service_1.GroupTasksService],
+        exports: [verify_service_1.VerifyService, members_service_1.MembersService, audit_service_1.AuditService],
     })
 ], VerifyModule);
 //# sourceMappingURL=verify.module.js.map

@@ -19,12 +19,13 @@ class CreateProfileDto {
     name;
     externalId;
     defaultImageUrl;
+    facebookProfileUrl;
     minPostsPerJob = 2;
     maxPostsPerJob = 6;
     minimumAvailable;
     minimumAvailablePerGroup;
     static _OPENAPI_METADATA_FACTORY() {
-        return { status: { required: false, enum: ["ACTIVE", "INACTIVE"] }, name: { required: true, type: () => String }, externalId: { required: false, type: () => String }, defaultImageUrl: { required: false, type: () => String, format: "uri" }, minPostsPerJob: { required: true, type: () => Object, default: 2, minimum: 1, maximum: 100 }, maxPostsPerJob: { required: true, type: () => Object, default: 6, minimum: 1, maximum: 100 }, minimumAvailable: { required: false, type: () => Number, nullable: true, minimum: 1, maximum: 1000 }, minimumAvailablePerGroup: { required: false, type: () => Number, nullable: true, minimum: 1, maximum: 1000 } };
+        return { status: { required: false, enum: ["ACTIVE", "INACTIVE"] }, name: { required: true, type: () => String }, externalId: { required: false, type: () => String }, defaultImageUrl: { required: false, type: () => String, format: "uri" }, facebookProfileUrl: { required: false, type: () => String, nullable: true, pattern: "^https:\\/\\/([a-z0-9-]+\\.)*facebook\\.com\\/" }, minPostsPerJob: { required: true, type: () => Object, default: 2, minimum: 1, maximum: 100 }, maxPostsPerJob: { required: true, type: () => Object, default: 6, minimum: 1, maximum: 100 }, minimumAvailable: { required: false, type: () => Number, nullable: true, minimum: 1, maximum: 1000 }, minimumAvailablePerGroup: { required: false, type: () => Number, nullable: true, minimum: 1, maximum: 1000 } };
     }
 }
 exports.CreateProfileDto = CreateProfileDto;
@@ -47,6 +48,13 @@ __decorate([
     (0, class_validator_1.IsUrl)({ require_tld: false }),
     __metadata("design:type", String)
 ], CreateProfileDto.prototype, "defaultImageUrl", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ nullable: true }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.ValidateIf)((_, v) => v !== null && v !== ''),
+    (0, class_validator_1.Matches)(/^https:\/\/([a-z0-9-]+\.)*facebook\.com\//i, { message: 'Lien Facebook attendu (https://www.facebook.com/…)' }),
+    __metadata("design:type", Object)
+], CreateProfileDto.prototype, "facebookProfileUrl", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsInt)(),

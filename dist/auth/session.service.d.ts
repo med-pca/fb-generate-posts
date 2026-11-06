@@ -23,6 +23,7 @@ export declare class SessionService {
             status: import("@prisma/client").$Enums.RecordStatus;
             automationKey: string;
             nstApiKey: string | null;
+            topArticles: boolean;
             updatedAt: Date;
         };
     } | null>;

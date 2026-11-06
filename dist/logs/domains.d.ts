@@ -17,12 +17,12 @@ export declare const LOG_DOMAINS: {
     };
     readonly security: {
         readonly label: "Sécurité";
-        readonly prefixes: readonly ["AUTH_"];
+        readonly prefixes: readonly ["AUTH_", "EXTENSION_"];
         readonly exact: string[];
     };
     readonly groups: {
         readonly label: "Groupes & pilotage";
-        readonly prefixes: readonly ["GROUP_JOIN", "BROWSER_", "RUNNER_", "MEMBER_", "PROFILE_"];
+        readonly prefixes: readonly ["GROUP_JOIN", "BROWSER_", "RUNNER_", "MEMBER_", "PROFILE_", "GROUP_BULK", "MODERATOR_"];
         readonly exact: string[];
     };
 };

@@ -8,14 +8,19 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.VerifyService = exports.VERIFY_OUTCOMES = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
+const rescue_service_1 = require("../jobs/rescue.service");
 const scope_1 = require("../auth/scope");
 const trace_1 = require("../trace/trace");
+const moderator_guard_1 = require("../auth/moderator-guard");
 const DEFAULT_VERIFY_AFTER_MINUTES = 30;
 const CLAIM_MINUTES = 20;
 const PENDING_RETRY_HOURS = 2;
@@ -32,9 +37,11 @@ exports.VERIFY_OUTCOMES = [
 let VerifyService = class VerifyService {
     prisma;
     config;
-    constructor(prisma, config) {
+    rescue;
+    constructor(prisma, config, rescue) {
         this.prisma = prisma;
         this.config = config;
+        this.rescue = rescue;
     }
     verifyAfterMinutes() {
         const raw = Number(this.config.get('VERIFY_AFTER_MINUTES'));
@@ -43,7 +50,19 @@ let VerifyService = class VerifyService {
     async moderator(profileExternalId, acting) {
         const profile = await this.prisma.profile.findFirst({
             where: { externalId: profileExternalId, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
-            select: { id: true, name: true, isModerator: true, status: true },
+            select: {
+                id: true,
+                name: true,
+                isModerator: true,
+                status: true,
+                moderatorPaused: true,
+                moderatorBatch: true,
+                moderatorMembers: true,
+                moderatorPostsCheck: true,
+                moderatorRemovals: true,
+                moderatorSpam: true,
+                moderatorPending: true,
+            },
         });
         if (!profile)
             throw new common_1.NotFoundException('Profil vérificateur introuvable');
@@ -60,33 +79,60 @@ let VerifyService = class VerifyService {
             AND: [
                 { OR: [{ verifyClaimedUntil: null }, { verifyClaimedUntil: { lt: now } }] },
                 { post: (0, scope_1.postWhere)((0, scope_1.scopeOf)(acting)) },
+                { OR: [{ rescueStatus: null }, { rescueStatus: { notIn: ['pending', 'claimed'] } }] },
             ],
         };
     }
     async claim(profileExternalId, limit, acting, now = new Date()) {
-        await this.moderator(profileExternalId, acting);
-        const due = await this.prisma.postTarget.findMany({
-            where: this.dueWhere(acting, now),
-            orderBy: { publishedAt: 'asc' },
-            take: Math.max(1, Math.min(20, limit || 5)),
-            select: {
-                id: true,
-                publishedAt: true,
-                republishCount: true,
-                facebookUrl: true,
-                post: { select: { id: true, title: true, description: true, url: true } },
-                group: { select: { id: true, name: true, url: true, externalId: true } },
-                jobItems: {
-                    where: { status: client_1.TargetStatus.PUBLISHED },
-                    orderBy: { publishedAt: 'desc' },
-                    take: 1,
-                    select: {
-                        externalPostUrl: true,
-                        job: { select: { profile: { select: { name: true, externalId: true } } } },
-                    },
+        const moderator = await this.moderator(profileExternalId, acting);
+        if (moderator.moderatorPaused) {
+            return { tasks: [], paused: true, verifyAfterMinutes: this.verifyAfterMinutes() };
+        }
+        if (moderator.moderatorPostsCheck === false) {
+            return { tasks: [], disabled: true, verifyAfterMinutes: this.verifyAfterMinutes() };
+        }
+        await this.rescue?.sweep(now).catch(() => undefined);
+        const take = Math.max(1, Math.min(20, moderator.moderatorBatch || 5, limit || 20));
+        const urgent = {
+            OR: [
+                { facebookUrl: null },
+                { linkUpdatedAt: null, post: { url: { not: null }, noComment: false } },
+            ],
+        };
+        const select = {
+            id: true,
+            publishedAt: true,
+            republishCount: true,
+            facebookUrl: true,
+            post: { select: { id: true, title: true, description: true, url: true } },
+            group: { select: { id: true, name: true, url: true, externalId: true } },
+            jobItems: {
+                where: { status: client_1.TargetStatus.PUBLISHED },
+                orderBy: { publishedAt: 'desc' },
+                take: 1,
+                select: {
+                    externalPostUrl: true,
+                    job: { select: { profile: { select: { name: true, externalId: true, facebookUserId: true } } } },
                 },
             },
+        };
+        const first = await this.prisma.postTarget.findMany({
+            where: { AND: [this.dueWhere(acting, now), urgent] },
+            orderBy: { publishedAt: 'asc' },
+            take,
+            select,
         });
+        const due = first.length >= take
+            ? first
+            : [
+                ...first,
+                ...(await this.prisma.postTarget.findMany({
+                    where: { AND: [this.dueWhere(acting, now), { id: { notIn: first.map((t) => t.id) } }] },
+                    orderBy: { publishedAt: 'asc' },
+                    take: take - first.length,
+                    select,
+                })),
+            ];
         if (!due.length) {
             return { tasks: [], verifyAfterMinutes: this.verifyAfterMinutes() };
         }
@@ -103,6 +149,7 @@ let VerifyService = class VerifyService {
                 postTitle: t.post.title,
                 linkUrl: t.post.url,
                 author: t.jobItems[0]?.job.profile.name ?? null,
+                authorFacebookId: t.jobItems[0]?.job.profile.facebookUserId ?? null,
                 group: { name: t.group.name, url: t.group.url },
                 publishedAt: t.publishedAt,
                 republishCount: t.republishCount,
@@ -264,6 +311,9 @@ let VerifyService = class VerifyService {
             await this.needsAction(target, `déjà republié ${MAX_REPUBLISH} fois, toujours en défaut — ${detail}`, by);
             return { targetId: target.id, result: 'needs_action' };
         }
+        const avoid = await this.previousPublisher(target);
+        if (avoid)
+            detail = `${detail} — ${avoid.others ? `republié par un autre profil que « ${avoid.name} »` : `aucun autre profil dans le groupe : « ${avoid.name} » le republiera`}`;
         await this.prisma.$transaction([
             this.prisma.postTarget.update({
                 where: { id: target.id },
@@ -283,6 +333,7 @@ let VerifyService = class VerifyService {
                     verifyDetail: detail,
                     verifyClaimedUntil: null,
                     republishCount: { increment: 1 },
+                    avoidProfileId: avoid?.others ? avoid.id : null,
                 },
             }),
             (0, trace_1.trace)(this.prisma, {
@@ -306,6 +357,25 @@ let VerifyService = class VerifyService {
             }),
         ]);
         return { targetId: target.id, result: 'requeued' };
+    }
+    async previousPublisher(target) {
+        const last = await this.prisma.publicationJobItem.findFirst({
+            where: { postTargetId: target.id, status: client_1.TargetStatus.PUBLISHED },
+            orderBy: { publishedAt: 'desc' },
+            select: { job: { select: { profileId: true, profile: { select: { name: true } } } } },
+        });
+        if (!last)
+            return null;
+        const others = await this.prisma.profileGroup.count({
+            where: {
+                groupId: target.groupId,
+                status: 'ACTIVE',
+                joinStatus: 'JOINED',
+                profileId: { not: last.job.profileId },
+                profile: { status: 'ACTIVE', isModerator: false },
+            },
+        });
+        return { id: last.job.profileId, name: last.job.profile.name, others: others > 0 };
     }
     async review(acting) {
         const rows = await this.prisma.postTarget.findMany({
@@ -359,10 +429,14 @@ let VerifyService = class VerifyService {
     async setModerator(profileId, patch, acting) {
         const profile = await this.prisma.profile.findFirst({
             where: { id: profileId, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
-            select: { id: true },
+            select: { id: true, isModerator: true },
         });
         if (!profile)
             throw new common_1.NotFoundException('Profil introuvable');
+        if (patch.isModerator !== undefined && !(0, moderator_guard_1.isAdmin)(acting)) {
+            throw new common_1.ForbiddenException('Seul un administrateur de la plateforme désigne les modérateurs');
+        }
+        (0, moderator_guard_1.assertMayManage)(profile, acting);
         const data = {};
         if (patch.isModerator !== undefined)
             data.isModerator = patch.isModerator;
@@ -396,7 +470,9 @@ let VerifyService = class VerifyService {
 exports.VerifyService = VerifyService;
 exports.VerifyService = VerifyService = __decorate([
     (0, common_1.Injectable)(),
+    __param(2, (0, common_1.Optional)()),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        config_1.ConfigService])
+        config_1.ConfigService,
+        rescue_service_1.RescueService])
 ], VerifyService);
 //# sourceMappingURL=verify.service.js.map

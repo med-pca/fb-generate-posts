@@ -23,8 +23,9 @@ class WordpressArticleDto {
     imageUrl;
     publishedAt;
     ingestRef;
+    copyRef;
     static _OPENAPI_METADATA_FACTORY() {
-        return { siteUrl: { required: true, type: () => String, maxLength: 2000, format: "uri" }, siteName: { required: true, type: () => String, maxLength: 200 }, postId: { required: true, type: () => String, pattern: "^[1-9]\\d{0,19}$" }, title: { required: true, type: () => String, maxLength: 1000 }, content: { required: true, type: () => String, maxLength: 100000 }, excerpt: { required: false, type: () => String, maxLength: 5000 }, articleUrl: { required: true, type: () => String, maxLength: 2000, format: "uri" }, imageUrl: { required: false, type: () => String, maxLength: 2000, format: "uri" }, publishedAt: { required: true, type: () => String }, ingestRef: { required: false, type: () => String, maxLength: 64 } };
+        return { siteUrl: { required: true, type: () => String, maxLength: 2000, format: "uri" }, siteName: { required: true, type: () => String, maxLength: 200 }, postId: { required: true, type: () => String, pattern: "^[1-9]\\d{0,19}$" }, title: { required: true, type: () => String, maxLength: 1000 }, content: { required: true, type: () => String, maxLength: 100000 }, excerpt: { required: false, type: () => String, maxLength: 5000 }, articleUrl: { required: true, type: () => String, maxLength: 2000, format: "uri" }, imageUrl: { required: false, type: () => String, maxLength: 2000, format: "uri" }, publishedAt: { required: true, type: () => String }, ingestRef: { required: false, type: () => String, maxLength: 64 }, copyRef: { required: false, type: () => String, maxLength: 64 } };
     }
 }
 exports.WordpressArticleDto = WordpressArticleDto;
@@ -82,4 +83,10 @@ __decorate([
     (0, class_validator_1.MaxLength)(64),
     __metadata("design:type", String)
 ], WordpressArticleDto.prototype, "ingestRef", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(64),
+    __metadata("design:type", String)
+], WordpressArticleDto.prototype, "copyRef", void 0);
 //# sourceMappingURL=wordpress.dto.js.map

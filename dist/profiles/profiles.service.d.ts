@@ -3,14 +3,14 @@ import type { CurrentUser } from '../auth/current-user';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
-import { Prisma } from '@prisma/client';
 import { QueryProfilesDto } from './dto/query-profiles.dto';
 import { ProfileHealthService } from './profile-health.service';
+export declare function facebookIdOfUrl(url: string | null | undefined): string | null;
 export declare class ProfilesService {
     private readonly prisma;
     private readonly health;
     constructor(prisma: PrismaService, health: ProfileHealthService);
-    create(dto: CreateProfileDto, owner: CurrentUser | null): Prisma.Prisma__ProfileClient<{
+    create(dto: CreateProfileDto, owner: CurrentUser | null): Promise<{
         id: string;
         createdAt: Date;
         name: string;
@@ -21,13 +21,40 @@ export declare class ProfilesService {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        facebookSuspension: string | null;
+        suspendedAt: Date | null;
+        suspensionDetail: string | null;
+        modeBeforeSuspension: string | null;
+        nstGroupId: string | null;
+        nstGroupName: string | null;
+        teamNstGroupId: string | null;
+        teamNstGroupName: string | null;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
         isModerator: boolean;
+        moderatorPaused: boolean;
+        moderatorRunAt: Date | null;
+        moderatorMembersRunAt: Date | null;
+        moderatorBatch: number;
+        moderatorEveryMinutes: number;
+        moderatorMembers: boolean;
+        moderatorPostsCheck: boolean;
+        moderatorRemovals: boolean;
+        moderatorSpam: boolean;
+        moderatorPending: boolean;
+        moderatorWindowStart: number;
+        moderatorWindowEnd: number;
+        moderatorTimezone: string;
+        moderatorHourlyLimit: number;
+        moderatorDailyLimit: number;
+        moderatorSeenAt: Date | null;
+        moderatorAgent: string | null;
         facebookUserId: string | null;
         facebookName: string | null;
         facebookSeenAt: Date | null;
-    }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
+        facebookProfileUrl: string | null;
+    }>;
+    private adoptFacebookId;
     findAll(query: PaginationDto & Partial<QueryProfilesDto>, acting: CurrentUser | null): Promise<{
         data: {
             health: {
@@ -40,6 +67,10 @@ export declare class ProfilesService {
                 failed: number;
                 failStreak: number;
             };
+            owner: {
+                id: string;
+                username: string;
+            } | null;
             _count: {
                 posts: number;
                 profileGroups: number;
@@ -54,12 +85,38 @@ export declare class ProfilesService {
             defaultImageUrl: string | null;
             minPostsPerJob: number;
             maxPostsPerJob: number;
+            facebookSuspension: string | null;
+            suspendedAt: Date | null;
+            suspensionDetail: string | null;
+            modeBeforeSuspension: string | null;
+            nstGroupId: string | null;
+            nstGroupName: string | null;
+            teamNstGroupId: string | null;
+            teamNstGroupName: string | null;
             minimumAvailable: number | null;
             minimumAvailablePerGroup: number | null;
             isModerator: boolean;
+            moderatorPaused: boolean;
+            moderatorRunAt: Date | null;
+            moderatorMembersRunAt: Date | null;
+            moderatorBatch: number;
+            moderatorEveryMinutes: number;
+            moderatorMembers: boolean;
+            moderatorPostsCheck: boolean;
+            moderatorRemovals: boolean;
+            moderatorSpam: boolean;
+            moderatorPending: boolean;
+            moderatorWindowStart: number;
+            moderatorWindowEnd: number;
+            moderatorTimezone: string;
+            moderatorHourlyLimit: number;
+            moderatorDailyLimit: number;
+            moderatorSeenAt: Date | null;
+            moderatorAgent: string | null;
             facebookUserId: string | null;
             facebookName: string | null;
             facebookSeenAt: Date | null;
+            facebookProfileUrl: string | null;
         }[];
         meta: {
             page: number;
@@ -68,18 +125,49 @@ export declare class ProfilesService {
             pages: number;
         };
     }>;
+    requestGroupRemoval(id: string, acting: CurrentUser | null): Promise<{
+        requested: number;
+    }>;
+    clearSuspension(id: string, acting: CurrentUser | null, opts?: {
+        resume?: boolean;
+    }): Promise<{
+        cleared: boolean;
+        cancelledRemovals: number;
+        mode: string | null;
+    }>;
+    assign(dto: {
+        profileIds: string[];
+        ownerId: string | null;
+        shareGroups?: boolean;
+    }, acting: CurrentUser | null): Promise<{
+        updated: number;
+        owner: {
+            id: string;
+            username: string;
+        } | null;
+        groupsShared: number;
+        repair: string[];
+    }>;
     findOne(id: string, acting: CurrentUser | null): Promise<{
         profileGroups: ({
             group: {
+                language: string | null;
                 id: string;
                 createdAt: Date;
                 name: string;
                 status: import("@prisma/client").$Enums.RecordStatus;
                 updatedAt: Date;
+                categoryId: string | null;
+                priority: number;
                 ownerId: string | null;
                 externalId: string | null;
-                categoryId: string | null;
                 url: string;
+                spamCheckedAt: Date | null;
+                spamClaimedUntil: Date | null;
+                spamDetail: string | null;
+                dailyCap: number | null;
+                hoursStart: number | null;
+                hoursEnd: number | null;
             };
         } & {
             id: string;
@@ -97,6 +185,18 @@ export declare class ProfilesService {
             memberActionAt: Date | null;
             memberClaimedUntil: Date | null;
             memberAttempts: number;
+            removalRequestedAt: Date | null;
+            removalClaimedUntil: Date | null;
+            removalAttempts: number;
+            removalError: string | null;
+            removedAt: Date | null;
+            memberRequestedAt: Date | null;
+            auditRequestedAt: Date | null;
+            auditMode: string | null;
+            auditClaimedUntil: Date | null;
+            preApprovalState: string | null;
+            preApprovalCheckedAt: Date | null;
+            preApprovalDetail: string | null;
         })[];
         _count: {
             posts: number;
@@ -113,12 +213,38 @@ export declare class ProfilesService {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        facebookSuspension: string | null;
+        suspendedAt: Date | null;
+        suspensionDetail: string | null;
+        modeBeforeSuspension: string | null;
+        nstGroupId: string | null;
+        nstGroupName: string | null;
+        teamNstGroupId: string | null;
+        teamNstGroupName: string | null;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
         isModerator: boolean;
+        moderatorPaused: boolean;
+        moderatorRunAt: Date | null;
+        moderatorMembersRunAt: Date | null;
+        moderatorBatch: number;
+        moderatorEveryMinutes: number;
+        moderatorMembers: boolean;
+        moderatorPostsCheck: boolean;
+        moderatorRemovals: boolean;
+        moderatorSpam: boolean;
+        moderatorPending: boolean;
+        moderatorWindowStart: number;
+        moderatorWindowEnd: number;
+        moderatorTimezone: string;
+        moderatorHourlyLimit: number;
+        moderatorDailyLimit: number;
+        moderatorSeenAt: Date | null;
+        moderatorAgent: string | null;
         facebookUserId: string | null;
         facebookName: string | null;
         facebookSeenAt: Date | null;
+        facebookProfileUrl: string | null;
     }>;
     private reachable;
     update(id: string, dto: UpdateProfileDto, acting: CurrentUser | null): Promise<{
@@ -132,12 +258,38 @@ export declare class ProfilesService {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        facebookSuspension: string | null;
+        suspendedAt: Date | null;
+        suspensionDetail: string | null;
+        modeBeforeSuspension: string | null;
+        nstGroupId: string | null;
+        nstGroupName: string | null;
+        teamNstGroupId: string | null;
+        teamNstGroupName: string | null;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
         isModerator: boolean;
+        moderatorPaused: boolean;
+        moderatorRunAt: Date | null;
+        moderatorMembersRunAt: Date | null;
+        moderatorBatch: number;
+        moderatorEveryMinutes: number;
+        moderatorMembers: boolean;
+        moderatorPostsCheck: boolean;
+        moderatorRemovals: boolean;
+        moderatorSpam: boolean;
+        moderatorPending: boolean;
+        moderatorWindowStart: number;
+        moderatorWindowEnd: number;
+        moderatorTimezone: string;
+        moderatorHourlyLimit: number;
+        moderatorDailyLimit: number;
+        moderatorSeenAt: Date | null;
+        moderatorAgent: string | null;
         facebookUserId: string | null;
         facebookName: string | null;
         facebookSeenAt: Date | null;
+        facebookProfileUrl: string | null;
     }>;
     remove(id: string, acting: CurrentUser | null): Promise<{
         id: string;
@@ -150,11 +302,37 @@ export declare class ProfilesService {
         defaultImageUrl: string | null;
         minPostsPerJob: number;
         maxPostsPerJob: number;
+        facebookSuspension: string | null;
+        suspendedAt: Date | null;
+        suspensionDetail: string | null;
+        modeBeforeSuspension: string | null;
+        nstGroupId: string | null;
+        nstGroupName: string | null;
+        teamNstGroupId: string | null;
+        teamNstGroupName: string | null;
         minimumAvailable: number | null;
         minimumAvailablePerGroup: number | null;
         isModerator: boolean;
+        moderatorPaused: boolean;
+        moderatorRunAt: Date | null;
+        moderatorMembersRunAt: Date | null;
+        moderatorBatch: number;
+        moderatorEveryMinutes: number;
+        moderatorMembers: boolean;
+        moderatorPostsCheck: boolean;
+        moderatorRemovals: boolean;
+        moderatorSpam: boolean;
+        moderatorPending: boolean;
+        moderatorWindowStart: number;
+        moderatorWindowEnd: number;
+        moderatorTimezone: string;
+        moderatorHourlyLimit: number;
+        moderatorDailyLimit: number;
+        moderatorSeenAt: Date | null;
+        moderatorAgent: string | null;
         facebookUserId: string | null;
         facebookName: string | null;
         facebookSeenAt: Date | null;
+        facebookProfileUrl: string | null;
     }>;
 }

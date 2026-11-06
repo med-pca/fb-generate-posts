@@ -9,8 +9,10 @@ export declare class UsersController {
         username: string;
         role: import("@prisma/client").$Enums.Role;
         status: import("@prisma/client").$Enums.RecordStatus;
+        hasAutomationKey: boolean;
         hasNstApiKey: boolean;
         nstApiKeyHint: string | null;
+        topArticles: boolean;
         createdAt: Date;
     }[]>;
     create(dto: CreateUserDto): Promise<{
@@ -19,8 +21,10 @@ export declare class UsersController {
         username: string;
         role: import("@prisma/client").$Enums.Role;
         status: import("@prisma/client").$Enums.RecordStatus;
+        hasAutomationKey: boolean;
         hasNstApiKey: boolean;
         nstApiKeyHint: string | null;
+        topArticles: boolean;
         createdAt: Date;
     }>;
     update(id: string, dto: UpdateUserDto, acting: CurrentUser): Promise<{
@@ -28,8 +32,10 @@ export declare class UsersController {
         username: string;
         role: import("@prisma/client").$Enums.Role;
         status: import("@prisma/client").$Enums.RecordStatus;
+        hasAutomationKey: boolean;
         hasNstApiKey: boolean;
         nstApiKeyHint: string | null;
+        topArticles: boolean;
         createdAt: Date;
     }>;
     rotateKey(id: string): Promise<{
@@ -38,8 +44,10 @@ export declare class UsersController {
         username: string;
         role: import("@prisma/client").$Enums.Role;
         status: import("@prisma/client").$Enums.RecordStatus;
+        hasAutomationKey: boolean;
         hasNstApiKey: boolean;
         nstApiKeyHint: string | null;
+        topArticles: boolean;
         createdAt: Date;
     }>;
     remove(id: string, acting: CurrentUser): Promise<{
@@ -60,8 +68,10 @@ export declare class MeController {
         username: string;
         role: import("@prisma/client").$Enums.Role;
         status: import("@prisma/client").$Enums.RecordStatus;
+        hasAutomationKey: boolean;
         hasNstApiKey: boolean;
         nstApiKeyHint: string | null;
+        topArticles: boolean;
         createdAt: Date;
     }>;
     setNstKey(acting: CurrentUser, dto: UpdateNstKeyDto): Promise<{
@@ -69,8 +79,10 @@ export declare class MeController {
         username: string;
         role: import("@prisma/client").$Enums.Role;
         status: import("@prisma/client").$Enums.RecordStatus;
+        hasAutomationKey: boolean;
         hasNstApiKey: boolean;
         nstApiKeyHint: string | null;
+        topArticles: boolean;
         createdAt: Date;
     }>;
 }

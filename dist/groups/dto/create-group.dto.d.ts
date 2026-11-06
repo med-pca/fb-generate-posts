@@ -5,4 +5,5 @@ export declare class CreateGroupDto {
     externalId?: string;
     url: string;
     categoryId: string;
+    language?: string | null;
 }

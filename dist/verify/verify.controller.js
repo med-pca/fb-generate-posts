@@ -20,14 +20,45 @@ const automation_auth_guard_1 = require("../auth/automation-auth.guard");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
 const current_user_1 = require("../auth/current-user");
 const verify_dto_1 = require("./dto/verify.dto");
+const group_tasks_service_1 = require("./group-tasks.service");
+const audit_service_1 = require("./audit.service");
 const verify_service_1 = require("./verify.service");
 const members_service_1 = require("./members.service");
+const short_cache_service_1 = require("../perf/short-cache.service");
 let VerifyController = class VerifyController {
     verify;
     members;
-    constructor(verify, members) {
+    audit;
+    groupTasks;
+    constructor(verify, members, audit, groupTasks) {
         this.verify = verify;
         this.members = members;
+        this.audit = audit;
+        this.groupTasks = groupTasks;
+    }
+    claimRemovals(dto, acting) {
+        return this.groupTasks.claimRemovals(dto.profileExternalId, dto.limit ?? 2, acting);
+    }
+    removalResult(taskId, dto, acting) {
+        return this.groupTasks.reportRemoval(taskId, dto, acting);
+    }
+    claimPostApprovals(dto, acting) {
+        return this.groupTasks.claimApprovals(dto.profileExternalId, dto.limit ?? 2, acting);
+    }
+    postApprovalResult(taskId, dto, acting) {
+        return this.groupTasks.reportApproval(taskId, dto, acting);
+    }
+    claimSpam(dto, acting) {
+        return this.groupTasks.claimSpam(dto.profileExternalId, dto.limit ?? 2, acting);
+    }
+    spamResult(groupId, dto, acting) {
+        return this.groupTasks.reportSpam(groupId, dto, acting);
+    }
+    claimAudit(dto, acting) {
+        return this.audit.claim(dto.profileExternalId, dto.limit ?? 5, acting);
+    }
+    auditResult(taskId, dto, acting) {
+        return this.audit.report(taskId, dto, acting);
     }
     claimMembers(dto, acting) {
         return this.members.claim(dto.profileExternalId, dto.limit ?? 5, acting);
@@ -43,6 +74,98 @@ let VerifyController = class VerifyController {
     }
 };
 exports.VerifyController = VerifyController;
+__decorate([
+    (0, common_1.Post)('removals/claim'),
+    (0, common_1.HttpCode)(200),
+    (0, swagger_1.ApiOperation)({ summary: 'Réserver les retraits de groupes demandés pour nos profils suspendus par Facebook' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [verify_dto_1.VerifyClaimDto, Object]),
+    __metadata("design:returntype", void 0)
+], VerifyController.prototype, "claimRemovals", null);
+__decorate([
+    (0, common_1.Post)('removals/:taskId/result'),
+    (0, common_1.HttpCode)(200),
+    (0, swagger_1.ApiOperation)({ summary: 'Rapporter un retrait de groupe (fait, plus membre, pas la permission…)' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('taskId')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, verify_dto_1.RemovalResultDto, Object]),
+    __metadata("design:returntype", void 0)
+], VerifyController.prototype, "removalResult", null);
+__decorate([
+    (0, common_1.Post)('post-approvals/claim'),
+    (0, common_1.HttpCode)(200),
+    (0, swagger_1.ApiOperation)({ summary: 'Réserver nos posts en attente de validation, à valider dans les groupes' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [verify_dto_1.VerifyClaimDto, Object]),
+    __metadata("design:returntype", void 0)
+], VerifyController.prototype, "claimPostApprovals", null);
+__decorate([
+    (0, common_1.Post)('post-approvals/:taskId/result'),
+    (0, common_1.HttpCode)(200),
+    (0, swagger_1.ApiOperation)({ summary: 'Rapporter la validation d’un de nos posts en attente' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('taskId')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, verify_dto_1.PostApprovalResultDto, Object]),
+    __metadata("design:returntype", void 0)
+], VerifyController.prototype, "postApprovalResult", null);
+__decorate([
+    (0, common_1.Post)('spam/claim'),
+    (0, common_1.HttpCode)(200),
+    (0, swagger_1.ApiOperation)({ summary: 'Réserver les groupes dont lire le « Spam potentiel » (avec nos profils membres)' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [verify_dto_1.VerifyClaimDto, Object]),
+    __metadata("design:returntype", void 0)
+], VerifyController.prototype, "claimSpam", null);
+__decorate([
+    (0, common_1.Post)('spam/:groupId/result'),
+    (0, common_1.HttpCode)(200),
+    (0, swagger_1.ApiOperation)({ summary: 'Rapporter un passage sur le spam d’un groupe : posts de nos profils publiés' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('groupId')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, verify_dto_1.SpamResultDto, Object]),
+    __metadata("design:returntype", void 0)
+], VerifyController.prototype, "spamResult", null);
+__decorate([
+    (0, common_1.Post)('members/audit/claim'),
+    (0, common_1.HttpCode)(200),
+    (0, swagger_1.ApiOperation)({ summary: 'Réserver les contrôles de pré-approbation demandés par l’admin' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [verify_dto_1.VerifyClaimDto, Object]),
+    __metadata("design:returntype", void 0)
+], VerifyController.prototype, "claimAudit", null);
+__decorate([
+    (0, common_1.Post)('members/audit/:taskId/result'),
+    (0, common_1.HttpCode)(200),
+    (0, swagger_1.ApiOperation)({ summary: 'Rapporter un contrôle : déjà pré-approuvé, pas fait, corrigé…' }),
+    openapi.ApiResponse({ status: 200, type: Object }),
+    __param(0, (0, common_1.Param)('taskId')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, verify_dto_1.AuditResultDto, Object]),
+    __metadata("design:returntype", void 0)
+], VerifyController.prototype, "auditResult", null);
 __decorate([
     (0, common_1.Post)('members/claim'),
     (0, common_1.HttpCode)(200),
@@ -78,7 +201,7 @@ __decorate([
         description: 'Publiées depuis au moins VERIFY_AFTER_MINUTES (30 min par défaut), ' +
             'pas encore vérifiées. Réservées 20 min pour ce vérificateur.',
     }),
-    openapi.ApiResponse({ status: 200 }),
+    openapi.ApiResponse({ status: 200, type: Object }),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
@@ -107,22 +230,33 @@ exports.VerifyController = VerifyController = __decorate([
     (0, common_1.UseGuards)(automation_auth_guard_1.AutomationAuthGuard),
     (0, common_1.Controller)('verify'),
     __metadata("design:paramtypes", [verify_service_1.VerifyService,
-        members_service_1.MembersService])
+        members_service_1.MembersService,
+        audit_service_1.AuditService,
+        group_tasks_service_1.GroupTasksService])
 ], VerifyController);
 let AdminVerifyController = class AdminVerifyController {
     verify;
     members;
-    constructor(verify, members) {
+    groupTasks;
+    cache;
+    constructor(verify, members, groupTasks, cache) {
         this.verify = verify;
         this.members = members;
+        this.groupTasks = groupTasks;
+        this.cache = cache;
     }
-    async overview(acting) {
-        const [stats, review, members] = await Promise.all([
-            this.verify.stats(acting),
-            this.verify.review(acting),
-            this.members.overview(acting),
-        ]);
-        return { ...stats, review, members };
+    suspended(acting) {
+        return this.groupTasks.suspendedOverview(acting);
+    }
+    overview(acting) {
+        return this.cache.get(acting, 'admin/verify', 15_000, async () => {
+            const [stats, review, members] = await Promise.all([
+                this.verify.stats(acting),
+                this.verify.review(acting),
+                this.members.overview(acting),
+            ]);
+            return { ...stats, review, members };
+        });
     }
     moderator(profileId, dto, acting) {
         return this.verify.setModerator(profileId, dto, acting);
@@ -136,13 +270,22 @@ let AdminVerifyController = class AdminVerifyController {
 };
 exports.AdminVerifyController = AdminVerifyController;
 __decorate([
+    (0, common_1.Get)('suspended'),
+    (0, swagger_1.ApiOperation)({ summary: 'Nos profils suspendus par Facebook, et le retrait de nos groupes' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AdminVerifyController.prototype, "suspended", null);
+__decorate([
     (0, common_1.Get)(),
     (0, swagger_1.ApiOperation)({ summary: 'Bilan de la vérification et publications à traiter' }),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
-    __metadata("design:returntype", Promise)
+    __metadata("design:returntype", void 0)
 ], AdminVerifyController.prototype, "overview", null);
 __decorate([
     (0, common_1.Patch)('profiles/:profileId'),
@@ -184,6 +327,8 @@ exports.AdminVerifyController = AdminVerifyController = __decorate([
     (0, common_1.UseGuards)(admin_auth_guard_1.AdminAuthGuard),
     (0, common_1.Controller)('admin/verify'),
     __metadata("design:paramtypes", [verify_service_1.VerifyService,
-        members_service_1.MembersService])
+        members_service_1.MembersService,
+        group_tasks_service_1.GroupTasksService,
+        short_cache_service_1.ShortCacheService])
 ], AdminVerifyController);
 //# sourceMappingURL=verify.controller.js.map

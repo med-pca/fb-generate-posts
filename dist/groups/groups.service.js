@@ -10,12 +10,47 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GroupsService = void 0;
+exports.groupFilters = groupFilters;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const categories_service_1 = require("../categories/categories.service");
 const scope_1 = require("../auth/scope");
+const moderator_guard_1 = require("../auth/moderator-guard");
 const paginated_1 = require("../common/paginated");
+function groupFilters(q, scope) {
+    const and = [scope];
+    const search = q.search?.trim();
+    if (search) {
+        and.push({
+            OR: [
+                { name: { contains: search, mode: 'insensitive' } },
+                { url: { contains: search, mode: 'insensitive' } },
+                { externalId: { contains: search, mode: 'insensitive' } },
+            ],
+        });
+    }
+    if (q.categoryId)
+        and.push({ categoryId: q.categoryId === 'none' ? null : q.categoryId });
+    if (q.status)
+        and.push({ status: q.status });
+    if (q.language)
+        and.push({ language: q.language === 'none' ? null : q.language });
+    if (q.profileId)
+        and.push({ profiles: { some: { profileId: q.profileId, status: 'ACTIVE' } } });
+    if (q.join === 'joined')
+        and.push({ profiles: { some: { status: 'ACTIVE', joinStatus: 'JOINED' } } });
+    if (q.join === 'none')
+        and.push({ profiles: { none: { status: 'ACTIVE', joinStatus: 'JOINED' } } });
+    if (q.join === 'pending')
+        and.push({ profiles: { some: { status: 'ACTIVE', joinStatus: { in: ['REQUESTED', 'QUESTIONS'] } } } });
+    const waiting = { status: 'AVAILABLE', post: { status: 'AVAILABLE' } };
+    if (q.stock === 'with')
+        and.push({ targets: { some: waiting } });
+    if (q.stock === 'none')
+        and.push({ targets: { none: waiting } });
+    return and;
+}
 let GroupsService = class GroupsService {
     prisma;
     categories;
@@ -61,17 +96,19 @@ let GroupsService = class GroupsService {
             where: { profileId_groupId: { profileId, groupId } },
         });
     }
-    async findCatalog({ page, limit }, acting) {
-        const scoped = (0, scope_1.groupWhere)((0, scope_1.scopeOf)(acting));
+    async findCatalog(query, acting) {
+        const { page, limit } = query;
+        const scoped = { AND: groupFilters(query, (0, scope_1.groupWhere)((0, scope_1.scopeOf)(acting))) };
+        const orderBy = query.sort === 'name' ? [{ name: 'asc' }] : query.sort === 'priority' ? [{ priority: 'desc' }, { name: 'asc' }] : [{ createdAt: 'desc' }];
         const [groups, total] = await this.prisma.$transaction([
             this.prisma.group.findMany({
                 where: scoped,
                 include: {
-                    profiles: { include: { profile: true } },
+                    profiles: { ...((0, scope_1.scopeOf)(acting) ? { where: { profile: (0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) } } : {}), include: { profile: true } },
                     category: { select: { id: true, name: true } },
                     _count: { select: { targets: true } },
                 },
-                orderBy: { createdAt: 'desc' },
+                orderBy,
                 skip: (page - 1) * limit,
                 take: limit,
             }),
@@ -128,10 +165,11 @@ let GroupsService = class GroupsService {
     async reachableProfile(id, acting) {
         const profile = await this.prisma.profile.findFirst({
             where: { id, ...(0, scope_1.profileWhere)((0, scope_1.scopeOf)(acting)) },
-            select: { id: true },
+            select: { id: true, isModerator: true },
         });
         if (!profile)
             throw new common_1.NotFoundException('Profil introuvable');
+        (0, moderator_guard_1.assertMayManage)(profile, acting);
         return profile;
     }
     async update(id, dto, acting) {
@@ -168,7 +206,7 @@ let GroupsService = class GroupsService {
         ];
         const where = {
             groupId: id,
-            post: (0, scope_1.postWhere)((0, scope_1.scopeOf)(acting)),
+            post: (0, scope_1.postManageWhere)((0, scope_1.scopeOf)(acting)),
             OR: pending,
         };
         const [removable, kept] = await Promise.all([
@@ -176,7 +214,7 @@ let GroupsService = class GroupsService {
             this.prisma.postTarget.count({
                 where: {
                     groupId: id,
-                    post: (0, scope_1.postWhere)((0, scope_1.scopeOf)(acting)),
+                    post: (0, scope_1.postManageWhere)((0, scope_1.scopeOf)(acting)),
                     OR: [
                         { status: { in: [client_1.TargetStatus.PUBLISHED, client_1.TargetStatus.CONSUMED] } },
                         { status: client_1.TargetStatus.CLAIMED, claimExpiresAt: { gte: now } },

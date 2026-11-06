@@ -15,6 +15,10 @@ export declare function publicSite(site: ContentSource & {
         id: string;
         name: string;
     } | null;
+    relay?: {
+        id: string;
+        name: string;
+    } | null;
 }): {
     id: string;
     name: string;
@@ -33,6 +37,16 @@ export declare function publicSite(site: ContentSource & {
         lastDeliveryAt: Date | null;
     };
     articles: number;
+    pause: {
+        since: Date;
+        reason: string | null;
+        relay: {
+            id: string;
+            name: string;
+        } | null;
+        redirectSince: Date | null;
+        redirectError: string | null;
+    } | null;
     createdAt: Date;
 };
 export declare function pluginBlocker(state: PluginState): string | null;
@@ -62,9 +76,31 @@ export declare class SitesService {
             lastDeliveryAt: Date | null;
         };
         articles: number;
+        pause: {
+            since: Date;
+            reason: string | null;
+            relay: {
+                id: string;
+                name: string;
+            } | null;
+            redirectSince: Date | null;
+            redirectError: string | null;
+        } | null;
         createdAt: Date;
     }[]>;
     targets(acting: CurrentUser | null): Promise<{
+        engagement: {
+            languages: {
+                code: string;
+                name: string;
+                groups: number;
+                categories: Array<{
+                    id: string;
+                    name: string;
+                    groups: number;
+                }>;
+            }[];
+        };
         sites: {
             id: string;
             name: string;
@@ -73,6 +109,11 @@ export declare class SitesService {
             plugin: import("@prisma/client").$Enums.PluginState;
             ready: boolean;
             reason: string | null;
+            languages: {
+                code: string;
+                name: string;
+                groups: number;
+            }[];
         }[];
     }>;
     findOne(id: string, acting: CurrentUser | null): Promise<{
@@ -93,6 +134,16 @@ export declare class SitesService {
             lastDeliveryAt: Date | null;
         };
         articles: number;
+        pause: {
+            since: Date;
+            reason: string | null;
+            relay: {
+                id: string;
+                name: string;
+            } | null;
+            redirectSince: Date | null;
+            redirectError: string | null;
+        } | null;
         createdAt: Date;
     }>;
     create(dto: CreateSiteDto, owner: CurrentUser | null): Promise<{
@@ -113,6 +164,16 @@ export declare class SitesService {
             lastDeliveryAt: Date | null;
         };
         articles: number;
+        pause: {
+            since: Date;
+            reason: string | null;
+            relay: {
+                id: string;
+                name: string;
+            } | null;
+            redirectSince: Date | null;
+            redirectError: string | null;
+        } | null;
         createdAt: Date;
     }>;
     update(id: string, dto: UpdateSiteDto, acting: CurrentUser | null): Promise<{
@@ -133,11 +194,34 @@ export declare class SitesService {
             lastDeliveryAt: Date | null;
         };
         articles: number;
+        pause: {
+            since: Date;
+            reason: string | null;
+            relay: {
+                id: string;
+                name: string;
+            } | null;
+            redirectSince: Date | null;
+            redirectError: string | null;
+        } | null;
         createdAt: Date;
     }>;
     remove(id: string, acting: CurrentUser | null): Promise<{
         deleted: boolean;
     }>;
     private load;
+    pluginKey(id: string, acting: CurrentUser | null): Promise<{
+        siteId: string;
+        originUrl: string;
+        key: string | null;
+        endpoint: string;
+    }>;
+    regeneratePluginKey(id: string, acting: CurrentUser | null): Promise<{
+        siteId: string;
+        originUrl: string;
+        key: string;
+        endpoint: string;
+    }>;
+    private endpoint;
     private owned;
 }

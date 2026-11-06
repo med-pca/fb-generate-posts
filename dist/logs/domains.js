@@ -21,12 +21,12 @@ exports.LOG_DOMAINS = {
     },
     security: {
         label: 'Sécurité',
-        prefixes: ['AUTH_'],
+        prefixes: ['AUTH_', 'EXTENSION_'],
         exact: [],
     },
     groups: {
         label: 'Groupes & pilotage',
-        prefixes: ['GROUP_JOIN', 'BROWSER_', 'RUNNER_', 'MEMBER_', 'PROFILE_'],
+        prefixes: ['GROUP_JOIN', 'BROWSER_', 'RUNNER_', 'MEMBER_', 'PROFILE_', 'GROUP_BULK', 'MODERATOR_'],
         exact: [],
     },
 };

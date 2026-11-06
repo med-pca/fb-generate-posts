@@ -37,7 +37,9 @@ let ControlController = class ControlController {
     autoPair(dto, acting, apiKey) {
         return this.runners.autoPair(dto.profileExternalId, dto.name, acting, apiKey);
     }
-    launcher(acting) {
+    launcher(acting, agent, version, os, running) {
+        if (agent)
+            void this.runners.noteAgent(acting, { host: agent, version, os, running: Number(running) || 0 });
         return this.runners.launcherPlan(acting);
     }
     syncProfiles(dto, acting) {
@@ -69,7 +71,7 @@ __decorate([
         description: 'Un seul aller-retour par minute : un état sans ordre obligerait à un ' +
             'second appel, un ordre sans état laisserait l’admin aveugle.',
     }),
-    openapi.ApiResponse({ status: 201, type: Object }),
+    openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Param)('profileExternalId')),
     __param(1, (0, common_1.Body)()),
     __param(2, (0, current_user_1.ActingUser)()),
@@ -95,6 +97,10 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], ControlController.prototype, "autoPair", null);
 __decorate([
+    openapi.ApiQuery({ name: "agent", required: false }),
+    openapi.ApiQuery({ name: "version", required: false }),
+    openapi.ApiQuery({ name: "os", required: false }),
+    openapi.ApiQuery({ name: "running", required: false }),
     (0, common_1.Get)('launcher'),
     (0, swagger_1.ApiOperation)({
         summary: 'Quels navigateurs ouvrir, lesquels refermer',
@@ -104,8 +110,12 @@ __decorate([
     }),
     openapi.ApiResponse({ status: 200 }),
     __param(0, (0, current_user_1.ActingUser)()),
+    __param(1, (0, common_1.Query)('agent')),
+    __param(2, (0, common_1.Query)('version')),
+    __param(3, (0, common_1.Query)('os')),
+    __param(4, (0, common_1.Query)('running')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], ControlController.prototype, "launcher", null);
 __decorate([
@@ -116,7 +126,7 @@ __decorate([
             'créés au nom du compte de la clé (sans propriétaire avec la clé ' +
             'globale). Rien n’est renommé ni supprimé.',
     }),
-    openapi.ApiResponse({ status: 201 }),
+    openapi.ApiResponse({ status: 201, type: Object }),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),

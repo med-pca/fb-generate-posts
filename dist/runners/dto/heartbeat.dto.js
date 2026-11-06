@@ -23,8 +23,9 @@ class HeartbeatDto {
     agent;
     facebookUserId;
     facebookName;
+    sleepUntil;
     static _OPENAPI_METADATA_FACTORY() {
-        return { running: { required: false, type: () => Boolean }, phase: { required: false, type: () => String, maxLength: 40 }, message: { required: false, type: () => String, maxLength: 1000 }, published: { required: false, type: () => Number, minimum: 0 }, failed: { required: false, type: () => Number, minimum: 0 }, links: { required: false, type: () => Number, minimum: 0 }, agent: { required: false, type: () => String, maxLength: 200 }, facebookUserId: { required: false, type: () => String, pattern: "^\\d{5,20}$" }, facebookName: { required: false, type: () => String, maxLength: 200 } };
+        return { running: { required: false, type: () => Boolean }, phase: { required: false, type: () => String, maxLength: 40 }, message: { required: false, type: () => String, maxLength: 1000 }, published: { required: false, type: () => Number, minimum: 0 }, failed: { required: false, type: () => Number, minimum: 0 }, links: { required: false, type: () => Number, minimum: 0 }, agent: { required: false, type: () => String, maxLength: 200 }, facebookUserId: { required: false, type: () => String, pattern: "^\\d{5,20}$" }, facebookName: { required: false, type: () => String, maxLength: 200 }, sleepUntil: { required: false, type: () => String } };
     }
 }
 exports.HeartbeatDto = HeartbeatDto;
@@ -89,4 +90,10 @@ __decorate([
     (0, class_validator_1.MaxLength)(200),
     __metadata("design:type", String)
 ], HeartbeatDto.prototype, "facebookName", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ example: '2026-10-04T14:05:00.000Z' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsISO8601)(),
+    __metadata("design:type", String)
+], HeartbeatDto.prototype, "sleepUntil", void 0);
 //# sourceMappingURL=heartbeat.dto.js.map

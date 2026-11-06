@@ -14,8 +14,10 @@ const openapi = require("@nestjs/swagger");
 const class_validator_1 = require("class-validator");
 class FailJobItemDto {
     error;
+    requeue;
+    blocked;
     static _OPENAPI_METADATA_FACTORY() {
-        return { error: { required: true, type: () => String } };
+        return { error: { required: true, type: () => String }, requeue: { required: false, type: () => Boolean }, blocked: { required: false, type: () => Boolean } };
     }
 }
 exports.FailJobItemDto = FailJobItemDto;
@@ -23,4 +25,14 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], FailJobItemDto.prototype, "error", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], FailJobItemDto.prototype, "requeue", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], FailJobItemDto.prototype, "blocked", void 0);
 //# sourceMappingURL=fail-job-item.dto.js.map

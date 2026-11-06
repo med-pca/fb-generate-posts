@@ -24,6 +24,16 @@ export declare class SitesController {
             lastDeliveryAt: Date | null;
         };
         articles: number;
+        pause: {
+            since: Date;
+            reason: string | null;
+            relay: {
+                id: string;
+                name: string;
+            } | null;
+            redirectSince: Date | null;
+            redirectError: string | null;
+        } | null;
         createdAt: Date;
     }[]>;
     check(id: string, acting: CurrentUser): Promise<{
@@ -44,6 +54,16 @@ export declare class SitesController {
             lastDeliveryAt: Date | null;
         };
         articles: number;
+        pause: {
+            since: Date;
+            reason: string | null;
+            relay: {
+                id: string;
+                name: string;
+            } | null;
+            redirectSince: Date | null;
+            redirectError: string | null;
+        } | null;
         createdAt: Date;
     }>;
     findAll(acting: CurrentUser): Promise<{
@@ -64,6 +84,16 @@ export declare class SitesController {
             lastDeliveryAt: Date | null;
         };
         articles: number;
+        pause: {
+            since: Date;
+            reason: string | null;
+            relay: {
+                id: string;
+                name: string;
+            } | null;
+            redirectSince: Date | null;
+            redirectError: string | null;
+        } | null;
         createdAt: Date;
     }[]>;
     create(dto: CreateSiteDto, acting: CurrentUser): Promise<{
@@ -84,6 +114,16 @@ export declare class SitesController {
             lastDeliveryAt: Date | null;
         };
         articles: number;
+        pause: {
+            since: Date;
+            reason: string | null;
+            relay: {
+                id: string;
+                name: string;
+            } | null;
+            redirectSince: Date | null;
+            redirectError: string | null;
+        } | null;
         createdAt: Date;
     }>;
     update(id: string, dto: UpdateSiteDto, acting: CurrentUser): Promise<{
@@ -104,7 +144,29 @@ export declare class SitesController {
             lastDeliveryAt: Date | null;
         };
         articles: number;
+        pause: {
+            since: Date;
+            reason: string | null;
+            relay: {
+                id: string;
+                name: string;
+            } | null;
+            redirectSince: Date | null;
+            redirectError: string | null;
+        } | null;
         createdAt: Date;
+    }>;
+    pluginKey(id: string, acting: CurrentUser): Promise<{
+        siteId: string;
+        originUrl: string;
+        key: string | null;
+        endpoint: string;
+    }>;
+    regeneratePluginKey(id: string, acting: CurrentUser): Promise<{
+        siteId: string;
+        originUrl: string;
+        key: string;
+        endpoint: string;
     }>;
     remove(id: string, acting: CurrentUser): Promise<{
         deleted: boolean;
@@ -114,6 +176,18 @@ export declare class SiteTargetsController {
     private readonly sites;
     constructor(sites: SitesService);
     targets(acting: CurrentUser | null): Promise<{
+        engagement: {
+            languages: {
+                code: string;
+                name: string;
+                groups: number;
+                categories: {
+                    id: string;
+                    name: string;
+                    groups: number;
+                }[];
+            }[];
+        };
         sites: {
             id: string;
             name: string;
@@ -122,6 +196,11 @@ export declare class SiteTargetsController {
             plugin: import("@prisma/client").$Enums.PluginState;
             ready: boolean;
             reason: string | null;
+            languages: {
+                code: string;
+                name: string;
+                groups: number;
+            }[];
         }[];
     }>;
 }

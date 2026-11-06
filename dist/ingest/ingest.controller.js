@@ -17,15 +17,35 @@ const openapi = require("@nestjs/swagger");
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const admin_auth_guard_1 = require("../auth/admin-auth.guard");
+const admin_role_guard_1 = require("../auth/admin-role.guard");
+const prisma_service_1 = require("../prisma/prisma.service");
+const image_provider_dto_1 = require("./dto/image-provider.dto");
 const current_user_1 = require("../auth/current-user");
 const pagination_dto_1 = require("../common/dto/pagination.dto");
 const create_ingest_dto_1 = require("./dto/create-ingest.dto");
 const scrape_result_dto_1 = require("./dto/scrape-result.dto");
 const ingest_service_1 = require("./ingest.service");
+const image_translator_service_1 = require("./image-translator.service");
 let IngestController = class IngestController {
     ingest;
-    constructor(ingest) {
+    images;
+    prisma;
+    constructor(ingest, images, prisma) {
         this.ingest = ingest;
+        this.images = images;
+        this.prisma = prisma;
+    }
+    async imageProviders() {
+        await this.images.load();
+        return { providers: this.images.providers(), languages: { ...image_translator_service_1.LANGUAGES } };
+    }
+    async configureImageProvider(name, dto, acting) {
+        const out = await this.images.configure(name, dto, acting?.username ?? null);
+        const changed = [dto.clearKey ? 'clé effacée' : dto.apiKey ? `clé ${out?.keyHint}` : '', dto.model !== undefined ? `modèle ${out?.model}` : '', dto.baseUrl !== undefined ? `adresse ${out?.baseUrl}` : ''].filter(Boolean).join(', ');
+        await this.prisma.activityLog
+            .create({ data: { eventType: 'IMAGE_PROVIDER_CONFIGURED', message: `IA d’image « ${out?.label} » réglée${changed ? ` : ${changed}` : ''}`, metadata: { provider: name, by: acting?.username ?? null } } })
+            .catch(() => undefined);
+        return out;
     }
     create(dto, acting) {
         return this.ingest.create(dto, acting);
@@ -48,6 +68,26 @@ let IngestController = class IngestController {
     }
 };
 exports.IngestController = IngestController;
+__decorate([
+    (0, common_1.Get)('image-providers'),
+    (0, swagger_1.ApiOperation)({ summary: 'IA d’image (mode « engagement ») : celles configurées sur le serveur, et les langues' }),
+    openapi.ApiResponse({ status: 200 }),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], IngestController.prototype, "imageProviders", null);
+__decorate([
+    (0, common_1.Put)('image-providers/:name'),
+    (0, common_1.UseGuards)(admin_role_guard_1.AdminRoleGuard),
+    (0, swagger_1.ApiOperation)({ summary: 'Régler une IA d’image (clé, modèle, adresse) depuis la plateforme — ADMIN ; la clé n’est jamais renvoyée' }),
+    openapi.ApiResponse({ status: 200 }),
+    __param(0, (0, common_1.Param)('name')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_1.ActingUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, image_provider_dto_1.ImageProviderDto, Object]),
+    __metadata("design:returntype", Promise)
+], IngestController.prototype, "configureImageProvider", null);
 __decorate([
     (0, common_1.Post)(),
     (0, swagger_1.ApiOperation)({
@@ -121,6 +161,8 @@ exports.IngestController = IngestController = __decorate([
     (0, swagger_1.ApiBearerAuth)(),
     (0, common_1.UseGuards)(admin_auth_guard_1.AdminAuthGuard),
     (0, common_1.Controller)('admin/ingest'),
-    __metadata("design:paramtypes", [ingest_service_1.IngestService])
+    __metadata("design:paramtypes", [ingest_service_1.IngestService,
+        image_translator_service_1.ImageTranslatorService,
+        prisma_service_1.PrismaService])
 ], IngestController);
 //# sourceMappingURL=ingest.controller.js.map

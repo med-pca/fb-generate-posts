@@ -28,8 +28,8 @@ let LogsController = class LogsController {
     constructor(logs) {
         this.logs = logs;
     }
-    create(dto) {
-        return this.logs.create(dto);
+    create(dto, acting) {
+        return this.logs.create(dto, acting);
     }
     findAll(acting, profileId) {
         return this.logs.findAll(profileId, acting);
@@ -40,8 +40,9 @@ __decorate([
     (0, common_1.Post)(),
     openapi.ApiResponse({ status: 201 }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_1.ActingUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [create_log_dto_1.CreateLogDto]),
+    __metadata("design:paramtypes", [create_log_dto_1.CreateLogDto, Object]),
     __metadata("design:returntype", void 0)
 ], LogsController.prototype, "create", null);
 __decorate([

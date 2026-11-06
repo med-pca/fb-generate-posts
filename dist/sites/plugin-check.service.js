@@ -28,10 +28,17 @@ function classifyPluginResponse(status, body, delivers = false) {
         return {
             state: client_1.PluginState.CONNECTED,
             version: json.version ?? null,
-            message: json.endpointConfigured
+            message: (json.endpointConfigured
                 ? 'Extension active, clé acceptée'
                 : 'Extension active, mais l’URL de l’API n’est pas renseignée dans ses réglages : ' +
-                    'elle ne nous enverra pas ses articles',
+                    'elle ne nous enverra pas ses articles') +
+                (json.pending
+                    ? ` · ${json.pending} article(s) que le site n’arrive pas à envoyer` +
+                        (json.lastError ? ` (${json.lastError})` : '') +
+                        (json.cronDisabled ? ' — WP-Cron est désactivé sur ce site' : '') +
+                        (json.endpoint ? ` — URL de réception réglée : ${json.endpoint}` : '') +
+                        ' : la plateforme les récupère elle-même'
+                    : ''),
         };
     }
     if (typeof json.code === 'string' && json.code.startsWith('dfb_')) {

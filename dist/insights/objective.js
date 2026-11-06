@@ -1,8 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.PUBLISH_MINUTES = void 0;
 exports.windowLength = windowLength;
 exports.minutesIntoWindow = minutesIntoWindow;
 exports.pace = pace;
+exports.adaptiveGap = adaptiveGap;
 function windowLength(start, end) {
     if (start === end)
         return 1440;
@@ -61,5 +63,17 @@ function pace(input) {
         neededPerHour,
         projection,
     };
+}
+exports.PUBLISH_MINUTES = 3;
+function adaptiveGap(input) {
+    const { neededPerHour, ratePerHour, profiles, minGap, status } = input;
+    if (!neededPerHour || profiles < 1)
+        return null;
+    if (!['late', 'on_track', 'ahead'].includes(status))
+        return null;
+    if (status === 'ahead' && ratePerHour >= neededPerHour)
+        return null;
+    const every = (60 * profiles) / neededPerHour;
+    return Math.max(minGap, Math.floor(every - exports.PUBLISH_MINUTES));
 }
 //# sourceMappingURL=objective.js.map

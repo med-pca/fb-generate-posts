@@ -9,16 +9,25 @@ export declare const TRACE_KINDS: {
     readonly MARKED_PUBLISHED: "Marqué publié à la main";
     readonly URL_SET: "Adresse Facebook enregistrée";
     readonly URL_FOUND: "Adresse retrouvée par le vérificateur";
+    readonly URL_ATTACHED: "Lien collé à la main : publication retrouvée et complétée";
     readonly VERIFIED_OK: "Vérifié : en ligne avec son lien";
     readonly VERIFY_PENDING: "Vérifié : en attente de validation";
+    readonly APPROVAL_PENDING: "Soumis : en attente de validation par l’administrateur du groupe";
+    readonly APPROVED: "Validé par l’administrateur du groupe : visible";
+    readonly NOT_APPROVED: "Non validé en 24 h";
     readonly VERIFY_UNREACHABLE: "Vérification impossible";
     readonly VERIFY_MISSING_POST: "Vérifié : introuvable";
     readonly VERIFY_MISSING_LINK: "Vérifié : en ligne sans son lien";
     readonly DELETED: "Supprimé par le vérificateur";
     readonly DELETE_FAILED: "Suppression impossible";
     readonly REQUEUED: "Remis dans la file";
+    readonly REPEAT_QUEUED: "Republication programmée (duplication)";
+    readonly RECREATED: "Recréé à la main depuis l’article";
     readonly NEEDS_ACTION: "À traiter";
     readonly RESOLVED_OK: "Validé à la main";
+    readonly RESCUE_REQUESTED: "🛟 Lien manquant : sauvetage demandé à un autre profil du groupe";
+    readonly RESCUED: "🛟 Lien posé par un profil sauveteur";
+    readonly RESCUE_FAILED: "🛟 Sauvetage impossible : le vérificateur reprend la main";
 };
 export type TraceKind = keyof typeof TRACE_KINDS;
 export type TraceInput = {
@@ -41,8 +50,10 @@ export declare function trace(client: Client, input: TraceInput): Prisma.Prisma_
     postTargetId: string;
     jobId: string | null;
     kind: string;
-    actor: string | null;
     detail: string | null;
+    actor: string | null;
 }, never, import("@prisma/client/runtime/library").DefaultArgs, Prisma.PrismaClientOptions>;
+export declare function canonicalGroupPostUrl(raw: string | null | undefined): string | null;
+export declare function groupKeyOf(raw: string | null | undefined): string | null;
 export declare function normalizeFacebookUrl(raw: string | null | undefined): string | null;
 export {};

@@ -24,6 +24,7 @@ export declare function wordpressArticleFields(dto: WordpressArticleDto): {
         imageUrl?: string;
         publishedAt: string;
         ingestRef?: string;
+        copyRef?: string;
     };
 };
 export declare function facebookCaption(text: string): string;
@@ -33,6 +34,7 @@ export declare function ingestArticleFields(fields: ReturnType<typeof wordpressA
         caption?: string;
         hashtags?: string[];
     } | null;
+    mode?: string | null;
 } | null): {
     title: string;
     articleUrl: string;
@@ -54,6 +56,7 @@ export declare function ingestArticleFields(fields: ReturnType<typeof wordpressA
         imageUrl?: string;
         publishedAt: string;
         ingestRef?: string;
+        copyRef?: string;
     };
 } | {
     captions: {
@@ -77,6 +80,7 @@ export declare function ingestArticleFields(fields: ReturnType<typeof wordpressA
         imageUrl?: string;
         publishedAt: string;
         ingestRef?: string;
+        copyRef?: string;
     };
 };
 export declare class WordpressService {
@@ -97,9 +101,19 @@ export declare class WordpressService {
     private ignoreIfPaused;
     private trace;
     private receive;
+    private moveCopiedPosts;
     private deliveryState;
     private audience;
     private ingestFor;
+    private ingestByArticle;
+    attachCapture(ingestId: string): Promise<{
+        attached: true;
+        articleId: string;
+        title: string;
+        synchronized: number;
+    } | {
+        attached: false;
+    }>;
     private closeIngest;
     private synchronize;
     private hasChanges;

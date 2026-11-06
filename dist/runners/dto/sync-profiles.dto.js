@@ -17,8 +17,10 @@ const class_validator_1 = require("class-validator");
 class NstProfileDto {
     externalId;
     name;
+    groupId;
+    groupName;
     static _OPENAPI_METADATA_FACTORY() {
-        return { externalId: { required: true, type: () => String, minLength: 1, maxLength: 200 }, name: { required: true, type: () => String, maxLength: 200 } };
+        return { externalId: { required: true, type: () => String, minLength: 1, maxLength: 200 }, name: { required: true, type: () => String, maxLength: 200 }, groupId: { required: false, type: () => String, maxLength: 200 }, groupName: { required: false, type: () => String, maxLength: 200 } };
     }
 }
 exports.NstProfileDto = NstProfileDto;
@@ -35,6 +37,20 @@ __decorate([
     (0, class_validator_1.MaxLength)(200),
     __metadata("design:type", String)
 ], NstProfileDto.prototype, "name", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ example: '0b9f…' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(200),
+    __metadata("design:type", String)
+], NstProfileDto.prototype, "groupId", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ example: 'Équipe A' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(200),
+    __metadata("design:type", String)
+], NstProfileDto.prototype, "groupName", void 0);
 class SyncProfilesDto {
     profiles;
     static _OPENAPI_METADATA_FACTORY() {

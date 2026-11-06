@@ -6,8 +6,12 @@ const platform_fastify_1 = require("@nestjs/platform-fastify");
 const swagger_1 = require("@nestjs/swagger");
 const app_module_1 = require("./app.module");
 const web_1 = require("./web/web");
+const perf_service_1 = require("./perf/perf.service");
+const short_cache_service_1 = require("./perf/short-cache.service");
 async function bootstrap() {
-    const app = await core_1.NestFactory.create(app_module_1.AppModule, new platform_fastify_1.FastifyAdapter());
+    const app = await core_1.NestFactory.create(app_module_1.AppModule, new platform_fastify_1.FastifyAdapter({ bodyLimit: 15 * 1024 * 1024 }));
+    app.get(perf_service_1.PerfService).register(app.getHttpAdapter().getInstance());
+    app.get(short_cache_service_1.ShortCacheService).register(app.getHttpAdapter().getInstance());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(new common_1.ValidationPipe({ whitelist: true, transform: true }));
     (0, web_1.registerWeb)(app);

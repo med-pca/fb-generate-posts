@@ -14,6 +14,7 @@ export declare class AuthService {
         status: import("@prisma/client").$Enums.RecordStatus;
         automationKey: string;
         nstApiKey: string | null;
+        topArticles: boolean;
         updatedAt: Date;
     }>;
     private authenticate;

@@ -11,6 +11,7 @@ const common_1 = require("@nestjs/common");
 const profiles_controller_1 = require("./profiles.controller");
 const profiles_service_1 = require("./profiles.service");
 const profile_health_service_1 = require("./profile-health.service");
+const profile_overview_service_1 = require("./profile-overview.service");
 const jobs_module_1 = require("../jobs/jobs.module");
 let ProfilesModule = class ProfilesModule {
 };
@@ -19,7 +20,7 @@ exports.ProfilesModule = ProfilesModule = __decorate([
     (0, common_1.Module)({
         imports: [jobs_module_1.JobsModule],
         controllers: [profiles_controller_1.ProfilesController],
-        providers: [profiles_service_1.ProfilesService, profile_health_service_1.ProfileHealthService],
+        providers: [profiles_service_1.ProfilesService, profile_health_service_1.ProfileHealthService, profile_overview_service_1.ProfileOverviewService],
         exports: [profile_health_service_1.ProfileHealthService],
     })
 ], ProfilesModule);

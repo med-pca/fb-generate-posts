@@ -8,13 +8,19 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.QueueService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const scope_1 = require("../auth/scope");
+const rescue_service_1 = require("../jobs/rescue.service");
 const jobs_service_1 = require("../jobs/jobs.service");
+const claimable_1 = require("../jobs/claimable");
+const link_why_1 = require("./link-why");
 const trace_1 = require("../trace/trace");
 const POST_FIELDS = {
     id: true,
@@ -23,7 +29,12 @@ const POST_FIELDS = {
     imageUrl: true,
     priority: true,
     createdAt: true,
-    article: { select: { id: true, title: true } },
+    article: { select: { id: true, title: true, source: { select: { access: { select: { userId: true } } } } } },
+    visualId: true,
+    noComment: true,
+    ownerId: true,
+    profileId: true,
+    owner: { select: { role: true } },
 };
 const GROUP_FIELDS = {
     id: true,
@@ -32,12 +43,18 @@ const GROUP_FIELDS = {
     category: { select: { id: true, name: true } },
 };
 const PROFILE_FIELDS = { id: true, name: true, externalId: true };
+function candidatesFor(post, group) {
+    return group.profiles
+        .map(({ profile }) => profile)
+        .filter((p) => (0, jobs_service_1.mayPublishPost)(p, post))
+        .map(({ id, name, externalId }) => ({ id, name, externalId }));
+}
 const GROUP_WITH_CANDIDATES = {
     select: {
         ...GROUP_FIELDS,
         profiles: {
             where: { status: 'ACTIVE', joinStatus: 'JOINED' },
-            select: { profile: { select: PROFILE_FIELDS } },
+            select: { profile: { select: { ...PROFILE_FIELDS, ownerId: true, owner: { select: { role: true } } } } },
         },
         _count: {
             select: {
@@ -54,12 +71,16 @@ const GROUP_WITH_CANDIDATES = {
 const by = (acting) => acting?.username ?? 'clé globale';
 let QueueService = class QueueService {
     prisma;
-    constructor(prisma) {
+    rescue;
+    constructor(prisma, rescue) {
         this.prisma = prisma;
+        this.rescue = rescue;
     }
     async queue(query, acting) {
         const now = new Date();
-        const scope = (0, scope_1.postWhere)((0, scope_1.scopeOf)(acting));
+        const scope = query.siteId
+            ? { AND: [(0, scope_1.postWhere)((0, scope_1.scopeOf)(acting)), { article: { sourceId: query.siteId } }] }
+            : (0, scope_1.postWhere)((0, scope_1.scopeOf)(acting));
         const group = query.categoryId
             ? { categoryId: query.categoryId }
             : {};
@@ -83,7 +104,7 @@ let QueueService = class QueueService {
                 AND: [
                     scope,
                     { status: 'AVAILABLE' },
-                    { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] },
+                    claimable_1.publishableArticleWhere,
                 ],
             },
         };
@@ -125,6 +146,7 @@ let QueueService = class QueueService {
                 where: upcoming,
                 orderBy: [
                     { forcedProfileId: { sort: 'asc', nulls: 'last' } },
+                    { group: { priority: 'desc' } },
                     { post: { priority: 'desc' } },
                     { post: { createdAt: 'asc' } },
                     { createdAt: 'asc' },
@@ -133,6 +155,8 @@ let QueueService = class QueueService {
                 select: {
                     id: true,
                     forcedAt: true,
+                    repeatRound: true,
+                    avoidProfileId: true,
                     forcedProfile: { select: PROFILE_FIELDS },
                     post: { select: POST_FIELDS },
                     group: GROUP_WITH_CANDIDATES,
@@ -173,7 +197,11 @@ let QueueService = class QueueService {
                     verifiedAt: true,
                     verifyDetail: true,
                     republishCount: true,
+                    repeatRound: true,
                     facebookUrl: true,
+                    approvalPendingSince: true,
+                    rescueStatus: true,
+                    rescueDetail: true,
                     post: { select: { ...POST_FIELDS, url: true } },
                     group: { select: GROUP_FIELDS },
                     jobItems: {
@@ -182,6 +210,7 @@ let QueueService = class QueueService {
                         take: 1,
                         select: {
                             externalPostUrl: true,
+                            error: true,
                             publishedAt: true,
                             job: { select: { profile: { select: PROFILE_FIELDS } } },
                         },
@@ -200,6 +229,12 @@ let QueueService = class QueueService {
             void profiles;
             return { ...rest, pendingJoins: _count.profiles };
         };
+        const own = (0, scope_1.scopeOf)(acting);
+        const mine = own
+            ? new Set((await this.prisma.profile.findMany({ where: { ownerId: own.ownerId }, select: { id: true } })).map((p) => p.id))
+            : null;
+        const visible = (p) => !p || !mine || mine.has(p.id) ? p ?? null : { id: null, name: 'Profil d’un autre compte', externalId: null };
+        const candidates = (post, group) => candidatesFor(post, group).filter((p) => !mine || mine.has(p.id));
         return {
             counts: {
                 running: counts[0],
@@ -214,7 +249,7 @@ let QueueService = class QueueService {
                 expiresAt: row.claimExpiresAt,
                 post: row.post,
                 group: row.group,
-                profile: row.jobItems[0]?.job.profile ?? null,
+                profile: visible(row.jobItems[0]?.job.profile),
                 jobId: row.jobItems[0]?.job.id ?? null,
             })),
             upcoming: upcomingRows.map((row, index) => ({
@@ -222,9 +257,11 @@ let QueueService = class QueueService {
                 targetId: row.id,
                 post: row.post,
                 group: withoutCandidates(row.group),
-                candidates: row.group.profiles.map(({ profile }) => profile),
-                forcedProfile: row.forcedProfile,
+                candidates: candidates(row.post, row.group).filter((p) => p.id !== row.avoidProfileId),
+                avoidProfile: visible(row.group.profiles.map(({ profile }) => profile).find((p) => p.id === row.avoidProfileId)),
+                forcedProfile: visible(row.forcedProfile),
                 forcedAt: row.forcedAt,
+                repeatRound: row.repeatRound,
             })),
             failed: failedRows.map((row) => ({
                 targetId: row.id,
@@ -233,8 +270,8 @@ let QueueService = class QueueService {
                 error: row.lastError ?? row.jobItems[0]?.error ?? 'Échec sans message',
                 post: row.post,
                 group: withoutCandidates(row.group),
-                profile: row.jobItems[0]?.job.profile ?? null,
-                candidates: row.group.profiles.map(({ profile }) => profile),
+                profile: visible(row.jobItems[0]?.job.profile),
+                candidates: candidates(row.post, row.group),
             })),
             published: publishedRows.map((row) => {
                 const item = row.jobItems[0];
@@ -243,8 +280,9 @@ let QueueService = class QueueService {
                     publishedAt: row.publishedAt ?? item?.publishedAt ?? null,
                     post: row.post,
                     group: row.group,
-                    profile: item?.job.profile ?? null,
+                    profile: visible(item?.job.profile),
                     facebookUrl: row.facebookUrl ?? item?.externalPostUrl ?? null,
+                    repeatRound: row.repeatRound,
                     verify: {
                         status: row.verifyStatus,
                         at: row.verifiedAt,
@@ -258,6 +296,9 @@ let QueueService = class QueueService {
                             : row.post.url
                                 ? 'missing'
                                 : 'none',
+                    why: !row.linkUpdatedAt && !row.commentedAt && row.post.url
+                        ? (0, link_why_1.missingWhy)({ ...row, facebookUrl: row.facebookUrl ?? item?.externalPostUrl ?? null })
+                        : null,
                 };
             }),
         };
@@ -349,7 +390,7 @@ let QueueService = class QueueService {
         return { targetId: target.id, status: client_1.TargetStatus.PUBLISHED };
     }
     facebookUrl(raw) {
-        const url = (0, trace_1.normalizeFacebookUrl)(raw);
+        const url = (0, trace_1.normalizeFacebookUrl)((0, trace_1.canonicalGroupPostUrl)(raw) ?? raw);
         if (!url)
             throw new common_1.BadRequestException('Ce n’est pas une adresse de post Facebook');
         return url;
@@ -395,6 +436,7 @@ let QueueService = class QueueService {
                 verifyDetail: true,
                 verifiedAt: true,
                 republishCount: true,
+                repeatRound: true,
                 attemptsCount: true,
                 post: { select: { id: true, title: true, imageUrl: true, url: true } },
                 group: { select: { id: true, name: true, url: true } },
@@ -463,6 +505,134 @@ let QueueService = class QueueService {
         });
         return rows.map((r) => ({ ...r, targetId: r.id, current: r.facebookUrl === url }));
     }
+    attachableWhere(groupIds, acting) {
+        return {
+            groupId: { in: groupIds },
+            post: (0, scope_1.postWhere)((0, scope_1.scopeOf)(acting)),
+            OR: [
+                { status: client_1.TargetStatus.PUBLISHED, facebookUrl: null },
+                { status: client_1.TargetStatus.FAILED },
+                { status: client_1.TargetStatus.AVAILABLE },
+                { status: client_1.TargetStatus.CLAIMED, claimExpiresAt: { lt: new Date() } },
+            ],
+        };
+    }
+    async attachUrl(rawUrl, targetId, acting) {
+        const url = this.facebookUrl(rawUrl);
+        const known = await this.findByUrl(url, acting);
+        if (known.length)
+            return { result: 'known', facebookUrl: url, targets: known };
+        const key = (0, trace_1.groupKeyOf)(url);
+        if (!key) {
+            throw new common_1.BadRequestException('Ce lien ne dit pas dans quel groupe est le post : ouvrez le post dans son groupe, puis copiez le lien de sa date (…/groups/…/posts/…) ou de sa photo');
+        }
+        const groups = (await this.prisma.group.findMany({
+            where: {
+                ...(0, scope_1.groupWhere)((0, scope_1.scopeOf)(acting)),
+                OR: [{ externalId: { equals: key, mode: 'insensitive' } }, { url: { contains: `/groups/${key}`, mode: 'insensitive' } }],
+            },
+            select: { id: true, name: true, url: true, externalId: true },
+        })).filter((g) => g.externalId?.toLowerCase() === key || (0, trace_1.groupKeyOf)(g.url) === key);
+        if (!groups.length)
+            throw new common_1.NotFoundException('Aucun de vos groupes ne correspond à ce lien');
+        const where = this.attachableWhere(groups.map((g) => g.id), acting);
+        if (targetId)
+            return this.attach(targetId, url, where, acting);
+        const rows = await this.prisma.postTarget.findMany({
+            where,
+            take: 50,
+            orderBy: { updatedAt: 'desc' },
+            select: {
+                id: true,
+                status: true,
+                publishedAt: true,
+                updatedAt: true,
+                lastError: true,
+                approvalPendingSince: true,
+                post: { select: { id: true, title: true, imageUrl: true } },
+                group: { select: { id: true, name: true } },
+            },
+        });
+        const rank = (s) => (s === client_1.TargetStatus.PUBLISHED ? 0 : s === client_1.TargetStatus.FAILED ? 1 : 2);
+        const candidates = rows
+            .sort((a, b) => rank(a.status) - rank(b.status) || b.updatedAt.getTime() - a.updatedAt.getTime())
+            .slice(0, 8)
+            .map(({ id, ...r }) => ({ ...r, targetId: id, missingLink: rank(r.status) < 2 }));
+        const missing = candidates.filter((c) => c.missingLink);
+        if (missing.length === 1)
+            return this.attach(missing[0].targetId, url, where, acting);
+        return { result: 'choose', facebookUrl: url, groups: groups.map((g) => g.name), candidates };
+    }
+    async attach(targetId, url, where, acting) {
+        const target = await this.prisma.postTarget.findFirst({
+            where: { AND: [where, { id: targetId }] },
+            select: {
+                id: true,
+                status: true,
+                postId: true,
+                groupId: true,
+                publishedAt: true,
+                linkUpdatedAt: true,
+                rescueStatus: true,
+                post: { select: { title: true, url: true, noComment: true } },
+                group: { select: { name: true } },
+            },
+        });
+        if (!target)
+            throw new common_1.NotFoundException('Cette publication ne peut pas recevoir ce lien');
+        const now = new Date();
+        await this.prisma.$transaction([
+            this.prisma.postTarget.update({
+                where: { id: target.id },
+                data: {
+                    status: client_1.TargetStatus.PUBLISHED,
+                    publishedAt: target.publishedAt ?? now,
+                    facebookUrl: url,
+                    lastError: null,
+                    claimedAt: null,
+                    claimExpiresAt: null,
+                    forcedProfileId: null,
+                    forcedAt: null,
+                    approvalPendingSince: null,
+                    verifyStatus: null,
+                    verifyDetail: null,
+                    verifyClaimedUntil: null,
+                    ...(target.rescueStatus === 'failed' ? { rescueStatus: null } : {}),
+                },
+            }),
+            (0, trace_1.trace)(this.prisma, {
+                postTargetId: target.id,
+                kind: 'URL_ATTACHED',
+                facebookUrl: url,
+                actor: by(acting),
+                detail: `était ${target.status}`,
+            }),
+            this.prisma.activityLog.create({
+                data: {
+                    postId: target.postId,
+                    groupId: target.groupId,
+                    postTargetId: target.id,
+                    facebookUrl: url,
+                    eventType: 'TARGET_URL_ATTACHED',
+                    message: `Lien collé à la main pour « ${target.post.title} » dans « ${target.group.name} » : ${url}`,
+                    metadata: { by: by(acting), previousStatus: target.status },
+                },
+            }),
+        ]);
+        let rescue = false;
+        if (target.post.url && !target.post.noComment && !target.linkUpdatedAt) {
+            rescue = (await this.rescue?.request(target.id, 'publié à la main : le lien de l’article reste à poser en commentaire', now).catch(() => false)) ?? false;
+        }
+        return {
+            result: 'attached',
+            facebookUrl: url,
+            targetId: target.id,
+            previousStatus: target.status,
+            post: { title: target.post.title },
+            group: { name: target.group.name },
+            rescue,
+        };
+    }
     async removeTarget(targetId, acting) {
         const target = await this.target(targetId, acting);
         if (this.locked(target)) {
@@ -511,6 +681,7 @@ let QueueService = class QueueService {
                 id: true,
                 name: true,
                 ownerId: true,
+                owner: { select: { role: true } },
                 runner: { select: { mode: true } },
                 profileGroups: {
                     where: {
@@ -603,6 +774,8 @@ let QueueService = class QueueService {
 exports.QueueService = QueueService;
 exports.QueueService = QueueService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __param(1, (0, common_1.Optional)()),
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        rescue_service_1.RescueService])
 ], QueueService);
 //# sourceMappingURL=queue.service.js.map

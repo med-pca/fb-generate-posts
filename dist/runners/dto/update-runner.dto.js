@@ -20,9 +20,12 @@ class UpdateRunnerDto {
     windowEnd;
     days;
     timezone;
+    dailyQuota;
+    cycleMaxPosts;
+    cyclePauseHours;
     settings;
     static _OPENAPI_METADATA_FACTORY() {
-        return { mode: { required: false, enum: ["OFF", "ON", "AUTO"] }, windowStart: { required: false, type: () => Number, nullable: true, minimum: 0, maximum: 1439 }, windowEnd: { required: false, type: () => Number, nullable: true, minimum: 0, maximum: 1439 }, days: { required: false, type: () => String, pattern: "^$|^[1-7](,[1-7])*$" }, timezone: { required: false, type: () => String, maxLength: 64 }, settings: { required: false, type: "object", additionalProperties: true, nullable: true } };
+        return { mode: { required: false, enum: ["OFF", "ON", "AUTO"] }, windowStart: { required: false, type: () => Number, nullable: true, minimum: 0, maximum: 1439 }, windowEnd: { required: false, type: () => Number, nullable: true, minimum: 0, maximum: 1439 }, days: { required: false, type: () => String, pattern: "^$|^[1-7](,[1-7])*$" }, timezone: { required: false, type: () => String, maxLength: 64 }, dailyQuota: { required: false, type: () => Number, nullable: true, minimum: 0, maximum: 1000 }, cycleMaxPosts: { required: false, type: () => Number, nullable: true, minimum: 0, maximum: 1000 }, cyclePauseHours: { required: false, type: () => Number, nullable: true, minimum: 1, maximum: 168 }, settings: { required: false, type: "object", additionalProperties: true, nullable: true } };
     }
 }
 exports.UpdateRunnerDto = UpdateRunnerDto;
@@ -64,6 +67,30 @@ __decorate([
     (0, class_validator_1.MaxLength)(64),
     __metadata("design:type", String)
 ], UpdateRunnerDto.prototype, "timezone", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ minimum: 0, maximum: 1000, nullable: true }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(0),
+    (0, class_validator_1.Max)(1000),
+    __metadata("design:type", Object)
+], UpdateRunnerDto.prototype, "dailyQuota", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ minimum: 0, maximum: 1000, nullable: true }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(0),
+    (0, class_validator_1.Max)(1000),
+    __metadata("design:type", Object)
+], UpdateRunnerDto.prototype, "cycleMaxPosts", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ minimum: 1, maximum: 168, nullable: true }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(168),
+    __metadata("design:type", Object)
+], UpdateRunnerDto.prototype, "cyclePauseHours", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({ type: 'object', additionalProperties: true }),
     (0, class_validator_1.IsOptional)(),

@@ -25,6 +25,14 @@ let SettingsService = class SettingsService {
         });
     }
     update(dto) {
+        if (dto.objectiveTimezone !== undefined) {
+            try {
+                new Intl.DateTimeFormat('fr-FR', { timeZone: dto.objectiveTimezone });
+            }
+            catch {
+                throw new common_1.BadRequestException(`Fuseau horaire inconnu : ${dto.objectiveTimezone}`);
+            }
+        }
         return this.prisma.automationSetting.upsert({
             where: { id: 'global' },
             create: { id: 'global', ...dto },

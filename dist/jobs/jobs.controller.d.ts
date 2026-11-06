@@ -5,10 +5,15 @@ import { CommentJobItemDto } from './dto/comment-job-item.dto';
 import { FailJobItemDto } from './dto/fail-job-item.dto';
 import { LinkUpdatedJobItemDto } from './dto/link-updated-job-item.dto';
 import { PublishJobItemDto } from './dto/publish-job-item.dto';
+import { ApprovalReportDto } from './dto/approval-report.dto';
+import { SuspensionReportDto } from './dto/suspension.dto';
 import { JobsService } from './jobs.service';
+import { RescueService } from './rescue.service';
+import { RescueReportDto } from './dto/rescue-report.dto';
 export declare class JobsController {
     private readonly jobs;
-    constructor(jobs: JobsService);
+    private readonly rescue;
+    constructor(jobs: JobsService, rescue: RescueService);
     listProfiles(acting: CurrentUser | null): import("@prisma/client").Prisma.PrismaPromise<{
         id: string;
         name: string;
@@ -34,6 +39,7 @@ export declare class JobsController {
             description: string;
             image: string | null;
             delay: number;
+            noComment: boolean;
             comment: {
                 text: string;
                 willReceiveLink: boolean;
@@ -47,6 +53,7 @@ export declare class JobsController {
             description: string;
             image: string | null;
             delay: number;
+            noComment: boolean;
             comment: {
                 text: string;
                 willReceiveLink: boolean;
@@ -89,6 +96,7 @@ export declare class JobsController {
                 description: string;
                 image: string | null;
                 delay: number;
+                noComment: boolean;
                 comment: {
                     text: string;
                     willReceiveLink: boolean;
@@ -142,6 +150,7 @@ export declare class JobsController {
             description: string;
             image: string | null;
             delay: number;
+            noComment: boolean;
             comment: {
                 text: string;
                 willReceiveLink: boolean;
@@ -155,6 +164,7 @@ export declare class JobsController {
             description: string;
             image: string | null;
             delay: number;
+            noComment: boolean;
             comment: {
                 text: string;
                 willReceiveLink: boolean;
@@ -164,6 +174,53 @@ export declare class JobsController {
         activeJobId?: string;
         reason?: import("./jobs.service").EmptyReason;
         diagnosis?: Record<string, unknown>;
+    }>;
+    suspended(profileExternalId: string, dto: SuspensionReportDto, acting: CurrentUser | null): Promise<{
+        kind: string;
+        released: number;
+        opened: number;
+    }>;
+    reconnected(profileExternalId: string, acting: CurrentUser | null): Promise<{
+        reconnected: boolean;
+        state: string;
+    }>;
+    rescuesDue(profileExternalId: string, acting: CurrentUser | null, limit?: string): Promise<{
+        targetId: string;
+        postId: string;
+        postUrl: string;
+        url: string;
+        title: string;
+        group: string;
+    }[]>;
+    rescueReport(targetId: string, dto: RescueReportDto, acting: CurrentUser | null): Promise<{
+        targetId: string;
+        result: string;
+    }>;
+    approvalsDue(profileExternalId: string, acting: CurrentUser | null, limit?: string): Promise<{
+        targetId: string;
+        jobId: string;
+        postId: string;
+        content: string;
+        willReceiveLink: boolean;
+        noComment: boolean;
+        group: {
+            name: string;
+            externalId: string | null;
+            url: string;
+        };
+        pendingSince: Date | null;
+        checks: number;
+    }[]>;
+    reportApproval(targetId: string, dto: ApprovalReportDto, acting: CurrentUser | null): Promise<{
+        result: string;
+        jobId?: undefined;
+        postId?: undefined;
+        externalPostUrl?: undefined;
+    } | {
+        result: string;
+        jobId: string;
+        postId: string;
+        externalPostUrl: string | null;
     }>;
     consumed(jobId: string, postId: string, acting: CurrentUser | null): Promise<{
         error: string | null;
@@ -179,6 +236,7 @@ export declare class JobsController {
         postTargetId: string;
         jobId: string;
         externalPostUrl: string | null;
+        campaignId: string | null;
     }>;
     published(jobId: string, postId: string, dto: PublishJobItemDto, acting: CurrentUser | null): Promise<{
         error: string | null;
@@ -194,6 +252,7 @@ export declare class JobsController {
         postTargetId: string;
         jobId: string;
         externalPostUrl: string | null;
+        campaignId: string | null;
     }>;
     failed(jobId: string, postId: string, dto: FailJobItemDto, acting: CurrentUser | null): Promise<{
         error: string | null;
@@ -209,6 +268,7 @@ export declare class JobsController {
         postTargetId: string;
         jobId: string;
         externalPostUrl: string | null;
+        campaignId: string | null;
     }>;
     commented(jobId: string, postId: string, dto: CommentJobItemDto, acting: CurrentUser | null): Promise<{
         url: string | null;
@@ -225,11 +285,13 @@ export declare class JobsController {
         postTargetId: string;
         jobId: string;
         externalPostUrl: string | null;
+        campaignId: string | null;
     }>;
     release(jobId: string, acting: CurrentUser | null): Promise<{
         jobId: string;
         released: number;
         inProgress: number;
+        interrupted: number;
         alreadyClosed: boolean;
     }>;
     complete(jobId: string, acting: CurrentUser | null): Promise<{
@@ -282,5 +344,6 @@ export declare class JobsController {
         postTargetId: string;
         jobId: string;
         externalPostUrl: string | null;
+        campaignId: string | null;
     }>;
 }

@@ -25,12 +25,21 @@ const settings_module_1 = require("./settings/settings.module");
 const auth_module_1 = require("./auth/auth.module");
 const ingest_module_1 = require("./ingest/ingest.module");
 const sites_module_1 = require("./sites/sites.module");
+const site_relay_module_1 = require("./site-relay/site-relay.module");
 const users_module_1 = require("./users/users.module");
 const access_module_1 = require("./access/access.module");
 const runners_module_1 = require("./runners/runners.module");
 const categories_module_1 = require("./categories/categories.module");
 const insights_module_1 = require("./insights/insights.module");
 const verify_module_1 = require("./verify/verify.module");
+const bulk_module_1 = require("./bulk/bulk.module");
+const moderators_module_1 = require("./moderators/moderators.module");
+const extensions_module_1 = require("./extensions/extensions.module");
+const languages_module_1 = require("./languages/languages.module");
+const campaigns_module_1 = require("./campaigns/campaigns.module");
+const analytics_module_1 = require("./analytics/analytics.module");
+const top_articles_module_1 = require("./top-articles/top-articles.module");
+const perf_module_1 = require("./perf/perf.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -52,12 +61,21 @@ exports.AppModule = AppModule = __decorate([
             wordpress_module_1.WordpressModule,
             ingest_module_1.IngestModule,
             sites_module_1.SitesModule,
+            site_relay_module_1.SiteRelayModule,
             users_module_1.UsersModule,
             access_module_1.AccessModule,
             runners_module_1.RunnersModule,
             categories_module_1.CategoriesModule,
             insights_module_1.InsightsModule,
             verify_module_1.VerifyModule,
+            bulk_module_1.BulkModule,
+            moderators_module_1.ModeratorsModule,
+            extensions_module_1.ExtensionsModule,
+            languages_module_1.LanguagesModule,
+            campaigns_module_1.CampaignsModule,
+            analytics_module_1.AnalyticsModule,
+            top_articles_module_1.TopArticlesModule,
+            perf_module_1.PerfModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],

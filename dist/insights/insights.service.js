@@ -8,14 +8,20 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.InsightsService = void 0;
 exports.startOfLocalDay = startOfLocalDay;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
+const campaigns_service_1 = require("../campaigns/campaigns.service");
 const scope_1 = require("../auth/scope");
 const window_1 = require("../runners/window");
+const jobs_service_1 = require("../jobs/jobs.service");
+const claimable_1 = require("../jobs/claimable");
 const objective_1 = require("./objective");
 const AT_WORK_SECONDS = 180;
 function startOfLocalDay(now, timeZone) {
@@ -27,8 +33,10 @@ function startOfLocalDay(now, timeZone) {
 }
 let InsightsService = class InsightsService {
     prisma;
-    constructor(prisma) {
+    campaigns;
+    constructor(prisma, campaigns) {
         this.prisma = prisma;
+        this.campaigns = campaigns;
     }
     settings() {
         return this.prisma.automationSetting.upsert({
@@ -46,7 +54,7 @@ let InsightsService = class InsightsService {
                 AND: [
                     scope,
                     { status: 'AVAILABLE' },
-                    { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] },
+                    claimable_1.publishableArticleWhere,
                 ],
             },
         };
@@ -98,7 +106,7 @@ let InsightsService = class InsightsService {
             logErrors,
             users,
             publishedToday,
-            dailyTarget: settings.dailyTarget,
+            dailyTarget: (await this.campaigns?.dailyTarget(now, scope ? scope.ownerId : undefined).catch(() => 0)) ?? 0,
         };
     }
     async profileStats(acting, now = new Date()) {
@@ -111,6 +119,7 @@ let InsightsService = class InsightsService {
             select: {
                 id: true,
                 ownerId: true,
+                owner: { select: { role: true } },
                 runner: {
                     select: {
                         mode: true,
@@ -141,7 +150,7 @@ let InsightsService = class InsightsService {
             where: { profileId: { in: ids }, status: 'ACTIVE', group: { status: 'ACTIVE' } },
             _count: { _all: true },
         });
-        const stocks = await Promise.all(profiles.map(async (profile) => {
+        const stocks = await inBatches(profiles, 5, async (profile) => {
             const count = await this.prisma.postTarget.count({
                 where: {
                     ...this.upcomingWhere(acting),
@@ -156,26 +165,14 @@ let InsightsService = class InsightsService {
                         AND: [
                             (0, scope_1.postWhere)(scope),
                             { status: 'AVAILABLE' },
-                            { OR: [{ articleId: null }, { article: { status: 'ACTIVE' } }] },
-                            {
-                                OR: [
-                                    { profileId: profile.id },
-                                    {
-                                        profileId: null,
-                                        OR: [
-                                            { ownerId: null },
-                                            { owner: { role: 'ADMIN' } },
-                                            ...(profile.ownerId ? [{ ownerId: profile.ownerId }] : []),
-                                        ],
-                                    },
-                                ],
-                            },
+                            claimable_1.publishableArticleWhere,
+                            (0, jobs_service_1.claimablePostWhere)(profile),
                         ],
                     },
                 },
             });
             return [profile.id, count];
-        }));
+        });
         const stockBy = new Map(stocks);
         const byProfile = new Map(rows.map((row) => [row.profile_id, row]));
         const result = {};
@@ -223,11 +220,12 @@ let InsightsService = class InsightsService {
                     status: client_1.TargetStatus.PUBLISHED,
                     publishedAt: { gte: dayStart },
                     job: (0, scope_1.jobWhere)(scope),
+                    postTarget: { approvalPendingSince: null },
                 },
                 select: {
                     publishedAt: true,
                     job: { select: { profileId: true } },
-                    postTarget: { select: { groupId: true } },
+                    postTarget: { select: { groupId: true, postId: true } },
                 },
             }),
             this.prisma.postTarget.groupBy({
@@ -294,8 +292,10 @@ let InsightsService = class InsightsService {
         }
         const stockBy = new Map(stockRows.map((row) => [row.groupId, row._count._all]));
         const nowMinutes = (0, window_1.localClock)(now, tz).minutes;
+        const owner = scope ? scope.ownerId : undefined;
+        const dailyTarget = (await this.campaigns?.dailyTarget(now, owner).catch(() => 0)) ?? 0;
         const result = (0, objective_1.pace)({
-            target: settings.dailyTarget,
+            target: dailyTarget,
             start: settings.objectiveStart,
             end: settings.objectiveEnd,
             nowMinutes,
@@ -365,7 +365,7 @@ let InsightsService = class InsightsService {
         const articlesNeeded = deficit && averagePostsPerArticle ? Math.ceil(deficit / averagePostsPerArticle) : 0;
         const participating = profiles.filter((p) => (p.runner?.mode ?? 'OFF') !== 'OFF' && p._count.profileGroups > 0);
         const share = participating.length
-            ? Math.ceil(settings.dailyTarget / participating.length)
+            ? Math.ceil(result.target / participating.length)
             : 0;
         const profileRows = profiles.map((p) => {
             const mode = p.runner?.mode ?? 'OFF';
@@ -383,9 +383,39 @@ let InsightsService = class InsightsService {
                 participating: mode !== 'OFF' && joined > 0,
             };
         });
+        const working = profiles.filter((p) => (p.runner?.mode ?? 'OFF') !== 'OFF' && p.runner?.running && p.runner.lastSeenAt && now.getTime() - p.runner.lastSeenAt.getTime() < AT_WORK_SECONDS * 1000).length;
+        const need = settings.adaptivePacing
+            ? await this.campaigns?.pacingNeed(now, owner).catch(() => null) ?? null
+            : null;
+        const gap = need
+            ? (0, objective_1.adaptiveGap)({ neededPerHour: need.neededPerHour, ratePerHour: need.ratePerHour, profiles: working, minGap: settings.minPostGapMinutes, status: need.status })
+            : null;
+        const pacing = {
+            enabled: settings.adaptivePacing,
+            minGap: settings.minPostGapMinutes,
+            profiles: working,
+            gapMinutes: gap,
+            maxPerHour: working ? Math.floor((60 * working) / (settings.minPostGapMinutes + objective_1.PUBLISH_MINUTES)) : 0,
+        };
+        const awaitingApproval = await this.prisma.postTarget.count({
+            where: { status: client_1.TargetStatus.PUBLISHED, approvalPendingSince: { not: null }, post: (0, scope_1.postWhere)(scope) },
+        });
+        const plan = await this.articlePlan({
+            target: result.target,
+            start: settings.objectiveStart,
+            end: settings.objectiveEnd,
+            nowMinutes,
+            postsPerArticle: averagePostsPerArticle,
+            publishableGroupIds: publishable.map((g) => g.id),
+            publishedPosts: [...new Set(items.map((i) => i.postTarget.postId))],
+            acting,
+        });
         const advice = [];
-        if (!settings.dailyTarget) {
-            advice.push({ level: 'warn', text: 'Aucun objectif réglé : indiquez un nombre de posts par jour.' });
+        if (plan.articlesPerDay && plan.missing > 0) {
+            advice.push({
+                level: plan.ready + plan.inProgress === 0 ? 'error' : 'warn',
+                text: `Plan du jour : ${plan.articlesPerDay} article(s) (${result.target} posts ÷ ${plan.postsPerArticle} groupes). ${plan.done} terminé(s), ${plan.inProgress} en cours, ${plan.ready} prêt(s) : il manque ${plan.missing} article(s) à importer aujourd’hui.`,
+            });
         }
         if (deficit > 0) {
             advice.push({
@@ -408,13 +438,19 @@ let InsightsService = class InsightsService {
                     .join(', ')}${blocked.length > 5 ? '…' : ''}).`,
             });
         }
+        if (need?.status === 'late' && pacing.profiles && need.neededPerHour > pacing.maxPerHour) {
+            advice.push({
+                level: 'error',
+                text: `Même au plus vite (un post toutes les ${settings.minPostGapMinutes} min par profil), ${pacing.profiles} profil(s) font au plus ${pacing.maxPerHour}/h : vos campagnes demandent ${need.neededPerHour}/h. Allumez d’autres profils.`,
+            });
+        }
         if (result.status === 'late') {
             advice.push({
                 level: 'error',
                 text: `En retard de ${-result.delta} post(s) : il faut tenir ${result.neededPerHour}/h d’ici la fin (rythme actuel ${result.ratePerHour}/h). Allumez des profils ou faites rejoindre des groupes.`,
             });
         }
-        if (settings.dailyTarget && !participating.length) {
+        if (need && !participating.length) {
             advice.push({ level: 'error', text: 'Aucun profil ne participe : allumez des profils qui ont rejoint des groupes.' });
         }
         if (!advice.length) {
@@ -422,7 +458,7 @@ let InsightsService = class InsightsService {
         }
         return {
             settings: {
-                dailyTarget: settings.dailyTarget,
+                dailyTarget,
                 objectiveStart: settings.objectiveStart,
                 objectiveEnd: settings.objectiveEnd,
                 objectiveTimezone: tz,
@@ -432,6 +468,9 @@ let InsightsService = class InsightsService {
             pace: result,
             hourly,
             stock: { publishable: stockPublishable, blocked: stockBlocked, deficit },
+            plan,
+            pacing,
+            awaitingApproval,
             articles: { today: articlesToday, needed: articlesNeeded, postsPerArticle: averagePostsPerArticle },
             profiles: {
                 participating: participating.length,
@@ -444,10 +483,49 @@ let InsightsService = class InsightsService {
             advice,
         };
     }
+    async articlePlan(input) {
+        const postsPerArticle = Math.round(input.postsPerArticle);
+        const articlesPerDay = input.target && postsPerArticle ? Math.ceil(input.target / postsPerArticle) : 0;
+        const waiting = input.publishableGroupIds.length
+            ? await this.prisma.postTarget.groupBy({
+                by: ['postId'],
+                where: { ...this.upcomingWhere(input.acting), groupId: { in: input.publishableGroupIds } },
+                _count: { _all: true },
+            })
+            : [];
+        const waitingPosts = new Set(waiting.map((w) => w.postId));
+        const started = new Set(input.publishedPosts);
+        const inProgress = [...started].filter((id) => waitingPosts.has(id)).length;
+        const done = started.size - inProgress;
+        const ready = [...waitingPosts].filter((id) => !started.has(id)).length;
+        const missing = Math.max(0, articlesPerDay - done - inProgress - ready);
+        const windowMinutes = (0, objective_1.windowLength)(input.start, input.end);
+        const into = (0, objective_1.minutesIntoWindow)(input.nowMinutes, input.start, input.end);
+        return {
+            postsPerArticle,
+            articlesPerDay,
+            done,
+            inProgress,
+            ready,
+            missing,
+            everyMinutes: articlesPerDay && windowMinutes ? Math.round(windowMinutes / articlesPerDay) : 0,
+            expectedNow: articlesPerDay && windowMinutes
+                ? Math.min(articlesPerDay, Math.max(0, Math.ceil((into / windowMinutes) * articlesPerDay)))
+                : 0,
+        };
+    }
 };
 exports.InsightsService = InsightsService;
 exports.InsightsService = InsightsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __param(1, (0, common_1.Optional)()),
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        campaigns_service_1.CampaignsService])
 ], InsightsService);
+async function inBatches(items, size, fn) {
+    const out = [];
+    for (let i = 0; i < items.length; i += size)
+        out.push(...(await Promise.all(items.slice(i, i + size).map(fn))));
+    return out;
+}
 //# sourceMappingURL=insights.service.js.map

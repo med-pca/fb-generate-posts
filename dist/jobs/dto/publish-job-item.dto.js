@@ -15,8 +15,9 @@ const class_validator_1 = require("class-validator");
 class PublishJobItemDto {
     externalPostUrl;
     publishedAt;
+    pendingApproval;
     static _OPENAPI_METADATA_FACTORY() {
-        return { externalPostUrl: { required: false, type: () => String, format: "uri" }, publishedAt: { required: false, type: () => String } };
+        return { externalPostUrl: { required: false, type: () => String, format: "uri" }, publishedAt: { required: false, type: () => String }, pendingApproval: { required: false, type: () => Boolean } };
     }
 }
 exports.PublishJobItemDto = PublishJobItemDto;
@@ -30,4 +31,9 @@ __decorate([
     (0, class_validator_1.IsDateString)(),
     __metadata("design:type", String)
 ], PublishJobItemDto.prototype, "publishedAt", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], PublishJobItemDto.prototype, "pendingApproval", void 0);
 //# sourceMappingURL=publish-job-item.dto.js.map

@@ -16,6 +16,7 @@ exports.wordpressCaption = wordpressCaption;
 exports.wordpressArticleFields = wordpressArticleFields;
 exports.facebookCaption = facebookCaption;
 exports.ingestArticleFields = ingestArticleFields;
+const article_url_1 = require("./article-url");
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
@@ -56,6 +57,13 @@ function facebookCaption(text) {
         .trim();
 }
 function ingestArticleFields(fields, ingest) {
+    if (ingest?.mode === 'news' && ingest.generated?.caption) {
+        return {
+            ...fields,
+            captions: [{ text: ingest.generated.caption, angle: 'news' }],
+            hashtags: ingest.generated.hashtags ?? [],
+        };
+    }
     const original = facebookCaption(ingest?.fbCaption ?? '');
     const fallback = ingest?.generated?.caption ?? '';
     const text = original || fallback;
@@ -204,6 +212,7 @@ let WordpressService = WordpressService_1 = class WordpressService {
         const externalId = `wordpress:${dto.postId}`;
         const ingest = await this.ingestFor(dto, siteUrl);
         const fields = ingestArticleFields(wordpressArticleFields(dto), ingest && {
+            mode: ingest.mode,
             fbCaption: ingest.fbCaption,
             generated: ingest.generated,
         });
@@ -230,9 +239,19 @@ let WordpressService = WordpressService_1 = class WordpressService {
             const existing = await tx.article.findUnique({
                 where: { sourceId_externalId: { sourceId: source.id, externalId } },
             });
+            const copy = dto.copyRef
+                ? await tx.articleCopy.findFirst({ where: { id: dto.copyRef, targetSiteId: source.id } })
+                : null;
             if (existing) {
                 if (ingest)
                     await this.closeIngest(tx, ingest.id, existing.id);
+                if (copy && copy.status !== 'done') {
+                    if (copy.postsMode === 'new') {
+                        await tx.articleCopy.update({ where: { id: copy.id }, data: { status: 'done', newArticleId: existing.id, movedPosts: 0, error: null } });
+                    }
+                    else
+                        await this.moveCopiedPosts(tx, copy, existing);
+                }
                 return this.synchronize(tx, existing, fields);
             }
             const article = await tx.article.create({
@@ -245,6 +264,19 @@ let WordpressService = WordpressService_1 = class WordpressService {
                     ...fields,
                 },
             });
+            if (copy && copy.postsMode !== 'new') {
+                const moved = copy.status === 'done' ? 0 : await this.moveCopiedPosts(tx, copy, article);
+                return {
+                    articleId: article.id,
+                    duplicate: false,
+                    updated: false,
+                    generated: moved,
+                    groups: moved,
+                    noPost: null,
+                    synchronized: 0,
+                    skipped: 0,
+                };
+            }
             const groupIds = await this.audience(tx, source, ingest?.groupIds);
             const noPost = groupIds.length
                 ? null
@@ -273,6 +305,9 @@ let WordpressService = WordpressService_1 = class WordpressService {
             }
             if (ingest)
                 await this.closeIngest(tx, ingest.id, article.id);
+            if (copy && copy.status !== 'done') {
+                await tx.articleCopy.update({ where: { id: copy.id }, data: { status: 'done', newArticleId: article.id, movedPosts: groupIds.length, error: null } });
+            }
             return {
                 articleId: article.id,
                 duplicate: false,
@@ -284,6 +319,54 @@ let WordpressService = WordpressService_1 = class WordpressService {
                 skipped: 0,
             };
         }, { timeout: 30000 });
+    }
+    async moveCopiedPosts(tx, copy, article) {
+        const now = new Date();
+        const posts = await tx.post.findMany({
+            where: { articleId: copy.sourceArticleId },
+            include: { targets: true },
+        });
+        const waiting = (t) => t.status === client_1.TargetStatus.AVAILABLE ||
+            t.status === client_1.TargetStatus.FAILED ||
+            (t.status === client_1.TargetStatus.CLAIMED && (t.claimExpiresAt?.getTime() ?? 0) < now.getTime());
+        const renamed = (externalId) => externalId?.startsWith(`${copy.sourceArticleId}:`)
+            ? `${article.id}${externalId.slice(copy.sourceArticleId.length)}`
+            : externalId;
+        const fresh = { status: client_1.TargetStatus.AVAILABLE, lastError: null, claimedAt: null, claimExpiresAt: null };
+        const site = { articleId: article.id, url: article.articleUrl, ...(article.coverImageUrl ? { imageUrl: article.coverImageUrl } : {}) };
+        let moved = 0;
+        for (const post of posts) {
+            const pending = post.targets.filter(waiting);
+            if (!pending.length)
+                continue;
+            const ids = pending.map((t) => t.id);
+            if (pending.length === post.targets.length) {
+                await tx.post.update({ where: { id: post.id }, data: { ...site, externalId: renamed(post.externalId) } });
+            }
+            else {
+                const { id, targets, createdAt, updatedAt, externalId, rawData, ...fields } = post;
+                void id;
+                void targets;
+                void createdAt;
+                void updatedAt;
+                const copyPost = await tx.post.create({
+                    data: {
+                        ...fields,
+                        ...site,
+                        rawData: rawData ?? client_1.Prisma.JsonNull,
+                        externalId: externalId ? `${renamed(externalId)}:relay` : null,
+                    },
+                });
+                await tx.postTarget.updateMany({ where: { id: { in: ids } }, data: { postId: copyPost.id } });
+            }
+            await tx.postTarget.updateMany({ where: { id: { in: ids } }, data: fresh });
+            moved += ids.length;
+        }
+        await tx.articleCopy.update({
+            where: { id: copy.id },
+            data: { status: 'done', newArticleId: article.id, movedPosts: moved, error: null },
+        });
+        return moved;
     }
     deliveryState(known, received) {
         if (known === client_1.PluginState.BAD_KEY || known === client_1.PluginState.OUTDATED) {
@@ -329,7 +412,7 @@ let WordpressService = WordpressService_1 = class WordpressService {
     }
     async ingestFor(dto, siteUrl) {
         if (!dto.ingestRef)
-            return null;
+            return this.ingestByArticle(dto, siteUrl);
         const ingest = await this.prisma.sourceIngest.findUnique({
             where: { id: dto.ingestRef },
         });
@@ -342,6 +425,59 @@ let WordpressService = WordpressService_1 = class WordpressService {
             return null;
         }
         return ingest;
+    }
+    async ingestByArticle(dto, siteUrl) {
+        const linked = await this.prisma.sourceIngest.findFirst({
+            where: {
+                siteUrl,
+                article: { externalId: `wordpress:${dto.postId}`, source: { originUrl: siteUrl } },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        if (linked)
+            return linked;
+        const key = (0, article_url_1.articleUrlKey)(dto.articleUrl);
+        if (!key)
+            return null;
+        const waiting = await this.prisma.sourceIngest.findMany({
+            where: { siteUrl, articleId: null, fbCaption: { not: null } },
+            orderBy: { createdAt: 'desc' },
+            take: 200,
+        });
+        const match = waiting.find((i) => (0, article_url_1.articleUrlKey)(i.sourceUrl) === key || (0, article_url_1.articleUrlKey)(i.wpPermalink) === key);
+        if (match) {
+            this.logger.log(`Capture ${match.id} rattachée à ${dto.articleUrl} par son adresse`);
+        }
+        return match ?? null;
+    }
+    async attachCapture(ingestId) {
+        const ingest = await this.prisma.sourceIngest.findUniqueOrThrow({ where: { id: ingestId } });
+        const key = (0, article_url_1.articleUrlKey)(ingest.sourceUrl);
+        const slug = key?.split('/').filter(Boolean).pop() ?? '';
+        const candidates = key
+            ? await this.prisma.article.findMany({
+                where: { source: { originUrl: ingest.siteUrl }, articleUrl: { contains: slug, mode: 'insensitive' } },
+                take: 50,
+            })
+            : [];
+        const article = candidates.find((a) => (0, article_url_1.articleUrlKey)(a.articleUrl) === key);
+        if (!article)
+            return { attached: false };
+        const text = facebookCaption(ingest.fbCaption ?? '');
+        if (!text)
+            return { attached: false };
+        return this.prisma.$transaction(async (tx) => {
+            await this.closeIngest(tx, ingest.id, article.id);
+            const updated = await tx.article.update({
+                where: { id: article.id },
+                data: { captions: [{ text, angle: 'facebook' }], hashtags: [] },
+            });
+            const { count } = await tx.post.updateMany({
+                where: this.syncablePosts(article.id),
+                data: this.articles.postContent(updated),
+            });
+            return { attached: true, articleId: article.id, title: article.title, synchronized: count };
+        });
     }
     async closeIngest(tx, ingestId, articleId) {
         const { count } = await tx.sourceIngest.updateMany({

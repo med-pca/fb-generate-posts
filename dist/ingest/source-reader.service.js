@@ -9,6 +9,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SourceReaderService = void 0;
 exports.pageOf = pageOf;
 exports.findNextPage = findNextPage;
+exports.wordpressRestUrl = wordpressRestUrl;
 exports.normalizeText = normalizeText;
 const common_1 = require("@nestjs/common");
 const readability_1 = require("@mozilla/readability");
@@ -105,6 +106,32 @@ function findNextPage(document, currentUrl, visited) {
     const best = numbered ? numbered.url : labelled;
     return best ? best.toString() : null;
 }
+const NOISE = [
+    'script', 'style', 'noscript', 'iframe', 'ins', 'form', 'nav', 'aside',
+    '#comments', '#respond', '.comments-area', '.comment-respond', '.comment-list',
+    '.post-navigation', '.navigation', '.post-page-nav', '.page-links', '.pagination',
+    '.sharedaddy', '.jp-relatedposts', '.related-posts', '.yarpp-related', '.crp_related',
+].join(', ');
+const CONTENT = '[itemprop="articleBody"], .entry-content, .post-content, .td-post-content, .single-content, .article-content, .post-body';
+const AD_LABEL = /^(publicidad|publicité|publicite|advertisement|advertisements|anuncio|werbung|pubblicità|publicidade|reklame|annonce|sponsored|ad|ads)$/i;
+function wordpressRestUrl(document, pageUrl) {
+    const page = new URL(pageUrl);
+    const declared = document.querySelector('link[rel="alternate"][type="application/json"]')?.getAttribute('href');
+    if (declared && /wp\/v2\/posts\/\d+/.test(declared)) {
+        try {
+            const url = new URL(declared, page);
+            if (url.host === page.host)
+                return url.toString();
+        }
+        catch {
+        }
+    }
+    const shortlink = document.querySelector('link[rel="shortlink"]')?.getAttribute('href') || '';
+    const id = /[?&]p=(\d+)/.exec(shortlink)?.[1] ||
+        /(?:^|\s)postid-(\d+)(?:\s|$)/.exec(document.body?.className || '')?.[1] ||
+        page.searchParams.get('p');
+    return id && /^\d+$/.test(id) ? `${page.origin}/?rest_route=/wp/v2/posts/${id}` : null;
+}
 const MAX_BYTES = 2_000_000;
 const MAX_REDIRECTS = 5;
 const TIMEOUT_MS = 15_000;
@@ -129,32 +156,66 @@ let SourceReaderService = class SourceReaderService {
         const siteName = this.meta(document, 'og:site_name');
         const visited = new Set([url.replace(/#.*$/, ''), sourceUrl.replace(/#.*$/, '')]);
         let next = findNextPage(document, url, visited);
+        const restUrl = wordpressRestUrl(document, url);
+        const whole = restUrl ? await this.readWordPress(restUrl).catch(() => null) : null;
+        const own = this.contentText(document, MIN_TEXT_LENGTH);
         const article = new readability_1.Readability(document).parse();
-        const text = article ? this.textFromHtml(article.content ?? '') : '';
+        const text = own ?? (article ? this.textFromHtml(article.content ?? '') : '');
         if (!article || text.length < MIN_TEXT_LENGTH) {
             throw new common_1.BadRequestException('Aucun article exploitable sur cette page : vérifier que l’URL pointe bien vers le contenu');
+        }
+        if (whole && whole.text.length >= Math.max(MIN_TEXT_LENGTH, text.length)) {
+            return {
+                url,
+                title: this.cleanTitle(article.title || title || '', siteName),
+                text: whole.text.slice(0, MAX_TOTAL_TEXT),
+                pageUrls: [url],
+                pages: whole.pages,
+                pageStop: `lu en entier par l'API WordPress (${whole.pages} page(s))`,
+                excerpt: article.excerpt ? normalizeText(article.excerpt) : null,
+                leadImageUrl,
+                siteName: siteName || article.siteName || null,
+                language,
+            };
         }
         const parts = [text];
         const pageUrls = [url];
         let total = text.length;
+        let pageStop = next ? '' : 'aucun lien « page suivante » trouvé';
+        let useless = 0;
         while (next && !visited.has(next) && pageUrls.length < MAX_PAGES && total < MAX_TOTAL_TEXT) {
             visited.add(next);
-            const page = await this.readPage(next).catch(() => null);
+            const target = next;
+            const page = await this.readPage(target).catch((e) => {
+                pageStop = `page ${pageUrls.length + 1} illisible (${target}) : ${e instanceof Error ? e.message : String(e)}`;
+                return null;
+            });
             if (!page)
                 break;
             visited.add(page.url.replace(/#.*$/, ''));
-            if (!page.text || parts.some((part) => part === page.text))
-                break;
+            if (!page.text || parts.some((part) => part === page.text)) {
+                useless += 1;
+                pageStop = `page ${page.url} vide ou identique`;
+                if (useless >= 3 || !page.next)
+                    break;
+                next = page.next;
+                continue;
+            }
+            useless = 0;
             parts.push(page.text);
             pageUrls.push(page.url);
             total += page.text.length;
             next = page.next;
+            pageStop = next ? '' : 'dernière page atteinte';
         }
+        if (!pageStop)
+            pageStop = pageUrls.length >= MAX_PAGES ? `limite de ${MAX_PAGES} pages` : total >= MAX_TOTAL_TEXT ? 'limite de texte atteinte' : 'lien déjà lu';
         return {
             url,
             title: this.cleanTitle(article.title || title || '', siteName),
             text: parts.join('\n\n').slice(0, MAX_TOTAL_TEXT),
             pageUrls,
+            pageStop,
             excerpt: article.excerpt ? normalizeText(article.excerpt) : null,
             leadImageUrl,
             siteName: siteName || article.siteName || null,
@@ -165,14 +226,42 @@ let SourceReaderService = class SourceReaderService {
         const { html, url } = await this.fetchHtml(pageUrl);
         const { document } = new jsdom_1.JSDOM(html, { url, virtualConsole: new jsdom_1.VirtualConsole() }).window;
         const next = findNextPage(document, url, new Set([url, pageUrl]));
-        const article = new readability_1.Readability(document).parse();
-        const text = article ? this.textFromHtml(article.content ?? '') : '';
+        const own = this.contentText(document, 1);
+        const article = own === null ? new readability_1.Readability(document).parse() : null;
+        const text = own ?? (article ? this.textFromHtml(article.content ?? '') : '');
         return { url, text, next };
     }
-    async fetchHtml(sourceUrl) {
+    async readWordPress(restUrl) {
+        const { html: body } = await this.fetchHtml(restUrl, 'json');
+        const post = JSON.parse(body);
+        const rendered = post.content?.rendered;
+        if (!rendered || post.content?.protected)
+            return null;
+        const pages = rendered.split('<!--nextpage-->').length;
+        const { document } = new jsdom_1.JSDOM(`<body><div class="entry-content">${rendered.replace(/<!--nextpage-->/g, '')}</div></body>`, {
+            virtualConsole: new jsdom_1.VirtualConsole(),
+        }).window;
+        const text = this.contentText(document, 1);
+        return text ? { text, pages } : null;
+    }
+    contentText(document, minLength) {
+        document.querySelectorAll(NOISE).forEach((el) => el.remove());
+        document.querySelectorAll('p, span, div, small, figcaption').forEach((el) => {
+            if (!el.children.length && AD_LABEL.test((el.textContent || '').trim()))
+                el.remove();
+        });
+        let best = null;
+        document.querySelectorAll(CONTENT).forEach((el) => {
+            const text = this.textFromHtml(el.innerHTML);
+            if (text.length >= minLength && (!best || text.length > best.length))
+                best = text;
+        });
+        return best;
+    }
+    async fetchHtml(sourceUrl, kind = 'html') {
         let target = await (0, safe_fetch_1.assertSafeRemoteUrl)(sourceUrl);
         for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-            const response = await this.get(target);
+            const response = await this.get(target, kind);
             const location = response.headers.get('location');
             if (response.status >= 300 && response.status < 400 && location) {
                 await response.body?.cancel();
@@ -183,7 +272,7 @@ let SourceReaderService = class SourceReaderService {
                 throw new common_1.BadGatewayException(`La source a répondu avec le statut ${response.status}`);
             }
             const type = response.headers.get('content-type') || '';
-            if (!/text\/html|application\/xhtml\+xml/i.test(type)) {
+            if (!(kind === 'json' ? /application\/(.+\+)?json/i : /text\/html|application\/xhtml\+xml/i).test(type)) {
                 throw new common_1.BadRequestException(`La source ne renvoie pas une page HTML (${type.split(';')[0] || 'type inconnu'})`);
             }
             return {
@@ -193,13 +282,13 @@ let SourceReaderService = class SourceReaderService {
         }
         throw new common_1.BadGatewayException('La source enchaîne trop de redirections');
     }
-    async get(url) {
+    async get(url, kind = 'html') {
         try {
             return await fetch(url, {
                 redirect: 'manual',
                 signal: AbortSignal.timeout(TIMEOUT_MS),
                 headers: {
-                    accept: 'text/html,application/xhtml+xml',
+                    accept: kind === 'json' ? 'application/json' : 'text/html,application/xhtml+xml',
                     'accept-language': '*',
                     'user-agent': USER_AGENT,
                 },

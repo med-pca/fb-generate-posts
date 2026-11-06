@@ -1,4 +1,5 @@
 import type { CurrentUser } from '../auth/current-user';
+import { ShortCacheService } from '../perf/short-cache.service';
 import { InsightsService } from './insights.service';
 import { ResetService } from './reset.service';
 declare class ResetDto {
@@ -12,7 +13,8 @@ declare class ResetDto {
 }
 export declare class InsightsController {
     private readonly insights;
-    constructor(insights: InsightsService);
+    private readonly cache;
+    constructor(insights: InsightsService, cache: ShortCacheService);
     counters(acting: CurrentUser): Promise<{
         profiles: number;
         groups: number;
@@ -44,6 +46,24 @@ export declare class InsightsController {
             blocked: number;
             deficit: number;
         };
+        plan: {
+            postsPerArticle: number;
+            articlesPerDay: number;
+            done: number;
+            inProgress: number;
+            ready: number;
+            missing: number;
+            everyMinutes: number;
+            expectedNow: number;
+        };
+        pacing: {
+            enabled: boolean;
+            minGap: number;
+            profiles: number;
+            gapMinutes: number | null;
+            maxPerHour: number;
+        };
+        awaitingApproval: number;
         articles: {
             today: number;
             needed: number;
